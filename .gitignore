@@ -1,0 +1,136 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Editor directories and files
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-workspace
+*.sublime-project
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Bun
+.bun/
+bun.lockb
+bun-debug.log
+
+# TypeScript
+*.tsbuildinfo
+dist/
+build/
+out/
+*.js.map
+.next/
+.turbo/
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# Foundry & Forge
+cache/
+out/
+artifacts/
+broadcast/
+typechain-types/
+
+# Forge specific
+forge-cache/
+foundry-cache/
+.forge-snapshots/
+
+# Solidity
+*.abi
+*.bin
+*.deployed
+*.solc
+*.metadata.json
+
+# Hardhat
+cache-hardhat/
+artifacts-hardhat/
+
+# Coverage reports (Solidity)
+coverage.json
+coverage/
+lcov.info
+
+# Gas reports
+.gas-snapshot
+gas-report.txt
+gas-snapshot.txt
+
+# Slither
+slither.db.json
+.slither/
+
+# Dumps and output files
+dumps/
+dump
+*.dump
+*.dmp
+*.out
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# OS generated files
+Thumbs.db
+Desktop.ini
+
+# Python (in case of scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+
+# Lock files (keep package manager specific ones if needed)
+# Uncomment the ones you want to ignore:
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Private keys and sensitive data
+*.key
+*.pem
+secrets/
+private/
+
+# Local development
+.local/
+local/
+dev/
