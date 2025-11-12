@@ -5,6 +5,7 @@ import {IBAMM} from "../interfaces/IBAMM.sol";
 import {BAMMErrors as E} from "../bamm/BAMMEvents.sol";
 import {LibMaths as M} from "./LibMaths.sol";
 import {LibUtils as Cast} from "./LibUtils.sol";
+import {LibStorage} from "./LibStorage.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title LibPricing
@@ -74,6 +75,19 @@ library LibPricing {
         uint16 withdrawalFeeBps;  // Withdrawal fee in bps (default 0)
     }
 
+    // ========== ORACLE DATA STRUCT (for stack depth optimization) ==========
+
+    /// @notice Decoded oracle data struct to reduce stack depth
+    /// @dev Used internally to avoid "stack too deep" errors in complex functions
+    struct OracleData {
+        uint64 fastTWAP;         // Fast TWAP in b64 format
+        uint64 slowTWAP;         // Slow TWAP in b64 format
+        uint256 priceFast1e18;   // Fast TWAP decoded to 1e18
+        uint256 priceSlow1e18;   // Slow TWAP decoded to 1e18
+        uint32 fastVol;          // Fast volatility
+        uint32 slowVol;          // Slow volatility
+    }
+
     // ========== CONSTANTS ==========
 
     /// @notice Maximum breadth to prevent underflow in segment pricing
@@ -83,101 +97,6 @@ library LibPricing {
     /// @notice Maximum segments allowed (prevents DoS and array bounds issues)
     uint8 private constant MAX_SEGMENT_COUNT = 16;
 
-    // ========== INVENTORY DIVERGENCE CONSTANTS ==========
-    // Economic rationale: Progressive penalty curve prevents single-asset depletion
-    // Note: These constants are for potential exit inventory divergence multiplier (currently unused)
-    // ALM model relies on coverage-based fees, not target weight allocations
-
-    /// @notice Divergence threshold 1: 5% imbalance
-    /// @dev First penalty tier activates when asset weight deviates 5-10%
-    uint256 private constant DIVERGENCE_THRESHOLD_1 = 500;
-
-    /// @notice Divergence threshold 2: 10% imbalance
-    /// @dev Medium penalty tier activates when asset weight deviates 10-20%
-    uint256 private constant DIVERGENCE_THRESHOLD_2 = 1000;
-
-    /// @notice Divergence threshold 3: 20% imbalance
-    /// @dev Strong penalty tier activates when asset weight deviates 20-30%
-    uint256 private constant DIVERGENCE_THRESHOLD_3 = 2000;
-
-    /// @notice Divergence threshold 4: 30% imbalance
-    /// @dev Maximum penalty tier activates when asset weight deviates >30%
-    uint256 private constant DIVERGENCE_THRESHOLD_4 = 3000;
-
-    /// @notice Mild penalty multiplier: 1.25x fee (125/100)
-    /// @dev Applied when asset weight deviates 5-10%
-    uint256 private constant DIVERGENCE_PENALTY_MILD = 125;
-
-    /// @notice Medium penalty multiplier: 1.5x fee (150/100)
-    /// @dev Applied when asset weight deviates 10-20%
-    uint256 private constant DIVERGENCE_PENALTY_MEDIUM = 150;
-
-    /// @notice Strong penalty multiplier: 2.0x fee (200/100)
-    /// @dev Applied when asset weight deviates 20-30%
-    uint256 private constant DIVERGENCE_PENALTY_STRONG = 200;
-
-    /// @notice Maximum penalty multiplier: 3.0x fee (300/100)
-    /// @dev Applied when asset weight deviates >30%
-    uint256 private constant DIVERGENCE_PENALTY_MAX = 300;
-
-    /// @notice Rebate floor: 0.8x fee (80/100)
-    /// @dev Maximum rebate when trade improves asset balance
-    /// @dev Capped at 20% discount to prevent gaming via small trades
-    uint256 private constant DIVERGENCE_REBATE_FLOOR = 80;
-
-    /// @notice Maximum rebate percentage in basis points (20% off)
-    /// @dev Limits rebate to prevent exploitation while incentivizing balanced trades
-    uint256 private constant MAX_REBATE_BPS = 20;
-
-    // ========== COVERAGE MULTIPLIER CONSTANTS ==========
-    // Economic rationale: Protects against asset depletion and over-concentration
-
-    /// @notice Very scarce threshold: Asset <5% of pool value
-    /// @dev Triggers 5.0x fee multiplier to strongly discourage further depletion
-    uint256 private constant COVERAGE_VERY_SCARCE_THRESHOLD = 500;
-    uint256 private constant COVERAGE_VERY_SCARCE_MULT = 500;
-
-    /// @notice Scarce threshold: Asset 5-10% of pool value
-    /// @dev Triggers 3.0x fee multiplier to discourage depletion
-    uint256 private constant COVERAGE_SCARCE_THRESHOLD = 1000;
-    uint256 private constant COVERAGE_SCARCE_MULT = 300;
-
-    /// @notice Low threshold: Asset 10-20% of pool value
-    /// @dev Triggers 1.5x fee multiplier as moderate protection
-    uint256 private constant COVERAGE_LOW_THRESHOLD = 2000;
-    uint256 private constant COVERAGE_LOW_MULT = 150;
-
-    /// @notice Over-concentrated threshold 1: Asset >50% of pool value
-    /// @dev Triggers 1.2x fee multiplier to discourage further concentration
-    uint256 private constant COVERAGE_CONCENTRATED_1_THRESHOLD = 5000;
-    uint256 private constant COVERAGE_CONCENTRATED_1_MULT = 120;
-
-    /// @notice Over-concentrated threshold 2: Asset >70% of pool value
-    /// @dev Triggers 1.5x fee multiplier to strongly discourage concentration
-    uint256 private constant COVERAGE_CONCENTRATED_2_THRESHOLD = 7000;
-    uint256 private constant COVERAGE_CONCENTRATED_2_MULT = 150;
-
-    // ========== ORACLE DIVERGENCE CONSTANTS ==========
-    // Economic rationale: Protects against mispricing when fast and slow TWAPs diverge
-
-    /// @notice Minor divergence: 1-3% between fast and slow TWAP
-    /// @dev Triggers 1.5x fee multiplier as early warning signal
-    uint256 private constant ORACLE_DIV_MINOR_THRESHOLD = 100;
-    uint256 private constant ORACLE_DIV_MINOR_MULT = 150;
-
-    /// @notice Medium divergence: 3-5% between fast and slow TWAP
-    /// @dev Triggers 2.0x fee multiplier for increased protection
-    uint256 private constant ORACLE_DIV_MEDIUM_THRESHOLD = 300;
-    uint256 private constant ORACLE_DIV_MEDIUM_MULT = 200;
-
-    /// @notice Large divergence: 5-10% between fast and slow TWAP
-    /// @dev Triggers 3.0x fee multiplier for strong protection
-    uint256 private constant ORACLE_DIV_LARGE_THRESHOLD = 500;
-    uint256 private constant ORACLE_DIV_LARGE_MULT = 300;
-
-    /// @notice Extreme divergence: >10% between fast and slow TWAP
-    /// @dev Triggers 5.0x fee multiplier as maximum protection
-    uint256 private constant ORACLE_DIV_EXTREME_MULT = 500;
 
     // ========== PIECEWISE BONDING CURVE PRICING ==========
 
@@ -239,29 +158,31 @@ library LibPricing {
     /// @param asset Asset storage reference
     /// @param profile Liquidity profile with segment configuration
     /// @param feeParams Fee parameters (for baseline volatility and shock calculation)
+    /// @param oracle Oracle entry for price and volatility data
     /// @param amount Amount to trade (0 = spot price at TWAP)
     /// @return Execution price in PRICE_PRECISION (1e18)
     function getSegmentPrice(
         IBAMM.Asset storage asset,
         IBAMM.LiquidityProfile storage profile,
         FeeParams storage feeParams,
+        LibStorage.OracleEntry storage oracle,
         uint256 amount
     ) internal view returns (uint256) {
         // Calculate slow TWAP (Uniswap V3 style accumulator)
-        uint256 timeElapsed = block.timestamp - asset.lastOracleUpdate;
-        uint256 currentAccum = asset.priceAccumulator + (uint256(asset.currentPrice) * timeElapsed);
-        uint256 timeDelta = block.timestamp - asset.slowSnapshotTime;
-        uint64 slowTWAP = timeDelta == 0 ? asset.currentPrice : uint64((currentAccum - asset.slowAccumSnapshot) / timeDelta);
+        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
+        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
+        uint256 timeDelta = block.timestamp - oracle.slowSnapshotTime;
+        uint64 slowTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.slowAccumSnapshot) / timeDelta);
 
         // Decode to 1e18 and call pure function
         uint256 twapPrice1e18 = M.b64ToPrice(slowTWAP);
 
         // *** UNIFIED VOLATILITY: Compute once per asset, reuse for breadth + fees ***
         // Baseline volatility: v_base = w * v_f + (1 - w) * v_s, clamped to [v_floor, v_max]
-        uint32 baselineVol = _calculateBaselineVolatility(asset.fastVolatility, asset.slowVolatility, feeParams);
+        uint32 baselineVol = _calculateBaselineVolatility(oracle.fastVolatility, oracle.slowVolatility, feeParams);
 
         // Shock ratio: r = min(r_max, v_f / max(v_s, ε))
-        uint256 shockRatio = _calculateShockRatio(asset.fastVolatility, asset.slowVolatility, feeParams);
+        uint256 shockRatio = _calculateShockRatio(oracle.fastVolatility, oracle.slowVolatility, feeParams);
 
         return getSegmentPricePure(
             twapPrice1e18,
@@ -641,411 +562,128 @@ library LibPricing {
 
     // ========== FEE CALCULATION ==========
 
-    /// @notice Leg pricing data struct for two-leg swaps
-    /// @dev Consolidates 7 parameters per leg into a single struct
-    /// @dev Uses 1e18 precision for extreme price ratio support (e.g., 1e-20 to 1e20 vs base)
-    struct LegPricingData {
-        uint256 fastTWAP1e18;      // Fast TWAP in 1e18 format
-        uint256 slowTWAP1e18;      // Slow TWAP in 1e18 format
-        uint32 fastVol;            // Fast volatility (1e6 base)
-        uint32 slowVol;            // Slow volatility (1e6 base)
-        uint128 reserves;          // Reserves of the asset
-        uint16 minFeeBps;          // Minimum fee in bps
-        uint16 maxFeeBps;          // Maximum fee in bps
-    }
-
-    /// @notice Calculate swap fee for two-leg hub route (PURE variant with struct parameters)
-    /// @dev Computes per-leg fees and returns notional-weighted average for user display
-    /// @dev REFACTORED: Uses structs to reduce parameter explosion (24 → 6 parameters)
-    /// @param leg1 Pricing data for leg 1 (tokenIn → base)
-    /// @param base Pricing data for base asset
-    /// @param leg2 Pricing data for leg 2 (base → tokenOut)
-    /// @param leg1Notional Notional value of leg 1 trade
-    /// @param leg2Notional Notional value of leg 2 trade
-    /// @param totalValue Total pool value
-    /// @return feeComps Fee components with per-leg breakdown and weighted average
-    function calculateSwapFeeTwoLegPure(
-        LegPricingData memory leg1,
-        LegPricingData memory base,
-        LegPricingData memory leg2,
-        uint256 leg1Notional,
-        uint256 leg2Notional,
-        uint256 totalValue
-    ) internal pure returns (IBAMM.FeeComponents memory feeComps) {
-        // Leg 1: tokenIn → base
-        uint256 avgSlowVol1 = (uint256(leg1.slowVol) + uint256(base.slowVol)) / 2;
-        uint256 baseFee1 = _calculateBaseFee(avgSlowVol1, leg1.minFeeBps, base.minFeeBps);
-
-        uint256 volMult1 = _calculateVolatilityMultiplierPure(leg1.fastVol, base.fastVol);
-        uint256 covMult1 = _calculateCoverageMultiplierPure(
-            leg1.reserves, base.reserves, leg1.fastTWAP1e18, base.fastTWAP1e18, totalValue
-        );
-        uint256 divMult1 = _calculateDivergenceMultiplierPure(
-            leg1.fastTWAP1e18, base.fastTWAP1e18, leg1.slowTWAP1e18, base.slowTWAP1e18
-        );
-
-        uint256 combinedMult1 = FixedPointMathLib.fullMulDiv(volMult1, covMult1, 100);
-        combinedMult1 = FixedPointMathLib.fullMulDiv(combinedMult1, divMult1, 100);
-        uint256 fee1 = FixedPointMathLib.fullMulDiv(baseFee1, combinedMult1, 100);
-
-        uint256 minFee1 = leg1.minFeeBps < base.minFeeBps ? leg1.minFeeBps : base.minFeeBps;
-        uint256 maxFee1 = leg1.maxFeeBps > base.maxFeeBps ? leg1.maxFeeBps : base.maxFeeBps;
-        fee1 = fee1 < minFee1 ? minFee1 : (fee1 > maxFee1 ? maxFee1 : fee1);
-
-        // Leg 2: base → tokenOut
-        uint256 avgSlowVol2 = (uint256(base.slowVol) + uint256(leg2.slowVol)) / 2;
-        uint256 baseFee2 = _calculateBaseFee(avgSlowVol2, base.minFeeBps, leg2.minFeeBps);
-
-        uint256 volMult2 = _calculateVolatilityMultiplierPure(base.fastVol, leg2.fastVol);
-        uint256 covMult2 = _calculateCoverageMultiplierPure(
-            base.reserves, leg2.reserves, base.fastTWAP1e18, leg2.fastTWAP1e18, totalValue
-        );
-        uint256 divMult2 = _calculateDivergenceMultiplierPure(
-            base.fastTWAP1e18, leg2.fastTWAP1e18, base.slowTWAP1e18, leg2.slowTWAP1e18
-        );
-
-        uint256 combinedMult2 = FixedPointMathLib.fullMulDiv(volMult2, covMult2, 100);
-        combinedMult2 = FixedPointMathLib.fullMulDiv(combinedMult2, divMult2, 100);
-        uint256 fee2 = FixedPointMathLib.fullMulDiv(baseFee2, combinedMult2, 100);
-
-        uint256 minFee2 = base.minFeeBps < leg2.minFeeBps ? base.minFeeBps : leg2.minFeeBps;
-        uint256 maxFee2 = base.maxFeeBps > leg2.maxFeeBps ? base.maxFeeBps : leg2.maxFeeBps;
-        fee2 = fee2 < minFee2 ? minFee2 : (fee2 > maxFee2 ? maxFee2 : fee2);
-
-        // Compute notional-weighted average fee
-        uint256 totalNotional = leg1Notional + leg2Notional;
-        uint256 weightedFee = totalNotional == 0 ? fee1 :
-            FixedPointMathLib.fullMulDiv(fee1, leg1Notional, totalNotional) +
-            FixedPointMathLib.fullMulDiv(fee2, leg2Notional, totalNotional);
-
-        // Populate fee components
-        feeComps.baseFee = (baseFee1 + baseFee2) / 2; // Average for display
-        feeComps.volatilityMultiplier = (volMult1 + volMult2) / 2;
-        feeComps.inventoryMultiplier = (covMult1 + covMult2) / 2;
-        feeComps.divergenceMultiplier = (divMult1 + divMult2) / 2;
-        feeComps.exitInventoryDivergence = 100; // Placeholder, can be computed separately
-        feeComps.totalFeeBps = weightedFee;
-        feeComps.leg1FeeBps = fee1;
-        feeComps.leg2FeeBps = fee2;
-        feeComps.leg1Notional = leg1Notional;
-        feeComps.leg2Notional = leg2Notional;
-    }
-
-    /// @notice Calculate swap fee with multi-factor adjustments (ALM model)
-    /// @dev Base fee determined by long-term (slow) volatility with asset-specific min/max bounds
-    /// @dev Multipliers combined in one-shot for gas efficiency and reduced rounding error
+    /// @notice Calculate swap fee using tri-factor model (coverage-based ALM with unified volatility)
+    /// @dev Uses Wombat-inspired coverage ratio for inventory factor
+    /// @dev Unified volatility: decode oracle once, compute baseline vol and shock ratio once, reuse for pricing + fees
+    /// @param feeParams Fee parameters with all tri-factor settings
+    /// @param totalLiabilities Total pool liabilities (CACHED - O(1), never iterate!)
     function calculateSwapFee(
         IBAMM.Asset storage assetIn,
         IBAMM.Asset storage assetOut,
         IBAMM.LiquidityProfile storage profileIn,
         IBAMM.LiquidityProfile storage profileOut,
+        LibStorage.OracleEntry storage oracleIn,
+        LibStorage.OracleEntry storage oracleOut,
+        FeeParams storage feeParams,
         uint256 amountIn,
-        uint256 totalValue
+        uint256 totalValue,
+        uint256 totalLiabilities
     ) internal view returns (IBAMM.FeeComponents memory feeComps) {
-        // Decode TWAPs once (Uniswap V3 style accumulator calculation)
-        uint256 timeElapsed = block.timestamp - assetIn.lastOracleUpdate;
-        uint256 currentAccumIn = assetIn.priceAccumulator + (uint256(assetIn.currentPrice) * timeElapsed);
-        uint256 timeDeltaFastIn = block.timestamp - assetIn.fastSnapshotTime;
-        uint64 fastTWAPIn = timeDeltaFastIn == 0 ? assetIn.currentPrice : uint64((currentAccumIn - assetIn.fastAccumSnapshot) / timeDeltaFastIn);
+        // Decode TWAPs and volatilities once (Uniswap V3 style accumulator calculation)
+        uint256 timeElapsed = block.timestamp - oracleIn.lastOracleUpdate;
+        uint256 currentAccumIn = oracleIn.priceAccumulator + (uint256(oracleIn.currentPrice) * timeElapsed);
+        uint256 timeDeltaFastIn = block.timestamp - oracleIn.fastSnapshotTime;
+        uint64 fastTWAPIn = timeDeltaFastIn == 0 ? oracleIn.currentPrice : uint64((currentAccumIn - oracleIn.fastAccumSnapshot) / timeDeltaFastIn);
 
-        uint256 timeDeltaSlowIn = block.timestamp - assetIn.slowSnapshotTime;
-        uint64 slowTWAPIn = timeDeltaSlowIn == 0 ? assetIn.currentPrice : uint64((currentAccumIn - assetIn.slowAccumSnapshot) / timeDeltaSlowIn);
+        uint256 timeDeltaSlowIn = block.timestamp - oracleIn.slowSnapshotTime;
+        uint64 slowTWAPIn = timeDeltaSlowIn == 0 ? oracleIn.currentPrice : uint64((currentAccumIn - oracleIn.slowAccumSnapshot) / timeDeltaSlowIn);
 
-        timeElapsed = block.timestamp - assetOut.lastOracleUpdate;
-        uint256 currentAccumOut = assetOut.priceAccumulator + (uint256(assetOut.currentPrice) * timeElapsed);
-        uint256 timeDeltaFastOut = block.timestamp - assetOut.fastSnapshotTime;
-        uint64 fastTWAPOut = timeDeltaFastOut == 0 ? assetOut.currentPrice : uint64((currentAccumOut - assetOut.fastAccumSnapshot) / timeDeltaFastOut);
+        timeElapsed = block.timestamp - oracleOut.lastOracleUpdate;
+        uint256 currentAccumOut = oracleOut.priceAccumulator + (uint256(oracleOut.currentPrice) * timeElapsed);
+        uint256 timeDeltaFastOut = block.timestamp - oracleOut.fastSnapshotTime;
+        uint64 fastTWAPOut = timeDeltaFastOut == 0 ? oracleOut.currentPrice : uint64((currentAccumOut - oracleOut.fastAccumSnapshot) / timeDeltaFastOut);
 
-        uint256 timeDeltaSlowOut = block.timestamp - assetOut.slowSnapshotTime;
-        uint64 slowTWAPOut = timeDeltaSlowOut == 0 ? assetOut.currentPrice : uint64((currentAccumOut - assetOut.slowAccumSnapshot) / timeDeltaSlowOut);
+        uint256 timeDeltaSlowOut = block.timestamp - oracleOut.slowSnapshotTime;
+        uint64 slowTWAPOut = timeDeltaSlowOut == 0 ? oracleOut.currentPrice : uint64((currentAccumOut - oracleOut.slowAccumSnapshot) / timeDeltaSlowOut);
 
-        // Base fee from long-term volatility average (takes avg of both assets)
-        uint256 avgSlowVol = (uint256(assetIn.slowVolatility) + uint256(assetOut.slowVolatility)) / 2;
-        feeComps.baseFee = _calculateBaseFee(avgSlowVol, assetIn.minFeeBps, assetOut.minFeeBps);
+        // Decode to 1e18 for calculations
+        uint256 priceIn1e18 = M.b64ToPrice(fastTWAPIn);
+        uint256 priceOut1e18 = M.b64ToPrice(fastTWAPOut);
+        uint256 slowPriceIn1e18 = M.b64ToPrice(slowTWAPIn);
+        uint256 slowPriceOut1e18 = M.b64ToPrice(slowTWAPOut);
 
-        // Calculate multipliers (all base 100)
-        uint256 volMult = _calculateVolatilityMultiplierPure(assetIn.fastVolatility, assetOut.fastVolatility);
-        uint256 covMult = _calculateCoverageMultiplierPure(
+        // *** TRI-FACTOR MODEL ***
+
+        // 1. Base fee from slow volatility (long-term volatility baseline)
+        feeComps.baseFee = _calculateBaseFee(
+            (oracleIn.slowVolatility + oracleOut.slowVolatility) / 2,
+            feeParams
+        );
+
+        // 2. Inventory factor (coverage-based ALM - Wombat style)
+        uint256 invMultIn = _calculateInventoryFactor(
             assetIn.reserves,
+            assetIn.liabilities,
+            priceIn1e18,
+            totalValue,
+            totalLiabilities,
+            feeParams
+        );
+        uint256 invMultOut = _calculateInventoryFactor(
             assetOut.reserves,
-            M.b64ToPrice(fastTWAPIn),
-            M.b64ToPrice(fastTWAPOut),
-            totalValue
+            assetOut.liabilities,
+            priceOut1e18,
+            totalValue,
+            totalLiabilities,
+            feeParams
         );
-        uint256 divMult = _calculateDivergenceMultiplierPure(
-            M.b64ToPrice(fastTWAPIn),
-            M.b64ToPrice(fastTWAPOut),
-            M.b64ToPrice(slowTWAPIn),
-            M.b64ToPrice(slowTWAPOut)
-        );
+        uint256 invMult = invMultIn > invMultOut ? invMultIn : invMultOut;
 
-        // Apply multipliers in ONE SHOT with fullMulDiv for precision
-        // Combined: fee = baseFee * (volMult * covMult * divMult) / (100 * 100 * 100)
-        uint256 combinedMult = FixedPointMathLib.fullMulDiv(volMult, covMult, 100);
-        combinedMult = FixedPointMathLib.fullMulDiv(combinedMult, divMult, 100);
-        uint256 fee = FixedPointMathLib.fullMulDiv(feeComps.baseFee, combinedMult, 100);
+        // 3. Volatility shock factor (fast/slow ratio for regime breaks)
+        uint256 volMultIn = _calculateVolatilityShockFactor(
+            oracleIn.fastVolatility,
+            oracleIn.slowVolatility,
+            feeParams
+        );
+        uint256 volMultOut = _calculateVolatilityShockFactor(
+            oracleOut.fastVolatility,
+            oracleOut.slowVolatility,
+            feeParams
+        );
+        uint256 volMult = volMultIn > volMultOut ? volMultIn : volMultOut;
+
+        // 4. Price divergence factor (spot vs oracle TWAPs)
+        uint256 spotPriceIn = getSegmentPrice(assetIn, profileIn, feeParams, oracleIn, amountIn);
+        uint256 spotPriceOut = getSegmentPrice(assetOut, profileOut, feeParams, oracleOut, 0);
+
+        uint256 divMultIn = _calculatePriceDivergenceFactor(
+            spotPriceIn,
+            priceIn1e18,
+            slowPriceIn1e18,
+            feeParams
+        );
+        uint256 divMultOut = _calculatePriceDivergenceFactor(
+            spotPriceOut,
+            priceOut1e18,
+            slowPriceOut1e18,
+            feeParams
+        );
+        uint256 divMult = divMultIn > divMultOut ? divMultIn : divMultOut;
+
+        // 5. Combine factors multiplicatively
+        uint256 riskMult = _calculateRiskMultiplier(invMult, volMult, divMult, feeParams);
+
+        // 6. Apply risk multiplier to base fee
+        uint256 fee = FixedPointMathLib.fullMulDiv(feeComps.baseFee, riskMult, M.PRECISION);
 
         // Enforce asset-specific bounds (use min of both minimums, max of both maximums)
         uint256 minFee = assetIn.minFeeBps < assetOut.minFeeBps ? assetIn.minFeeBps : assetOut.minFeeBps;
         uint256 maxFee = assetIn.maxFeeBps > assetOut.maxFeeBps ? assetIn.maxFeeBps : assetOut.maxFeeBps;
 
-        // Inline clamp for conciseness (no function call overhead)
+        // Clamp to asset bounds
         fee = fee < minFee ? minFee : (fee > maxFee ? maxFee : fee);
 
+        // Populate fee components (convert to base 100 for display)
         feeComps.totalFeeBps = fee;
-        feeComps.volatilityMultiplier = volMult;
-        feeComps.inventoryMultiplier = covMult;  // Field name for compatibility
-        feeComps.divergenceMultiplier = divMult;
+        feeComps.volatilityMultiplier = FixedPointMathLib.fullMulDiv(volMult, 100, M.PRECISION);
+        feeComps.inventoryMultiplier = FixedPointMathLib.fullMulDiv(invMult, 100, M.PRECISION);
+        feeComps.divergenceMultiplier = FixedPointMathLib.fullMulDiv(divMult, 100, M.PRECISION);
         feeComps.exitInventoryDivergence = 100; // Single-leg: no exit divergence
         // Single-leg: no per-leg breakdown
         feeComps.leg1FeeBps = 0;
         feeComps.leg2FeeBps = 0;
         feeComps.leg1Notional = 0;
         feeComps.leg2Notional = 0;
-    }
-
-    /// @notice Calculate base fee from long-term volatility
-    /// @dev Volatility bands: <1%=min, 1-5%=5bps, 5-15%=20bps, 15-30%=50bps, >30%=100bps
-    /// @param slowVol Long-term volatility average (1e6 base)
-    /// @param minFeeA Minimum fee for asset A
-    /// @param minFeeB Minimum fee for asset B
-    /// @return baseFee Base fee in basis points
-    function _calculateBaseFee(
-        uint256 slowVol,
-        uint16 minFeeA,
-        uint16 minFeeB
-    ) private pure returns (uint256 baseFee) {
-        // Take the maximum of the two minimums as the floor
-        uint256 minFee = minFeeA > minFeeB ? minFeeA : minFeeB;
-
-        // Determine base fee from long-term volatility
-        if (slowVol < 1_000_000) {  // <1% vol: stablecoin range
-            baseFee = minFee;
-        } else if (slowVol < 5_000_000) {  // 1-5% vol: low volatility
-            baseFee = 5;  // 0.05%
-        } else if (slowVol < 15_000_000) {  // 5-15% vol: moderate volatility
-            baseFee = 20;  // 0.20%
-        } else if (slowVol < 30_000_000) {  // 15-30% vol: high volatility
-            baseFee = 50;  // 0.50%
-        } else {  // >30% vol: extreme volatility
-            baseFee = 100;  // 1.00%
-        }
-
-        // Ensure we're above the minimum
-        if (baseFee < minFee) baseFee = minFee;
-    }
-
-    /// @notice Calculate volatility multiplier (PURE)
-    /// @dev Uses short-term fast volatility for responsive fee adjustment
-    /// @param fastVolIn Fast volatility of input asset (1e6 base)
-    /// @param fastVolOut Fast volatility of output asset (1e6 base)
-    /// @return multiplier Fee multiplier (base 100)
-    function _calculateVolatilityMultiplierPure(
-        uint32 fastVolIn,
-        uint32 fastVolOut
-    ) private pure returns (uint256 multiplier) {
-        uint256 volIn = uint256(fastVolIn);
-        uint256 volOut = uint256(fastVolOut);
-
-        // Special case: if one asset is stable, use the other's volatility
-        bool inStable = volIn <= 10_000_000;  // <= 10%
-        bool outStable = volOut <= 10_000_000;
-
-        if (inStable && !outStable) {
-            volIn = volOut;
-        } else if (outStable && !inStable) {
-            volOut = volIn;
-        }
-
-        uint256 avgVol = (volIn + volOut) / 2;
-
-        // Tiered multipliers using ternary for elegance (base 100)
-        multiplier = avgVol < 20_000_000 ? 100 :   // <20%: 1.0x
-                     avgVol < 40_000_000 ? 200 :   // 20-40%: 2.0x
-                     avgVol < 60_000_000 ? 400 :   // 40-60%: 4.0x
-                     avgVol < 80_000_000 ? 700 :   // 60-80%: 7.0x
-                     1000;                          // >80%: 10.0x
-    }
-
-    /// @notice ALM coverage-based fee multiplier (Wombat-style, PURE)
-    /// @dev Fees based on liquidity depth (weight), protects against imbalances
-    /// @param reservesIn Reserves of input asset
-    /// @param reservesOut Reserves of output asset
-    /// @param priceIn1e18 Price of input asset (1e18)
-    /// @param priceOut1e18 Price of output asset (1e18)
-    /// @param totalValue Total pool value (cached)
-    /// @return multiplier Fee multiplier in base 100 (100 = 1.0x, 500 = 5.0x)
-    function _calculateCoverageMultiplierPure(
-        uint128 reservesIn,
-        uint128 reservesOut,
-        uint256 priceIn1e18,
-        uint256 priceOut1e18,
-        uint256 totalValue
-    ) private pure returns (uint256 multiplier) {
-        if (totalValue == 0) return 100;
-        if (priceIn1e18 == 0 || priceOut1e18 == 0) return 100;
-
-        // Calculate asset weights (coverage ratios) with fullMulDiv for precision
-        uint256 valueIn = FixedPointMathLib.fullMulDiv(uint256(reservesIn), priceIn1e18, M.PRICE_PRECISION);
-        uint256 valueOut = FixedPointMathLib.fullMulDiv(uint256(reservesOut), priceOut1e18, M.PRICE_PRECISION);
-
-        uint256 weightInBps = FixedPointMathLib.fullMulDiv(valueIn, M.BPS_PRECISION, totalValue);
-        uint256 weightOutBps = FixedPointMathLib.fullMulDiv(valueOut, M.BPS_PRECISION, totalValue);
-
-        // Low weight = scarce liquidity = high fees (protect LPs from depletion)
-        // High weight = abundant liquidity = low fees
-
-        // Multiplier for asset being depleted (assetOut) - progressive penalty curve
-        uint256 multOut =
-            weightOutBps < COVERAGE_VERY_SCARCE_THRESHOLD ? COVERAGE_VERY_SCARCE_MULT :  // <5% of pool: 5.0x (very scarce)
-            weightOutBps < COVERAGE_SCARCE_THRESHOLD ? COVERAGE_SCARCE_MULT :  // 5-10%: 3.0x
-            weightOutBps < COVERAGE_LOW_THRESHOLD ? COVERAGE_LOW_MULT :  // 10-20%: 1.5x
-            100;                         // >20%: 1.0x (abundant)
-
-        // Multiplier for asset being increased (assetIn) - prevent over-concentration
-        uint256 multIn =
-            weightInBps > COVERAGE_CONCENTRATED_2_THRESHOLD ? COVERAGE_CONCENTRATED_2_MULT :  // >70% of pool: 1.5x (too concentrated)
-            weightInBps > COVERAGE_CONCENTRATED_1_THRESHOLD ? COVERAGE_CONCENTRATED_1_MULT :  // 50-70%: 1.2x
-            100;                        // <50%: 1.0x (balanced)
-
-        // Take maximum of both (most restrictive for ALM protection)
-        multiplier = multOut > multIn ? multOut : multIn;
-    }
-
-    /// @notice Calculate divergence multiplier (PURE) - compares fast vs slow TWAP
-    /// @dev Instead of expensive getSegmentPrice calls, directly compares oracle TWAPs
-    /// @dev Divergence between fast and slow TWAP indicates price instability
-    /// @param fastPriceIn1e8 Fast TWAP of input asset (1e18)
-    /// @param fastPriceOut1e8 Fast TWAP of output asset (1e18)
-    /// @param slowPriceIn1e8 Slow TWAP of input asset (1e18)
-    /// @param slowPriceOut1e8 Slow TWAP of output asset (1e18)
-    /// @return multiplier Fee multiplier (base 100)
-    function _calculateDivergenceMultiplierPure(
-        uint256 fastPriceIn1e8,
-        uint256 fastPriceOut1e8,
-        uint256 slowPriceIn1e8,
-        uint256 slowPriceOut1e8
-    ) private pure returns (uint256 multiplier) {
-        if (fastPriceIn1e8 == 0 || fastPriceOut1e8 == 0) return 100;
-        if (slowPriceIn1e8 == 0 || slowPriceOut1e8 == 0) return 100;
-
-        // Calculate divergence between fast and slow TWAPs in basis points
-        // This measures short-term vs long-term price drift (ALM risk signal)
-        uint256 divIn = M.percentageDiff(slowPriceIn1e8, fastPriceIn1e8);
-        uint256 divOut = M.percentageDiff(slowPriceOut1e8, fastPriceOut1e8);
-
-        uint256 avgDiv = (divIn + divOut) / 2;
-
-        // Tiered multipliers using named constants for clarity (base 100)
-        multiplier = avgDiv < ORACLE_DIV_MINOR_THRESHOLD ? 100 :     // <1%: 1.0x
-                     avgDiv < ORACLE_DIV_MEDIUM_THRESHOLD ? ORACLE_DIV_MINOR_MULT :     // 1-3%: 1.5x
-                     avgDiv < ORACLE_DIV_LARGE_THRESHOLD ? ORACLE_DIV_MEDIUM_MULT :     // 3-5%: 2.0x
-                     avgDiv < 1000 ? ORACLE_DIV_LARGE_MULT :    // 5-10%: 3.0x
-                     ORACLE_DIV_EXTREME_MULT;                     // >10%: 5.0x
-    }
-
-    /// @notice Calculate exit-leg inventory divergence multiplier (UNUSED - for future ALM enhancements)
-    /// @dev This function is NOT currently used - ALM model relies on coverage-based fees only
-    /// @dev Could be integrated in future for additional inventory balance protection
-    /// @dev Scales fees based on post-trade asset weight relative to a reference weight
-    /// @param reservesOut Post-trade reserves of exit asset (projected after swap)
-    /// @param priceOut1e18 Slow TWAP price of exit asset (1e18)
-    /// @param totalValue Total pool value
-    /// @param referenceWeightBps Reference weight for exit asset in bps (e.g., 2000 = 20%)
-    /// @return multiplier Fee multiplier (base 100: 100=1.0x, 150=1.5x penalty, 80=0.8x rebate)
-    /// @custom:unused This function is defined but not called - reserved for future ALM enhancements
-    function calculateExitInventoryDivergenceMultiplierPure(
-        uint128 reservesOut,
-        uint256 priceOut1e18,
-        uint256 totalValue,
-        uint16 referenceWeightBps
-    ) internal pure returns (uint256 multiplier) {
-        if (totalValue == 0 || priceOut1e18 == 0) return 100;
-
-        // Calculate post-trade weight of exit asset
-        uint256 valueOut = FixedPointMathLib.fullMulDiv(uint256(reservesOut), priceOut1e18, M.PRICE_PRECISION);
-        uint256 weightOutBps = FixedPointMathLib.fullMulDiv(valueOut, M.BPS_PRECISION, totalValue);
-
-        // Calculate divergence from reference (positive = above reference, negative = below)
-        int256 divergence = int256(weightOutBps) - int256(uint256(referenceWeightBps));
-
-        // Scale multiplier based on divergence
-        // Positive divergence (above reference) = allow modest rebate (floor at 80)
-        // Negative divergence (below reference) = apply penalty (up to 3x)
-        if (divergence >= 0) {
-            // Above reference: small rebate (max 20% off)
-            // -1% per 100bps above reference, floor at DIVERGENCE_REBATE_FLOOR
-            uint256 rebateBps = uint256(divergence) / 100; // 1% per 100bps
-            if (rebateBps > MAX_REBATE_BPS) rebateBps = MAX_REBATE_BPS; // Cap at 20% rebate
-            multiplier = 100 - rebateBps;
-        } else {
-            // Below reference: apply progressive penalty
-            uint256 shortage = uint256(-divergence);
-
-            // Tiered penalties using named constants for auditability (base 100)
-            multiplier = shortage < DIVERGENCE_THRESHOLD_1  ? 100 :   // <5% below: 1.0x
-                        shortage < DIVERGENCE_THRESHOLD_2 ? DIVERGENCE_PENALTY_MILD :   // 5-10% below: 1.25x
-                        shortage < DIVERGENCE_THRESHOLD_3 ? DIVERGENCE_PENALTY_MEDIUM :   // 10-20% below: 1.5x
-                        shortage < DIVERGENCE_THRESHOLD_4 ? DIVERGENCE_PENALTY_STRONG :   // 20-30% below: 2.0x
-                        DIVERGENCE_PENALTY_MAX;                      // >30% below: 3.0x
-        }
-    }
-
-    /// @notice Calculate pool-vs-oracle divergence multiplier (PURE) - optional additional protection
-    /// @dev Compares small-epsilon hub-implied cross price to slow TWAP cross, caps effect for stability
-    /// @dev Use sparingly - can create instability if epsilon is too small or cap too high
-    /// @param poolPriceAB1e8 Pool-implied A/B cross rate from reserves (1e18)
-    /// @param oraclePriceAB1e8 Oracle slow TWAP cross rate A/B (1e18)
-    /// @return multiplier Fee multiplier capped at 2x (base 100: 100-200)
-    function calculateQuoteVsOracleDivergenceMultiplierPure(
-        uint256 poolPriceAB1e8,
-        uint256 oraclePriceAB1e8
-    ) internal pure returns (uint256 multiplier) {
-        if (poolPriceAB1e8 == 0 || oraclePriceAB1e8 == 0) return 100;
-
-        // Calculate divergence between pool and oracle prices
-        uint256 div = M.percentageDiff(oraclePriceAB1e8, poolPriceAB1e8);
-
-        // Tiered multipliers with cap at 2x for stability (base 100)
-        multiplier = div < 50  ? 100 :   // <0.5%: 1.0x
-                    div < 100 ? 110 :   // 0.5-1%: 1.1x
-                    div < 200 ? 125 :   // 1-2%: 1.25x
-                    div < 500 ? 150 :   // 2-5%: 1.5x
-                    200;                // >5%: 2.0x (capped for stability)
-    }
-
-    /// @notice Decode TWAPs and volatilities from asset storage (helper for multi-leg pricing)
-    /// @dev Returns both fast and slow TWAPs plus volatilities in standard formats
-    /// @dev Reuse these decoded values across multiple legs to avoid redundant accumulator math
-    /// @dev Uses 1e18 precision for maximum accuracy with extreme price ratios
-    /// @param asset Asset storage reference
-    /// @return fastTWAP1e18 Fast TWAP in 1e18 format
-    /// @return slowTWAP1e18 Slow TWAP in 1e18 format
-    /// @return fastVol Fast volatility in 1e6 format
-    /// @return slowVol Slow volatility in 1e6 format
-    function decodeOracleData(
-        IBAMM.Asset storage asset
-    ) internal view returns (
-        uint256 fastTWAP1e18,
-        uint256 slowTWAP1e18,
-        uint32 fastVol,
-        uint32 slowVol
-    ) {
-        // Calculate slow TWAP (Uniswap V3 style accumulator)
-        uint256 timeElapsed = block.timestamp - asset.lastOracleUpdate;
-        uint256 currentAccum = asset.priceAccumulator + (uint256(asset.currentPrice) * timeElapsed);
-
-        uint256 timeDeltaFast = block.timestamp - asset.fastSnapshotTime;
-        uint64 fastTWAP = timeDeltaFast == 0 ? asset.currentPrice : uint64((currentAccum - asset.fastAccumSnapshot) / timeDeltaFast);
-
-        uint256 timeDeltaSlow = block.timestamp - asset.slowSnapshotTime;
-        uint64 slowTWAP = timeDeltaSlow == 0 ? asset.currentPrice : uint64((currentAccum - asset.slowAccumSnapshot) / timeDeltaSlow);
-
-        // Decode to 1e18 format for maximum precision
-        fastTWAP1e18 = M.b64ToPrice(fastTWAP);
-        slowTWAP1e18 = M.b64ToPrice(slowTWAP);
-        fastVol = asset.fastVolatility;
-        slowVol = asset.slowVolatility;
     }
 
     /// @notice Calculate withdrawal fee (ALM model - flat rate)
@@ -1068,19 +706,21 @@ library LibPricing {
     /// @return total Total value in base asset terms (can be 0 if no assets)
     function calculateTotalValue(
         address[] storage registeredAssets,
-        mapping(address => IBAMM.Asset) storage assets
+        mapping(address => IBAMM.Asset) storage assets,
+        mapping(bytes32 => LibStorage.OracleEntry) storage oracleEntries
     ) internal view returns (uint256 total) {
         uint256 length = registeredAssets.length;
 
         for (uint256 i = 0; i < length; i++) {
             address token = registeredAssets[i];
             IBAMM.Asset storage asset = assets[token];
+            LibStorage.OracleEntry storage oracle = oracleEntries[asset.oracleId];
 
             // Calculate fast TWAP inline (Uniswap V3 style)
-            uint256 timeElapsed = block.timestamp - asset.lastOracleUpdate;
-            uint256 currentAccum = asset.priceAccumulator + (uint256(asset.currentPrice) * timeElapsed);
-            uint256 timeDelta = block.timestamp - asset.fastSnapshotTime;
-            uint64 fastTWAP = timeDelta == 0 ? asset.currentPrice : uint64((currentAccum - asset.fastAccumSnapshot) / timeDelta);
+            uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
+            uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
+            uint256 timeDelta = block.timestamp - oracle.fastSnapshotTime;
+            uint64 fastTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDelta);
 
             if (fastTWAP > 0) {
                 // Decode b64 to 1e8 and calculate value with fullMulDiv
@@ -1097,13 +737,17 @@ library LibPricing {
     /// @notice Calculate value of a single token's reserves (O(1))
     /// @dev Used for delta-based cache updates with inline TWAP calculation
     /// @param asset The asset to value
+    /// @param oracle The oracle entry for this asset
     /// @return value Value in base asset terms
-    function calculateTokenValue(IBAMM.Asset storage asset) internal view returns (uint256 value) {
+    function calculateTokenValue(
+        IBAMM.Asset storage asset,
+        LibStorage.OracleEntry storage oracle
+    ) internal view returns (uint256 value) {
         // Calculate fast TWAP inline
-        uint256 timeElapsed = block.timestamp - asset.lastOracleUpdate;
-        uint256 currentAccum = asset.priceAccumulator + (uint256(asset.currentPrice) * timeElapsed);
-        uint256 timeDelta = block.timestamp - asset.fastSnapshotTime;
-        uint64 fastTWAP = timeDelta == 0 ? asset.currentPrice : uint64((currentAccum - asset.fastAccumSnapshot) / timeDelta);
+        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
+        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
+        uint256 timeDelta = block.timestamp - oracle.fastSnapshotTime;
+        uint64 fastTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDelta);
 
         if (fastTWAP == 0) return 0;
 
@@ -1116,20 +760,22 @@ library LibPricing {
     /// @dev Uses fullMulDiv for precision and returns 0 instead of sentinel
     /// @param cachedTotal Current cached total value
     /// @param asset The asset that changed
+    /// @param oracle The oracle entry for this asset
     /// @param reservesDelta Change in reserves (can be negative)
     /// @return newTotal Updated total value (can be 0)
     function updateTotalValueDelta(
         uint256 cachedTotal,
         IBAMM.Asset storage asset,
+        LibStorage.OracleEntry storage oracle,
         int256 reservesDelta
     ) internal view returns (uint256 newTotal) {
         if (reservesDelta == 0) return cachedTotal;
 
         // Calculate fast TWAP inline
-        uint256 timeElapsed = block.timestamp - asset.lastOracleUpdate;
-        uint256 currentAccum = asset.priceAccumulator + (uint256(asset.currentPrice) * timeElapsed);
-        uint256 timeDelta = block.timestamp - asset.fastSnapshotTime;
-        uint64 fastTWAP = timeDelta == 0 ? asset.currentPrice : uint64((currentAccum - asset.fastAccumSnapshot) / timeDelta);
+        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
+        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
+        uint256 timeDelta = block.timestamp - oracle.fastSnapshotTime;
+        uint64 fastTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDelta);
 
         if (fastTWAP == 0) return cachedTotal;
 
@@ -1142,6 +788,46 @@ library LibPricing {
         } else {
             // Negative delta: subtract value with fullMulDiv
             uint256 valueDelta = FixedPointMathLib.fullMulDiv(uint256(-reservesDelta), price1e8, M.PRICE_PRECISION);
+            newTotal = cachedTotal > valueDelta ? cachedTotal - valueDelta : 0;
+        }
+
+        // Return 0 explicitly instead of sentinel - caller should handle
+        return newTotal;
+    }
+
+    /// @notice Update cached total liabilities with liability delta (O(1))
+    /// @dev Called on deposit/withdraw to maintain cache without O(n) loop
+    /// @dev Uses fullMulDiv for precision and returns 0 instead of sentinel
+    /// @param cachedTotal Current cached total liabilities
+    /// @param asset The asset that changed
+    /// @param oracle The oracle entry for this asset
+    /// @param liabilitiesDelta Change in liabilities (can be negative)
+    /// @return newTotal Updated total liabilities (can be 0)
+    function updateTotalLiabilitiesDelta(
+        uint256 cachedTotal,
+        IBAMM.Asset storage asset,
+        LibStorage.OracleEntry storage oracle,
+        int256 liabilitiesDelta
+    ) internal view returns (uint256 newTotal) {
+        if (liabilitiesDelta == 0) return cachedTotal;
+
+        // Calculate fast TWAP inline
+        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
+        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
+        uint256 timeDelta = block.timestamp - oracle.fastSnapshotTime;
+        uint64 fastTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDelta);
+
+        if (fastTWAP == 0) return cachedTotal;
+
+        uint256 price1e8 = M.b64ToPrice(fastTWAP);
+
+        if (liabilitiesDelta > 0) {
+            // Positive delta: add value with fullMulDiv
+            uint256 valueDelta = FixedPointMathLib.fullMulDiv(uint256(liabilitiesDelta), price1e8, M.PRICE_PRECISION);
+            newTotal = cachedTotal + valueDelta;
+        } else {
+            // Negative delta: subtract value with fullMulDiv
+            uint256 valueDelta = FixedPointMathLib.fullMulDiv(uint256(-liabilitiesDelta), price1e8, M.PRICE_PRECISION);
             newTotal = cachedTotal > valueDelta ? cachedTotal - valueDelta : 0;
         }
 

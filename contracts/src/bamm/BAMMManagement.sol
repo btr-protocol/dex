@@ -4,6 +4,8 @@ pragma solidity ^0.8.28;
 import {IBAMM} from "../interfaces/IBAMM.sol";
 import {IBAMMHooks} from "../interfaces/IBAMMHooks.sol";
 import {IERC165} from "../interfaces/IERC165.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
+import {IInternalOracle} from "../interfaces/IInternalOracle.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {Initializable} from "solady/utils/Initializable.sol";
@@ -27,7 +29,6 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
 
     uint256 public constant GUARDIAN_ROLE = 1 << 0;  // bit 0
     uint256 public constant TREASURY_ROLE = 1 << 1;  // bit 1
-    uint256 public constant KEEPER_ROLE = 1 << 2;    // bit 2
 
     // ========== STORAGE ACCESS (must be implemented by child) ==========
 
@@ -49,21 +50,8 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         $.slowTWAPWeight = slowWeight;
     }
 
-    /// @notice Get fast TWAP for asset (helper for circuit breakers and base asset updates)
-    function _getFastTWAP(IBAMM.Asset storage asset) internal view virtual returns (uint64);
-
-
     /// @notice Get token decimals
     function _getDecimals(address token) internal view virtual returns (uint8);
-
-    /// @notice Read oracle or revert (from InternalOracle)
-    function _readOracleOrRevert(address mainOracle, address fallbackOracle) internal view virtual returns (uint64 fastTWAP, uint64 slowTWAP, uint32 fastVol, uint32 slowVol);
-
-    /// @notice Update oracle internal (from InternalOracle) - implemented by child
-    function _updateOracleInternal(address token, uint64 newPrice, uint32 newVolatility) internal virtual;
-
-    /// @notice Update oracle config internal (from InternalOracle) - implemented by child
-    function _updateOracleConfigInternal(address token, address mainOracle, address fallbackOracle) internal virtual;
 
     // ========== MODIFIERS ==========
 
@@ -82,11 +70,6 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         _;
     }
 
-    modifier onlyKeeperRole() {
-        _checkRoles(KEEPER_ROLE);
-        _;
-    }
-
     modifier onlyOwnerOrGuardian() {
         if (msg.sender != owner() && !hasAnyRole(msg.sender, GUARDIAN_ROLE)) {
             revert E.Unauthorized();
@@ -95,8 +78,6 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
     }
 
     // ========== ROLE MANAGEMENT ==========
-    // Role management is handled by OwnableRoles from Solady
-    // Exposing these functions for backward compatibility
 
     /// @notice Grant a role to an account
     /// @param role Role to grant (use role constants)
@@ -120,10 +101,58 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         return hasAnyRole(account, role);
     }
 
-    /// @notice Get the admin/owner address
-    /// @return The owner address
-    function admin() public view virtual returns (address) {
-        return owner();
+    // ========== ORACLE HELPERS ==========
+
+    /// @notice Read oracle data with fallback support
+    /// @dev Tries main oracle first, then fallback if main fails
+    /// @param oracleId Oracle identifier (base/quote pair hash)
+    /// @param mainOracle Main oracle address
+    /// @param fallbackOracle Fallback oracle address (address(0) = no fallback)
+    /// @param maxAge Maximum acceptable staleness in seconds
+    /// @return data Oracle data from main or fallback oracle
+    function _readOracleWithFallback(
+        bytes32 oracleId,
+        address mainOracle,
+        address fallbackOracle,
+        uint32 maxAge
+    ) internal view returns (IOracle.OracleData memory data) {
+        // Try main oracle
+        try IOracle(mainOracle).getOracleData(oracleId) returns (IOracle.OracleData memory mainData) {
+            // Check freshness
+            if (block.timestamp - mainData.lastUpdate <= maxAge) {
+                return mainData;
+            }
+        } catch {}
+
+        // Main oracle failed or stale - try fallback
+        if (fallbackOracle != address(0)) {
+            try IOracle(fallbackOracle).getOracleData(oracleId) returns (IOracle.OracleData memory fallbackData) {
+                // Check freshness
+                if (block.timestamp - fallbackData.lastUpdate <= maxAge) {
+                    return fallbackData;
+                }
+            } catch {}
+        }
+
+        // Both oracles failed
+        revert E.OracleStale();
+    }
+
+    /// @notice Get fast TWAP from asset's configured oracle
+    /// @param asset Asset address
+    /// @param assetStorage Asset storage reference
+    /// @return fastTWAP Fast TWAP in b64 format
+    function _getFastTWAP(address asset, IBAMM.Asset storage assetStorage) internal view virtual returns (uint64 fastTWAP) {
+        bytes32 oracleId = assetStorage.oracleId;
+        if (oracleId == bytes32(0)) revert E.InvalidParameter();
+
+        IOracle.OracleData memory data = _readOracleWithFallback(
+            oracleId,
+            assetStorage.mainOracle,
+            assetStorage.fallbackOracle,
+            24 hours  // Max staleness
+        );
+        return data.fastTWAP;
     }
 
     // ========== ASSET RECOVERY ==========
@@ -242,7 +271,7 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
     }
 
     /// @notice Update volatility EMA weights
-    /// @dev Admin only. Weights represent percentage of old value in volatility EMA calculation.
+    /// @dev Owner only. Weights represent percentage of old value in volatility EMA calculation.
     /// @dev NOTE: Price TWAPs now use accumulator (Uniswap V3 style), these weights only affect volatility smoothing
     /// @param _fastWeight Weight for fast volatility (0-100, e.g., 90 = 90% old, 10% new)
     /// @param _slowWeight Weight for slow volatility (0-100, e.g., 95 = 95% old, 5% new)
@@ -324,7 +353,7 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         }
     }
 
-    /// @notice Remove address from blacklist (admin or guardian)
+    /// @notice Remove address from blacklist (owner or guardian)
     /// @param account Address to remove from blacklist
     function removeFromBlacklist(address account) external virtual override onlyOwnerOrGuardian {
         LibStorage.BAMMStorage storage $ = _s(); // Cache once
@@ -390,21 +419,49 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
     /// @param token Token address
     /// @param newPrice New spot price in b64 format
     /// @param newVolatility New volatility measurement (base 1e6: 1_000_000 = 1%)
-    /// @dev Updates accumulator and volatility EMAs
-    function updateOracle(address token, uint64 newPrice, uint32 newVolatility) external virtual override onlyKeeperRole {
-        _updateOracleInternal(token, newPrice, newVolatility);
+    /// @dev Updates accumulator and volatility EMAs. Owner-only to prevent manipulation.
+    function updateOracle(address token, uint64 newPrice, uint32 newVolatility) external virtual override onlyOwner {
+        IBAMM.Asset storage asset = _getAsset(token);
+
+        // Only allow updates if using internal oracle
+        if (asset.mainOracle != address(this)) revert E.InvalidParameter();
+
+        // Compute oracle ID and call internal oracle's updateOracle method
+        bytes32 oracleId = asset.oracleId;
+        if (oracleId == bytes32(0)) revert E.InvalidParameter();
+
+        IInternalOracle(address(this)).updateOracle(oracleId, newPrice, newVolatility);
     }
 
     /// @notice Update oracle configuration for an asset
     /// @param token Token address
     /// @param mainOracle Main oracle (address(this)=internal, else=external IOracle contract)
     /// @param fallbackOracle Fallback oracle (address(0)=disabled, address(this)=internal)
+    /// @dev Owner-only to prevent unauthorized oracle switching
     function updateOracleConfig(
         address token,
         address mainOracle,
         address fallbackOracle
-    ) external virtual override onlyGuardianRole {
-        _updateOracleConfigInternal(token, mainOracle, fallbackOracle);
+    ) external virtual override onlyOwner {
+        IBAMM.Asset storage asset = _getAsset(token);
+        LibUtils.requireRegistered(asset);
+
+        // Default to internal if not specified
+        if (mainOracle == address(0)) mainOracle = address(this);
+
+        // Validate oracle addresses have code (if external)
+        if (mainOracle != address(this) && mainOracle.code.length == 0) {
+            revert E.InvalidParameter();
+        }
+        if (fallbackOracle != address(0) && fallbackOracle != address(this) && fallbackOracle.code.length == 0) {
+            revert E.InvalidParameter();
+        }
+
+        // Update configuration
+        asset.mainOracle = mainOracle;
+        asset.fallbackOracle = fallbackOracle;
+
+        emit Events.OracleUpdated(token, mainOracle, fallbackOracle);
     }
 
     // ========== ASSET CONFIGURATION ==========
@@ -412,7 +469,9 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
     /// @notice Start paginated base asset migration (STEP 1 of 3)
     /// @dev Initializes migration state without modifying prices
     /// @param newBaseToken New base token address
-    function startBaseAssetUpdate(address newBaseToken) external onlyOwner {
+    /// @param oracleReinitData Optional packed oracle reinitialization data for internal oracles
+    ///        Format: abi.encode(address[] tokens, uint64[] prices, uint32[] fastVols, uint32[] slowVols)
+    function startBaseAssetUpdate(address newBaseToken, bytes calldata oracleReinitData) external onlyOwner {
         LibUtils.requireNonZero(newBaseToken);
 
         LibStorage.BAMMStorage storage $ = _s();
@@ -429,8 +488,8 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         IBAMM.Asset storage oldBaseAsset = _getAsset(oldBase);
         IBAMM.Asset storage newBaseAsset = _getAsset(newBaseToken);
 
-        uint64 oldBaseFastTWAP = _getFastTWAP(oldBaseAsset);
-        uint64 newBaseFastTWAP = _getFastTWAP(newBaseAsset);
+        uint64 oldBaseFastTWAP = _getFastTWAP(oldBase, oldBaseAsset);
+        uint64 newBaseFastTWAP = _getFastTWAP(newBaseToken, newBaseAsset);
 
         if (oldBaseFastTWAP == 0 || newBaseFastTWAP == 0) revert E.InvalidPrice();
 
@@ -449,14 +508,15 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         migration.totalAssets = $.registeredAssets.length;
         migration.inProgress = true;
         migration.startedAt = block.timestamp;
+        migration.oracleReinitData = oracleReinitData;
 
         emit Events.BaseAssetUpdated(oldBase, newBaseToken);
     }
 
-    /// @notice Process batch of asset price conversions (STEP 2 of 3, call repeatedly)
-    /// @dev Processes up to batchSize assets, can be called multiple times
+    /// @notice Process batch of asset price conversions during base asset migration (STEP 2 of 3, call repeatedly)
+    /// @dev Processes up to batchSize assets, recomputes oracle IDs and reinitializes internal oracles
     /// @param batchSize Number of assets to process in this batch (max 50 recommended)
-    function updateAssetBatch(uint256 batchSize) external onlyOwner {
+    function batchMigrateAssetPrices(uint256 batchSize) external onlyOwner {
         LibStorage.BAMMStorage storage $ = _s();
         LibStorage.BaseAssetMigration storage migration = $.baseAssetMigration;
 
@@ -468,43 +528,121 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         uint256 endIdx = startIdx + batchSize;
         if (endIdx > assets.length) endIdx = assets.length;
 
+        // Decode oracle reinit data if provided (for internal oracles)
+        address[] memory reinitTokens;
+        uint64[] memory reinitPrices;
+        uint32[] memory reinitFastVols;
+        uint32[] memory reinitSlowVols;
+
+        if (migration.oracleReinitData.length > 0) {
+            (reinitTokens, reinitPrices, reinitFastVols, reinitSlowVols) =
+                abi.decode(migration.oracleReinitData, (address[], uint64[], uint32[], uint32[]));
+
+            // Validate array lengths match
+            if (reinitTokens.length != reinitPrices.length ||
+                reinitTokens.length != reinitFastVols.length ||
+                reinitTokens.length != reinitSlowVols.length) {
+                revert E.InvalidParameter();
+            }
+        }
+
         uint256 pricePrecision = M.PRICE_PRECISION;
         uint256 conversionRate = migration.conversionRate;
+        address newBase = migration.newBase;
 
         unchecked {
             for (uint256 i = startIdx; i < endIdx; ++i) {
                 address token = assets[i];
-                if (token == migration.newBase) continue;
+                if (token == newBase) continue;
 
                 IBAMM.Asset storage asset = _getAsset(token);
 
-                // Skip assets with zero price
-                if (asset.currentPrice == 0) continue;
+                // Get old oracle entry using current oracle ID
+                bytes32 oldOracleId = asset.oracleId;
+                if (oldOracleId == bytes32(0)) continue; // Skip if no oracle ID
 
-                // Convert prices using fullMulDiv
-                asset.currentPrice = uint64(FixedPointMathLib.fullMulDiv(
-                    uint256(asset.currentPrice),
-                    conversionRate,
-                    pricePrecision
-                ));
+                LibStorage.OracleEntry storage oldOracle = $.oracleEntries[oldOracleId];
+                if (!oldOracle.exists) continue; // Skip if oracle doesn't exist
 
-                asset.priceAccumulator = FixedPointMathLib.fullMulDiv(
-                    asset.priceAccumulator,
-                    conversionRate,
-                    pricePrecision
-                );
+                // Compute new oracle ID with new base token
+                bytes32 newOracleId = LibStorage.computeOracleId(token, newBase);
 
-                asset.fastAccumSnapshot = FixedPointMathLib.fullMulDiv(
-                    asset.fastAccumSnapshot,
-                    conversionRate,
-                    pricePrecision
-                );
+                // Check if this asset uses internal oracle
+                bool isInternalOracle = asset.mainOracle == address(this);
 
-                asset.slowAccumSnapshot = FixedPointMathLib.fullMulDiv(
-                    asset.slowAccumSnapshot,
-                    conversionRate,
-                    pricePrecision
-                );
+                if (isInternalOracle) {
+                    // For internal oracles, find reinit data
+                    bool foundReinitData = false;
+                    uint64 newPrice;
+                    uint32 newFastVol;
+                    uint32 newSlowVol;
+
+                    for (uint256 j = 0; j < reinitTokens.length; ++j) {
+                        if (reinitTokens[j] == token) {
+                            newPrice = reinitPrices[j];
+                            newFastVol = reinitFastVols[j];
+                            newSlowVol = reinitSlowVols[j];
+                            foundReinitData = true;
+                            break;
+                        }
+                    }
+
+                    // Internal oracle MUST have reinit data
+                    if (!foundReinitData) revert E.InvalidParameter();
+
+                    // Reset internal oracle with new data
+                    IInternalOracle(address(this)).resetOracle(
+                        newOracleId,
+                        newPrice,
+                        newFastVol,
+                        newSlowVol
+                    );
+                } else {
+                    // For external oracles, migrate existing oracle data with price conversion
+                    LibStorage.OracleEntry storage newOracle = $.oracleEntries[newOracleId];
+
+                    // Convert prices using fullMulDiv
+                    newOracle.currentPrice = uint64(FixedPointMathLib.fullMulDiv(
+                        uint256(oldOracle.currentPrice),
+                        conversionRate,
+                        pricePrecision
+                    ));
+
+                    newOracle.priceAccumulator = FixedPointMathLib.fullMulDiv(
+                        oldOracle.priceAccumulator,
+                        conversionRate,
+                        pricePrecision
+                    );
+
+                    newOracle.fastAccumSnapshot = FixedPointMathLib.fullMulDiv(
+                        oldOracle.fastAccumSnapshot,
+                        conversionRate,
+                        pricePrecision
+                    );
+
+                    newOracle.slowAccumSnapshot = FixedPointMathLib.fullMulDiv(
+                        oldOracle.slowAccumSnapshot,
+                        conversionRate,
+                        pricePrecision
+                    );
+
+                    // Copy non-price fields
+                    newOracle.fastSnapshotTime = oldOracle.fastSnapshotTime;
+                    newOracle.slowSnapshotTime = oldOracle.slowSnapshotTime;
+                    newOracle.fastWindow = oldOracle.fastWindow;
+                    newOracle.slowWindow = oldOracle.slowWindow;
+                    newOracle.fastVolatility = oldOracle.fastVolatility;
+                    newOracle.slowVolatility = oldOracle.slowVolatility;
+                    newOracle.lastOracleUpdate = oldOracle.lastOracleUpdate;
+                    newOracle.maxTWAPChange = oldOracle.maxTWAPChange;
+                    newOracle.exists = true;
+
+                    // Delete old oracle entry to save gas
+                    delete $.oracleEntries[oldOracleId];
+                }
+
+                // Update asset's oracle ID
+                asset.oracleId = newOracleId;
             }
         }
 
@@ -522,111 +660,39 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         // Verify all assets have been processed
         if (migration.nextIndex < migration.totalAssets) revert E.InvalidParameter();
 
-        // Set new base asset to 1.0 in new base terms
-        IBAMM.Asset storage newBaseAsset = _getAsset(migration.newBase);
-        newBaseAsset.currentPrice = uint64(M.PRICE_PRECISION);
-        newBaseAsset.priceAccumulator = 0;
-        newBaseAsset.fastAccumSnapshot = 0;
-        newBaseAsset.slowAccumSnapshot = 0;
+        address newBase = migration.newBase;
+
+        // Update new base asset's oracle (self-referential: newBase priced in newBase = 1.0)
+        IBAMM.Asset storage newBaseAsset = _getAsset(newBase);
+        bytes32 newBaseOracleId = LibStorage.computeOracleId(newBase, newBase);
+
+        if (newBaseAsset.mainOracle == address(this)) {
+            // Internal oracle: reset to 1.0 price
+            IInternalOracle(address(this)).resetOracle(
+                newBaseOracleId,
+                uint64(M.PRICE_PRECISION),  // 1.0 in b64 format
+                0,  // Zero volatility for base asset
+                0   // Zero volatility for base asset
+            );
+        }
+
+        // Update base asset's oracle ID
+        newBaseAsset.oracleId = newBaseOracleId;
 
         // Update base token in storage
-        $.baseToken = migration.newBase;
+        $.baseToken = newBase;
 
         // Clear migration state
         delete $.baseAssetMigration;
     }
 
     /// @notice Cancel an in-progress base asset migration
-    /// @dev Admin can abort migration if needed
+    /// @dev Owner can abort migration if needed
     function cancelBaseAssetUpdate() external onlyOwner {
         LibStorage.BAMMStorage storage $ = _s();
         if (!$.baseAssetMigration.inProgress) revert E.NotInitialized();
 
         delete $.baseAssetMigration;
-    }
-
-    /// @notice Legacy single-transaction base asset update (DEPRECATED - use paginated version)
-    /// @dev WARNING: This function may fail with out-of-gas for pools with 50+ assets
-    /// @dev DEPRECATED: Use startBaseAssetUpdate → updateAssetBatch → finishBaseAssetUpdate instead
-    /// @param newBaseToken New base token address
-    function updateBaseAsset(address newBaseToken) external onlyOwner {
-        LibUtils.requireNonZero(newBaseToken);
-
-        // Cache storage reference once
-        LibStorage.BAMMStorage storage $ = _s();
-        address oldBase = $.baseToken;
-
-        // Short-circuit if new base equals current base to save gas
-        if (newBaseToken == oldBase) return;
-        address[] memory assets = $.registeredAssets;
-
-        IBAMM.Asset storage oldBaseAsset = _getAsset(oldBase);
-        IBAMM.Asset storage newBaseAsset = _getAsset(newBaseToken);
-
-        uint64 oldBaseFastTWAP = _getFastTWAP(oldBaseAsset);
-        uint64 newBaseFastTWAP = _getFastTWAP(newBaseAsset);
-
-        if (oldBaseFastTWAP > 0 && newBaseFastTWAP > 0) {
-            // Calculate conversion rate with fullMulDiv for precision
-            // conversionRate = (oldBaseFastTWAP * PRICE_PRECISION) / newBaseFastTWAP
-            uint256 conversionRate = FixedPointMathLib.fullMulDiv(
-                uint256(oldBaseFastTWAP),
-                M.PRICE_PRECISION,
-                uint256(newBaseFastTWAP)
-            );
-
-            // Cache constants to stack to reduce repeated materialization
-            uint256 pricePrecision = M.PRICE_PRECISION;
-
-            uint256 length = assets.length;
-            unchecked {
-                for (uint256 i; i < length; ++i) {
-                    address token = assets[i];
-                    if (token == newBaseToken) continue;
-
-                    IBAMM.Asset storage asset = _getAsset(token);
-
-                    // Skip assets with zero price to avoid unnecessary writes
-                    if (asset.currentPrice == 0) continue;
-
-                    // Convert prices using fullMulDiv for precision and overflow safety
-                    asset.currentPrice = uint64(FixedPointMathLib.fullMulDiv(
-                        uint256(asset.currentPrice),
-                        conversionRate,
-                        pricePrecision
-                    ));
-
-                    asset.priceAccumulator = FixedPointMathLib.fullMulDiv(
-                        asset.priceAccumulator,
-                        conversionRate,
-                        pricePrecision
-                    );
-
-                    asset.fastAccumSnapshot = FixedPointMathLib.fullMulDiv(
-                        asset.fastAccumSnapshot,
-                        conversionRate,
-                        pricePrecision
-                    );
-
-                    asset.slowAccumSnapshot = FixedPointMathLib.fullMulDiv(
-                        asset.slowAccumSnapshot,
-                        conversionRate,
-                        pricePrecision
-                    );
-                }
-            }
-
-            // Set new base asset to 1.0 in new base terms
-            newBaseAsset.currentPrice = uint64(pricePrecision);
-            newBaseAsset.priceAccumulator = 0;
-            newBaseAsset.fastAccumSnapshot = 0;
-            newBaseAsset.slowAccumSnapshot = 0;
-        }
-
-        // Update base token in storage
-        $.baseToken = newBaseToken;
-
-        emit Events.BaseAssetUpdated(oldBase, newBaseToken);
     }
 
     function updateCircuitBreaker(
@@ -669,6 +735,46 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         asset.maxFeeBps = maxFeeBps;
     }
 
+    /// @notice Enable flash loans for an asset
+    /// @param token Token address
+    function enableFlashLoans(address token) external onlyOwner {
+        IBAMM.Asset storage asset = _getAsset(token);
+        LibUtils.requireRegistered(asset);
+
+        // No-op guard: skip if already enabled to save gas
+        if (asset.flashLoanEnabled) return;
+
+        asset.flashLoanEnabled = true;
+        emit Events.FlashLoansEnabled(token);
+    }
+
+    /// @notice Disable flash loans for an asset
+    /// @param token Token address
+    function disableFlashLoans(address token) external onlyOwner {
+        IBAMM.Asset storage asset = _getAsset(token);
+        LibUtils.requireRegistered(asset);
+
+        // No-op guard: skip if already disabled to save gas
+        if (!asset.flashLoanEnabled) return;
+
+        asset.flashLoanEnabled = false;
+        emit Events.FlashLoansDisabled(token);
+    }
+
+    /// @notice Update flash loan fee for an asset
+    /// @param token Token address
+    /// @param flashFeeBps New flash loan fee in basis points
+    function updateFlashFee(address token, uint16 flashFeeBps) external onlyOwner {
+        IBAMM.Asset storage asset = _getAsset(token);
+        LibUtils.requireRegistered(asset);
+        if (flashFeeBps > M.BPS_PRECISION) revert E.InvalidParameter();
+
+        uint16 oldFlashFeeBps = asset.flashFeeBps;
+        asset.flashFeeBps = flashFeeBps;
+
+        emit Events.FlashFeeUpdated(token, oldFlashFeeBps, flashFeeBps);
+    }
+
     // ========== CIRCUIT BREAKER ==========
 
     /// @notice Check and trigger circuit breaker if deviation exceeds threshold
@@ -688,13 +794,14 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
 
         // SECURITY: Validate reference asset freshness to prevent griefing via stale oracle
         // Allow 1 hour staleness tolerance for reference asset
-        if (block.timestamp > refAsset.lastOracleUpdate + 1 hours) {
+        LibStorage.OracleEntry storage refOracle = $.oracleEntries[refAsset.oracleId];
+        if (block.timestamp > refOracle.lastOracleUpdate + 1 hours) {
             revert E.InvalidParameter(); // Stale reference oracle
         }
 
         // Calculate TWAPs once
-        uint64 assetFastTWAP = _getFastTWAP(asset);
-        uint64 refFastTWAP = _getFastTWAP(refAsset);
+        uint64 assetFastTWAP = _getFastTWAP(token, asset);
+        uint64 refFastTWAP = _getFastTWAP(breaker.referenceAsset, refAsset);
 
         // Guard against zero reference price
         if (refFastTWAP == 0) return false;
@@ -761,27 +868,29 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
     /// @param _baseMainOracle Main oracle for base asset
     /// @param _baseFallbackOracle Fallback oracle for base asset
     /// @param _baseMinLiquidity Minimum liquidity for base asset
-    /// @param _admin Admin address
-    /// @param _keeper Keeper address
-    /// @param _treasury Treasury address (optional, defaults to admin)
+    /// @param _owner Owner address
+    /// @param _guardian Guardian address
+    /// @param _treasury Treasury address (optional, defaults to owner)
     /// @param _baseFee Base fee in bps
     /// @param _maxFee Max fee in bps
     /// @param _withdrawalFee Withdrawal fee in bps
     /// @param _maxTWAPChange Max TWAP change in bps
     /// @param _protocolFeeBps Protocol fee in bps
+    /// @param _flashFeeBps Flash loan fee in bps
     function initialize(
         address _baseToken,
         address _baseMainOracle,
         address _baseFallbackOracle,
         uint128 _baseMinLiquidity,
-        address _admin,
-        address _keeper,
+        address _owner,
+        address _guardian,
         address _treasury,
         uint16 _baseFee,
         uint16 _maxFee,
         uint16 _withdrawalFee,
         uint16 _maxTWAPChange,
-        uint16 _protocolFeeBps
+        uint16 _protocolFeeBps,
+        uint16 _flashFeeBps
     ) external initializer {
         // Construct structs from flat parameters
         IBAMM.LiquidityConfig memory liquidityConfig = IBAMM.LiquidityConfig({
@@ -807,29 +916,30 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
             maxFeeBps: _maxFee,
             protocolFeeBps: _protocolFeeBps,
             depositFeeBps: 0,
-            withdrawalFeeBps: _withdrawalFee
+            withdrawalFeeBps: _withdrawalFee,
+            flashFeeBps: _flashFeeBps
         });
 
         // Call the main initialize function
-        _initializeInternal(liquidityConfig, oracleConfig, feeConfig, _admin, _keeper, _treasury);
+        _initializeInternal(liquidityConfig, oracleConfig, feeConfig, _owner, _guardian, _treasury);
     }
 
     /// @notice Initialize the BAMM with base asset and roles (Struct-based interface)
     /// @param baseAssetConfig Configuration for the base asset
     /// @param baseOracleConfig Oracle configuration for the base asset
     /// @param baseFeeConfig Fee configuration for the base asset
-    /// @param _admin Admin address
+    /// @param _owner Owner address
     /// @param _guardian Guardian address
-    /// @param _treasury Treasury address (optional, defaults to admin)
+    /// @param _treasury Treasury address (optional, defaults to owner)
     function initialize(
         IBAMM.LiquidityConfig calldata baseAssetConfig,
         IBAMM.OracleConfig calldata baseOracleConfig,
         IBAMM.FeeConfig calldata baseFeeConfig,
-        address _admin,
+        address _owner,
         address _guardian,
         address _treasury
     ) external initializer {
-        _initializeInternal(baseAssetConfig, baseOracleConfig, baseFeeConfig, _admin, _guardian, _treasury);
+        _initializeInternal(baseAssetConfig, baseOracleConfig, baseFeeConfig, _owner, _guardian, _treasury);
     }
 
     /// @notice Internal initialization logic (shared by both overloads)
@@ -837,12 +947,12 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         IBAMM.LiquidityConfig memory baseAssetConfig,
         IBAMM.OracleConfig memory baseOracleConfig,
         IBAMM.FeeConfig memory baseFeeConfig,
-        address _admin,
+        address _owner,
         address _guardian,
         address _treasury
     ) private {
         if (baseAssetConfig.minLiquidity == 0) revert E.InvalidParameter();
-        LibUtils.requireNonZero(_admin);
+        LibUtils.requireNonZero(_owner);
         LibUtils.requireNonZero(_guardian);
         if (baseFeeConfig.protocolFeeBps > M.BPS_PRECISION) revert E.InvalidParameter();
 
@@ -861,14 +971,14 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         // Set base token
         $.baseToken = baseToken;
 
-        // Initialize ownership (admin becomes owner)
-        _initializeOwner(_admin);
+        // Initialize ownership (owner becomes owner)
+        _initializeOwner(_owner);
 
         // Grant roles
         _grantRoles(_guardian, GUARDIAN_ROLE);
 
-        // Default treasury to admin if not specified
-        address treasuryAddr = _treasury == address(0) ? _admin : _treasury;
+        // Default treasury to owner if not specified
+        address treasuryAddr = _treasury == address(0) ? _owner : _treasury;
         _grantRoles(treasuryAddr, TREASURY_ROLE);
 
         // Initialize tri-factor fee parameters with sensible defaults
@@ -925,7 +1035,7 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         // Call internal addAsset
         _addAsset(baseToken, baseAssetConfig, baseOracleConfig, baseFeeConfig, cbConfig);
 
-        emit Events.OwnershipTransferred(address(0), _admin);
+        emit Events.OwnershipTransferred(address(0), _owner);
     }
 
     // ========== ASSET MANAGEMENT ==========
@@ -986,6 +1096,11 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
         uint32 fastWindow = oracleConfig.fastWindow == 0 ? 6 hours : oracleConfig.fastWindow;
         uint32 slowWindow = oracleConfig.slowWindow == 0 ? 7 days : oracleConfig.slowWindow;
 
+        // Compute oracle ID = keccak256(baseAsset, quoteAsset)
+        // baseAsset = token being priced, quoteAsset = pool's base currency
+        LibStorage.BAMMStorage storage $ = _s();
+        bytes32 oracleId = LibStorage.computeOracleId(token, $.baseToken);
+
         // Initialize oracle data - MUST succeed, no fallback to dangerous defaults
         uint64 initialPrice;
         uint32 initialFastVol;
@@ -1001,41 +1116,52 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
             // Validate decoded values
             if (initialPrice == 0) revert E.InvalidPrice();
             if (initialFastVol > 100_000_000 || initialSlowVol > 100_000_000) revert E.InvalidParameter();
+
+            // Initialize internal oracle entry
+            LibStorage.OracleEntry storage oracleEntry = $.oracleEntries[oracleId];
+            oracleEntry.currentPrice = initialPrice;
+            oracleEntry.priceAccumulator = 0;
+            oracleEntry.fastAccumSnapshot = 0;
+            oracleEntry.fastSnapshotTime = uint32(block.timestamp);
+            oracleEntry.slowAccumSnapshot = 0;
+            oracleEntry.slowSnapshotTime = uint32(block.timestamp);
+            oracleEntry.fastWindow = fastWindow;
+            oracleEntry.slowWindow = slowWindow;
+            oracleEntry.fastVolatility = initialFastVol;
+            oracleEntry.slowVolatility = initialSlowVol;
+            oracleEntry.lastOracleUpdate = uint32(block.timestamp);
+            oracleEntry.maxTWAPChange = oracleConfig.maxTWAPChange;
+            oracleEntry.exists = true;
         } else {
-            // External oracle: reading MUST succeed, use their fastTWAP as our starting price
-            uint64 externalFastTWAP;
-            uint64 externalSlowTWAP;  // ignored, we build our own TWAPs
-            (externalFastTWAP, externalSlowTWAP, initialFastVol, initialSlowVol) =
-                _readOracleOrRevert(mainOracle, oracleConfig.fallbackOracle);
-            initialPrice = externalFastTWAP;  // Use external TWAP as starting point
+            // External oracle: reading MUST succeed, validate oracle data exists
+            IOracle.OracleData memory oracleData = _readOracleWithFallback(
+                oracleId,
+                mainOracle,
+                oracleConfig.fallbackOracle,
+                24 hours  // Max staleness
+            );
+            initialPrice = oracleData.fastTWAP;  // Use external TWAP as starting point
+            initialFastVol = oracleData.fastVolatility;
+            initialSlowVol = oracleData.slowVolatility;
         }
 
         // Get asset storage and initialize
         IBAMM.Asset storage asset = _getAsset(token);
         asset.reserves = 0;
         asset.minLiquidity = liquidityConfig.minLiquidity;
-        asset.priceAccumulator = 0;
-        asset.currentPrice = initialPrice;
-        asset.fastAccumSnapshot = 0;
-        asset.fastSnapshotTime = uint32(block.timestamp);
-        asset.slowAccumSnapshot = 0;
-        asset.slowSnapshotTime = uint32(block.timestamp);
-        asset.fastWindow = fastWindow;
-        asset.slowWindow = slowWindow;
-        asset.fastVolatility = initialFastVol;
-        asset.slowVolatility = initialSlowVol;
         asset.minFeeBps = feeConfig.minFeeBps;
         asset.maxFeeBps = feeConfig.maxFeeBps;
         asset.protocolFeeBps = feeConfig.protocolFeeBps;
         asset.depositFeeBps = feeConfig.depositFeeBps;
         asset.withdrawalFeeBps = feeConfig.withdrawalFeeBps;
-        asset.maxTWAPChange = oracleConfig.maxTWAPChange;
+        asset.flashFeeBps = feeConfig.flashFeeBps;
         asset.segmentCount = liquidityConfig.segmentCount;
         asset.decimals = decimals;
         asset.isFrozen = false;
-        asset.lastOracleUpdate = uint32(block.timestamp);
+        asset.flashLoanEnabled = false; // Disabled by default for safety
         asset.mainOracle = mainOracle;
         asset.fallbackOracle = oracleConfig.fallbackOracle;
+        asset.oracleId = oracleId;  // Store computed oracle ID
 
         // Set liquidity profile
         _setLiquidityProfile(
@@ -1046,8 +1172,6 @@ abstract contract BAMMManagement is IBAMM, Initializable, ReentrancyGuard, Ownab
             liquidityConfig.minBreadth,
             liquidityConfig.maxBreadth
         );
-
-        LibStorage.BAMMStorage storage $ = _s();
 
         // Set circuit breaker
         IBAMM.CircuitBreaker storage breaker = $.circuitBreakers[token];
