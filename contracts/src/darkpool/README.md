@@ -169,8 +169,6 @@ forge script script/EnableDarkPool.s.sol \
   --broadcast
 ```
 
-**See [DARKPOOL_INTEGRATION.md](../../specs/DARKPOOL_INTEGRATION.md) for complete integration guide.**
-
 ### Standalone Deployment (Advanced)
 
 For manual DarkPool deployment without BAMMFactory:
@@ -185,7 +183,7 @@ forge script script/DeployDarkPool.s.sol:DeployDarkPool \
 export DARKPOOL_FACTORY=0x...
 export BAMM_POOL=0x...
 export GROTH16_VERIFIER=0x...
-export DARKPOOL_ADMIN=0x...
+export DARKPOOL_OWNER=0x...
 
 forge script script/CreateDarkPool.s.sol:CreateDarkPool \
   --rpc-url $RPC_URL \

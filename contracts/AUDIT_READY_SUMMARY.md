@@ -20,7 +20,7 @@
 ### Contract Hierarchy
 ```
 BAMM.sol (737 LOC) - Main AMM contract
-├── BAMMManagement.sol (917 LOC) - Admin functions
+├── BAMMManagement.sol (917 LOC) - Owner functions
 │   ├── InternalOracle.sol (264 LOC) - TWAP oracle
 │   ├── LibAccessControl (239 LOC) - Role-based access
 │   └── LibRescue (156 LOC) - Emergency rescue
@@ -94,9 +94,9 @@ User → BAMM.swap()
 ---
 
 ### 3. **BAMMManagement.sol** (917 LOC)
-**What it does**: Admin, access control, pausing, freezing, oracle config
+**What it does**: Owner, access control, pausing, freezing, oracle config
 **Key functions**:
-- Access control (4-day timelock for ADMIN/KEEPER)
+- Access control (4-day timelock for OWNER/KEEPER)
 - Asset management (add/remove/freeze/circuit-breaker)
 - Fee configuration
 - Oracle setup (internal vs external)
@@ -139,7 +139,7 @@ User → BAMM.swap()
 ### 5. **LibAccessControl.sol** (239 LOC)
 **What it does**: Role-based access with 4-day timelock + 3-day acceptance window
 **Key roles**:
-- ADMIN (timelocked) - All config changes
+- OWNER (timelocked) - All config changes
 - GUARDIAN (instant) - Freeze/pause emergency actions
 - KEEPER (timelocked) - Oracle updates
 - TREASURY (instant) - Fee collection
@@ -152,7 +152,7 @@ User → BAMM.swap()
 **Audit focus**:
 - [ ] Cannot skip timelock
 - [ ] Cannot accept expired grants
-- [ ] Last admin cannot be removed
+- [ ] Last owner cannot be removed
 - [ ] Role replacement logic (replacing != address(0))
 
 ---
@@ -183,7 +183,7 @@ User → BAMM.swap()
    ```
 
 ### Trust Assumptions
-- ADMIN is trusted but timelocked (4 days)
+- OWNER is trusted but timelocked (4 days)
 - GUARDIAN is semi-trusted (can freeze but not steal)
 - KEEPER is trusted for oracle updates
 - External oracles (if used) are trusted
@@ -209,16 +209,16 @@ User → BAMM.swap()
 
 ### BAMMManagement.sol
 - ✅ No-op guards (pause/freeze/updateHooks)
-- ✅ requireAdminOrGuardian() helper (saves ~5k gas)
+- ✅ requireOwnerOrGuardian() helper (saves ~5k gas)
 - ✅ Fixed circuit breaker (only triggers on threshold breach)
 - ✅ ERC-165 validation for hooks
 - ✅ fullMulDiv for base asset conversion
 
-**Gas Impact**: ~20k gas saved on no-op admin calls, ~500 gas/asset on base updates
+**Gas Impact**: ~20k gas saved on no-op owner calls, ~500 gas/asset on base updates
 
 ### LibAccessControl.sol
 - ✅ Added requireAnyRole() for dual-role checks
-- ✅ requireAdminOrGuardian() convenience wrapper
+- ✅ requireOwnerOrGuardian() convenience wrapper
 
 ---
 
@@ -291,7 +291,7 @@ User → BAMM.swap()
 3. **LibPricing.sol** (2-3 hours) - Most critical, all pricing logic
 4. **BAMM.sol** (2 hours) - Core swap/deposit/withdraw
 5. **InternalOracle.sol** (1 hour) - TWAP logic
-6. **BAMMManagement.sol** (2 hours) - Admin functions
+6. **BAMMManagement.sol** (2 hours) - Owner functions
 7. **LibAccessControl.sol** (1 hour) - Role security
 8. **Hooks** (1 hour) - Review BaseBAMMHook and examples
 9. **Dark Pool** (if scope includes ZK) - Separate module
@@ -335,12 +335,12 @@ User → BAMM.swap()
 
 ### Security
 - [ ] Reentrancy: All state-changing functions use `nonReentrant`
-- [ ] Access control: All admin functions check roles
+- [ ] Access control: All owner functions check roles
 - [ ] Integer overflow: Using Solidity 0.8.28 (built-in checks) + explicit checks
 - [ ] Oracle manipulation: TWAP averages prevent single-block manipulation
 - [ ] Front-running: Slippage protection via `minAmountOut`
 - [ ] Denial of service: Circuit breakers and pause mechanisms
-- [ ] Centralization: 4-day timelock on admin actions
+- [ ] Centralization: 4-day timelock on owner actions
 
 ### Correctness
 - [ ] Reserve accounting: LP tokens = scaled balances × index
