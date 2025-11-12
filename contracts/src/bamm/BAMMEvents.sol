@@ -42,6 +42,10 @@ library BAMMErrors {
 
     // Hook errors
     error InvalidHookContract(address hook, string missingFunction);
+
+    // Flash loan errors
+    error FlashLoanCallbackFailed();
+    error PoolPaused();
 }
 
 /// @title BAMM Events
@@ -63,12 +67,12 @@ library BAMMEvents {
     event OracleUpdated(address indexed token, address indexed mainOracle, address indexed fallbackOracle);
 
     // Oracle events
-    event OracleUpdate(address indexed token, uint64 fastPrice, uint64 slowPrice, uint32 fastVol, uint32 slowVol, address indexed keeper);
+    event OracleUpdate(bytes32 indexed oracleId, uint64 fastPrice, uint64 slowPrice, uint32 fastVol, uint32 slowVol, address indexed updater);
     event VolatilityWeightsUpdated(uint8 fastWeight, uint8 slowWeight);
     event LiquidityProfileUpdated(address indexed token, uint8 segments);
     event CircuitBreakerTriggered(address indexed token, int256 deviationBps, uint256 timestamp);
 
-    // Admin events
+    // Owner events
     event PoolPaused();
     event PoolUnpaused();
     event RoleGrantPending(address indexed account, bytes32 indexed role, address indexed replacing);
@@ -87,4 +91,9 @@ library BAMMEvents {
 
     // Hook events
     event HooksUpdated(address indexed token, address indexed hookAddress);
+
+    // Flash loan events
+    event FlashLoansEnabled(address indexed token);
+    event FlashLoansDisabled(address indexed token);
+    event FlashFeeUpdated(address indexed token, uint16 oldFlashFeeBps, uint16 newFlashFeeBps);
 }

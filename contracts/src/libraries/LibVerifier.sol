@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IDarkPool} from "../interfaces/IDarkPool.sol";
-import {LibDarkPoolStorage as LibStorage} from "./LibDarkPoolStorage.sol";
+import {LibStorage} from "./LibStorage.sol";
 import {DarkPoolErrors as Errors} from "../darkpool/DarkPoolErrors.sol";
 import {Poseidon} from "./generated/Poseidon.sol";
 
@@ -19,7 +19,7 @@ library LibVerifier {
         IDarkPool.Proof calldata proof,
         IDarkPool.ExtData calldata extData
     ) internal view returns (bool) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
 
         // 1. Validate array lengths match circuit expectations
         uint256 maxAssets = 4;
@@ -102,7 +102,7 @@ library LibVerifier {
         IDarkPool.Proof calldata proof,
         bytes32 aspRoot
     ) private view returns (bool) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
 
         // Pack public inputs
         // Order: [merkleRoot, nullifier[0], nullifier[1], ..., extDataHash, aspRoot]
@@ -136,7 +136,7 @@ library LibVerifier {
     /// @notice Mark nullifiers as spent
     /// @param nullifiers Array of nullifiers to mark
     function markNullifiersSpent(bytes32[] calldata nullifiers) internal {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
 
         for (uint256 i = 0; i < nullifiers.length; i++) {
             $.nullifierSpent[nullifiers[i]] = true;

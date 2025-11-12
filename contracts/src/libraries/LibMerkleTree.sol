@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {LibDarkPoolStorage as LibStorage} from "./LibDarkPoolStorage.sol";
+import {LibStorage} from "./LibStorage.sol";
 import {DarkPoolErrors as Errors} from "../darkpool/DarkPoolErrors.sol";
 import {Poseidon} from "./generated/Poseidon.sol";
 import {Zeros} from "./generated/Zeros.sol";
@@ -47,7 +47,7 @@ library LibMerkleTree {
     /// @param leaf Leaf to insert
     /// @return leafIndex Index where leaf was inserted
     function insertLeaf(bytes32 leaf) internal returns (uint32 leafIndex) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
 
         // Check tree is not full
         leafIndex = $.nextLeafIndex;
@@ -74,7 +74,7 @@ library LibMerkleTree {
     /// @dev Uses "filled subtrees" technique: stores rightmost filled subtree at each level
     /// @dev When inserting at index i, if bit j is set in i, the sibling comes from filledSubtrees[j]
     function _computeRoot(bytes32 leaf, uint32 leafIndex) private returns (bytes32 root) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
 
         bytes32 currentHash = leaf;
         uint32 currentIndex = leafIndex;

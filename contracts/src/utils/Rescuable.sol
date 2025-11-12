@@ -116,7 +116,7 @@ abstract contract Rescuable is ReentrancyGuard {
     }
 
     /// @notice Cancel a pending rescue request
-    /// @dev Must be called by the requester or authorized admin
+    /// @dev Must be called by the requester or authorized owner
     function _cancelRescue() internal {
         RescueRequest storage request = _rescueRequests[msg.sender];
 

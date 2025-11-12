@@ -8,7 +8,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IBAMM} from "../interfaces/IBAMM.sol";
 
-import {LibDarkPoolStorage as LibStorage} from "../libraries/LibDarkPoolStorage.sol";
+import {LibStorage} from "../libraries/LibStorage.sol";
 import {LibMerkleTree} from "../libraries/LibMerkleTree.sol";
 import {LibVerifier} from "../libraries/LibVerifier.sol";
 import {LibBAMM} from "../libraries/LibBAMM.sol";
@@ -23,7 +23,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
     // ========== MODIFIERS ==========
 
     modifier notPaused() {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         if ($.paused) revert Errors.Paused();
         _;
     }
@@ -34,13 +34,13 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
     function initialize(
         address _bammPool,
         address _verifier,
-        address _admin
+        address _owner
     ) external override initializer {
         if (_bammPool == address(0)) revert Errors.ZeroAddress();
         if (_verifier == address(0)) revert Errors.ZeroAddress();
-        if (_admin == address(0)) revert Errors.ZeroAddress();
+        if (_owner == address(0)) revert Errors.ZeroAddress();
 
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
 
         $.bammPool = _bammPool;
         $.verifier = _verifier;
@@ -50,7 +50,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         $.requireASP = false;
 
         // Initialize ownership
-        _initializeOwner(_admin);
+        _initializeOwner(_owner);
 
         // Initialize merkle tree with first zero root
         bytes32 initialRoot = LibMerkleTree.getZeroValue(LibStorage.TREE_HEIGHT);
@@ -93,7 +93,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         if (amount == 0) revert Errors.ZeroAmount();
         if (commitment == bytes32(0)) revert Errors.InvalidParameter();
 
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         address bamm = $.bammPool;
 
         // Transfer token to DarkPool
@@ -160,7 +160,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
 
         // 5. Emit transaction event
         emit Transact(proof.nullifiers, proof.outCommitments, proof.extDataHash);
-        emit NewRoot(currentRoot(), LibStorage.getStorage().nextLeafIndex - 1);
+        emit NewRoot(currentRoot(), LibStorage.getDarkPoolStorage().nextLeafIndex - 1);
 
         return true;
     }
@@ -222,18 +222,18 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         }
     }
 
-    // ========== ADMIN FUNCTIONS ==========
+    // ========== OWNER FUNCTIONS ==========
 
     /// @inheritdoc IDarkPool
     function setPaused(bool _paused) external override onlyOwner {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         $.paused = _paused;
         emit Paused(_paused);
     }
 
     /// @inheritdoc IDarkPool
     function setRequireASP(bool _requireASP) external override onlyOwner {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         $.requireASP = _requireASP;
         emit RequireASPSet(_requireASP);
     }
@@ -242,7 +242,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
     function setASPRootApproved(bytes32 aspRoot, bool approved) external override onlyOwner {
         if (aspRoot == bytes32(0)) revert Errors.ZeroAddress();
 
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
 
         if (approved) {
             // Approve for 30 days by default
@@ -262,7 +262,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         if (aspRoot == bytes32(0)) revert Errors.ZeroAddress();
         if (expiryTimestamp <= block.timestamp) revert Errors.InvalidParameter();
 
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         $.aspRootExpiry[aspRoot] = expiryTimestamp;
 
         emit ASPRootApproved(aspRoot, true);
@@ -272,12 +272,12 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
 
     /// @inheritdoc IDarkPool
     function currentRoot() public view override returns (bytes32) {
-        return LibStorage.getStorage().currentRoot;
+        return LibStorage.getDarkPoolStorage().currentRoot;
     }
 
     /// @inheritdoc IDarkPool
     function isSpent(bytes32 nullifier) external view override returns (bool) {
-        return LibStorage.getStorage().nullifierSpent[nullifier];
+        return LibStorage.getDarkPoolStorage().nullifierSpent[nullifier];
     }
 
     /// @inheritdoc IDarkPool
@@ -287,32 +287,32 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
 
     /// @inheritdoc IDarkPool
     function getBammPool() external view override returns (address) {
-        return LibStorage.getStorage().bammPool;
+        return LibStorage.getDarkPoolStorage().bammPool;
     }
 
     /// @inheritdoc IDarkPool
     function getVerifier() external view override returns (address) {
-        return LibStorage.getStorage().verifier;
+        return LibStorage.getDarkPoolStorage().verifier;
     }
 
     /// @inheritdoc IDarkPool
-    function getAdmin() external view override returns (address) {
+    function getOwner() external view override returns (address) {
         return owner();
     }
 
     /// @inheritdoc IDarkPool
     function isPaused() external view override returns (bool) {
-        return LibStorage.getStorage().paused;
+        return LibStorage.getDarkPoolStorage().paused;
     }
 
     /// @inheritdoc IDarkPool
     function isASPRequired() external view override returns (bool) {
-        return LibStorage.getStorage().requireASP;
+        return LibStorage.getDarkPoolStorage().requireASP;
     }
 
     /// @inheritdoc IDarkPool
     function isASPRootApproved(bytes32 aspRoot) external view override returns (bool) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         uint256 expiry = $.aspRootExpiry[aspRoot];
         return expiry > 0 && expiry >= block.timestamp;
     }
@@ -329,7 +329,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         bytes calldata
     ) external view returns (bytes4) {
         // Only accept LP tokens from our BAMM pool
-        if (msg.sender != LibStorage.getStorage().bammPool) {
+        if (msg.sender != LibStorage.getDarkPoolStorage().bammPool) {
             revert Errors.Unauthorized();
         }
         return this.onERC1155Received.selector;
@@ -345,7 +345,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         bytes calldata
     ) external view returns (bytes4) {
         // Only accept LP tokens from our BAMM pool
-        if (msg.sender != LibStorage.getStorage().bammPool) {
+        if (msg.sender != LibStorage.getDarkPoolStorage().bammPool) {
             revert Errors.Unauthorized();
         }
         return this.onERC1155BatchReceived.selector;

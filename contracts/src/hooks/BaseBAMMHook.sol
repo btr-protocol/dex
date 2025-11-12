@@ -29,14 +29,10 @@ abstract contract BaseBAMMHook is IBAMMHooks, ERC165 {
         return interfaceId == type(IBAMMHooks).interfaceId || super.supportsInterface(interfaceId);
     }
 
-    /// @notice Returns the hook success selector constant
-    function HOOK_SUCCESS() external pure returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
-    }
-
     // ========== DEFAULT NO-OP IMPLEMENTATIONS ==========
     // Override these in your derived contract as needed
     // Note: public (not external) so derived contracts can inherit interface compliance
+    // Each hook MUST return its own function selector for validation
 
     function preDeposit(
         address,
@@ -44,7 +40,7 @@ abstract contract BaseBAMMHook is IBAMMHooks, ERC165 {
         uint256,
         bytes calldata
     ) public virtual onlyBAMM returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
+        return this.preDeposit.selector;
     }
 
     function postDeposit(
@@ -54,7 +50,7 @@ abstract contract BaseBAMMHook is IBAMMHooks, ERC165 {
         uint256,
         bytes calldata
     ) public virtual onlyBAMM returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
+        return this.postDeposit.selector;
     }
 
     function preWithdraw(
@@ -63,7 +59,7 @@ abstract contract BaseBAMMHook is IBAMMHooks, ERC165 {
         uint256,
         bytes calldata
     ) public virtual onlyBAMM returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
+        return this.preWithdraw.selector;
     }
 
     function postWithdraw(
@@ -73,7 +69,7 @@ abstract contract BaseBAMMHook is IBAMMHooks, ERC165 {
         uint256,
         bytes calldata
     ) public virtual onlyBAMM returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
+        return this.postWithdraw.selector;
     }
 
     function preBuy(
@@ -84,7 +80,7 @@ abstract contract BaseBAMMHook is IBAMMHooks, ERC165 {
         uint256,
         bytes calldata
     ) public virtual onlyBAMM returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
+        return this.preBuy.selector;
     }
 
     function postBuy(
@@ -95,7 +91,7 @@ abstract contract BaseBAMMHook is IBAMMHooks, ERC165 {
         uint256,
         bytes calldata
     ) public virtual onlyBAMM returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
+        return this.postBuy.selector;
     }
 
     function preSell(
@@ -106,7 +102,7 @@ abstract contract BaseBAMMHook is IBAMMHooks, ERC165 {
         uint256,
         bytes calldata
     ) public virtual onlyBAMM returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
+        return this.preSell.selector;
     }
 
     function postSell(
@@ -117,6 +113,26 @@ abstract contract BaseBAMMHook is IBAMMHooks, ERC165 {
         uint256,
         bytes calldata
     ) public virtual onlyBAMM returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
+        return this.postSell.selector;
+    }
+
+    function preFlashLoan(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes calldata
+    ) public virtual onlyBAMM returns (bytes4) {
+        return this.preFlashLoan.selector;
+    }
+
+    function postFlashLoan(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes calldata
+    ) public virtual onlyBAMM returns (bytes4) {
+        return this.postFlashLoan.selector;
     }
 }

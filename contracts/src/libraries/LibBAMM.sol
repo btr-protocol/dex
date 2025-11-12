@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IBAMM} from "../interfaces/IBAMM.sol";
 import {IDarkPool} from "../interfaces/IDarkPool.sol";
-import {LibDarkPoolStorage as LibStorage} from "./LibDarkPoolStorage.sol";
+import {LibStorage} from "./LibStorage.sol";
 import {DarkPoolErrors as Errors} from "../darkpool/DarkPoolErrors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
@@ -78,7 +78,7 @@ library LibBAMM {
     /// @notice Execute swap on BAMM
     /// @param extData External data
     function _executeSwap(IDarkPool.ExtData calldata extData) private {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         address bamm = $.bammPool;
 
         // Expect: extData.assets = [tokenIn, tokenOut]
@@ -115,7 +115,7 @@ library LibBAMM {
     /// @notice Execute LP deposit to BAMM
     /// @param extData External data
     function _executeLPDeposit(IDarkPool.ExtData calldata extData) private {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         address bamm = $.bammPool;
 
         // Expect: extData.assets = [token]
@@ -169,7 +169,7 @@ library LibBAMM {
     /// @notice Execute LP withdraw from BAMM
     /// @param extData External data
     function _executeLPWithdraw(IDarkPool.ExtData calldata extData) private {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         address bamm = $.bammPool;
 
         // Expect: extData.assets = [token]
@@ -234,7 +234,7 @@ library LibBAMM {
     /// @param scaledShares Scaled shares amount
     /// @return lpTokens LP token amount
     function computeLPTokens(address token, uint256 scaledShares) internal view returns (uint256 lpTokens) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         address bamm = $.bammPool;
 
         IBAMM.LPState memory lpState = IBAMM(bamm).lpStates(token);
@@ -246,7 +246,7 @@ library LibBAMM {
     /// @param lpTokens LP token amount
     /// @return scaledShares Scaled shares amount
     function computeScaledShares(address token, uint256 lpTokens) internal view returns (uint256 scaledShares) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getStorage();
+        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
         address bamm = $.bammPool;
 
         IBAMM.LPState memory lpState = IBAMM(bamm).lpStates(token);

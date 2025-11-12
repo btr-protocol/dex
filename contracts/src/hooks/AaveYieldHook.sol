@@ -34,7 +34,7 @@ contract AaveYieldHook is BaseBAMMHook {
     ) public override onlyBAMM returns (bytes4) {
         IERC20(token).approve(address(aavePool), amount);
         aavePool.supply(token, amount, bamm, 0);
-        return this.HOOK_SUCCESS.selector;
+        return this.postDeposit.selector;
     }
 
     /// @dev Withdraw from Aave to cover user withdrawal
@@ -46,7 +46,7 @@ contract AaveYieldHook is BaseBAMMHook {
         bytes calldata
     ) public override onlyBAMM returns (bytes4) {
         aavePool.withdraw(token, amount, bamm);
-        return this.HOOK_SUCCESS.selector;
+        return this.postWithdraw.selector;
     }
 
     // ========== SWAP HOOKS ==========
@@ -65,7 +65,7 @@ contract AaveYieldHook is BaseBAMMHook {
             uint256 needed = expectedAmount - bammBalance;
             aavePool.withdraw(token, needed, bamm);
         }
-        return this.HOOK_SUCCESS.selector;
+        return this.preBuy.selector;
     }
 
     /// @dev Deposit all newly received tokens into Aave for yield
@@ -80,7 +80,7 @@ contract AaveYieldHook is BaseBAMMHook {
     ) public override onlyBAMM returns (bytes4) {
         IERC20(token).approve(address(aavePool), amountIn);
         aavePool.supply(token, amountIn, bamm, 0);
-        return this.HOOK_SUCCESS.selector;
+        return this.postSell.selector;
     }
 
     // All other hooks inherit no-op implementations from BaseBAMMHook

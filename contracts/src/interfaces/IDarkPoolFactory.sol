@@ -7,19 +7,19 @@ interface IDarkPoolFactory {
     // ========== EVENTS ==========
 
     event DarkPoolCreated(address indexed bammPool, address indexed darkPool);
-    event BeaconUpgraded(address indexed newImplementation);
+    // Note: BeaconUpgraded event is inherited from BeaconFactory
 
     // ========== FACTORY FUNCTIONS ==========
 
     /// @notice Create a new DarkPool proxy for a BAMM pool
     /// @param bammPool The BAMM pool to create DarkPool for
     /// @param verifier Groth16 verifier contract
-    /// @param admin Admin address for the DarkPool
+    /// @param darkPoolOwner Owner address for the DarkPool
     /// @return darkPool Address of the deployed DarkPool proxy
     function createDarkPool(
         address bammPool,
         address verifier,
-        address admin
+        address darkPoolOwner
     ) external returns (address darkPool);
 
     /// @notice Upgrade all DarkPool implementations via beacon
@@ -28,8 +28,9 @@ interface IDarkPoolFactory {
 
     // ========== VIEW FUNCTIONS ==========
 
-    /// @notice Get the beacon address
-    /// @return beacon Beacon contract address
+    /// @notice Get the beacon contract
+    /// @return beacon Beacon contract (returns UpgradeableBeacon from Solady)
+    /// @dev To get address: address(factory.beacon())
     function beacon() external view returns (address beacon);
 
     /// @notice Get the DarkPool proxy for a BAMM pool

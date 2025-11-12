@@ -151,8 +151,8 @@ library LibMaths {
     }
 
     /// @notice Decode B64 to Chainlink standard 1e8 precision
-    /// @dev DEPRECATED: Use decodePriceTo1e18() for internal calculations to avoid precision loss
-    /// @dev Only use this for external integrations that specifically require 1e8 format (e.g., Chainlink)
+    /// @dev For external integrations requiring 1e8 format (e.g., Chainlink compatibility)
+    /// @dev Use decodePriceTo1e18() for internal calculations to maintain precision
     /// @param packed Encoded uint64
     /// @return price Price in 1e8 format
     function decodePriceTo1e8(uint64 packed) internal pure returns (uint256 price) {
