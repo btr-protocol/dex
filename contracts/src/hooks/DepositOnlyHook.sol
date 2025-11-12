@@ -35,7 +35,7 @@ contract DepositOnlyHook is BaseBAMMHook {
         bytes calldata
     ) public override onlyBAMM returns (bytes4) {
         depositCount[depositor]++;
-        return this.HOOK_SUCCESS.selector;
+        return this.preDeposit.selector;
     }
 
     /// @dev Example: Emit event, update metrics, etc.
@@ -46,7 +46,7 @@ contract DepositOnlyHook is BaseBAMMHook {
         uint256,
         bytes calldata
     ) public override onlyBAMM returns (bytes4) {
-        return this.HOOK_SUCCESS.selector;
+        return this.postDeposit.selector;
     }
 
     // All other hooks inherit no-op implementations from BaseBAMMHook

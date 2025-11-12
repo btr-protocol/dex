@@ -42,6 +42,7 @@ interface IBAMM {
         uint16 protocolFeeBps;      // Protocol fee in bps (e.g., 1000 = 10% of swap fees)
         uint16 depositFeeBps;       // Deposit fee in bps (default 0, for LP arbitrage mitigation)
         uint16 withdrawalFeeBps;    // Withdrawal fee in bps (default 0, for LP arbitrage mitigation)
+        uint16 flashFeeBps;         // Flash loan fee in bps (default 0, e.g., 0 = 0% like Balancer)
     }
 
     /// @notice Circuit breaker configuration
@@ -52,54 +53,41 @@ interface IBAMM {
 
     // ========== STRUCTS ==========
 
-    /// @notice Core state for each asset (OPTIMIZED: 9 slots with liability tracking)
+    /// @notice Core state for each asset (OPTIMIZED: 9 slots with liability tracking and flash loans)
     /// @dev Oracle modes: internal-only (both=pool), external-only (both=external), hybrid (mix)
     /// @dev Packing strategy groups fields by size to minimize storage slots
-    /// @dev Coverage ratio = (reserves * price) / (liabilities * price) = reserves / liabilities
+    /// @dev Coverage ratio = reserves / liabilities (clamped to [0, 1] for withdrawal haircut)
+    /// @dev Target coverage ratio > 1 (e.g., 1.05 = 105% = seek 5% over-collateralization)
     struct Asset {
         // SLOT 1: uint128 + uint128 = 32 bytes
         uint128 reserves;              // Physical tokens in pool (assets)
         uint128 liabilities;           // Total deposited amount (LP claims in token units, Wombat-style)
 
-        // SLOT 2: uint256 = 32 bytes
-        uint256 priceAccumulator;      // Σ(price_i × Δt_i) - cumulative price-seconds in b64 format
-
-        // SLOT 3: uint256 = 32 bytes
-        uint256 fastAccumSnapshot;     // Accumulator value at last fast snapshot
-
-        // SLOT 4: uint256 = 32 bytes
-        uint256 slowAccumSnapshot;     // Accumulator value at last slow snapshot
-
-        // SLOT 5: uint64 + 6×uint32 = 32 bytes
-        uint64 currentPrice;           // Current spot price in b64 format (updated each oracle call)
-        uint32 fastSnapshotTime;       // Timestamp when fast snapshot was taken
-        uint32 slowSnapshotTime;       // Timestamp when slow snapshot was taken
-        uint32 fastWindow;             // Fast TWAP window in seconds (e.g., 6 hours = 21600)
-        uint32 slowWindow;             // Slow TWAP window in seconds (e.g., 7 days = 604800)
-        uint32 fastVolatility;         // Fast volatility EMA (1e6 base, smoothing parameter)
-        uint32 slowVolatility;         // Slow volatility EMA (1e6 base, smoothing parameter, determines base fee)
-
-        // SLOT 6: address + uint32 + uint8 + uint8 + bool = 27 bytes
+        // SLOT 2: address + uint8 + uint8 + 2×bool = 22 bytes
         address mainOracle;            // Main oracle (address(this)=internal, else=external IOracle)
-        uint32 lastOracleUpdate;       // Timestamp of last oracle update
         uint8 decimals;                // Token decimals (6, 8, 18, etc.)
         uint8 segmentCount;            // Active segments (2-16)
         bool isFrozen;                 // If true, only withdrawals allowed
+        bool flashLoanEnabled;         // If true, asset can be flash loaned
 
-        // SLOT 7: address + 6×uint16 = 32 bytes
+        // SLOT 3: address + 6×uint16 = 32 bytes
         address fallbackOracle;        // Fallback oracle (address(0)=disabled, address(this)=internal)
         uint16 minFeeBps;              // Minimum swap fee for this asset (basis points)
         uint16 maxFeeBps;              // Maximum swap fee for this asset (basis points)
         uint16 protocolFeeBps;         // Protocol fee as % of swap fees (basis points, e.g., 1000 = 10%)
         uint16 depositFeeBps;          // Deposit fee in bps (default 0, for LP arbitrage mitigation)
         uint16 withdrawalFeeBps;       // Withdrawal fee in bps (default 0, for LP arbitrage mitigation)
-        uint16 maxTWAPChange;          // Max price change per update in bps (e.g., 1000 = 10%)
+        uint16 flashFeeBps;            // Flash loan fee in bps (default 0, e.g., 0 = 0% like Balancer)
 
-        // SLOT 8: address = 20 bytes
+        // SLOT 4: address + uint16 = 22 bytes
         address hooks;                 // Hook contract implementing IBAMMHooks interface
+        uint16 targetCoverageRatio;    // Target coverage ratio in bps (e.g., 10500 = 1.05 = 105%, seeking 5% overcollateralization)
 
-        // SLOT 9: uint128 = 16 bytes
+        // SLOT 5: uint128 = 16 bytes
         uint128 minLiquidity;          // Minimum liquidity that must remain in pool
+
+        // SLOT 6: bytes32 = 32 bytes
+        bytes32 oracleId;              // keccak256(abi.encodePacked(token, quoteAsset)) - tracks base/quote pair
     }
 
     /// @notice Liquidity profile for piecewise bonding curve
@@ -119,12 +107,12 @@ interface IBAMM {
         uint128 liquidityIndex;       // Rebasing multiplier (starts 1e18)
     }
 
-    /// @notice Circuit breaker configuration (read by off-chain keeper)
-    /// @dev ALL deviation checking is performed off-chain by keeper
-    /// @dev Stablecoins: Keeper compares oracle prices directly (USDC vs DAI should be ~1:1)
-    /// @dev Correlated assets: Keeper compares relative weekly price changes independently
+    /// @notice Circuit breaker configuration (read by off-chain guardian)
+    /// @dev ALL deviation checking is performed off-chain by guardian
+    /// @dev Stablecoins: Guardian compares oracle prices directly (USDC vs DAI should be ~1:1)
+    /// @dev Correlated assets: Guardian compares relative weekly price changes independently
     ///      Example: If WETH +5% over week and wstETH +2%, deviation = 3% (triggers at 3%+ for LSTs)
-    /// @dev Volatile assets: Keeper uses same relative change methodology with higher thresholds
+    /// @dev Volatile assets: Guardian uses same relative change methodology with higher thresholds
     struct CircuitBreaker {
         address referenceAsset;       // Reference asset to compare against (address(0) = disabled)
         uint16 maxDeviation;          // Max deviation in bps (100=1% stables, 300=3% LSTs, 3000=30% volatile)
@@ -178,15 +166,6 @@ interface IBAMM {
         uint256 lpTokensBurned,
         uint256 amountOut,
         uint256 withdrawalFeeBps
-    );
-
-    event OracleUpdate(
-        address indexed token,
-        uint64 fastTWAP,
-        uint64 slowTWAP,
-        uint32 fastVolatility,
-        uint32 slowVolatility,
-        address indexed keeper
     );
 
     event AssetFrozen(address indexed token, string reason);
@@ -322,7 +301,7 @@ interface IBAMM {
     /// @return tvl Total value locked
     function getTotalValue() external view returns (uint256 tvl);
 
-    // ========== ADMIN FUNCTIONS ==========
+    // ========== OWNER FUNCTIONS ==========
 
     /// @notice Add new asset to the pool
     /// @param token Token address
@@ -341,9 +320,20 @@ interface IBAMM {
         CircuitBreakerConfig calldata circuitBreaker
     ) external;
 
-    /// @notice Update base denomination token
-    /// @param newBaseAsset New base token address
-    function updateBaseAsset(address newBaseAsset) external;
+    /// @notice Start paginated base asset migration (STEP 1 of 3)
+    /// @param newBaseToken New base token address
+    /// @param oracleReinitData Oracle reinitialization data for internal oracles
+    function startBaseAssetUpdate(address newBaseToken, bytes calldata oracleReinitData) external;
+
+    /// @notice Process batch of asset price conversions during base asset migration (STEP 2 of 3, call repeatedly)
+    /// @param batchSize Number of assets to process in this batch
+    function batchMigrateAssetPrices(uint256 batchSize) external;
+
+    /// @notice Complete base asset migration (STEP 3 of 3)
+    function finishBaseAssetUpdate() external;
+
+    /// @notice Cancel an in-progress base asset migration
+    function cancelBaseAssetUpdate() external;
 
     /// @notice Pause entire pool
     function pausePool() external;
@@ -351,12 +341,12 @@ interface IBAMM {
     /// @notice Unpause pool
     function unpausePool() external;
 
-    /// @notice Emergency freeze specific asset (admin or guardian)
+    /// @notice Emergency freeze specific asset (owner or guardian)
     /// @param token Token to freeze
     /// @param reason Reason for freezing
     function freezeAsset(address token, string calldata reason) external;
 
-    /// @notice Unfreeze asset (admin or guardian)
+    /// @notice Unfreeze asset (owner or guardian)
     /// @param token Token to unfreeze
     function unfreezeAsset(address token) external;
 
@@ -397,6 +387,19 @@ interface IBAMM {
         uint16 minFeeBps,
         uint16 maxFeeBps
     ) external;
+
+    /// @notice Enable flash loans for an asset
+    /// @param token Token address
+    function enableFlashLoans(address token) external;
+
+    /// @notice Disable flash loans for an asset
+    /// @param token Token address
+    function disableFlashLoans(address token) external;
+
+    /// @notice Update flash loan fee for an asset
+    /// @param token Token address
+    /// @param flashFeeBps New flash loan fee in basis points
+    function updateFlashFee(address token, uint16 flashFeeBps) external;
 
     /// @notice Update hook contract for an asset
     /// @param token Token address
@@ -456,7 +459,7 @@ interface IBAMM {
     /// @param account Address to blacklist
     function blacklistAddress(address account) external;
 
-    /// @notice Remove address from blacklist (admin or guardian)
+    /// @notice Remove address from blacklist (owner or guardian)
     /// @param account Address to remove from blacklist
     function removeFromBlacklist(address account) external;
 

@@ -42,8 +42,8 @@ interface IDarkPool {
     /// @notice Initialize the DarkPool proxy
     /// @param _bammPool The BAMM pool this DarkPool serves
     /// @param _verifier Groth16 verifier contract
-    /// @param _admin Admin address for emergency controls
-    function initialize(address _bammPool, address _verifier, address _admin) external;
+    /// @param _owner Owner address for emergency controls
+    function initialize(address _bammPool, address _verifier, address _owner) external;
 
     // ========== DEPOSIT FUNCTIONS ==========
 
@@ -84,7 +84,7 @@ interface IDarkPool {
         bytes calldata recipientHints
     ) external returns (bool success);
 
-    // ========== ADMIN FUNCTIONS ==========
+    // ========== OWNER FUNCTIONS ==========
 
     /// @notice Pause/unpause the contract
     /// @param _paused New pause state
@@ -123,9 +123,9 @@ interface IDarkPool {
     /// @return verifier Verifier address
     function getVerifier() external view returns (address verifier);
 
-    /// @notice Get the admin address
-    /// @return admin Admin address
-    function getAdmin() external view returns (address admin);
+    /// @notice Get the owner address
+    /// @return owner Owner address
+    function getOwner() external view returns (address owner);
 
     /// @notice Check if the contract is paused
     /// @return paused True if paused

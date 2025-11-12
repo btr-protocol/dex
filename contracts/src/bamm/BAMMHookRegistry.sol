@@ -15,8 +15,8 @@ abstract contract BAMMHookRegistry {
     /// @notice Get asset storage for given token (must be implemented by child)
     function _getAsset(address token) internal view virtual returns (IBAMM.Asset storage);
 
-    /// @notice Modifier for admin-only functions (must be implemented by child)
-    modifier onlyAdmin() virtual;
+    /// @notice Modifier for owner-only functions (must be implemented by child)
+    modifier onlyOwner() virtual;
 
     // ========== HOOK REGISTRY ==========
 
@@ -28,7 +28,7 @@ abstract contract BAMMHookRegistry {
     function updateHooks(
         address token,
         address hookAddress
-    ) external onlyAdmin {
+    ) external onlyOwner {
         IBAMM.Asset storage asset = _getAsset(token);
         if (asset.segmentCount == 0) revert E.AssetNotFound();
 
@@ -55,28 +55,113 @@ abstract contract BAMMHookRegistry {
         return asset.hooks;
     }
 
-    /// @notice Validate hook contract using ERC-165 interface detection
-    /// @dev Replaces unreliable staticcall probing with standard supportsInterface()
-    ///      - Works correctly with proxies and upgradeable contracts
-    ///      - Avoids false negatives from non-view hooks or argument validation
-    ///      - Single call instead of 8 separate staticcalls
+    /// @notice Validate hook contract at registration time (comprehensive check)
+    /// @dev Validates ALL 10 hook functions return correct selectors
+    ///      This eliminates need for runtime validation (huge gas savings)
     /// @param hookAddress Hook contract to validate
-    function _validateHookContract(address hookAddress) private view {
+    function _validateHookContract(address hookAddress) private {
         // Basic sanity: ensure contract has code (reject EOAs)
-        // Note: This check is imperfect during construction but catches most errors
         if (hookAddress.code.length == 0) {
             revert E.InvalidHookContract(hookAddress, "no code");
         }
 
         // ERC-165 interface detection: check if hook supports IBAMMHooks
-        // This is the standard, reliable way to detect interface implementation
         try IERC165(hookAddress).supportsInterface(type(IBAMMHooks).interfaceId) returns (bool supported) {
             if (!supported) {
                 revert E.InvalidHookContract(hookAddress, "ERC165: IBAMMHooks not supported");
             }
         } catch {
-            // Hook doesn't implement ERC-165 or reverted
             revert E.InvalidHookContract(hookAddress, "ERC165: supportsInterface failed");
         }
+
+        // Validate ALL 10 hooks return correct selectors (zero-value dummy calls)
+        // This ensures hooks are fully compliant before registration
+        address dummyToken = address(1);
+        address dummyUser = address(2);
+
+        // Liquidity hooks (4)
+        try IBAMMHooks(hookAddress).preDeposit(dummyToken, dummyUser, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.preDeposit.selector) {
+                revert E.InvalidHookContract(hookAddress, "preDeposit: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "preDeposit: call failed");
+        }
+
+        try IBAMMHooks(hookAddress).postDeposit(dummyToken, dummyUser, 0, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.postDeposit.selector) {
+                revert E.InvalidHookContract(hookAddress, "postDeposit: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "postDeposit: call failed");
+        }
+
+        try IBAMMHooks(hookAddress).preWithdraw(dummyToken, dummyUser, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.preWithdraw.selector) {
+                revert E.InvalidHookContract(hookAddress, "preWithdraw: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "preWithdraw: call failed");
+        }
+
+        try IBAMMHooks(hookAddress).postWithdraw(dummyToken, dummyUser, 0, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.postWithdraw.selector) {
+                revert E.InvalidHookContract(hookAddress, "postWithdraw: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "postWithdraw: call failed");
+        }
+
+        // Swap hooks (4)
+        try IBAMMHooks(hookAddress).preBuy(dummyToken, dummyUser, 0, dummyToken, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.preBuy.selector) {
+                revert E.InvalidHookContract(hookAddress, "preBuy: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "preBuy: call failed");
+        }
+
+        try IBAMMHooks(hookAddress).postBuy(dummyToken, dummyUser, 0, dummyToken, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.postBuy.selector) {
+                revert E.InvalidHookContract(hookAddress, "postBuy: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "postBuy: call failed");
+        }
+
+        try IBAMMHooks(hookAddress).preSell(dummyToken, dummyUser, 0, dummyToken, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.preSell.selector) {
+                revert E.InvalidHookContract(hookAddress, "preSell: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "preSell: call failed");
+        }
+
+        try IBAMMHooks(hookAddress).postSell(dummyToken, dummyUser, 0, dummyToken, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.postSell.selector) {
+                revert E.InvalidHookContract(hookAddress, "postSell: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "postSell: call failed");
+        }
+
+        // Flash loan hooks (2)
+        try IBAMMHooks(hookAddress).preFlashLoan(dummyToken, dummyUser, 0, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.preFlashLoan.selector) {
+                revert E.InvalidHookContract(hookAddress, "preFlashLoan: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "preFlashLoan: call failed");
+        }
+
+        try IBAMMHooks(hookAddress).postFlashLoan(dummyToken, dummyUser, 0, 0, "") returns (bytes4 selector) {
+            if (selector != IBAMMHooks.postFlashLoan.selector) {
+                revert E.InvalidHookContract(hookAddress, "postFlashLoan: invalid selector");
+            }
+        } catch {
+            revert E.InvalidHookContract(hookAddress, "postFlashLoan: call failed");
+        }
+
+        // All 10 hooks validated! Hook is fully compliant.
     }
 }

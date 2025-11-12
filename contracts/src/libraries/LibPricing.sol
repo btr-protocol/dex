@@ -330,6 +330,40 @@ library LibPricing {
             : twapPrice;
     }
 
+    // ========== ORACLE HELPERS ==========
+
+    /// @notice Decode oracle TWAPs and volatilities into memory struct (reduces stack depth)
+    /// @dev Calculates fast and slow TWAPs using Uniswap V3 accumulator formula
+    /// @param oracle Oracle entry to decode
+    /// @return data Decoded oracle data struct
+    function _decodeOracleData(LibStorage.OracleEntry storage oracle)
+        private view returns (OracleData memory data)
+    {
+        // Calculate accumulator update
+        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
+        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
+
+        // Calculate fast TWAP
+        uint256 timeDeltaFast = block.timestamp - oracle.fastSnapshotTime;
+        data.fastTWAP = timeDeltaFast == 0
+            ? oracle.currentPrice
+            : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDeltaFast);
+
+        // Calculate slow TWAP
+        uint256 timeDeltaSlow = block.timestamp - oracle.slowSnapshotTime;
+        data.slowTWAP = timeDeltaSlow == 0
+            ? oracle.currentPrice
+            : uint64((currentAccum - oracle.slowAccumSnapshot) / timeDeltaSlow);
+
+        // Decode to 1e18
+        data.priceFast1e18 = M.b64ToPrice(data.fastTWAP);
+        data.priceSlow1e18 = M.b64ToPrice(data.slowTWAP);
+
+        // Copy volatilities
+        data.fastVol = oracle.fastVolatility;
+        data.slowVol = oracle.slowVolatility;
+    }
+
     // ========== TRI-FACTOR FEE MODEL ==========
 
     /// @notice Calculate inventory factor based on coverage ratio (Wombat-style ALM)
@@ -579,34 +613,15 @@ library LibPricing {
         uint256 totalValue,
         uint256 totalLiabilities
     ) internal view returns (IBAMM.FeeComponents memory feeComps) {
-        // Decode TWAPs and volatilities once (Uniswap V3 style accumulator calculation)
-        uint256 timeElapsed = block.timestamp - oracleIn.lastOracleUpdate;
-        uint256 currentAccumIn = oracleIn.priceAccumulator + (uint256(oracleIn.currentPrice) * timeElapsed);
-        uint256 timeDeltaFastIn = block.timestamp - oracleIn.fastSnapshotTime;
-        uint64 fastTWAPIn = timeDeltaFastIn == 0 ? oracleIn.currentPrice : uint64((currentAccumIn - oracleIn.fastAccumSnapshot) / timeDeltaFastIn);
-
-        uint256 timeDeltaSlowIn = block.timestamp - oracleIn.slowSnapshotTime;
-        uint64 slowTWAPIn = timeDeltaSlowIn == 0 ? oracleIn.currentPrice : uint64((currentAccumIn - oracleIn.slowAccumSnapshot) / timeDeltaSlowIn);
-
-        timeElapsed = block.timestamp - oracleOut.lastOracleUpdate;
-        uint256 currentAccumOut = oracleOut.priceAccumulator + (uint256(oracleOut.currentPrice) * timeElapsed);
-        uint256 timeDeltaFastOut = block.timestamp - oracleOut.fastSnapshotTime;
-        uint64 fastTWAPOut = timeDeltaFastOut == 0 ? oracleOut.currentPrice : uint64((currentAccumOut - oracleOut.fastAccumSnapshot) / timeDeltaFastOut);
-
-        uint256 timeDeltaSlowOut = block.timestamp - oracleOut.slowSnapshotTime;
-        uint64 slowTWAPOut = timeDeltaSlowOut == 0 ? oracleOut.currentPrice : uint64((currentAccumOut - oracleOut.slowAccumSnapshot) / timeDeltaSlowOut);
-
-        // Decode to 1e18 for calculations
-        uint256 priceIn1e18 = M.b64ToPrice(fastTWAPIn);
-        uint256 priceOut1e18 = M.b64ToPrice(fastTWAPOut);
-        uint256 slowPriceIn1e18 = M.b64ToPrice(slowTWAPIn);
-        uint256 slowPriceOut1e18 = M.b64ToPrice(slowTWAPOut);
+        // Decode oracles into structs (reduces stack depth)
+        OracleData memory dataIn = _decodeOracleData(oracleIn);
+        OracleData memory dataOut = _decodeOracleData(oracleOut);
 
         // *** TRI-FACTOR MODEL ***
 
         // 1. Base fee from slow volatility (long-term volatility baseline)
         feeComps.baseFee = _calculateBaseFee(
-            (oracleIn.slowVolatility + oracleOut.slowVolatility) / 2,
+            (dataIn.slowVol + dataOut.slowVol) / 2,
             feeParams
         );
 
@@ -614,7 +629,7 @@ library LibPricing {
         uint256 invMultIn = _calculateInventoryFactor(
             assetIn.reserves,
             assetIn.liabilities,
-            priceIn1e18,
+            dataIn.priceFast1e18,
             totalValue,
             totalLiabilities,
             feeParams
@@ -622,7 +637,7 @@ library LibPricing {
         uint256 invMultOut = _calculateInventoryFactor(
             assetOut.reserves,
             assetOut.liabilities,
-            priceOut1e18,
+            dataOut.priceFast1e18,
             totalValue,
             totalLiabilities,
             feeParams
@@ -631,13 +646,13 @@ library LibPricing {
 
         // 3. Volatility shock factor (fast/slow ratio for regime breaks)
         uint256 volMultIn = _calculateVolatilityShockFactor(
-            oracleIn.fastVolatility,
-            oracleIn.slowVolatility,
+            dataIn.fastVol,
+            dataIn.slowVol,
             feeParams
         );
         uint256 volMultOut = _calculateVolatilityShockFactor(
-            oracleOut.fastVolatility,
-            oracleOut.slowVolatility,
+            dataOut.fastVol,
+            dataOut.slowVol,
             feeParams
         );
         uint256 volMult = volMultIn > volMultOut ? volMultIn : volMultOut;
@@ -648,14 +663,14 @@ library LibPricing {
 
         uint256 divMultIn = _calculatePriceDivergenceFactor(
             spotPriceIn,
-            priceIn1e18,
-            slowPriceIn1e18,
+            dataIn.priceFast1e18,
+            dataIn.priceSlow1e18,
             feeParams
         );
         uint256 divMultOut = _calculatePriceDivergenceFactor(
             spotPriceOut,
-            priceOut1e18,
-            slowPriceOut1e18,
+            dataOut.priceFast1e18,
+            dataOut.priceSlow1e18,
             feeParams
         );
         uint256 divMult = divMultIn > divMultOut ? divMultIn : divMultOut;

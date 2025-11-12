@@ -5,7 +5,7 @@ import {IERC165} from "./IERC165.sol";
 
 /// @title IBAMMHooks
 /// @notice Minimal hook interface for BAMM lifecycle callbacks
-/// @dev ALL 8 functions MUST be implemented (use empty implementations if not needed)
+/// @dev ALL 10 functions MUST be implemented (use empty implementations if not needed)
 /// @dev Extends ERC-165 for proper interface detection via supportsInterface()
 /// @dev Inspired by Aave's flashloan callback - simple and efficient
 /// @dev ALL HOOKS FROM POOL PERSPECTIVE:
@@ -13,6 +13,7 @@ import {IERC165} from "./IERC165.sol";
 ///      - preSell/postSell: Pool GIVES token (sells to user)
 ///      - preDeposit/postDeposit: Pool RECEIVES liquidity
 ///      - preWithdraw/postWithdraw: Pool GIVES liquidity back
+///      - preFlashLoan/postFlashLoan: Pool LENDS then RECEIVES back (flash loan)
 interface IBAMMHooks is IERC165 {
     // ========== LIQUIDITY HOOKS ==========
 
@@ -46,4 +47,24 @@ interface IBAMMHooks is IERC165 {
     /// @notice Pool just SOLD (gave) this token to user
     /// @param token Token pool gave
     function postSell(address token, address seller, uint256 amountIn, address tokenOut, uint256 amountOut, bytes calldata data) external returns (bytes4);
+
+    // ========== FLASH LOAN HOOKS ==========
+
+    /// @notice Called before pool lends tokens via flash loan (pool perspective: LENDING)
+    /// @param token Token being flash loaned
+    /// @param receiver Address receiving the flash loan
+    /// @param amount Amount being flash loaned
+    /// @param fee Fee that will be charged
+    /// @param data Arbitrary data passed through flash loan
+    /// @return Function selector to validate hook execution
+    function preFlashLoan(address token, address receiver, uint256 amount, uint256 fee, bytes calldata data) external returns (bytes4);
+
+    /// @notice Called after pool received repayment from flash loan (pool perspective: RECEIVED BACK)
+    /// @param token Token that was flash loaned
+    /// @param receiver Address that received the flash loan
+    /// @param amount Amount that was flash loaned
+    /// @param fee Fee that was charged
+    /// @param data Arbitrary data passed through flash loan
+    /// @return Function selector to validate hook execution
+    function postFlashLoan(address token, address receiver, uint256 amount, uint256 fee, bytes calldata data) external returns (bytes4);
 }
