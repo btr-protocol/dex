@@ -20,15 +20,15 @@ contract Deploy is Script {
         console2.log("Implementation:", address(implementation));
 
         console2.log("Deploying BAMMFactory...");
-        BAMMFactory factory = new BAMMFactory(address(implementation));
+        BAMMFactory factory = new BAMMFactory(address(implementation), msg.sender);
         console2.log("Factory:", address(factory));
         console2.log("Beacon:", address(factory.beacon()));
 
         if (vm.envBool("DEPLOY_POOL")) {
             address baseToken = vm.envAddress("BASE_TOKEN");
-            address poolAdmin = vm.envAddress("POOL_ADMIN");
-            address keeper = vm.envAddress("KEEPER");
-            address treasury = vm.envOr("TREASURY", address(0));  // address(0) = defaults to admin
+            address poolOwner = vm.envAddress("POOL_OWNER");
+            address guardian = vm.envAddress("GUARDIAN");
+            address treasury = vm.envOr("TREASURY", address(0));  // address(0) = defaults to owner
 
             // Base asset oracle parameters
             address baseMainOracle = vm.envOr("BASE_MAIN_ORACLE", address(0));
@@ -42,8 +42,10 @@ contract Deploy is Script {
             uint16 maxTWAPChange = uint16(vm.envOr("MAX_PRICE_CHANGE", uint256(500)));
             uint16 protocolFeeBps = uint16(vm.envOr("PROTOCOL_FEE_BPS", uint256(1000)));  // 10% to treasury
 
+            uint16 flashFeeBps = 0; // Default: 0% flash loan fee (free like Balancer)
+
             console2.log("\nDeploying example pool...");
-            address pool = factory.deployPool(baseToken, baseMainOracle, baseFallbackOracle, baseMinLiquidity, poolAdmin, keeper, treasury, baseFee, maxFee, withdrawalFee, maxTWAPChange, protocolFeeBps);
+            address pool = factory.deployPool(baseToken, baseMainOracle, baseFallbackOracle, baseMinLiquidity, poolOwner, guardian, treasury, baseFee, maxFee, withdrawalFee, maxTWAPChange, protocolFeeBps, flashFeeBps, false);
             console2.log("Pool:", pool);
         }
 
@@ -53,7 +55,7 @@ contract Deploy is Script {
         console2.log("Implementation:", address(implementation));
         console2.log("Factory:", address(factory));
         console2.log("Beacon:", address(factory.beacon()));
-        console2.log("Admin:", factory.admin());
+        console2.log("Owner:", factory.owner());
         console2.log("=========================================\n");
     }
 }

@@ -49,7 +49,7 @@ contract DeployAll is Script {
         BAMM bammImpl = new BAMM();
         console2.log("  BAMM implementation:", address(bammImpl));
 
-        BAMMFactory bammFactory = new BAMMFactory(address(bammImpl));
+        BAMMFactory bammFactory = new BAMMFactory(address(bammImpl), deployer);
         console2.log("  BAMMFactory:", address(bammFactory));
         console2.log("  BAMM Beacon:", address(bammFactory.beacon()));
 
@@ -84,13 +84,13 @@ contract DeployAll is Script {
         console2.log("  Beacon:", address(bammFactory.beacon()));
         console2.log("");
         console2.log("Configuration:");
-        console2.log("  Admin:", deployer);
+        console2.log("  Owner:", deployer);
         console2.log("  Verifier:", verifier);
         console2.log("");
         console2.log("=== Next Steps ===");
         console2.log("1. Deploy actual Groth16 verifier contract");
         console2.log("2. Call bammFactory.setDefaultVerifier(verifier)");
         console2.log("3. Deploy BAMM pools with deployPool(..., enableDarkPool=true)");
-        console2.log("4. Or enable DarkPool later via bammFactory.enableDarkPool(bammPool, admin)");
+        console2.log("4. Or enable DarkPool later via bammFactory.enableDarkPool(bammPool, owner)");
     }
 }

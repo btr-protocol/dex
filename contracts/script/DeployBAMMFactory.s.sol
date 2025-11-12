@@ -23,7 +23,7 @@ contract DeployBAMMFactory is Script {
 
         // 2. Deploy the factory (which deploys the beacon internally)
         console2.log("Deploying BAMMFactory...");
-        BAMMFactory factory = new BAMMFactory(address(implementation));
+        BAMMFactory factory = new BAMMFactory(address(implementation), msg.sender);
         console2.log("BAMMFactory deployed at:", address(factory));
         console2.log("UpgradeableBeacon deployed at:", address(factory.beacon()));
 

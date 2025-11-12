@@ -14,13 +14,13 @@ contract CreateDarkPool is Script {
         address factory = vm.envAddress("DARKPOOL_FACTORY");
         address bammPool = vm.envAddress("BAMM_POOL");
         address verifier = vm.envAddress("GROTH16_VERIFIER");
-        address admin = vm.envAddress("DARKPOOL_ADMIN");
+        address owner = vm.envAddress("DARKPOOL_OWNER");
 
         console2.log("Creating DarkPool for BAMM pool...");
         console2.log("Factory:", factory);
         console2.log("BAMM Pool:", bammPool);
         console2.log("Verifier:", verifier);
-        console2.log("Admin:", admin);
+        console2.log("Owner:", owner);
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -28,7 +28,7 @@ contract CreateDarkPool is Script {
         address darkPool = DarkPoolFactory(factory).createDarkPool(
             bammPool,
             verifier,
-            admin
+            owner
         );
 
         vm.stopBroadcast();

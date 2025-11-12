@@ -12,17 +12,17 @@ contract EnableDarkPool is Script {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
         address factory = vm.envAddress("BAMM_FACTORY");
         address bammPool = vm.envAddress("BAMM_POOL");
-        address darkPoolAdmin = vm.envAddress("DARKPOOL_ADMIN");
+        address darkPoolOwner = vm.envAddress("DARKPOOL_OWNER");
 
         console2.log("=== Enabling DarkPool for BAMM Pool ===");
         console2.log("Factory:", factory);
         console2.log("BAMM Pool:", bammPool);
-        console2.log("DarkPool Admin:", darkPoolAdmin);
+        console2.log("DarkPool Owner:", darkPoolOwner);
         console2.log("");
 
         vm.startBroadcast(privateKey);
 
-        BAMMFactory(factory).enableDarkPool(bammPool, darkPoolAdmin);
+        BAMMFactory(factory).enableDarkPool(bammPool, darkPoolOwner);
 
         vm.stopBroadcast();
 
