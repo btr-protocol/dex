@@ -8,7 +8,7 @@ import {BAMMFactory} from "../src/bamm/BAMMFactory.sol";
 /// @title DeployBAMMPool
 /// @notice Script to deploy a new BAMM pool via factory
 /// @dev Usage: forge script script/DeployBAMMPool.s.sol:DeployBAMMPool --rpc-url <RPC> --broadcast
-///      Set environment variables: FACTORY_ADDRESS, BASE_TOKEN, ADMIN, KEEPER, BASE_FEE, MAX_FEE, WITHDRAWAL_FEE, MAX_PRICE_CHANGE
+///      Set environment variables: FACTORY_ADDRESS, BASE_TOKEN, OWNER, GUARDIAN, BASE_FEE, MAX_FEE, WITHDRAWAL_FEE, MAX_PRICE_CHANGE
 contract DeployBAMMPool is Script {
 
     function run() external returns (address pool) {
@@ -16,9 +16,9 @@ contract DeployBAMMPool is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address factoryAddress = vm.envAddress("FACTORY_ADDRESS");
         address baseToken = vm.envAddress("BASE_TOKEN");
-        address admin = vm.envAddress("ADMIN");
-        address keeper = vm.envAddress("KEEPER");
-        address treasury = vm.envOr("TREASURY", address(0));  // address(0) = defaults to admin
+        address owner = vm.envAddress("OWNER");
+        address guardian = vm.envAddress("GUARDIAN");
+        address treasury = vm.envOr("TREASURY", address(0));  // address(0) = defaults to owner
 
         // Base asset oracle parameters
         address baseMainOracle = vm.envOr("BASE_MAIN_ORACLE", address(0));  // address(0) = internal oracle
@@ -38,8 +38,8 @@ contract DeployBAMMPool is Script {
         // Validate inputs
         require(factoryAddress != address(0), "FACTORY_ADDRESS not set");
         require(baseToken != address(0), "BASE_TOKEN not set");
-        require(admin != address(0), "ADMIN not set");
-        require(keeper != address(0), "KEEPER not set");
+        require(owner != address(0), "OWNER not set");
+        require(guardian != address(0), "GUARDIAN not set");
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -51,9 +51,9 @@ contract DeployBAMMPool is Script {
         console2.log("Base Main Oracle:", baseMainOracle);
         console2.log("Base Fallback Oracle:", baseFallbackOracle);
         console2.log("Base Min Liquidity:", baseMinLiquidity);
-        console2.log("Admin:", admin);
-        console2.log("Keeper:", keeper);
-        console2.log("Treasury:", treasury == address(0) ? admin : treasury);
+        console2.log("Owner:", owner);
+        console2.log("Guardian:", guardian);
+        console2.log("Treasury:", treasury == address(0) ? owner : treasury);
         console2.log("Base Fee:", baseFee, "bps");
         console2.log("Max Fee:", maxFee, "bps");
         console2.log("Withdrawal Fee:", withdrawalFee, "bps");
@@ -61,19 +61,22 @@ contract DeployBAMMPool is Script {
         console2.log("Protocol Fee:", protocolFeeBps, "bps");
         console2.log("Enable DarkPool:", enableDarkPool);
 
+        uint16 flashFeeBps = 0; // Default: 0% (free flash loans)
+
         pool = factory.deployPool(
             baseToken,
             baseMainOracle,
             baseFallbackOracle,
             baseMinLiquidity,
-            admin,
-            keeper,
+            owner,
+            guardian,
             treasury,
             baseFee,
             maxFee,
             withdrawalFee,
             maxTWAPChange,
             protocolFeeBps,
+            flashFeeBps,
             enableDarkPool
         );
 
