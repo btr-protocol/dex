@@ -1,3 +1,29 @@
+# BAMM Protocol Specifications
+
+## 📋 Documentation Index
+
+### Core Architecture
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** - System architecture, contract structure, and design patterns
+- **[UPGRADEABILITY.md](./UPGRADEABILITY.md)** - Complete upgradeability system (beacon proxies, factories, procedures)
+
+### Components
+- **[FEES.md](./FEES.md)** - Fee structure and multi-factor fee calculations
+- **[ORACLE.md](./ORACLE.md)** - Oracle system, price feeds, and volatility tracking
+- **[LP_TOKENS.md](./LP_TOKENS.md)** - ERC1155 rebasing LP token implementation
+- **[ALM_COVERAGE_RATIO.md](./ALM_COVERAGE_RATIO.md)** - Coverage ratio-based ALM system
+- **[B64_FLOAT.md](./B64_FLOAT.md)** - 64-bit float encoding for prices
+
+### Privacy & Extensions
+- **[DARK_POOL.md](./DARK_POOL.md)** - Privacy layer with ZK proofs and Merkle trees
+- **[HOOKS_SPECIFICATION.md](./HOOKS_SPECIFICATION.md)** - Hook system technical specification
+- **[IMPLEMENTATION_GUIDE.md](./IMPLEMENTATION_GUIDE.md)** - Hook integration guide
+
+### Operations
+- **[BATCH_SWAP.md](./BATCH_SWAP.md)** - Batch swap operations (if available)
+- **[ERC1155.md](./ERC1155.md)** - ERC1155 token standard details
+
+---
+
 # BAMM Hooks System v2.0 - Complete Documentation
 
 ## 🎯 Executive Summary
@@ -192,7 +218,7 @@ bamm.swap(address(dai), address(usdc), 100e18, 0, user);
 
 1. **Return Validation** - Hooks must return `HOOK_SUCCESS` selector
 2. **Reentrancy Protection** - Hooks called within existing guards
-3. **Access Control** - Only BAMM can call hooks, only admin can update
+3. **Access Control** - Only BAMM can call hooks, only owner can update
 4. **Fail-Safe** - Hook reverts cause transaction revert
 5. **Optional** - `address(0)` = disabled, no external call
 
@@ -200,7 +226,7 @@ bamm.swap(address(dai), address(usdc), 100e18, 0, user);
 
 - [x] All hooks return correct selector
 - [x] `onlyBAMM` modifier on all hook functions
-- [x] Admin-only hook updates
+- [x] Owner-only hook updates
 - [x] No reentrancy possible
 - [x] Comprehensive testing
 - [x] Gas profiling completed
@@ -335,7 +361,7 @@ struct Asset {
 ### Migration Steps
 
 1. Update `Asset` struct to use single `hooks` field
-2. Replace 4 admin functions with 2 (`updateHooks`, `getHooks`)
+2. Replace 4 owner functions with 2 (`updateHooks`, `getHooks`)
 3. Update `LibHooks` to call single address (not 4 different)
 4. Deploy new `PoolHookManager` with unified implementation
 5. Update event from `HookUpdated` to `HooksUpdated`
@@ -350,7 +376,7 @@ struct Asset {
 - ✅ Unified hook model (1 contract, 8 functions)
 - ✅ Renamed to `pre`/`post` (from `before`/`after`)
 - ✅ Single `hooks` address per asset (from 4 separate)
-- ✅ Simplified admin functions (2 instead of 4)
+- ✅ Simplified owner functions (2 instead of 4)
 - ✅ PoolHookManager reference implementation
 - ✅ Comprehensive specs documentation
 

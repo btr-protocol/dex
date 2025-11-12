@@ -22,9 +22,100 @@ Each asset can operate in one of three oracle modes, and all prices use the cust
 - Variance exhibits clustering and mean-reversion
 - Exponential decay matches market behavior
 - Standard in risk management (RiskMetrics uses λ=0.94)
-- Keeper calculates from time-windows off-chain, submits periodically
+- Guardian calculates from time-windows off-chain, submits periodically
 
 **Rationale:** Accumulator-based TWAPs provide true time-weighting (each second gets equal weight), making them resistant to manipulation via burst updates. This is mathematically exact with no approximation errors, unlike update-weighted EMAs which would give disproportionate influence to periods with frequent updates.
+
+---
+
+## Oracle ID System
+
+### Critical Design: Base/Quote Pair Identification
+
+The oracle system uses **oracle IDs** to uniquely identify price pairs, preventing dangerous quote currency mismatches:
+
+```solidity
+oracleId = keccak256(abi.encodePacked(baseAsset, quoteAsset))
+```
+
+Where:
+- **baseAsset** = Token being priced (e.g., WETH, USDC, WBTC)
+- **quoteAsset** = Pricing currency (pool's accounting base, e.g., USDC)
+
+### Why Oracle IDs?
+
+**Problem:** Using only the asset address as a lookup key is dangerous during accounting base changes. An oracle might return a price in the wrong quote currency (e.g., WETH/USDC when you need WETH/DAI).
+
+**Solution:** Oracle IDs track **both** the base and quote assets, ensuring:
+- Correct base/quote pairing
+- Automatic invalidation when accounting base changes
+- Explicit reinitialization required for new base
+- No silent quote currency mismatches
+
+### Automatic Oracle ID Management
+
+**Asset Addition:**
+```solidity
+// Oracle ID computed automatically during asset registration
+bytes32 oracleId = LibStorage.computeOracleId(token, pool.baseToken);
+asset.oracleId = oracleId;  // Stored in asset config
+```
+
+**Base Asset Migration:**
+When the pool owner changes the accounting base currency:
+
+1. **Step 1: Start Migration**
+   ```solidity
+   // Provide oracle reinitialization data for internal oracles
+   bytes memory oracleReinitData = abi.encode(
+       [token1, token2, ...],           // Assets to reinitialize
+       [newPrice1, newPrice2, ...],     // New prices in new base
+       [fastVol1, fastVol2, ...],       // Fast volatilities
+       [slowVol1, slowVol2, ...]        // Slow volatilities
+   );
+   pool.startBaseAssetUpdate(newBaseToken, oracleReinitData);
+   ```
+
+2. **Step 2: Batch Migrate (Call Repeatedly)**
+   ```solidity
+   // For each asset in batch:
+   // - Compute new oracle ID = keccak256(token, newBaseToken)
+   // - Internal oracles: Reset with new price data (MUST provide data)
+   // - External oracles: Migrate accumulator data with price conversion
+   // - Update asset.oracleId to new ID
+   pool.batchMigrateAssetPrices(50);  // Process 50 assets per batch
+   ```
+
+3. **Step 3: Finalize**
+   ```solidity
+   pool.finishBaseAssetUpdate();  // Updates pool.baseToken
+   ```
+
+**Safety:**
+- Internal oracles **REVERT** if reinit data is missing during migration
+- Pool should be **PAUSED** before starting base asset migration
+- Swaps **REVERT** if oracle ID is missing or zero
+- All oracle IDs automatically recomputed with new base
+
+### Oracle ID in Operation
+
+**Reading Oracle Data:**
+```solidity
+// Asset stores its oracle ID
+bytes32 oracleId = asset.oracleId;
+if (oracleId == bytes32(0)) revert InvalidParameter();
+
+// Use oracle ID for lookups (not asset address)
+IOracle.OracleData memory data = IOracle(mainOracle).getOracleData(oracleId);
+```
+
+**Updating Internal Oracle:**
+```solidity
+// Guardian updates using oracle ID
+bytes32 oracleId = asset.oracleId;
+pool.updateOracle(token, newPrice, newVolatility);
+// ^ Internally uses oracleId for storage lookup
+```
 
 ---
 
@@ -60,7 +151,6 @@ AddAssetParams memory params = AddAssetParams({
         uint32(fastVol),       // Initial fast volatility (1e6 base)
         uint32(slowVol)        // Initial slow volatility (1e6 base)
     )
-    // ... other params
 });
 ```
 
@@ -86,24 +176,53 @@ fallbackOracle = address(0) or <another external oracle>
 
 **Interface:**
 ```solidity
+/// @notice Shared interface for all oracle types (internal and external)
 interface IOracle {
-    function getOracleData() external view returns (
-        uint64 fastTWAP,      // b64 format
-        uint64 slowTWAP,      // b64 format
-        uint32 fastVolatility, // 1e6 base (10_000_000 = 10%)
-        uint32 slowVolatility, // 1e6 base
-        uint32 lastUpdate
-    );
+    struct OracleData {
+        uint64 fastTWAP;          // Fast price (b64 format)
+        uint64 slowTWAP;          // Slow price (b64 format)
+        uint32 fastVolatility;    // Fast volatility (1e6 base: 1_000_000 = 1%)
+        uint32 slowVolatility;    // Slow volatility (1e6 base)
+        uint32 lastUpdate;        // Timestamp of last update
+    }
 
-    function isFresh(uint32 maxAge) external view returns (bool);
-    function getFastPrice() external view returns (uint64);
+    /// @notice Get oracle data for a specific oracle ID (base/quote pair)
+    /// @dev Oracle ID = keccak256(abi.encodePacked(baseAsset, quoteAsset))
+    function getOracleData(bytes32 oracleId) external view returns (OracleData memory data);
+
+    /// @notice Check if oracle data is fresh
+    function isFresh(bytes32 oracleId, uint32 maxAge) external view returns (bool isFresh);
+
+    /// @notice Get just the fast TWAP (most gas efficient)
+    function getFastPrice(bytes32 oracleId) external view returns (uint64 fastTWAP);
+}
+```
+
+**Extended Interfaces:**
+```solidity
+/// @notice Internal oracle with update/reset capabilities
+interface IInternalOracle is IOracle {
+    function updateOracle(bytes32 oracleId, uint64 newPrice, uint32 newVolatility) external;
+    function resetOracle(bytes32 oracleId, uint64 initialPrice, uint32 initialFastVol, uint32 initialSlowVol) external;
+}
+
+/// @notice External multi-asset oracle
+interface IExternalOracle is IOracle {
+    function addOraclePair(address baseAsset, address quoteAsset, bytes memory initData) external;
+    function updateOracle(bytes32 oracleId, bytes memory updateData) external;
+    function batchUpdateOracles(bytes32[] calldata oracleIds, bytes[] memory updateData) external;
 }
 ```
 
 **Safety:**
 ```solidity
-// External oracle reading MUST succeed - NO dangerous defaults!
-(fastTWAP, slowTWAP, fastVol, slowVol) = _readOracleOrRevert(mainOracle, fallbackOracle);
+// Oracle reading with fallback (in BAMMManagement)
+OracleData memory data = _readOracleWithFallback(
+    asset.oracleId,  // Uses oracle ID, not asset address
+    mainOracle,
+    fallbackOracle,
+    24 hours  // Max staleness
+);
 // Reverts if both main and fallback fail
 ```
 
@@ -123,6 +242,66 @@ fallbackOracle = address(this)
 - Critical assets in production
 - Risk-averse configurations
 - Assets with intermittent oracle updates
+
+---
+
+## Oracle Architecture
+
+### Interface Hierarchy
+
+The oracle system uses a clean interface hierarchy:
+
+```
+IOracle (shared base interface)
+├── IInternalOracle (adds update/reset methods)
+│   └── InternalOracle (accumulator implementation)
+└── IExternalOracle (adds multi-asset management)
+    └── ExternalOracle (external price feed implementation)
+```
+
+**IOracle (Base Interface):**
+- Shared by both internal and external oracles
+- Provides uniform reading interface using oracle IDs:
+  - `getOracleData(bytes32 oracleId)` - Full oracle data
+  - `isFresh(bytes32 oracleId, uint32 maxAge)` - Freshness check
+  - `getFastPrice(bytes32 oracleId)` - Gas-efficient single value read
+
+**IInternalOracle (Extends IOracle):**
+- Adds methods for managing internal accumulator:
+  - `updateOracle(bytes32 oracleId, ...)` - Update price and volatility
+  - `resetOracle(bytes32 oracleId, ...)` - Reset accumulator (e.g., quote currency change)
+
+**IExternalOracle (Extends IOracle):**
+- Adds methods for multi-asset oracle management:
+  - `addOraclePair(address base, address quote, ...)` - Register new oracle pair
+  - `updateOracle(bytes32 oracleId, ...)` / `batchUpdateOracles(...)` - Update prices
+  - `grantOracleRole()` / `revokeOracleRole()` - Access control
+  - Oracle pair management views
+
+### Separation of Concerns
+
+**InternalOracle (Abstract Contract):**
+- ONLY manages accumulator (Uniswap V3 TWAP pattern)
+- NEVER reads from external oracles
+- Implements IInternalOracle interface
+- Provides `getOracleData()` reading from internal accumulator
+
+**BAMMManagement (Abstract Contract):**
+- Handles oracle reading with fallback logic
+- Uses IOracle interface to read from ANY oracle type (internal or external)
+- Validates and routes `updateOracle()` calls
+- Manages oracle configuration changes
+
+**BAMM (Concrete Contract):**
+- Extends both InternalOracle and BAMMManagement
+- Resolves method collisions with final overrides
+- Combines validation (from BAMMManagement) with accumulator updates (from InternalOracle)
+
+**Why This Design?**
+- **No circular dependencies:** InternalOracle doesn't know about external oracles
+- **Unified reading:** Both oracle types use IOracle interface
+- **Clean fallback logic:** BAMMManagement handles main→fallback without InternalOracle involvement
+- **Interface-based:** Code works with IOracle, doesn't care about implementation
 
 ---
 
@@ -218,10 +397,10 @@ asset.slowVolatility = updateVolatilityEMA(asset.slowVolatility, newVolatility, 
 
 **Note:** These weights **only affect volatility smoothing**. Price TWAPs use the accumulator pattern (no weights needed).
 
-**Admin can update weights:**
+**Owner can update weights:**
 ```solidity
-// Update volatility EMA weights (admin only)
-function updateVolatilityWeights(uint8 _fastWeight, uint8 _slowWeight) external onlyAdmin;
+// Update volatility EMA weights (owner only)
+function updateVolatilityWeights(uint8 _fastWeight, uint8 _slowWeight) external onlyOwner;
 
 // Get current weights
 function getVolatilityWeights() external view returns (uint8 fastWeight, uint8 slowWeight);
@@ -248,7 +427,7 @@ Half-life 20 updates → weight ≈ 97
 - Volatility exhibits **clustering and mean-reversion**
 - Exponential decay matches market behavior (RiskMetrics uses λ=0.94)
 - Guardian submits realized volatility from time-windows off-chain
-- Update-weighting is acceptable since keeper pre-calculates from time-periods
+- Update-weighting is acceptable since guardian pre-calculates from time-periods
 
 ### When to Use Each EMA
 
@@ -326,7 +505,7 @@ See [B64_FLOAT.md](./B64_FLOAT.md) for complete specification.
 
 ## Oracle Update Process
 
-### Internal Oracle Update (Keeper)
+### Internal Oracle Update (Owner)
 
 Only for assets with `mainOracle == address(this)`:
 
@@ -335,7 +514,7 @@ function updateOracle(
     address token,
     uint64 newPrice,     // b64 format
     uint32 newVolatility // 1e6 base
-) external onlyKeeper {
+) external onlyOwner {
     Asset storage asset = assets[token];
 
     // Validation
@@ -343,27 +522,50 @@ function updateOracle(
     require(newPrice > 0, "Zero price");
     require(newVolatility <= 100_000_000, "Invalid volatility");
 
-    // Price change validation (max 10% per update in 1e18 format)
-    uint256 oldPrice1e18 = LibOracle.decodePriceTo1e18(asset.fastTWAP);
-    uint256 newPrice1e18 = LibOracle.decodePriceTo1e18(newPrice);
+    // Price change validation (max 10% per update)
+    uint256 oldPrice1e18 = LibMaths.decodePriceTo1e18(asset.currentPrice);
+    uint256 newPrice1e18 = LibMaths.decodePriceTo1e18(newPrice);
     uint256 priceDelta = newPrice1e18 > oldPrice1e18
         ? newPrice1e18 - oldPrice1e18
         : oldPrice1e18 - newPrice1e18;
-    uint256 maxChange = (oldPrice1e18 * maxTWAPChange) / 10000;
+    uint256 maxChange = (oldPrice1e18 * asset.maxTWAPChange) / 10000;
     require(priceDelta <= maxChange, "Price change too large");
 
-    // Update dual EMAs using configured weights
-    asset.fastTWAP = LibOracle.updateEMA(asset.fastTWAP, newPrice, $.fastTWAPWeight);
-    asset.slowTWAP = LibOracle.updateEMA(asset.slowTWAP, newPrice, $.slowTWAPWeight);
-    asset.fastVolatility = LibOracle.updateVolatilityEMA(asset.fastVolatility, newVolatility, $.fastTWAPWeight);
-    asset.slowVolatility = LibOracle.updateVolatilityEMA(asset.slowVolatility, newVolatility, $.slowTWAPWeight);
+    // Update accumulator (Uniswap V3 style)
+    uint256 timeElapsed = block.timestamp - asset.lastOracleUpdate;
+    asset.priceAccumulator += uint256(asset.currentPrice) * timeElapsed;
+    asset.currentPrice = newPrice;
+
+    // Update snapshots if windows elapsed
+    if (block.timestamp - asset.fastSnapshotTime >= asset.fastWindow) {
+        asset.fastAccumSnapshot = asset.priceAccumulator;
+        asset.fastSnapshotTime = uint32(block.timestamp);
+    }
+    if (block.timestamp - asset.slowSnapshotTime >= asset.slowWindow) {
+        asset.slowAccumSnapshot = asset.priceAccumulator;
+        asset.slowSnapshotTime = uint32(block.timestamp);
+    }
+
+    // Update volatility EMAs (NOT prices - prices use accumulator)
+    asset.fastVolatility = LibMaths.updateVolatilityEMA(
+        asset.fastVolatility, newVolatility, $.fastTWAPWeight
+    );
+    asset.slowVolatility = LibMaths.updateVolatilityEMA(
+        asset.slowVolatility, newVolatility, $.slowTWAPWeight
+    );
 
     asset.lastOracleUpdate = uint32(block.timestamp);
 
-    emit OracleUpdate(token, asset.fastTWAP, asset.slowTWAP,
+    // Compute TWAPs for event emission
+    uint64 fastTWAP = _calculateTWAPFromAccumulator(asset, asset.fastSnapshotTime, asset.fastAccumSnapshot);
+    uint64 slowTWAP = _calculateTWAPFromAccumulator(asset, asset.slowSnapshotTime, asset.slowAccumSnapshot);
+
+    emit OracleUpdate(token, fastTWAP, slowTWAP,
                       asset.fastVolatility, asset.slowVolatility, msg.sender);
 }
 ```
+
+**Key difference from EMA:** Prices use **Uniswap V3 accumulator pattern** (true time-weighting), while volatility uses **EMA** (exponential decay).
 
 ### Price Change Validation
 
@@ -386,34 +588,42 @@ Total: 5 updates needed to reach target
 
 ### External Oracle Reading
 
-External oracles are read via `IOracle.getOracleData()`:
+External oracles are read via `IOracle.getOracleData(bytes32 oracleId)`:
 
 ```solidity
-function _readOracleOrRevert(
+function _readOracleWithFallback(
+    bytes32 oracleId,
     address mainOracle,
-    address fallbackOracle
-) internal view returns (uint64 fastTWAP, uint64 slowTWAP, uint32 fastVol, uint32 slowVol) {
+    address fallbackOracle,
+    uint32 maxAge
+) internal view returns (IOracle.OracleData memory data) {
     // Try main oracle
-    try IOracle(mainOracle).getOracleData() returns (...) {
-        // Validate data
-        require(fastTWAP > 0 && slowTWAP > 0, "Invalid price");
-        require(fastVol <= 100_000_000 && slowVol <= 100_000_000, "Invalid volatility");
-        return (fastTWAP, slowTWAP, fastVol, slowVol);
-    } catch {
-        // Try fallback if configured
-        if (fallbackOracle == address(0)) revert OracleStale();
-
-        try IOracle(fallbackOracle).getOracleData() returns (...) {
-            // Validate fallback data
-            require(fastTWAP > 0 && slowTWAP > 0, "Invalid price");
-            return (fastTWAP, slowTWAP, fastVol, slowVol);
-        } catch {
-            // Both failed - REVERT (no dangerous defaults!)
-            revert OracleStale();
+    try IOracle(mainOracle).getOracleData(oracleId) returns (IOracle.OracleData memory mainData) {
+        // Check freshness
+        if (block.timestamp - mainData.lastUpdate <= maxAge) {
+            return mainData;
         }
+    } catch {}
+
+    // Main oracle failed or stale - try fallback
+    if (fallbackOracle != address(0)) {
+        try IOracle(fallbackOracle).getOracleData(oracleId) returns (IOracle.OracleData memory fallbackData) {
+            // Check freshness
+            if (block.timestamp - fallbackData.lastUpdate <= maxAge) {
+                return fallbackData;
+            }
+        } catch {}
     }
+
+    // Both oracles failed - REVERT (no dangerous defaults!)
+    revert OracleStale();
 }
 ```
+
+**Architecture Note:** Oracle reading with fallback logic is handled by **BAMMManagement**, NOT by InternalOracle. This separation of concerns ensures:
+- **InternalOracle:** Only manages accumulator (no external dependencies)
+- **BAMMManagement:** Handles oracle reading and fallback (uses shared IOracle interface)
+- **Unified reading:** Both internal and external oracles use the same IOracle interface for reads
 
 **Key Safety Feature:** If both main and fallback oracles fail, the function REVERTS. There are NO fallback to dangerous default values.
 
@@ -421,7 +631,7 @@ function _readOracleOrRevert(
 
 ## Volatility Calculation
 
-Volatility should be calculated off-chain by the keeper using realized volatility:
+Volatility should be calculated off-chain by the guardian using realized volatility:
 
 ```python
 # Calculate realized volatility from recent price changes
@@ -449,21 +659,21 @@ slow_vol = calculate_volatility(WETH, window_hours=168)  # Slow volatility (1 we
 
 ---
 
-## Keeper Role & Responsibilities
+## Guardian Role & Responsibilities
 
 ### Permissions
 
-**Keeper CAN:**
+**Guardian CAN:**
 - Trigger circuit breakers (`checkCircuitBreaker()`)
 
-**Keeper CANNOT:**
-- Update oracle prices (moved to external keeper bots)
+**Guardian CANNOT:**
+- Update oracle prices (moved to external guardian bots)
 - Add/remove assets
 - Pause pool
 - Modify parameters
 - Change liquidity profiles
 
-**Note:** In the current implementation, keepers only trigger circuit breakers. Oracle updates for internal oracles are handled by dedicated keeper bots calling `updateOracle()`.
+**Note:** In the current implementation, guardians only trigger circuit breakers. Oracle updates for internal oracles are handled by dedicated guardian bots calling `updateOracle()`.
 
 ### Recommended Update Frequency
 
@@ -474,17 +684,17 @@ For internal oracles:
 - **Volatile assets:** Every 5-15 minutes
 - **During high volatility:** More frequent (respecting 10% limit)
 
-### Multiple Keepers
+### Multiple Guardians
 
-Keepers can be granted instantly (no timelock):
+Guardians can be granted instantly (no timelock):
 
 ```solidity
-grantRole(KEEPER_ROLE, keeper1);  // Instant grant
-grantRole(KEEPER_ROLE, keeper2);  // Instant grant
-grantRole(KEEPER_ROLE, keeper3);  // Instant grant
+grantRole(GUARDIAN_ROLE, guardian1);  // Instant grant
+grantRole(GUARDIAN_ROLE, guardian2);  // Instant grant
+grantRole(GUARDIAN_ROLE, guardian3);  // Instant grant
 ```
 
-**Best practice:** Run redundant keeper instances for reliability.
+**Best practice:** Run redundant guardian instances for reliability.
 
 ---
 
@@ -519,7 +729,7 @@ uint256 totalFee = baseFee * volMultiplier * inventoryMult * divergenceMult;
 Use slow TWAP for stable reference (avoid false triggers):
 
 ```solidity
-function checkCircuitBreaker(address token) external onlyKeeper {
+function checkCircuitBreaker(address token) external onlyGuardian {
     CircuitBreaker storage breaker = circuitBreakers[token];
     if (breaker.referenceAsset == address(0)) return;
 
@@ -549,7 +759,7 @@ function checkCircuitBreaker(address token) external onlyKeeper {
 
 1. **Price change cap:** Maximum 10% change per update (configurable)
 2. **EMA smoothing:** Gradual adjustment prevents sudden manipulation
-3. **Keeper validation:** Off-chain validation before pushing prices
+3. **Guardian validation:** Off-chain validation before pushing prices
 4. **Dual tracking:** Fast and slow EMAs provide cross-validation
 5. **No dangerous defaults:** External oracle failures cause revert (no fallback values)
 
@@ -604,19 +814,30 @@ updateCircuitBreaker(
 - **Divergence:** Momentum/trend indicator
 - **Flexibility:** Use appropriate EMA for each purpose
 
-### Why EMA over TWAP?
+### Why Accumulator for Prices, EMA for Volatility?
 
-**Uniswap v3 TWAP:**
-- Cumulative tick accumulator (complex implementation)
-- 65k observation slots (expensive storage)
-- Historical lookback only (no forward weighting)
-- Passive data source (for external consumption)
+**Price TWAP (Accumulator Pattern - Uniswap V3 Style):**
+- True time-weighting (each second gets equal weight)
+- Manipulation resistant (burst updates don't affect weight)
+- Mathematically exact (no approximation errors)
+- Battle-tested in Uniswap V3 ($1.7T+ volume)
+- Minimal storage: 1 accumulator + 2 snapshots + timestamps
+- Constant gas: ~615 gas per update regardless of time gap
 
-**BAMM Dual EMA:**
-- Simple recursive update (gas efficient)
-- 4 fields total (minimal storage: 2×64bit + 2×32bit = 24 bytes)
-- Forward-weighted (recent data emphasized)
-- Active controller (directly shifts liquidity distribution)
+**Volatility (EMA Pattern):**
+- Variance exhibits clustering and mean-reversion
+- Exponential decay matches market behavior
+- Standard in risk management (RiskMetrics uses λ=0.94)
+- Guardian calculates from time-windows off-chain, submits periodically
+- Update-weighting is acceptable since guardian pre-calculates from time-periods
+
+**Architecture Separation:**
+- **IOracle:** Shared interface for reading oracle data (both internal and external)
+- **IInternalOracle:** Extends IOracle with update/reset methods for accumulator management
+- **IExternalOracle:** Extends IOracle with multi-asset management methods
+- **InternalOracle:** ONLY manages accumulator (no external oracle reading)
+- **BAMMManagement:** Handles oracle reading with fallback logic using IOracle interface
+- **Unified reading:** Both oracle types implement IOracle for consistent reading
 
 ### Why Two Volatility Metrics?
 
@@ -728,4 +949,4 @@ Potential improvements for future versions:
 - [B64_FLOAT.md](./B64_FLOAT.md) - Complete b64 float format specification
 - [PIECEWISE_BONDING_CURVE.md](./PIECEWISE_BONDING_CURVE.md) - How oracle prices drive liquidity distribution
 - [FEES.md](./FEES.md) - How volatility metrics determine dynamic fees
-- [ACCESS_CONTROL.md](./ACCESS_CONTROL.md) - Keeper role permissions and security
+- [ACCESS_CONTROL.md](./ACCESS_CONTROL.md) - Guardian role permissions and security
