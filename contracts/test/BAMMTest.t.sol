@@ -43,8 +43,8 @@ contract BAMMTest is Test {
     MockERC20 public wbtc;
     MockERC20 public dai;
 
-    address public admin = address(0x1);
-    address public keeper = address(0x2);
+    address public owner = address(0x1);
+    address public guardian = address(0x2);
     address public alice = address(0x3);
     address public bob = address(0x4);
     address public carol = address(0x5);
@@ -61,7 +61,7 @@ contract BAMMTest is Test {
 
     // Events to test
     event AssetAdded(address indexed token, uint16 targetAllocBps, uint128 minLiquidity);
-    event OracleUpdate(address indexed token, uint64 fastTWAP, uint64 slowTWAP, uint32 fastVolatility, uint32 slowVolatility, address indexed keeper);
+    event OracleUpdate(address indexed token, uint64 fastTWAP, uint64 slowTWAP, uint32 fastVolatility, uint32 slowVolatility, address indexed updater);
     event Deposit(address indexed user, address indexed token, uint256 amount, uint256 lpTokensMinted);
     event Swap(address indexed user, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut, uint256 feeBps);
     event Withdraw(address indexed user, address indexed token, uint256 lpTokensBurned, uint256 amountOut, uint256 withdrawalFeeBps);
@@ -113,7 +113,7 @@ contract BAMMTest is Test {
         dai = new MockERC20("Dai Stablecoin", "DAI", 18);
 
         // Deploy AMM with USDC as base
-        amm = new BAMM(address(usdc), admin, keeper);
+        amm = new BAMM(address(usdc), owner, guardian);
 
         // Mint tokens to test users
         usdc.mint(alice, INITIAL_USDC);
@@ -151,10 +151,10 @@ contract BAMMTest is Test {
         vm.stopPrank();
     }
 
-    // ========== ADMIN FLOW TESTS ==========
+    // ========== OWNER FLOW TESTS ==========
 
     function testAddAsset() public {
-        vm.startPrank(admin);
+        vm.startPrank(owner);
 
         // Add WETH with 30% target allocation
         vm.expectEmit(true, false, false, true);
@@ -186,7 +186,7 @@ contract BAMMTest is Test {
     }
 
     function testCannotAddAssetTwice() public {
-        vm.startPrank(admin);
+        vm.startPrank(owner);
 
         _addAssetWithDefaults(address(weth), 3000, 1000, 8);
 
@@ -197,7 +197,7 @@ contract BAMMTest is Test {
     }
 
     function testUpdateBaseAsset() public {
-        vm.startPrank(admin);
+        vm.startPrank(owner);
 
         // Add DAI first
         _addAssetWithDefaults(address(dai), 2000, 1000, 4);
@@ -211,7 +211,7 @@ contract BAMMTest is Test {
     }
 
     function testPauseAndUnpause() public {
-        vm.startPrank(admin);
+        vm.startPrank(owner);
 
         // Pause pool
         amm.pausePool();
@@ -225,7 +225,7 @@ contract BAMMTest is Test {
     }
 
     function testFreezeAndUnfreezeAsset() public {
-        vm.startPrank(admin);
+        vm.startPrank(owner);
 
         _addAssetWithDefaults(address(weth), 3000, 1000, 8);
 
@@ -242,14 +242,14 @@ contract BAMMTest is Test {
         vm.stopPrank();
     }
 
-    // ========== KEEPER FLOW TESTS ==========
+    // ========== ORACLE UPDATE TESTS ==========
 
     function testUpdateOracle() public {
         // First add the asset
-        vm.prank(admin);
+        vm.prank(owner);
         _addAssetWithDefaults(address(weth), 3000, 1000, 8);
 
-        vm.startPrank(keeper);
+        vm.startPrank(owner);
 
         // Update oracle with price and volatility
         uint64 ethPrice = 2000 * 1e8; // $2000 in 1e8 precision
@@ -257,7 +257,7 @@ contract BAMMTest is Test {
 
         // First update initializes both fast and slow EMAs to the same value
         vm.expectEmit(true, false, false, true);
-        emit OracleUpdate(address(weth), ethPrice, ethPrice, ethVol, ethVol, keeper);
+        emit OracleUpdate(address(weth), ethPrice, ethPrice, ethVol, ethVol, owner);
         amm.updateOracle(address(weth), ethPrice, ethVol);
 
         // Check oracle was updated (Asset has 12 fields)
@@ -274,10 +274,10 @@ contract BAMMTest is Test {
     }
 
     function testUpdateOracleWithEMA() public {
-        vm.prank(admin);
+        vm.prank(owner);
         _addAssetWithDefaults(address(weth), 3000, 1000, 8);
 
-        vm.startPrank(keeper);
+        vm.startPrank(owner);
 
         // First update
         uint64 price1 = 2000 * 1e8;
@@ -300,10 +300,10 @@ contract BAMMTest is Test {
     }
 
     function testCannotUpdateOracleWithLargeChange() public {
-        vm.prank(admin);
+        vm.prank(owner);
         _addAssetWithDefaults(address(weth), 3000, 1000, 8);
 
-        vm.startPrank(keeper);
+        vm.startPrank(owner);
 
         // First update
         amm.updateOracle(address(weth), 2000 * 1e8, 50_000_000);
@@ -316,10 +316,10 @@ contract BAMMTest is Test {
     }
 
     function testUpdateDistribution() public {
-        vm.prank(admin);
+        vm.prank(owner);
         _addAssetWithDefaults(address(weth), 3000, 1000, 8); // Start with constant
 
-        vm.startPrank(keeper);
+        vm.startPrank(owner);
 
         // Update to different weights
         amm.updateLiquidityProfile(
@@ -340,10 +340,10 @@ contract BAMMTest is Test {
 
     function testDepositSingleAsset() public {
         // Setup: Add asset and set oracle
-        vm.prank(admin);
+        vm.prank(owner);
         _addAssetWithDefaults(address(weth), 3000, 1000, 8);
 
-        vm.prank(keeper);
+        vm.prank(owner);
         amm.updateOracle(address(weth), 2000 * 1e8, 50_000_000);
 
         // Alice deposits WETH
@@ -433,8 +433,8 @@ contract BAMMTest is Test {
     function testCannotSwapWhenPaused() public {
         _setupPoolWithLiquidity();
 
-        // Admin pauses pool
-        vm.prank(admin);
+        // Owner pauses pool
+        vm.prank(owner);
         amm.pausePool();
 
         // Bob tries to swap
@@ -447,8 +447,8 @@ contract BAMMTest is Test {
     function testCannotSwapFrozenAsset() public {
         _setupPoolWithLiquidity();
 
-        // Admin freezes WETH
-        vm.prank(admin);
+        // Owner freezes WETH
+        vm.prank(owner);
         amm.freezeAsset(address(weth), "Test freeze");
 
         // Bob tries to swap frozen asset
@@ -462,7 +462,7 @@ contract BAMMTest is Test {
         _setupPoolWithLiquidity();
 
         // Keeper checks circuit breaker
-        vm.startPrank(keeper);
+        vm.startPrank(owner);
 
         // This would trigger if price diverges too much
         // In real scenario, we'd manipulate pool price first
@@ -499,7 +499,7 @@ contract BAMMTest is Test {
         _setupPoolWithLiquidity();
 
         // Push volatility to very high (multiple updates to overcome EMA smoothing)
-        vm.startPrank(keeper);
+        vm.startPrank(owner);
         for (uint i = 0; i < 5; i++) {
             amm.updateOracle(address(weth), 2000 * 1e8, 95_000_000); // Very high vol
         }
@@ -513,7 +513,7 @@ contract BAMMTest is Test {
         );
 
         // Push volatility to very low (multiple updates)
-        vm.startPrank(keeper);
+        vm.startPrank(owner);
         for (uint i = 0; i < 10; i++) {
             amm.updateOracle(address(weth), 2000 * 1e8, 5_000_000); // Very low vol
         }
@@ -533,7 +533,7 @@ contract BAMMTest is Test {
     // ========== LIQUIDITY DISTRIBUTION TESTS ==========
 
     function testDistributionTypes() public {
-        vm.startPrank(admin);
+        vm.startPrank(owner);
 
         // Test adding assets with different distributions
         _addAssetWithDefaults(address(weth), 3000, 1000, 8); // Constant
@@ -555,7 +555,7 @@ contract BAMMTest is Test {
     // ========== MULTI-ASSET TESTS ==========
 
     function testMultiAssetPool() public {
-        vm.startPrank(admin);
+        vm.startPrank(owner);
 
         // Create multi-asset pool (USDC already exists as base)
         _addAssetWithDefaults(address(weth), 3000, 1000, 8);  // 30% WETH
@@ -565,7 +565,7 @@ contract BAMMTest is Test {
         vm.stopPrank();
 
         // Set oracles for all
-        vm.startPrank(keeper);
+        vm.startPrank(owner);
         amm.updateOracle(address(usdc), 1 * 1e8, 5_000_000);     // $1, low vol
         amm.updateOracle(address(weth), 2000 * 1e8, 60_000_000); // $2000, high vol
         amm.updateOracle(address(wbtc), 40000 * 1e8, 70_000_000); // $40000, high vol
@@ -598,13 +598,13 @@ contract BAMMTest is Test {
 
     function _setupPoolWithLiquidity() internal {
         // Add assets (USDC already exists as base)
-        vm.startPrank(admin);
+        vm.startPrank(owner);
         _addAssetWithDefaults(address(weth), 3000, 1000, 8);   // 30% WETH
         _addAssetWithDefaults(address(wbtc), 2000, 100, 8);    // 20% WBTC
         vm.stopPrank();
 
         // Set oracles (including for base USDC)
-        vm.startPrank(keeper);
+        vm.startPrank(owner);
         amm.updateOracle(address(usdc), 1 * 1e8, 5_000_000);      // Base token oracle
         amm.updateOracle(address(weth), 2000 * 1e8, 50_000_000);
         amm.updateOracle(address(wbtc), 40000 * 1e8, 60_000_000);
@@ -623,10 +623,10 @@ contract BAMMTest is Test {
     function testFuzzDeposit(uint256 amount) public {
         amount = bound(amount, 1000, INITIAL_WETH);
 
-        vm.prank(admin);
+        vm.prank(owner);
         _addAssetWithDefaults(address(weth), 3000, 1000, 8);
 
-        vm.prank(keeper);
+        vm.prank(owner);
         amm.updateOracle(address(weth), 2000 * 1e8, 50_000_000);
 
         vm.startPrank(alice);
