@@ -1,29 +1,21 @@
 # BAMM Fee System - Tri-Factor Model with Unified Volatility
 
-## Date: 2025-01-11
-## Status: ✅ CORE IMPLEMENTATION COMPLETE
+## Overview
 
-**Note**: All helper functions and parameters are implemented. Main swap fee integration pending.
-
----
+BAMM implements a **Wombat-inspired tri-factor fee model** with **unified volatility calculation** for maximum gas efficiency and consistency.
 
 ## Table of Contents
 
-1. [Overview](#overview)
+1. [Key Principles](#key-principles)
 2. [Unified Volatility System](#unified-volatility-system)
 3. [Tri-Factor Fee Model](#tri-factor-fee-model)
 4. [Fee Calculation](#fee-calculation)
 5. [Liquidity Breadth Integration](#liquidity-breadth-integration)
 6. [Parameter Configuration](#parameter-configuration)
-7. [Implementation Status](#implementation-status)
 
 ---
 
-## Overview
-
-BAMM implements a **Wombat-inspired tri-factor fee model** with **unified volatility calculation** for maximum gas efficiency and consistency.
-
-### Key Principles
+## Key Principles
 
 1. **Decode oracle once per asset per leg** - Compute baseline volatility and shock ratio once, reuse for both breadth and fees
 2. **Three capped linear factors** - Inventory (coverage), volatility shock, price divergence
@@ -54,9 +46,9 @@ Where: Λ = 10^18 (precision constant)
 > Compute baseline volatility and shock ratio **once per asset per leg**, then reuse those values for **both** piecewise price traversal (breadth) and fee computation.
 
 This ensures:
-- ✅ **Gas efficiency** - Single oracle decode, no redundant SLOADs
-- ✅ **Consistency** - Breadth and fees see identical volatility state
-- ✅ **Reactivity** - Latest oracle indices used for both calculations
+- **Gas efficiency** - Single oracle decode, no redundant SLOADs
+- **Consistency** - Breadth and fees see identical volatility state
+- **Reactivity** - Latest oracle indices used for both calculations
 
 ### What to Compute Once
 
@@ -76,8 +68,6 @@ v_base = clamp(v_base, v_floor, v_max)
 // 3. Shock ratio
 r = min(r_max, v_f / max(v_s, ε))
 ```
-
-**Implementation**: See `LibPricing._calculateBaselineVolatility()` (line 560) and `LibPricing._calculateShockRatio()` (line 589)
 
 ### Parameters
 
@@ -325,7 +315,7 @@ f_bps = calculateFee(v_base, r, ...)  // Reuse v_base and r!
 
 ## Parameter Configuration
 
-### Admin Functions
+### Owner Functions
 
 ```solidity
 // Baseline volatility (unified for breadth + fees)
@@ -334,14 +324,14 @@ function updateBaselineVolatilityParams(
     uint32 volFloor,        // 100000 = 0.1%
     uint32 volMax,          // 50000000 = 50%
     uint16 breadthShockKappa // 0 = disabled, 10 = 0.1
-) external onlyAdmin
+) external onlyOwner
 
 // Inventory factor
 function updateInventoryParams(
     uint16 invMinMult,      // 20 = 0.2x
     uint16 invMaxMult,      // 10000 = 100x
     uint16 invMaxDivergence // 5000 = 50%
-) external onlyAdmin
+) external onlyOwner
 
 // Volatility shock factor
 function updateVolatilityParams(
@@ -349,7 +339,7 @@ function updateVolatilityParams(
     uint16 volRMax,         // 1000 = 10x
     uint16 volMaxMult,      // 10000 = 100x
     uint16 volEpsilon       // 1000 = 0.001%
-) external onlyAdmin
+) external onlyOwner
 
 // Price divergence factor
 function updateDivergenceParams(
@@ -357,14 +347,14 @@ function updateDivergenceParams(
     uint16 pdD2Max,         // 1500 = 15%
     uint16 pdAlpha,         // 50 = 0.5
     uint16 pdMaxMult        // 10000 = 100x
-) external onlyAdmin
+) external onlyOwner
 
 // Base fee parameters
 function updateBaseFeeParams(
     uint16 baseK,           // 100 = 1.0
     uint16 baseMin,         // 1 = 0.01%
     uint16 baseMax          // 500 = 5%
-) external onlyAdmin
+) external onlyOwner
 
 // Global caps
 function updateGlobalFeeParams(
@@ -373,7 +363,7 @@ function updateGlobalFeeParams(
     uint16 maxTWAPChange,   // Circuit breaker
     uint16 protocolFeeBps,  // Protocol fee split
     uint16 withdrawalFeeBps // Withdrawal fee
-) external onlyAdmin
+) external onlyOwner
 ```
 
 ### Default Values (Conservative)
@@ -411,98 +401,6 @@ baseMax: 500           // 5% ceiling
 minMult: 20            // 0.2x global min
 maxMult: 10000         // 100x global max
 ```
-
----
-
-## Implementation Status
-
-### ✅ Completed
-
-1. **Unified Volatility System** (`LibPricing.sol:560-608`)
-   - `_calculateBaselineVolatility()` - Weighted fast/slow with floor/max clamps
-   - `_calculateShockRatio()` - Fast/slow ratio with r_max cap
-   - Single decode per asset, reused for breadth and fees
-
-2. **FeeParams Struct** (`LibPricing.sol:36-68`)
-   - All 20+ tri-factor parameters defined
-   - Stored in 1e2/uint16 format for gas optimization
-   - Includes new volWeight, volFloor, volMax, breadthShockKappa
-
-3. **Breadth Calculation** (`LibPricing.sol:274-311`)
-   - Updated to use baseline volatility
-   - Optional shock term: κ_shock * (r - 1)
-   - Consistent with fee calculations
-
-4. **getSegmentPrice** (`LibPricing.sol:244-279`)
-   - Decodes oracle once per asset
-   - Computes v_base and r
-   - Passes to both breadth and piecewise traversal
-
-5. **getSegmentPricePure** (`LibPricing.sol:200-234`)
-   - Accepts precomputed v_base and r
-   - Calculates breadth with optional shock
-   - Executes piecewise traversal
-
-6. **Tri-Factor Helper Functions** (`LibPricing.sol:383-551`)
-   - `_calculateInventoryFactor()` - Coverage-based ALM
-   - `_calculateVolatilityShockFactor()` - Uses precomputed r
-   - `_calculatePriceDivergenceFactor()` - Spot vs oracle TWAPs
-   - `_calculateRiskMultiplier()` - Multiplicative combination
-   - `_calculateBaseFee()` - Slow vol-aware base
-
-7. **Coverage Ratio Haircut** (`BAMM.sol:801-817`)
-   - Proportional withdrawal when C < 1
-   - Incentivizes LPs to stay during imbalances
-   - See [`ALM_COVERAGE_RATIO.md`](ALM_COVERAGE_RATIO.md)
-
-8. **Liability Tracking** (`BAMM.sol:730-731, 838-841`)
-   - Asset struct updated with liabilities field
-   - Deposit/withdraw track coverage ratio
-   - Fee-on-transfer protection maintains accuracy
-
-9. **Admin Functions** (`BAMMManagement.sol:165-227`)
-   - 6 setter functions for all parameter groups
-   - New `updateBaselineVolatilityParams()` for unified vol
-   - All parameters configurable per pool
-
-10. **Initialization** (`BAMMManagement.sol:866-906`)
-    - Sensible default parameters
-    - Based on conservative stable pair settings
-    - All new unified volatility params initialized
-
-11. **BAMM Integration** (`BAMM.sol`)
-    - All `getSegmentPrice()` calls updated to pass `feeParams`
-    - Unified volatility flows through all swap paths
-    - Single-leg, two-leg, and batch swaps all use same system
-
-### 🚧 Pending
-
-1. **Main Swap Fee Integration**
-   - Replace old `calculateSwapFee()` logic with tri-factor model
-   - Calculate pool-wide totalLiabilities for inventory factor
-   - Integrate unified v_base and r from oracle decode
-
-2. **Test Updates**
-   - Fix test file function signature mismatches
-   - Add tri-factor fee tests
-   - Test unified volatility execution path
-   - Test extreme scenarios (high divergence, shock events, coverage edge cases)
-
-3. **Gas Optimization**
-   - Profile gas costs of unified volatility system
-   - Verify no redundant oracle decodes
-   - Measure breadth + fee calculation overhead
-
-### 📊 Implementation Quality
-
-- ✅ **Zero compilation errors** in production code
-- ✅ **Gas optimized** - Single oracle decode, all calculations use uint256 math
-- ✅ **Storage optimized** - Parameters in 1e2 format (uint16), vol limits in uint32
-- ✅ **Overflow protected** - Safe casts with toUint128()
-- ✅ **Division by zero protected** - Epsilon guards throughout
-- ✅ **Well documented** - Comprehensive inline comments
-- ✅ **Spec compliant** - Follows provided mathematical formulas exactly
-- ✅ **Unified volatility** - Single source of truth for breadth + fees
 
 ---
 
@@ -544,25 +442,23 @@ Savings:                 ~600 gas per asset
 
 ---
 
-## Benefits Over Old Model
+## Design Benefits
 
-1. ✅ **No discontinuities** - Linear ramps eliminate step-arb opportunities
-2. ✅ **Configurable** - All parameters tunable per asset class
-3. ✅ **Transparent** - Clear economic rationale for each factor
-4. ✅ **Coverage-based** - True ALM model following Wombat principles
-5. ✅ **Unified volatility** - Single source of truth, gas-efficient, consistent
-6. ✅ **Predictable arbitrage** - Rebates create clear incentives
-7. ✅ **Regime-aware** - Shock ratio catches volatility spikes early
+1. **No discontinuities** - Linear ramps eliminate step-arb opportunities
+2. **Configurable** - All parameters tunable per asset class
+3. **Transparent** - Clear economic rationale for each factor
+4. **Coverage-based** - True ALM model following Wombat principles
+5. **Unified volatility** - Single source of truth, gas-efficient, consistent
+6. **Predictable arbitrage** - Rebates create clear incentives
+7. **Regime-aware** - Shock ratio catches volatility spikes early
 
 ---
 
 ## Related Documentation
 
-- [`ALM_COVERAGE_RATIO.md`](ALM_COVERAGE_RATIO.md) - Coverage ratio system and withdrawal haircut
-- [`PIECEWISE_BONDING_CURVE.md`](PIECEWISE_BONDING_CURVE.md) - Liquidity profile and breadth mechanics
-- [`ORACLE.md`](ORACLE.md) - Oracle system and TWAP calculations
-- [`ORACLE_PRECISION_FIX_COMPLETE.md`](../ORACLE_PRECISION_FIX_COMPLETE.md) - 1e18 precision update
-- [`TOTAL_VALUE_CACHING.md`](TOTAL_VALUE_CACHING.md) - Delta-based O(1) value caching
+- [ALM_AND_COVERAGE.md](ALM_AND_COVERAGE.md) - Coverage ratio system and withdrawal haircut
+- [BONDING_AND_PRICING.md](BONDING_AND_PRICING.md) - Liquidity profile and breadth mechanics
+- [ORACLE.md](ORACLE.md) - Oracle system and TWAP calculations
 
 ---
 
