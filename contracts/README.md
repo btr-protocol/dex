@@ -17,7 +17,7 @@ Adaptive multi-asset AMM with dynamic liquidity distribution, internal oracle sy
 
 ### Core Specifications (specs/)
 - **[ARCHITECTURE.md](specs/ARCHITECTURE.md)** - System architecture and design patterns
-- **[ACCESS_CONTROL.md](specs/ACCESS_CONTROL.md)** - Role-based access control (Admin, Guardian, Treasury)
+- **[ACCESS_CONTROL.md](specs/ACCESS_CONTROL.md)** - Role-based access control (Owner, Guardian, Treasury)
 - **[ORACLE.md](specs/ORACLE.md)** - Dual EMA oracle system with three operating modes
 - **[FEES.md](specs/FEES.md)** - Dynamic multi-factor fee calculation
 - **[LP_TOKENS.md](specs/LP_TOKENS.md)** - ERC1155 rebasing LP token mechanics
@@ -65,7 +65,7 @@ src/
 
 ## Key Roles
 
-### Admin
+### Owner
 - Add/remove assets
 - Pause/unpause pool
 - Update base asset
@@ -88,7 +88,7 @@ src/
 - **Reentrancy protection** - Solady ReentrancyGuard
 - **Safe transfers** - Solady SafeTransferLib
 - **Overflow protection** - Safe casting with revert
-- **Access control** - Role-based with timelock for admin changes
+- **Access control** - Role-based with timelock for owner changes
 - **Circuit breakers** - Asset freeze on excessive deviation
 - **Blacklist system** - Compliance and malicious actor blocking
 
