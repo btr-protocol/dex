@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IBAMM} from "../interfaces/IBAMM.sol";
+import {IBAMMHooks} from "../interfaces/IBAMMHooks.sol";
 import {ERC1155} from "solady/tokens/ERC1155.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {Initializable} from "solady/utils/Initializable.sol";
@@ -15,10 +16,11 @@ import {LibUtils} from "../libraries/LibUtils.sol";
 import {LibStorage} from "../libraries/LibStorage.sol";
 import {InternalOracle} from "./InternalOracle.sol";
 import {BAMMManagement} from "./BAMMManagement.sol";
+import {BAMMFlashLender} from "./BAMMFlashLender.sol";
 
 /// @title BAMM
 /// @notice Balanced Automated Market Maker with dynamic fees and internal oracle
-contract BAMM is ERC1155, InternalOracle, BAMMManagement {
+contract BAMM is ERC1155, InternalOracle, BAMMManagement, BAMMFlashLender {
     using SafeTransferLib for address;
     using LibUtils for uint256;
     using LibUtils for address;
@@ -26,23 +28,28 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
     // ========== STORAGE ACCESS IMPLEMENTATIONS ==========
 
     /// @notice Get full storage struct (required by BAMMManagement)
-    function _s() internal pure override returns (LibStorage.BAMMStorage storage) {
+    function _s() internal pure override(BAMMManagement, BAMMFlashLender) returns (LibStorage.BAMMStorage storage) {
         return LibStorage.getStorage();
     }
 
-    /// @notice Get asset storage for given token (required by InternalOracle & BAMMManagement)
-    function _getAsset(address token) internal view override(InternalOracle, BAMMManagement) returns (IBAMM.Asset storage) {
+    /// @notice Get asset storage for given token (required by InternalOracle & BAMMManagement & BAMMFlashLender)
+    function _getAsset(address token) internal view override(InternalOracle, BAMMManagement, BAMMFlashLender) returns (IBAMM.Asset storage) {
         return _s().assets[token];
     }
 
-    /// @notice Get fast TWAP for asset (required by InternalOracle & BAMMManagement)
-    function _getFastTWAP(IBAMM.Asset storage asset) internal view override(InternalOracle, BAMMManagement) returns (uint64) {
-        return super._getFastTWAP(asset);
+    /// @notice Get fast TWAP for asset (required by BAMMManagement)
+    function _getFastTWAP(address token, IBAMM.Asset storage asset) internal view override returns (uint64) {
+        return super._getFastTWAP(token, asset);
     }
 
     /// @notice Get registered assets (required by InternalOracle & BAMMManagement)
     function _getRegisteredAssets() internal view override(InternalOracle, BAMMManagement) returns (address[] memory) {
         return _s().registeredAssets;
+    }
+
+    /// @notice Check if pool is paused (required by BAMMFlashLender)
+    function _isPoolPaused() internal view override returns (bool) {
+        return _s().isPoolPaused;
     }
 
     /// @notice Get fast TWAP weight (required by InternalOracle)
@@ -63,9 +70,9 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         return success && data.length >= 32 ? abi.decode(data, (uint8)) : 18;
     }
 
-    /// @notice Read oracle or revert (required by InternalOracle & BAMMManagement)
-    function _readOracleOrRevert(address mainOracle, address fallbackOracle) internal view override(InternalOracle, BAMMManagement) returns (uint64 fastTWAP, uint64 slowTWAP, uint32 fastVol, uint32 slowVol) {
-        return super._readOracleOrRevert(mainOracle, fallbackOracle);
+    /// @notice Get oracle entry for given oracle ID (required by InternalOracle)
+    function _getOracleEntry(bytes32 oracleId) internal view override returns (LibStorage.OracleEntry storage) {
+        return _s().oracleEntries[oracleId];
     }
 
     // ========== MODIFIERS ==========
@@ -110,59 +117,94 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             // Use cached total value
             uint256 totalValue = $.cachedTotalValue;
             if (totalValue == 0) {
-                totalValue = P.calculateTotalValue($.registeredAssets, $.assets);
+                totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
                 $.cachedTotalValue = totalValue;
             }
 
-            // Decode oracle data once for all three assets
-            (uint256 inFast, uint256 inSlow, uint32 inFastVol, uint32 inSlowVol) = P.decodeOracleData(assetIn);
-            (uint256 baseFast, uint256 baseSlow, uint32 baseFastVol, uint32 baseSlowVol) = P.decodeOracleData(assetBase);
-            (uint256 outFast, uint256 outSlow, uint32 outFastVol, uint32 outSlowVol) = P.decodeOracleData(assetOut);
+            // Get oracle entries for all three assets
+            LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
+            LibStorage.OracleEntry storage oracleBase = $.oracleEntries[assetBase.oracleId];
+            LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
 
-            // Calculate notionals for fee calculation
+            // Calculate notionals for fee calculation (decode TWAPs inline)
+            uint256 timeElapsedIn = block.timestamp - oracleIn.lastOracleUpdate;
+            uint256 currentAccumIn = oracleIn.priceAccumulator + (uint256(oracleIn.currentPrice) * timeElapsedIn);
+            uint256 timeDeltaIn = block.timestamp - oracleIn.fastSnapshotTime;
+            uint64 fastTWAPIn = timeDeltaIn == 0 ? oracleIn.currentPrice : uint64((currentAccumIn - oracleIn.fastAccumSnapshot) / timeDeltaIn);
+            uint256 inFast = M.b64ToPrice(fastTWAPIn);
+
+            uint256 timeElapsedBase = block.timestamp - oracleBase.lastOracleUpdate;
+            uint256 currentAccumBase = oracleBase.priceAccumulator + (uint256(oracleBase.currentPrice) * timeElapsedBase);
+            uint256 timeDeltaBase = block.timestamp - oracleBase.fastSnapshotTime;
+            uint64 fastTWAPBase = timeDeltaBase == 0 ? oracleBase.currentPrice : uint64((currentAccumBase - oracleBase.fastAccumSnapshot) / timeDeltaBase);
+            uint256 baseFast = M.b64ToPrice(fastTWAPBase);
+
+            uint256 timeElapsedOut = block.timestamp - oracleOut.lastOracleUpdate;
+            uint256 currentAccumOut = oracleOut.priceAccumulator + (uint256(oracleOut.currentPrice) * timeElapsedOut);
+            uint256 timeDeltaOut = block.timestamp - oracleOut.fastSnapshotTime;
+            uint64 fastTWAPOut = timeDeltaOut == 0 ? oracleOut.currentPrice : uint64((currentAccumOut - oracleOut.fastAccumSnapshot) / timeDeltaOut);
+            uint256 outFast = M.b64ToPrice(fastTWAPOut);
+
             uint256 leg1Notional = FixedPointMathLib.fullMulDiv(amountIn, inFast, M.PRICE_PRECISION);
             uint256 leg2Notional = FixedPointMathLib.fullMulDiv(leg1Notional, baseFast, outFast);
 
-            // Create leg pricing data structs for cleaner function call
-            P.LegPricingData memory leg1Data = P.LegPricingData({
-                fastTWAP1e18: inFast,
-                slowTWAP1e18: inSlow,
-                fastVol: inFastVol,
-                slowVol: inSlowVol,
-                reserves: assetIn.reserves,
-                minFeeBps: assetIn.minFeeBps,
-                maxFeeBps: assetIn.maxFeeBps
-            });
+            // TWO-LEG HUB ROUTING: Calculate fees for each leg separately using tri-factor model
 
-            P.LegPricingData memory baseData = P.LegPricingData({
-                fastTWAP1e18: baseFast,
-                slowTWAP1e18: baseSlow,
-                fastVol: baseFastVol,
-                slowVol: baseSlowVol,
-                reserves: assetBase.reserves,
-                minFeeBps: assetBase.minFeeBps,
-                maxFeeBps: assetBase.maxFeeBps
-            });
-
-            P.LegPricingData memory leg2Data = P.LegPricingData({
-                fastTWAP1e18: outFast,
-                slowTWAP1e18: outSlow,
-                fastVol: outFastVol,
-                slowVol: outSlowVol,
-                reserves: assetOut.reserves,
-                minFeeBps: assetOut.minFeeBps,
-                maxFeeBps: assetOut.maxFeeBps
-            });
-
-            FeeComponents memory fees = P.calculateSwapFeeTwoLegPure(
-                leg1Data, baseData, leg2Data,
-                leg1Notional, leg2Notional, totalValue
+            // Leg 1: tokenIn → base (use cached liabilities)
+            uint256 totalLiabilities = $.cachedTotalLiabilities;
+            FeeComponents memory fees1 = P.calculateSwapFee(
+                assetIn, assetBase,
+                $.liquidityProfiles[tokenIn], $.liquidityProfiles[base],
+                oracleIn, oracleBase,
+                $.feeParams,
+                amountIn,
+                totalValue,
+                totalLiabilities
             );
+
+            // Leg 2: base → tokenOut (calculate notional after leg 1 fee)
+            uint256 amountAfterFee1Temp = (amountIn * (M.BPS_PRECISION - fees1.totalFeeBps)) / M.BPS_PRECISION;
+            uint256 priceInTemp = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee1Temp);
+            uint256 priceBaseTemp = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, 0);
+            uint256 leg2InputNotional = priceBaseTemp > 0
+                ? FixedPointMathLib.mulDiv(amountAfterFee1Temp, priceInTemp, priceBaseTemp)
+                : 0;
+            leg2InputNotional = M.adjustDecimals(leg2InputNotional, assetIn.decimals, assetBase.decimals);
+
+            FeeComponents memory fees2 = P.calculateSwapFee(
+                assetBase, assetOut,
+                $.liquidityProfiles[base], $.liquidityProfiles[tokenOut],
+                oracleBase, oracleOut,
+                $.feeParams,
+                leg2InputNotional,
+                totalValue,
+                totalLiabilities
+            );
+
+            // Aggregate fees (notional-weighted average approach)
+            uint256 totalNotional = leg1Notional + leg2Notional;
+            uint256 aggregatedFeeBps = totalNotional > 0
+                ? (fees1.totalFeeBps * leg1Notional + fees2.totalFeeBps * leg2Notional) / totalNotional
+                : (fees1.totalFeeBps + fees2.totalFeeBps) / 2;
+
+            // Build aggregate fee components for return
+            FeeComponents memory fees = FeeComponents({
+                baseFee: (fees1.baseFee + fees2.baseFee) / 2,
+                totalFeeBps: aggregatedFeeBps,
+                volatilityMultiplier: (fees1.volatilityMultiplier + fees2.volatilityMultiplier) / 2,
+                inventoryMultiplier: (fees1.inventoryMultiplier + fees2.inventoryMultiplier) / 2,
+                divergenceMultiplier: (fees1.divergenceMultiplier + fees2.divergenceMultiplier) / 2,
+                exitInventoryDivergence: 100,
+                leg1FeeBps: fees1.totalFeeBps,
+                leg2FeeBps: fees2.totalFeeBps,
+                leg1Notional: leg1Notional,
+                leg2Notional: leg2Notional
+            });
 
             // === LEG 1: tokenIn → base ===
             uint256 amountAfterFee1 = (amountIn * (M.BPS_PRECISION - fees.leg1FeeBps)) / M.BPS_PRECISION;
-            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, amountAfterFee1);
-            uint256 priceBase1 = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, 0);
+            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee1);
+            uint256 priceBase1 = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, 0);
 
             if (priceBase1 == 0) revert E.InvalidPrice();
             uint256 amountBase = FixedPointMathLib.mulDiv(amountAfterFee1, priceIn, priceBase1);
@@ -184,8 +226,8 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
 
             // === LEG 2: base → tokenOut ===
             uint256 amountAfterFee2 = (amountBase * (M.BPS_PRECISION - fees.leg2FeeBps)) / M.BPS_PRECISION;
-            uint256 priceBase2 = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, amountAfterFee2);
-            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, amountAfterFee2);
+            uint256 priceBase2 = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, amountAfterFee2);
+            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, oracleOut, amountAfterFee2);
 
             if (priceOut == 0) revert E.InvalidPrice();
             amountOut = FixedPointMathLib.mulDiv(amountAfterFee2, priceBase2, priceOut);
@@ -267,9 +309,9 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             int256 deltaBase = int256(finalReservesBase) - int256(uint256(oldReservesBase));
             int256 deltaOut = int256(finalReservesOut) - int256(uint256(oldReservesOut));
 
-            totalValue = P.updateTotalValueDelta(totalValue, assetIn, deltaIn);
-            totalValue = P.updateTotalValueDelta(totalValue, assetBase, deltaBase);
-            totalValue = P.updateTotalValueDelta(totalValue, assetOut, deltaOut);
+            totalValue = P.updateTotalValueDelta(totalValue, assetIn, oracleIn, deltaIn);
+            totalValue = P.updateTotalValueDelta(totalValue, assetBase, oracleBase, deltaBase);
+            totalValue = P.updateTotalValueDelta(totalValue, assetOut, oracleOut, deltaOut);
             $.cachedTotalValue = totalValue;
 
             // INVARIANT: Two-leg swap fee conservation (development/testing only)
@@ -277,6 +319,11 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             assert(finalReservesOut <= oldReservesOut); // Leg 2 outflow
             // Base asset should be neutral (receives from leg1, sends to leg2, collects fees)
             // Note: baseReserves may increase/decrease depending on fees collected/paid
+
+            // Pre-buy hook: Pool is about to RECEIVE tokenIn (optional: no-op if hooks not configured)
+            if (assetIn.hooks != address(0)) {
+                IBAMMHooks(assetIn.hooks).preBuy(tokenIn, msg.sender, amountIn, tokenOut, amountOut, "");
+            }
 
             // Transfers with fee-on-transfer protection
             uint256 balanceInBefore = tokenIn.balanceOf(address(this));
@@ -287,13 +334,28 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             if (actualAmountIn != amountIn) {
                 int256 deficit = int256(amountIn) - int256(actualAmountIn);
                 assetIn.reserves = uint128(int128(int256(uint256(assetIn.reserves)) - deficit));
-                totalValue = P.updateTotalValueDelta(totalValue, assetIn, -deficit);
+                totalValue = P.updateTotalValueDelta(totalValue, assetIn, oracleIn, -deficit);
                 $.cachedTotalValue = totalValue;
+            }
+
+            // Post-buy hook: Pool RECEIVED tokenIn (optional: no-op if hooks not configured)
+            if (assetIn.hooks != address(0)) {
+                IBAMMHooks(assetIn.hooks).postBuy(tokenIn, msg.sender, actualAmountIn, tokenOut, amountOut, "");
+            }
+
+            // Pre-sell hook: Pool is about to GIVE tokenOut (optional: no-op if hooks not configured)
+            if (assetOut.hooks != address(0)) {
+                IBAMMHooks(assetOut.hooks).preSell(tokenOut, msg.sender, actualAmountIn, tokenIn, amountOut, "");
             }
 
             uint256 balanceOutBefore = tokenOut.balanceOf(receiver);
             tokenOut.safeTransfer(receiver, amountOut);
             uint256 actualAmountOut = tokenOut.balanceOf(receiver) - balanceOutBefore;
+
+            // Post-sell hook: Pool GAVE tokenOut (optional: no-op if hooks not configured)
+            if (assetOut.hooks != address(0)) {
+                IBAMMHooks(assetOut.hooks).postSell(tokenOut, msg.sender, actualAmountIn, tokenIn, actualAmountOut, "");
+            }
 
             emit Events.Swap(msg.sender, receiver, tokenIn, tokenOut, actualAmountIn, actualAmountOut, fees.totalFeeBps);
             return actualAmountOut;
@@ -303,17 +365,22 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         uint256 totalValue = $.cachedTotalValue;
         if (totalValue == 0) {
             // First operation - initialize cache
-            totalValue = P.calculateTotalValue($.registeredAssets, $.assets);
+            totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
             $.cachedTotalValue = totalValue;
         }
 
+        // Get oracle entries
+        LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
+        LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
+
+        uint256 totalLiabilities = $.cachedTotalLiabilities;
         FeeComponents memory fees = P.calculateSwapFee(
             assetIn, assetOut, $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut],
-            amountIn, totalValue
+            oracleIn, oracleOut, $.feeParams, amountIn, totalValue, totalLiabilities
         );
         uint256 amountAfterFee = (amountIn * (M.BPS_PRECISION - fees.totalFeeBps)) / M.BPS_PRECISION;
-        uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, amountAfterFee);
-        uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, 0);
+        uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee);
+        uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, oracleOut, 0);
 
         if (priceOut == 0) revert E.InvalidPrice();
         // Use mulDiv for precise calculation, avoiding intermediate overflow
@@ -341,8 +408,8 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         }
         uint256 feeInTokenOut = 0;
 
-        uint64 fastTWAPIn = _getFastTWAP(assetIn);
-        uint64 fastTWAPOut = _getFastTWAP(assetOut);
+        uint64 fastTWAPIn = _getFastTWAP(tokenIn, assetIn);
+        uint64 fastTWAPOut = _getFastTWAP(tokenOut, assetOut);
         if (feeForOutputLPs > 0 && fastTWAPIn > 0 && fastTWAPOut > 0) {
             // Use mulDiv for precise fee conversion, then adjust decimals
             uint256 feeValueRaw = FixedPointMathLib.mulDiv(feeForOutputLPs, fastTWAPIn, fastTWAPOut);
@@ -401,8 +468,8 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         int256 deltaIn = int256(uint256(assetIn.reserves)) - int256(uint256(oldReservesIn));
         int256 deltaOut = int256(uint256(assetOut.reserves)) - int256(uint256(oldReservesOut));
 
-        totalValue = P.updateTotalValueDelta(totalValue, assetIn, deltaIn);
-        totalValue = P.updateTotalValueDelta(totalValue, assetOut, deltaOut);
+        totalValue = P.updateTotalValueDelta(totalValue, assetIn, oracleIn, deltaIn);
+        totalValue = P.updateTotalValueDelta(totalValue, assetOut, oracleOut, deltaOut);
         $.cachedTotalValue = totalValue;
 
         // INVARIANT: Fee conservation check (development/testing only)
@@ -416,6 +483,11 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         assert(finalReservesIn == uint256(oldReservesIn) + amountIn - protocolFee + lpFeesForIn);
         assert(finalReservesOut == uint256(oldReservesOut) - amountOut - feeInTokenOut);
 
+        // Pre-buy hook: Pool is about to RECEIVE tokenIn (optional: no-op if hooks not configured)
+        if (assetIn.hooks != address(0)) {
+            IBAMMHooks(assetIn.hooks).preBuy(tokenIn, msg.sender, amountIn, tokenOut, amountOut, "");
+        }
+
         // Fee-on-transfer protection: measure actual received amount
         uint256 balanceInBefore = tokenIn.balanceOf(address(this));
         tokenIn.safeTransferFrom(msg.sender, address(this), amountIn);
@@ -425,13 +497,28 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         if (actualAmountIn != amountIn) {
             int256 deficit = int256(amountIn) - int256(actualAmountIn);
             assetIn.reserves = uint128(int128(int256(uint256(assetIn.reserves)) - deficit));
-            $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, assetIn, -deficit);
+            $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, assetIn, oracleIn, -deficit);
+        }
+
+        // Post-buy hook: Pool RECEIVED tokenIn (optional: no-op if hooks not configured)
+        if (assetIn.hooks != address(0)) {
+            IBAMMHooks(assetIn.hooks).postBuy(tokenIn, msg.sender, actualAmountIn, tokenOut, amountOut, "");
+        }
+
+        // Pre-sell hook: Pool is about to GIVE tokenOut (optional: no-op if hooks not configured)
+        if (assetOut.hooks != address(0)) {
+            IBAMMHooks(assetOut.hooks).preSell(tokenOut, msg.sender, actualAmountIn, tokenIn, amountOut, "");
         }
 
         // Fee-on-transfer protection: measure actual sent amount
         uint256 balanceOutBefore = tokenOut.balanceOf(receiver);
         tokenOut.safeTransfer(receiver, amountOut);
         uint256 actualAmountOut = tokenOut.balanceOf(receiver) - balanceOutBefore;
+
+        // Post-sell hook: Pool GAVE tokenOut (optional: no-op if hooks not configured)
+        if (assetOut.hooks != address(0)) {
+            IBAMMHooks(assetOut.hooks).postSell(tokenOut, msg.sender, actualAmountIn, tokenIn, actualAmountOut, "");
+        }
 
         emit Events.Swap(msg.sender, receiver, tokenIn, tokenOut, actualAmountIn, actualAmountOut, fees.totalFeeBps);
     }
@@ -464,7 +551,7 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         // Cache total value (calculated once, reused for all swaps)
         uint256 totalValue = $.cachedTotalValue;
         if (totalValue == 0) {
-            totalValue = P.calculateTotalValue($.registeredAssets, $.assets);
+            totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
             $.cachedTotalValue = totalValue;
         }
 
@@ -547,15 +634,20 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             uint128 currentReservesIn = newReserves[idxIn];
             uint128 currentReservesOut = newReserves[idxOut];
 
+            // Get oracle entries
+            LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
+            LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
+
             // Calculate swap (using cached totalValue)
+            uint256 totalLiabilities = $.cachedTotalLiabilities;
             FeeComponents memory fees = P.calculateSwapFee(
                 assetIn, assetOut, $.liquidityProfiles[step.tokenIn], $.liquidityProfiles[step.tokenOut],
-                amountIn, totalValue
+                oracleIn, oracleOut, $.feeParams, amountIn, totalValue, totalLiabilities
             );
 
             uint256 amountAfterFee = (amountIn * (M.BPS_PRECISION - fees.totalFeeBps)) / M.BPS_PRECISION;
-            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[step.tokenIn], $.feeParams, amountAfterFee);
-            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[step.tokenOut], $.feeParams, 0);
+            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[step.tokenIn], $.feeParams, oracleIn, amountAfterFee);
+            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[step.tokenOut], $.feeParams, oracleOut, 0);
 
             if (priceOut == 0) revert E.InvalidPrice();
             // Use mulDiv for precise calculation, avoiding intermediate overflow
@@ -583,8 +675,8 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             }
 
             uint256 feeInTokenOut = 0;
-            uint64 fastTWAPIn = _getFastTWAP(assetIn);
-            uint64 fastTWAPOut = _getFastTWAP(assetOut);
+            uint64 fastTWAPIn = _getFastTWAP(step.tokenIn, assetIn);
+            uint64 fastTWAPOut = _getFastTWAP(step.tokenOut, assetOut);
             if (feeForOutputLPs > 0 && fastTWAPIn > 0 && fastTWAPOut > 0) {
                 // Use mulDiv for precise fee conversion, then adjust decimals
                 uint256 feeValueRaw = FixedPointMathLib.mulDiv(feeForOutputLPs, fastTWAPIn, fastTWAPOut);
@@ -637,8 +729,8 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             int256 deltaIn = int256(finalReservesIn) - int256(uint256(currentReservesIn));
             int256 deltaOut = int256(finalReservesOut) - int256(uint256(currentReservesOut));
 
-            totalValue = P.updateTotalValueDelta(totalValue, assetIn, deltaIn);
-            totalValue = P.updateTotalValueDelta(totalValue, assetOut, deltaOut);
+            totalValue = P.updateTotalValueDelta(totalValue, assetIn, oracleIn, deltaIn);
+            totalValue = P.updateTotalValueDelta(totalValue, assetOut, oracleOut, deltaOut);
         }
 
         // Phase 2: Settlement - apply all accumulated changes ONCE per unique token
@@ -665,9 +757,10 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             // Adjust reserves if transfer tax was applied
             if (actualAmountIn != totalFirstTokenIn) {
                 Asset storage firstAsset = $.assets[firstTokenIn];
+                LibStorage.OracleEntry storage oracleFirstAsset = $.oracleEntries[firstAsset.oracleId];
                 int256 deficit = int256(totalFirstTokenIn) - int256(actualAmountIn);
                 firstAsset.reserves = uint128(int128(int256(uint256(firstAsset.reserves)) - deficit));
-                $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, firstAsset, -deficit);
+                $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, firstAsset, oracleFirstAsset, -deficit);
             }
         }
 
@@ -701,6 +794,11 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         if (asset.reserves == 0 && amount < asset.minLiquidity) revert E.BelowMinimumLiquidity();
         if (lpState.liquidityIndex == 0) lpState.liquidityIndex = uint128(M.PRECISION);
 
+        // Pre-deposit hook (optional: no-op if hooks not configured)
+        if (asset.hooks != address(0)) {
+            IBAMMHooks(asset.hooks).preDeposit(token, msg.sender, amount, "");
+        }
+
         // Apply deposit fee (for LP arbitrage mitigation, default 0)
         uint256 amountAfterFee = amount;
         if (asset.depositFeeBps > 0) {
@@ -717,8 +815,9 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
 
         uint256 scaledAmount = (lpTokens * M.PRECISION) / lpState.liquidityIndex;
 
-        // Store old reserves for delta calculation
+        // Store old reserves and liabilities for delta calculation
         uint128 oldReserves = asset.reserves;
+        uint128 oldLiabilities = asset.liabilities;
 
         unchecked {
             // SAFE: Both additions checked by toUint128() which reverts on overflow
@@ -729,15 +828,20 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         }
 
         // Update cached total value with delta (O(1) - no loop!)
+        LibStorage.OracleEntry storage oracle = $.oracleEntries[asset.oracleId];
         uint256 totalValue = $.cachedTotalValue;
         if (totalValue == 0) {
             // First operation - initialize cache
-            totalValue = P.calculateTotalValue($.registeredAssets, $.assets);
+            totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
         } else {
             int256 delta = int256(uint256(asset.reserves)) - int256(uint256(oldReserves));
-            totalValue = P.updateTotalValueDelta(totalValue, asset, delta);
+            totalValue = P.updateTotalValueDelta(totalValue, asset, oracle, delta);
         }
         $.cachedTotalValue = totalValue;
+
+        // Update cached liabilities with delta
+        int256 liabilitiesDelta = int256(uint256(asset.liabilities)) - int256(uint256(oldLiabilities));
+        $.cachedTotalLiabilities = P.updateTotalLiabilitiesDelta($.cachedTotalLiabilities, asset, oracle, liabilitiesDelta);
 
         // Fee-on-transfer protection: measure actual received amount
         uint256 balanceBefore = token.balanceOf(address(this));
@@ -762,11 +866,18 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
 
             lpTokens = actualLpTokens;
 
-            // Update cached total value
-            $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, asset, -int256(deficit));
+            // Update cached total value and liabilities with deficit
+            int256 deficitDelta = -int256(deficit);
+            $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, asset, oracle, deficitDelta);
+            $.cachedTotalLiabilities = P.updateTotalLiabilitiesDelta($.cachedTotalLiabilities, asset, oracle, deficitDelta);
         }
 
         _mint(msg.sender, token.addressToTokenId(), lpTokens, "");
+
+        // Post-deposit hook (optional: no-op if hooks not configured)
+        if (asset.hooks != address(0)) {
+            IBAMMHooks(asset.hooks).postDeposit(token, msg.sender, actualAmount, lpTokens, "");
+        }
 
         emit Events.Deposit(msg.sender, token, actualAmount, lpTokens);
     }
@@ -785,6 +896,11 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
 
         if (lpState.liquidityIndex == 0 || lpState.totalScaledSupply == 0) revert E.NotInitialized();
 
+        // Pre-withdraw hook (optional: no-op if hooks not configured)
+        if (asset.hooks != address(0)) {
+            IBAMMHooks(asset.hooks).preWithdraw(token, msg.sender, lpTokens, "");
+        }
+
         uint256 scaledAmount;
         unchecked {
             // SAFE: lpTokens * M.PRECISION cannot realistically overflow uint256
@@ -792,26 +908,28 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         }
         if ($.scaledBalances[msg.sender][token] < scaledAmount) revert E.InsufficientBalance();
 
-        amountOut = (scaledAmount * lpState.liquidityIndex * asset.reserves) /
-                   (lpState.totalScaledSupply * M.PRECISION);
-
-        // Calculate LP's proportional share of liabilities (for tracking)
-        // This is the liability to remove regardless of haircut
+        // Calculate LP's proportional share of liabilities (their claim)
         uint256 liabilityShare = (scaledAmount * lpState.liquidityIndex * asset.liabilities) /
                                  (lpState.totalScaledSupply * M.PRECISION);
 
-        // Apply coverage ratio haircut (Wombat-inspired ALM)
-        // Coverage ratio C = reserves / liabilities
-        // If C < 1 (pool imbalanced), LP only withdraws C * amountOut
-        // This incentivizes LPs to stay during imbalances → more fees from low liquidity
-        if (asset.liabilities > 0) {
-            uint256 coverageRatio = (uint256(asset.reserves) * M.PRECISION) / uint256(asset.liabilities);
-            if (coverageRatio < M.PRECISION) {
-                // Apply haircut: actualAmount = requestedAmount * C
-                amountOut = (amountOut * coverageRatio) / M.PRECISION;
-            }
-            // If C >= 1, no haircut (pool is healthy)
-        }
+        // Calculate coverage ratio: C = reserves / liabilities, clamped to [0, 1]
+        // If C >= 1: pool is healthy (over-collateralized), LP gets full claim
+        // If C < 1: pool is under-collateralized, LP gets haircutted at coverage ratio
+        uint256 coverageRatio = asset.liabilities > 0
+            ? (uint256(asset.reserves) * M.PRECISION) / uint256(asset.liabilities)
+            : M.PRECISION;
+
+        // Clamp coverage ratio to [0, 1] for withdrawal calculation
+        // Coverage > 1 doesn't give bonus, it accumulates as reserves for fees
+        if (coverageRatio > M.PRECISION) coverageRatio = M.PRECISION;
+
+        // Apply coverage ratio haircut to liability claim
+        // amountOut = liabilityShare * min(C, 1.0)
+        // Examples:
+        // - C = 1.0 (100%): LP gets 100% of claim (no haircut)
+        // - C = 0.5 (50%): LP gets 50% of claim (50% haircut, fair pro-rata loss)
+        // - C = 1.5 (150%): LP gets 100% of claim (excess stays as reserves)
+        amountOut = (liabilityShare * coverageRatio) / M.PRECISION;
 
         uint256 withdrawalFeeBps = P.calculateWithdrawalFee(asset);
         if (withdrawalFeeBps > 0) {
@@ -826,62 +944,76 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             revert E.BelowMinimumLiquidity();
         }
 
-        // Store old reserves for delta calculation
+        // Store old reserves and liabilities for delta calculation
         uint128 oldReserves = asset.reserves;
+        uint128 oldLiabilities = asset.liabilities;
 
         unchecked {
             // SAFE: Both subtractions checked by toUint128(), underflow impossible due to prior checks
             lpState.totalScaledSupply = (lpState.totalScaledSupply - scaledAmount).toUint128();
             asset.reserves = (asset.reserves - amountOut).toUint128();
-            // Reduce liabilities by LP's proportional share (not haircutted amount)
-            // This maintains proper coverage ratio tracking when haircuts are applied
+            // Reduce liabilities by LP's proportional share
+            // This maintains accurate coverage ratio tracking: C = reserves / liabilities
             asset.liabilities = (asset.liabilities - liabilityShare).toUint128();
         }
 
         _burn(msg.sender, token.addressToTokenId(), lpTokens);
 
         // Update cached total value with delta (O(1) - no loop!)
+        LibStorage.OracleEntry storage oracle = $.oracleEntries[asset.oracleId];
         uint256 totalValue = $.cachedTotalValue;
         if (totalValue == 0) {
             // Shouldn't happen but handle gracefully
-            totalValue = P.calculateTotalValue($.registeredAssets, $.assets);
+            totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
         } else {
             int256 delta = int256(uint256(asset.reserves)) - int256(uint256(oldReserves));
-            totalValue = P.updateTotalValueDelta(totalValue, asset, delta);
+            totalValue = P.updateTotalValueDelta(totalValue, asset, oracle, delta);
         }
         $.cachedTotalValue = totalValue;
 
+        // Update cached liabilities with delta
+        int256 liabilitiesDelta = int256(uint256(asset.liabilities)) - int256(uint256(oldLiabilities));
+        $.cachedTotalLiabilities = P.updateTotalLiabilitiesDelta($.cachedTotalLiabilities, asset, oracle, liabilitiesDelta);
+
         // Fee-on-transfer protection: measure actual sent amount
         uint256 balanceBefore = msg.sender.balance;
+        uint256 actualAmountOut;
         if (token == address(0)) {
             // ETH transfer
             balanceBefore = msg.sender.balance;
             token.safeTransfer(msg.sender, amountOut);
-            uint256 actualAmountOut = msg.sender.balance - balanceBefore;
+            actualAmountOut = msg.sender.balance - balanceBefore;
 
             // Adjust reserves if transfer tax was applied (shouldn't happen with ETH, but defensive)
             if (actualAmountOut != amountOut) {
                 uint256 retained = amountOut - actualAmountOut;
                 asset.reserves = uint128(uint256(asset.reserves) + retained);
-                $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, asset, int256(retained));
+                int256 retainedDelta = int256(retained);
+                $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, asset, oracle, retainedDelta);
+                // Note: Liabilities don't change on fee-on-transfer in withdrawal (already reduced above)
             }
-
-            emit Events.Withdraw(msg.sender, token, lpTokens, actualAmountOut, withdrawalFeeBps);
         } else {
             // ERC20 transfer
             balanceBefore = token.balanceOf(msg.sender);
             token.safeTransfer(msg.sender, amountOut);
-            uint256 actualAmountOut = token.balanceOf(msg.sender) - balanceBefore;
+            actualAmountOut = token.balanceOf(msg.sender) - balanceBefore;
 
             // Adjust reserves if transfer tax was applied
             if (actualAmountOut != amountOut) {
                 uint256 retained = amountOut - actualAmountOut;
                 asset.reserves = uint128(uint256(asset.reserves) + retained);
-                $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, asset, int256(retained));
+                int256 retainedDelta = int256(retained);
+                $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, asset, oracle, retainedDelta);
+                // Note: Liabilities don't change on fee-on-transfer in withdrawal (already reduced above)
             }
-
-            emit Events.Withdraw(msg.sender, token, lpTokens, actualAmountOut, withdrawalFeeBps);
         }
+
+        // Post-withdraw hook (optional: no-op if hooks not configured)
+        if (asset.hooks != address(0)) {
+            IBAMMHooks(asset.hooks).postWithdraw(token, msg.sender, lpTokens, actualAmountOut, "");
+        }
+
+        emit Events.Withdraw(msg.sender, token, lpTokens, actualAmountOut, withdrawalFeeBps);
     }
 
     // ========== ASSET MANAGEMENT ==========
@@ -890,7 +1022,6 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
     // ========== VIEW FUNCTIONS ==========
 
     function baseToken() public view returns (address) { return _s().baseToken; }
-    function admin() public view override returns (address) { return owner(); }
     function isPoolPaused() public view returns (bool) { return _s().isPoolPaused; }
     function assets(address token) public view returns (Asset memory) { return _s().assets[token]; }
     function lpStates(address token) public view returns (LPState memory) { return _s().lpStates[token]; }
@@ -909,67 +1040,102 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
         if (assetIn.reserves == 0 || assetOut.reserves == 0) return (0, 0);
 
         address base = $.baseToken;
-        uint256 totalValue = P.calculateTotalValue($.registeredAssets, $.assets);
+        uint256 totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
 
         // Hub-and-spoke routing: if neither token is base, route through base
         if (tokenIn != base && tokenOut != base) {
             Asset storage assetBase = $.assets[base];
             if (assetBase.reserves == 0) return (0, 0);
 
-            // Decode oracle data once for all three assets
-            (uint256 inFast, uint256 inSlow, uint32 inFastVol, uint32 inSlowVol) = P.decodeOracleData(assetIn);
-            (uint256 baseFast, uint256 baseSlow, uint32 baseFastVol, uint32 baseSlowVol) = P.decodeOracleData(assetBase);
-            (uint256 outFast, uint256 outSlow, uint32 outFastVol, uint32 outSlowVol) = P.decodeOracleData(assetOut);
+            // Get oracle entries for all three assets
+            LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
+            LibStorage.OracleEntry storage oracleBase = $.oracleEntries[assetBase.oracleId];
+            LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
 
             // Leg 1: tokenIn → base
-            // Calculate fee components first to get fee
+            // Calculate fee components first to get fee (decode TWAPs inline)
+            uint256 timeElapsedIn = block.timestamp - oracleIn.lastOracleUpdate;
+            uint256 currentAccumIn = oracleIn.priceAccumulator + (uint256(oracleIn.currentPrice) * timeElapsedIn);
+            uint256 timeDeltaIn = block.timestamp - oracleIn.fastSnapshotTime;
+            uint64 fastTWAPIn = timeDeltaIn == 0 ? oracleIn.currentPrice : uint64((currentAccumIn - oracleIn.fastAccumSnapshot) / timeDeltaIn);
+            uint256 inFast = M.b64ToPrice(fastTWAPIn);
+
+            uint256 timeElapsedBase = block.timestamp - oracleBase.lastOracleUpdate;
+            uint256 currentAccumBase = oracleBase.priceAccumulator + (uint256(oracleBase.currentPrice) * timeElapsedBase);
+            uint256 timeDeltaBase = block.timestamp - oracleBase.fastSnapshotTime;
+            uint64 fastTWAPBase = timeDeltaBase == 0 ? oracleBase.currentPrice : uint64((currentAccumBase - oracleBase.fastAccumSnapshot) / timeDeltaBase);
+            uint256 baseFast = M.b64ToPrice(fastTWAPBase);
+
+            uint256 timeElapsedOut = block.timestamp - oracleOut.lastOracleUpdate;
+            uint256 currentAccumOut = oracleOut.priceAccumulator + (uint256(oracleOut.currentPrice) * timeElapsedOut);
+            uint256 timeDeltaOut = block.timestamp - oracleOut.fastSnapshotTime;
+            uint64 fastTWAPOut = timeDeltaOut == 0 ? oracleOut.currentPrice : uint64((currentAccumOut - oracleOut.fastAccumSnapshot) / timeDeltaOut);
+            uint256 outFast = M.b64ToPrice(fastTWAPOut);
+
             uint256 leg1Notional = FixedPointMathLib.fullMulDiv(amountIn, inFast, M.PRICE_PRECISION);
 
             // Estimate leg2 notional (rough estimate for fee calculation)
             uint256 leg2Notional = FixedPointMathLib.fullMulDiv(leg1Notional, baseFast, outFast);
 
-            // Create leg pricing data structs for quote calculation
-            P.LegPricingData memory leg1Data = P.LegPricingData({
-                fastTWAP1e18: inFast,
-                slowTWAP1e18: inSlow,
-                fastVol: inFastVol,
-                slowVol: inSlowVol,
-                reserves: assetIn.reserves,
-                minFeeBps: assetIn.minFeeBps,
-                maxFeeBps: assetIn.maxFeeBps
-            });
+            // TWO-LEG HUB ROUTING: Calculate fees for each leg separately using tri-factor model
 
-            P.LegPricingData memory baseData = P.LegPricingData({
-                fastTWAP1e18: baseFast,
-                slowTWAP1e18: baseSlow,
-                fastVol: baseFastVol,
-                slowVol: baseSlowVol,
-                reserves: assetBase.reserves,
-                minFeeBps: assetBase.minFeeBps,
-                maxFeeBps: assetBase.maxFeeBps
-            });
-
-            P.LegPricingData memory leg2Data = P.LegPricingData({
-                fastTWAP1e18: outFast,
-                slowTWAP1e18: outSlow,
-                fastVol: outFastVol,
-                slowVol: outSlowVol,
-                reserves: assetOut.reserves,
-                minFeeBps: assetOut.minFeeBps,
-                maxFeeBps: assetOut.maxFeeBps
-            });
-
-            FeeComponents memory fees = P.calculateSwapFeeTwoLegPure(
-                leg1Data, baseData, leg2Data,
-                leg1Notional, leg2Notional, totalValue
+            // Leg 1: tokenIn → base (use cached liabilities)
+            uint256 totalLiabilities = $.cachedTotalLiabilities;
+            FeeComponents memory fees1 = P.calculateSwapFee(
+                assetIn, assetBase,
+                $.liquidityProfiles[tokenIn], $.liquidityProfiles[base],
+                oracleIn, oracleBase,
+                $.feeParams,
+                amountIn,
+                totalValue,
+                totalLiabilities
             );
+
+            // Leg 2: base → tokenOut (calculate notional after leg 1 fee)
+            uint256 amountAfterFee1Temp = (amountIn * (M.BPS_PRECISION - fees1.totalFeeBps)) / M.BPS_PRECISION;
+            uint256 priceInTemp = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee1Temp);
+            uint256 priceBaseTemp = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, 0);
+            uint256 leg2InputNotional = priceBaseTemp > 0
+                ? FixedPointMathLib.mulDiv(amountAfterFee1Temp, priceInTemp, priceBaseTemp)
+                : 0;
+            leg2InputNotional = M.adjustDecimals(leg2InputNotional, assetIn.decimals, assetBase.decimals);
+
+            FeeComponents memory fees2 = P.calculateSwapFee(
+                assetBase, assetOut,
+                $.liquidityProfiles[base], $.liquidityProfiles[tokenOut],
+                oracleBase, oracleOut,
+                $.feeParams,
+                leg2InputNotional,
+                totalValue,
+                totalLiabilities
+            );
+
+            // Aggregate fees (notional-weighted average approach)
+            uint256 totalNotional = leg1Notional + leg2Notional;
+            uint256 aggregatedFeeBps = totalNotional > 0
+                ? (fees1.totalFeeBps * leg1Notional + fees2.totalFeeBps * leg2Notional) / totalNotional
+                : (fees1.totalFeeBps + fees2.totalFeeBps) / 2;
+
+            // Build aggregate fee components for return
+            FeeComponents memory fees = FeeComponents({
+                baseFee: (fees1.baseFee + fees2.baseFee) / 2,
+                totalFeeBps: aggregatedFeeBps,
+                volatilityMultiplier: (fees1.volatilityMultiplier + fees2.volatilityMultiplier) / 2,
+                inventoryMultiplier: (fees1.inventoryMultiplier + fees2.inventoryMultiplier) / 2,
+                divergenceMultiplier: (fees1.divergenceMultiplier + fees2.divergenceMultiplier) / 2,
+                exitInventoryDivergence: 100,
+                leg1FeeBps: fees1.totalFeeBps,
+                leg2FeeBps: fees2.totalFeeBps,
+                leg1Notional: leg1Notional,
+                leg2Notional: leg2Notional
+            });
 
             feeBps = fees.totalFeeBps;
             uint256 amountAfterFee1 = (amountIn * (M.BPS_PRECISION - fees.leg1FeeBps)) / M.BPS_PRECISION;
 
             // Get segment price with amount for leg 1 (input-side piecewise)
-            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, amountAfterFee1);
-            uint256 priceBase = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, 0);
+            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee1);
+            uint256 priceBase = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, 0);
 
             if (priceBase == 0) return (0, feeBps);
             uint256 amountBase = FixedPointMathLib.mulDiv(amountAfterFee1, priceIn, priceBase);
@@ -979,8 +1145,8 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
             uint256 amountAfterFee2 = (amountBase * (M.BPS_PRECISION - fees.leg2FeeBps)) / M.BPS_PRECISION;
 
             // Get segment price with amount for leg 2 (output-side piecewise - marginal pricing)
-            priceBase = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, amountAfterFee2);
-            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, amountAfterFee2);
+            priceBase = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, amountAfterFee2);
+            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, oracleOut, amountAfterFee2);
 
             if (priceOut == 0) return (0, feeBps);
             amountOut = FixedPointMathLib.mulDiv(amountAfterFee2, priceBase, priceOut);
@@ -988,15 +1154,20 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
 
         } else {
             // Single-leg: direct pair (one is base)
+            // Get oracle entries
+            LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
+            LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
+
+            uint256 totalLiabilities = $.cachedTotalLiabilities;
             FeeComponents memory fees = P.calculateSwapFee(
                 assetIn, assetOut, $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut],
-                amountIn, totalValue
+                oracleIn, oracleOut, $.feeParams, amountIn, totalValue, totalLiabilities
             );
             feeBps = fees.totalFeeBps;
 
             uint256 amountAfterFee = (amountIn * (M.BPS_PRECISION - feeBps)) / M.BPS_PRECISION;
-            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, amountAfterFee);
-            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, 0);
+            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee);
+            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, oracleOut, 0);
 
             if (priceOut == 0) return (0, feeBps);
             amountOut = FixedPointMathLib.mulDiv(amountAfterFee, priceIn, priceOut);
@@ -1017,18 +1188,23 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
 
     function getTotalValue() external view override returns (uint256) {
         LibStorage.BAMMStorage storage $ = _s();
-        return P.calculateTotalValue($.registeredAssets, $.assets);
+        return P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
     }
 
     function calculateSwapFee(
         address tokenIn, address tokenOut, uint256 amountIn
     ) external view override returns (FeeComponents memory) {
         LibStorage.BAMMStorage storage $ = _s();
-        uint256 totalValue = P.calculateTotalValue($.registeredAssets, $.assets);
+        Asset storage assetIn = $.assets[tokenIn];
+        Asset storage assetOut = $.assets[tokenOut];
+        LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
+        LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
+        uint256 totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
+        uint256 totalLiabilities = $.cachedTotalLiabilities;
         return P.calculateSwapFee(
-            $.assets[tokenIn], $.assets[tokenOut],
+            assetIn, assetOut,
             $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut],
-            amountIn, totalValue
+            oracleIn, oracleOut, $.feeParams, amountIn, totalValue, totalLiabilities
         );
     }
 
@@ -1097,22 +1273,5 @@ contract BAMM is ERC1155, InternalOracle, BAMMManagement {
                 }
             }
         }
-    }
-
-    // ========== INTERNAL ORACLE HELPERS ==========
-    // Implement abstract internal methods from BAMMManagement by delegating to InternalOracle
-
-    function _updateOracleInternal(address token, uint64 newPrice, uint32 newVolatility) internal override(BAMMManagement, InternalOracle) {
-        // Delegate to InternalOracle's internal implementation
-        InternalOracle._updateOracleInternal(token, newPrice, newVolatility);
-    }
-
-    function _updateOracleConfigInternal(
-        address token,
-        address mainOracle,
-        address fallbackOracle
-    ) internal override(BAMMManagement, InternalOracle) {
-        // Delegate to InternalOracle's internal implementation
-        InternalOracle._updateOracleConfigInternal(token, mainOracle, fallbackOracle);
     }
 }
