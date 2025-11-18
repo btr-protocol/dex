@@ -103,13 +103,18 @@ library LibPricing {
             IOracle.DecodedFeedData memory dataBase = decodeOracle(oracleBase);
             IOracle.DecodedFeedData memory dataOut = decodeOracle(oracleOut);
 
-            // Virtual depth for base (path independence using coverage-aware depth)
-            uint256 virtualBaseDepth1 = _depthForPricing(tokenIn);
-            uint256 virtualBaseDepth2 = _depthForPricing(tokenOut);
+            // ✅ CRITICAL FIX #2: Virtual depth using geometric mean for path independence
+            // Compute effective depths for both legs
+            uint256 depthIn = _depthForPricing(tokenIn);
+            uint256 depthOut = _depthForPricing(tokenOut);
 
-            // Get spot prices (with coverage-aware depth)
+            // Use geometric mean: sqrt(depthIn * depthOut)
+            // This ensures path independence: A→base→B has same pricing as direct A↔B routes
+            uint256 virtualDepthBase = FPMath.sqrt(depthIn * depthOut);
+
+            // Get spot prices (with virtual depth for base)
             uint256 priceIn = _segmentPrice(tokenIn, assetIn, profIn, dataIn, amountIn);
-            uint256 priceBase1 = _segmentPriceWithDepth(baseToken, assetBase, profBase, dataBase, 0, virtualBaseDepth1);
+            uint256 priceBase1 = _segmentPriceWithDepth(baseToken, assetBase, profBase, dataBase, 0, virtualDepthBase);
             uint256 priceOut = _segmentPrice(tokenOut, assetOut, profOut, dataOut, 0);
 
             // Compute total path fee with coverage timing
@@ -131,7 +136,8 @@ library LibPricing {
             rq.amountBase = M.adjustDecimals(rq.amountBase, assetIn.decimals, assetBase.decimals);
 
             // Leg 2: Get price with actual base amount, apply fee to output
-            uint256 priceBase2 = _segmentPriceWithDepth(baseToken, assetBase, profBase, dataBase, rq.amountBase, virtualBaseDepth2);
+            // ✅ Use same virtualDepthBase for consistency
+            uint256 priceBase2 = _segmentPriceWithDepth(baseToken, assetBase, profBase, dataBase, rq.amountBase, virtualDepthBase);
             uint256 rawAmountOut = FPMath.mulDiv(rq.amountBase, priceBase2, priceOut);
             rawAmountOut = M.adjustDecimals(rawAmountOut, assetBase.decimals, assetOut.decimals);
 

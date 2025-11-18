@@ -75,8 +75,9 @@ contract BAMMCore is BAMMDiamond, ReentrancyGuard {
 
         $.baseToken = baseToken;
 
-        // Set pool owner - only once at initialization
+        // Set pool owner - both in Core and Diamond storage
         _owner = poolOwner;
+        LibDiamondStorage.ds().owner = poolOwner;  // ✅ Critical: admin/oracle facets check this
 
         // Set facet addresses
         pricingFacet = _pricingFacet;
@@ -110,6 +111,7 @@ contract BAMMCore is BAMMDiamond, ReentrancyGuard {
     function setOwner(address newOwner) external onlyOwner {
         require(newOwner != address(0), "Invalid owner");
         _owner = newOwner;
+        LibDiamondStorage.ds().owner = newOwner;  // ✅ Keep diamond storage in sync
     }
 
     /// @notice Pause the pool
@@ -357,15 +359,18 @@ contract BAMMCore is BAMMDiamond, ReentrancyGuard {
         // Pull tokenIn
         uint256 actualAmountIn = _pullToken(tokenIn, msg.sender, amountIn);
 
+        // ✅ CRITICAL FIX #3: Accrue fees to both legs for fair LP yield distribution
         // Update reserves for both legs
         assetIn.reserves = (uint256(oldIn) + actualAmountIn - rq.protocolFeeIn).toUint128();
         assetBase.reserves += uint128(rq.amountBase);
-        assetOut.reserves = (uint256(oldOut) - rq.amountOut).toUint128();
+        // Note: protocolFeeOut stays in pool (doesn't get transferred to user)
+        assetOut.reserves = (uint256(oldOut) - rq.amountOut - rq.protocolFeeOut).toUint128();
 
-        // Protocol fees
+        // Accrue protocol fees to BOTH legs
         if (rq.protocolFeeIn > 0) $.protocolFees[tokenIn] += rq.protocolFeeIn;
+        if (rq.protocolFeeOut > 0) $.protocolFees[tokenOut] += rq.protocolFeeOut;
 
-        // Push tokens to receiver
+        // Push tokens to receiver (net amount, fees stay in pool for LPs)
         tokenOut.safeTransfer(receiver, rq.amountOut);
 
         // Emit events
@@ -390,6 +395,9 @@ contract BAMMCore is BAMMDiamond, ReentrancyGuard {
         IBAMM.Asset storage asset = $.assets[token];
         IBAMM.RiskConfig storage risk = $.riskConfigs[token];
         IBAMM.LPState storage lp = $.lpStates[token];
+
+        // ✅ CRITICAL FIX #4: Update decay BEFORE LP math (prevents time-decay arbitrage)
+        LibLiability.updateDecay(token);
 
         // Validate deposit is enabled
         if (S._isFrozen(risk)) revert E.AssetFrozen();
@@ -432,6 +440,9 @@ contract BAMMCore is BAMMDiamond, ReentrancyGuard {
         IBAMM.BAMMStorage storage $ = S.bamm();
         IBAMM.Asset storage asset = $.assets[token];
         IBAMM.LPState storage lp = $.lpStates[token];
+
+        // ✅ CRITICAL FIX #4: Update decay BEFORE LP math (prevents time-decay arbitrage)
+        LibLiability.updateDecay(token);
 
         require($.scaledBalances[token][msg.sender] >= lpTokens, "Insufficient balance");
 
