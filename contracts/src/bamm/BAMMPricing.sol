@@ -27,16 +27,15 @@ contract BAMMPricing {
 
         IInternalOracle.InternalFeedData storage oracleIn = $.internalFeeds[S.computeOracleId(tokenIn, base)];
         IInternalOracle.InternalFeedData storage oracleOut = $.internalFeeds[S.computeOracleId(tokenOut, base)];
-        IInternalOracle.InternalFeedData storage oracleBase = $.internalFeeds[S.computeOracleId(base, base)];
 
-        // Call LibPricing with all configs
+        // Call LibPricing with all configs (no base/base oracle needed - oracleBase never used in pricing)
         rq = P.quoteRoute(
             tokenIn, tokenOut, base, amountIn,
             assetIn, assetOut, assetBase,
             $.liquidityProfiles[tokenIn],
             $.liquidityProfiles[tokenOut],
             $.liquidityProfiles[base],
-            oracleIn, oracleOut, oracleBase,
+            oracleIn, oracleOut,
             $.dynamicFeeConfigs[tokenIn]
         );
 
@@ -59,16 +58,15 @@ contract BAMMPricing {
 
         IInternalOracle.InternalFeedData storage oracleIn = $.internalFeeds[S.computeOracleId(tokenIn, base)];
         IInternalOracle.InternalFeedData storage oracleOut = $.internalFeeds[S.computeOracleId(tokenOut, base)];
-        IInternalOracle.InternalFeedData storage oracleBase = $.internalFeeds[S.computeOracleId(base, base)];
 
-        // Call LibPricing
+        // Call LibPricing (no base/base oracle needed - oracleBase never used in pricing)
         rq = P.quoteRoute(
             tokenIn, tokenOut, base, amountIn,
             assetIn, assetOut, assetBase,
             $.liquidityProfiles[tokenIn],
             $.liquidityProfiles[tokenOut],
             $.liquidityProfiles[base],
-            oracleIn, oracleOut, oracleBase,
+            oracleIn, oracleOut,
             $.dynamicFeeConfigs[tokenIn]
         );
 
