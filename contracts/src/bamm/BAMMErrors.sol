@@ -26,11 +26,15 @@ library BAMMErrors {
 
     // Oracle errors
     error InvalidPrice();
+    error InvalidVolatility();
+    error InvalidConfidence();
     error PriceChangeTooLarge();
     error OracleStale();
     error OracleInvalid();
+    error OracleConfidenceTooLow();
     error CircuitBreakerTimestampSkew();
     error PriceTooLarge();
+    error DeviationExceeded();
 
     // LP errors
     error InsufficientBalance();

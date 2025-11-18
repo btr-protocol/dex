@@ -11,28 +11,45 @@ interface IOracle {
 
     // ========== TYPES ==========
 
-    /// @notice Feed data structure (price feed for a specific base/quote pair)
-    /// @dev For internal oracles: Prices use accumulator pattern, volatility uses EMA
-    /// @dev For external oracles: Both prices and volatility can use any methodology
-    /// @dev One oracle contract can manage multiple feeds (1:N relationship)
-    /// @dev Storage: Fits in single 256-bit slot (32 bytes exactly, fully packed)
-    ///      - fastEMA (8 bytes) + slowEMA (8 bytes) = 16 bytes
-    ///      - fastVolEMA (4 bytes) + slowVolEMA (4 bytes) = 8 bytes
-    ///      - updatedAt (4 bytes) + maxDeviation (2 bytes) + ttl (2 bytes) = 8 bytes
-    ///      Total: 32 bytes → Single SSTORE per update (~5,000 gas)
+    /// @notice Oracle feed data - FITS IN SINGLE 256-BIT SLOT
+    /// @dev Layout (total 256 bits):
+    ///      - currentPrice: 64 bits (b64 format)
+    ///      - fastOffset: 32 bits signed (0.0001% precision: ±214,748% range)
+    ///      - slowOffset: 32 bits signed (0.0001% precision: ±214,748% range)
+    ///      - fastVolEMA: 32 bits (1e6 base: 1_000_000 = 1%)
+    ///      - slowVolEMA: 32 bits (1e6 base: 1_000_000 = 1%)
+    ///      - updatedAt: 32 bits (timestamp)
+    ///      - ttl: 16 bits (staleness threshold in seconds)
+    ///      - confidence: 16 bits (0-100, where 100 = highest confidence)
+    ///
+    /// @dev Fast/slow EMAs reconstructed as:
+    ///      fastEMA = currentPrice * (OFFSET_PRECISION + fastOffset) / OFFSET_PRECISION
+    ///      slowEMA = currentPrice * (OFFSET_PRECISION + slowOffset) / OFFSET_PRECISION
+    ///
+    /// @dev Confidence interpretation:
+    ///      100: Perfect consensus, low latency
+    ///      80-99: Good confidence, normal conditions
+    ///      50-79: Medium confidence, some lag/dispersion
+    ///      20-49: Low confidence, high dispersion
+    ///      0-19: Very low confidence, stale or unreliable
     struct FeedData {
-        uint64 fastEMA;               // Fast price EMA (shorter window, e.g., ~6 hours) - b64 format
-        uint64 slowEMA;               // Slow price EMA (longer window, e.g., ~1 week) - b64 format
-        uint32 fastVolEMA;            // Fast volatility EMA (1e6 base: 1_000_000 = 1%)
-        uint32 slowVolEMA;            // Slow volatility EMA (1e6 base: 1_000_000 = 1%)
-        uint32 updatedAt;             // Timestamp of last update
-        uint16 maxDeviation;          // Deviation threshold triggering update (0.0001% precision: 10_000 = 1%, max 6.5%)
-        uint16 ttl;                   // Time-to-live: max age in seconds before feed is stale (e.g., 3600 = 1 hour)
+        uint64 currentPrice;    // Current spot price (b64)
+        int32 fastOffset;       // Fast EMA offset from current (0.0001% = 1 unit)
+        int32 slowOffset;       // Slow EMA offset from current (0.0001% = 1 unit)
+        uint32 fastVolEMA;      // Fast volatility EMA (1e6: 1_000_000 = 1%)
+        uint32 slowVolEMA;      // Slow volatility EMA (1e6: 1_000_000 = 1%)
+        uint32 updatedAt;       // Timestamp of last update
+        uint16 ttl;             // Time-to-live: max age in seconds before feed is stale
+        uint16 confidence;      // Oracle confidence (0-100)
     }
 
+    /// @notice Offset precision: represents 100% when multiplied by price
+    /// @dev 0.0001% = 1 unit, so OFFSET_PRECISION = 10,000,000
+    uint256 constant OFFSET_PRECISION = 10_000_000;
+
     /// @notice Decoded oracle data with computed TWAPs and prices
-    /// @dev Output format for oracle decoding (both internal and external)
-    /// @dev Used by pricing and other modules that need computed values
+    /// @dev This is a compatibility struct for pricing modules
+    /// @dev In the new model, use LibOracle.decodePrices() instead
     struct DecodedFeedData {
         uint64 fastTWAP;
         uint64 slowTWAP;
@@ -40,7 +57,7 @@ interface IOracle {
         uint256 priceSlow;      // 1e18
         uint32 volFast;
         uint32 volSlow;
-        uint32 volBaseline;     // = volSlow (baseline volatility, no clamping)
+        uint32 volBaseline;     // = volSlow
     }
 
     // ========== VIEW FUNCTIONS ==========
