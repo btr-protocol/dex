@@ -4,9 +4,12 @@ pragma solidity ^0.8.28;
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {BAMMFactory} from "../src/bamm/BAMMFactory.sol";
+import {BAMMAdmin} from "../src/bamm/BAMMAdmin.sol";
+import {BAMMPricing} from "../src/bamm/BAMMPricing.sol";
+import {BAMMInternalOracle} from "../src/bamm/BAMMInternalOracle.sol";
 
 /// @title DeployBAMMPool
-/// @notice Script to deploy a new BAMM pool via factory
+/// @notice Script to deploy a new BAMMCore pool via factory
 /// @dev Usage: forge script script/DeployBAMMPool.s.sol:DeployBAMMPool --rpc-url <RPC> --broadcast
 ///      Set environment variables: FACTORY_ADDRESS, BASE_TOKEN, OWNER, GUARDIAN, BASE_FEE, MAX_FEE, WITHDRAWAL_FEE, MAX_PRICE_CHANGE
 contract DeployBAMMPool is Script {
@@ -18,19 +21,6 @@ contract DeployBAMMPool is Script {
         address baseToken = vm.envAddress("BASE_TOKEN");
         address owner = vm.envAddress("OWNER");
         address guardian = vm.envAddress("GUARDIAN");
-        address treasury = vm.envOr("TREASURY", address(0));  // address(0) = defaults to owner
-
-        // Base asset oracle parameters
-        address baseMainOracle = vm.envOr("BASE_MAIN_ORACLE", address(0));  // address(0) = internal oracle
-        address baseFallbackOracle = vm.envOr("BASE_FALLBACK_ORACLE", address(0));  // address(0) = no fallback
-        uint128 baseMinLiquidity = uint128(vm.envOr("BASE_MIN_LIQUIDITY", uint256(1000)));
-
-        // Fee parameters with defaults if not set
-        uint16 baseFee = uint16(vm.envOr("BASE_FEE", uint256(30)));  // 0.30%
-        uint16 maxFee = uint16(vm.envOr("MAX_FEE", uint256(1000)));  // 10%
-        uint16 withdrawalFee = uint16(vm.envOr("WITHDRAWAL_FEE", uint256(0)));  // 0% (haircut is sufficient; set to ~20 for MEV protection)
-        uint16 maxTWAPChange = uint16(vm.envOr("MAX_PRICE_CHANGE", uint256(500)));  // 5%
-        uint16 protocolFeeBps = uint16(vm.envOr("PROTOCOL_FEE_BPS", uint256(1000)));  // 10% to treasury
 
         // DarkPool parameter (default: false for backward compatibility)
         bool enableDarkPool = vm.envOr("ENABLE_DARK_POOL", false);
@@ -43,41 +33,51 @@ contract DeployBAMMPool is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        BAMMFactory factory = BAMMFactory(factoryAddress);
-
-        console2.log("Deploying BAMM pool via factory...");
+        console2.log("Deploying BAMMCore pool via factory...");
         console2.log("Factory:", factoryAddress);
         console2.log("Base Token:", baseToken);
-        console2.log("Base Main Oracle:", baseMainOracle);
-        console2.log("Base Fallback Oracle:", baseFallbackOracle);
-        console2.log("Base Min Liquidity:", baseMinLiquidity);
         console2.log("Owner:", owner);
-        console2.log("Guardian:", guardian);
-        console2.log("Treasury:", treasury == address(0) ? owner : treasury);
-        console2.log("Base Fee:", baseFee, "bps");
-        console2.log("Max Fee:", maxFee, "bps");
-        console2.log("Withdrawal Fee:", withdrawalFee, "bps");
-        console2.log("Max TWAP Change:", maxTWAPChange, "bps");
-        console2.log("Protocol Fee:", protocolFeeBps, "bps");
         console2.log("Enable DarkPool:", enableDarkPool);
 
-        uint16 flashFeeBps = 0; // Default: 0% (free flash loans)
+        // Deploy facets
+        console2.log("\nDeploying facets...");
+        BAMMAdmin adminFacet = new BAMMAdmin();
+        console2.log("Admin facet:", address(adminFacet));
+
+        BAMMPricing pricingFacet = new BAMMPricing();
+        console2.log("Pricing facet:", address(pricingFacet));
+
+        BAMMInternalOracle oracleFacet = new BAMMInternalOracle();
+        console2.log("Oracle facet:", address(oracleFacet));
+
+        // Admin facet selectors
+        bytes4[] memory adminSelectors = new bytes4[](9);
+        adminSelectors[0] = BAMMAdmin.addAsset.selector;
+        adminSelectors[1] = BAMMAdmin.pausePool.selector;
+        adminSelectors[2] = BAMMAdmin.unpausePool.selector;
+        adminSelectors[3] = BAMMAdmin.collectProtocolFees.selector;
+        adminSelectors[4] = BAMMAdmin.freezeAsset.selector;
+        adminSelectors[5] = BAMMAdmin.unfreezeAsset.selector;
+        adminSelectors[6] = BAMMAdmin.updateFeeConfig.selector;
+        adminSelectors[7] = BAMMAdmin.blacklistAddress.selector;
+        adminSelectors[8] = BAMMAdmin.unblacklistAddress.selector;
+
+        // Oracle facet selectors
+        bytes4[] memory oracleSelectors = new bytes4[](2);
+        oracleSelectors[0] = BAMMInternalOracle.pushPrice.selector;
+        oracleSelectors[1] = BAMMInternalOracle.getOracleData.selector;
+
+        console2.log("\nDeploying pool...");
+        BAMMFactory factory = BAMMFactory(factoryAddress);
 
         pool = factory.deployPool(
             baseToken,
-            baseMainOracle,
-            baseFallbackOracle,
-            baseMinLiquidity,
             owner,
-            guardian,
-            treasury,
-            baseFee,
-            maxFee,
-            withdrawalFee,
-            maxTWAPChange,
-            protocolFeeBps,
-            flashFeeBps,
-            enableDarkPool
+            address(pricingFacet),
+            address(adminFacet),
+            address(oracleFacet),
+            adminSelectors,
+            oracleSelectors
         );
 
         console2.log("\n=== Pool Deployed ===");
