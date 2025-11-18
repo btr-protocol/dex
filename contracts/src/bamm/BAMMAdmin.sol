@@ -5,6 +5,7 @@ import {IBAMM} from "../interfaces/IBAMM.sol";
 import {LibStorage as S} from "../libraries/LibStorage.sol";
 import {LibDiamondStorage} from "../libraries/LibDiamondStorage.sol";
 import {BAMMErrors as E} from "./BAMMErrors.sol";
+import {BAMMLPToken} from "./BAMMLPToken.sol";
 
 /// @title BAMMAdmin
 /// @notice Admin facet - delegates to existing management functions
@@ -51,6 +52,21 @@ contract BAMMAdmin {
         $.registeredAssets.push(token);
 
         emit IBAMM.AssetAdded(token, risk.minLiquidity);
+    }
+
+    /// @notice Register LP token for asset (owner only, validates LP token)
+    function setLPToken(address asset, address lpToken) external onlyOwner {
+        IBAMM.BAMMStorage storage $ = S.bamm();
+
+        // Validate asset exists
+        if ($.assets[asset].decimals == 0) revert E.AssetNotFound();
+
+        // Validate LP token points back to this asset and BAMM
+        if (BAMMLPToken(lpToken).asset() != asset) revert E.InvalidLPToken();
+        if (BAMMLPToken(lpToken).bamm() != address(this)) revert E.InvalidLPToken();
+
+        $.lpTokens[asset] = lpToken;
+        emit IBAMM.LPTokenSet(asset, lpToken);
     }
 
     /// @notice Pause entire pool (owner only)
