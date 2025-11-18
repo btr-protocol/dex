@@ -244,7 +244,7 @@ contract BAMMCore is BAMMDiamond, ReentrancyGuard {
         bytes memory priceData = _delegateTo(
             pricingFacet,
             abi.encodeWithSignature(
-                "quoteRouteDirect(address,address,address,uint256)",
+                "quoteRoute(address,address,address,uint256)",
                 tokenIn, tokenOut, base, amountIn
             )
         );
@@ -280,7 +280,7 @@ contract BAMMCore is BAMMDiamond, ReentrancyGuard {
         bytes memory priceData = _delegateTo(
             pricingFacet,
             abi.encodeWithSignature(
-                "quoteRouteTriangulated(address,address,address,uint256)",
+                "quoteRoute(address,address,address,uint256)",
                 tokenIn, tokenOut, base, amountIn
             )
         );
