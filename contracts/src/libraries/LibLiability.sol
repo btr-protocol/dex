@@ -159,8 +159,6 @@ library LibLiability {
         IInternalOracle.InternalFeedData storage oracleOut,
         IInternalOracle.InternalFeedData storage oracleBase,
         IBAMM.DynamicFeeConfig storage feeParams,
-        IBAMM.RiskConfig storage configIn,
-        IBAMM.RiskConfig storage configOut,
         address baseToken
     ) internal returns (uint256 lpAmountOut, uint256 haircut) {
         // 1. Get quote using LibPricing
@@ -188,7 +186,7 @@ library LibLiability {
             tokenIn, tokenOut, baseToken,
             assetIn.reserves, assetOut.reserves,
             C_in_pre, C_out_pre, C_in_post, C_out_post,
-            oracleIn, oracleOut, oracleBase
+            oracleIn, oracleOut
         );
 
         // 5. Apply haircut if net coverage worsens
@@ -228,8 +226,7 @@ library LibLiability {
         uint256 C_in_post,
         uint256 C_out_post,
         IInternalOracle.InternalFeedData storage oracleIn,
-        IInternalOracle.InternalFeedData storage oracleOut,
-        IInternalOracle.InternalFeedData storage oracleBase
+        IInternalOracle.InternalFeedData storage oracleOut
     ) private view returns (int256 deltaNet) {
         uint256 priceIn = _getPrice(tokenIn, baseToken, oracleIn);
         uint256 priceOut = _getPrice(tokenOut, baseToken, oracleOut);

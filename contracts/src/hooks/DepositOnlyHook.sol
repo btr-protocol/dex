@@ -45,7 +45,7 @@ contract DepositOnlyHook is BaseBAMMHook {
         uint256,
         uint256,
         bytes calldata
-    ) public override onlyBAMM returns (bytes4) {
+    ) public view override onlyBAMM returns (bytes4) {
         return this.postDeposit.selector;
     }
 

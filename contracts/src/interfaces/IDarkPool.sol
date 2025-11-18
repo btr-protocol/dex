@@ -7,12 +7,13 @@ interface IDarkPool {
     // ========== STRUCTS ==========
 
     /// @notice Groth16 proof with public inputs
+    /// @dev Circuit supports exactly 2 input notes → 2 nullifiers, 2 output notes
     struct Proof {
         uint256[8] groth16Proof;     // Groth16 proof data (a, b, c points)
         bytes32 merkleRoot;          // Root to prove inclusion against
-        bytes32[] nullifiers;        // Nullifiers for input notes
+        bytes32[] nullifiers;        // Nullifiers for input notes (dynamic array)
         bytes32 extDataHash;         // Hash binding external actions
-        bytes32[] outCommitments;    // Output note commitments
+        bytes32[] outCommitments;    // Output note commitments (dynamic array)
     }
 
     /// @notice External action parameters

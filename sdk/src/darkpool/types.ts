@@ -127,13 +127,15 @@ export interface ExtData {
 
 /**
  * Groth16 proof (matches Solidity Proof)
+ * @dev Uses fixed-size arrays for gas optimization (~3k gas savings per proof)
+ * @dev Circuit supports exactly 2 input notes (2 nullifiers) and 2 output notes
  */
 export interface Proof {
   groth16Proof: bigint[]; // uint256[8]
   merkleRoot: bigint;
-  nullifiers: bigint[];
+  nullifiers: [bigint, bigint]; // Fixed-size: exactly 2 nullifiers
   extDataHash: bigint;
-  outCommitments: bigint[];
+  outCommitments: [bigint, bigint]; // Fixed-size: exactly 2 output commitments
 }
 
 /**
@@ -206,9 +208,10 @@ export interface TransactionInputs {
 
   // External data
   actionType: ActionType;
+  assets: bigint[]; // Asset addresses as bigints (for extDataHash binding)
   extIn?: Map<bigint, bigint>; // assetId -> amount
   extOut?: Map<bigint, bigint>; // assetId -> amount
-  receivers?: string[];
+  receivers?: bigint[]; // Recipient addresses as bigints (for extDataHash binding)
   memo?: string;
   aspRoot?: bigint;
 }

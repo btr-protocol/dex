@@ -170,6 +170,7 @@ interface IBAMM {
         mapping(address => mapping(address => uint256)) scaledBalances;
         mapping(address => uint256) protocolFees;
         mapping(address => bool) blacklisted;
+        mapping(address => address) lpTokens;  // asset -> LP token contract
 
         // Internal oracle feed data by feedId (keccak256(abi.encodePacked(token, baseToken)))
         mapping(bytes32 => IInternalOracle.InternalFeedData) internalFeeds;

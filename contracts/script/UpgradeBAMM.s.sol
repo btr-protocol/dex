@@ -3,11 +3,11 @@ pragma solidity ^0.8.28;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
-import {BAMM} from "../src/bamm/BAMM.sol";
+import {BAMMCore} from "../src/bamm/BAMMCore.sol";
 import {BAMMFactory} from "../src/bamm/BAMMFactory.sol";
 
 /// @title UpgradeBAMM
-/// @notice Script to upgrade all BAMM pools to a new implementation
+/// @notice Script to upgrade all BAMMCore pools to a new implementation
 /// @dev Usage: forge script script/UpgradeBAMM.s.sol:UpgradeBAMM --rpc-url <RPC> --broadcast
 ///      Set environment variable: FACTORY_ADDRESS
 ///      IMPORTANT: Only the factory owner can execute this upgrade
@@ -27,7 +27,7 @@ contract UpgradeBAMM is Script {
 
         // Deploy new implementation
         console2.log("Deploying new BAMM...");
-        BAMM newImplementation = new BAMM();
+        BAMMCore newImplementation = new BAMMCore();
         console2.log("New implementation deployed at:", address(newImplementation));
 
         // Upgrade the beacon (affects all pools instantly)

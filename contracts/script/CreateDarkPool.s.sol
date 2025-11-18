@@ -6,7 +6,7 @@ import {console2} from "forge-std/console2.sol";
 import {DarkPoolFactory} from "../src/darkpool/DarkPoolFactory.sol";
 
 /// @title CreateDarkPool
-/// @notice Script to create a DarkPool proxy for a specific BAMM pool
+/// @notice Script to create a DarkPool proxy for a specific BAMMCore pool
 contract CreateDarkPool is Script {
     function run() external {
         // Read from environment
@@ -16,7 +16,7 @@ contract CreateDarkPool is Script {
         address verifier = vm.envAddress("GROTH16_VERIFIER");
         address owner = vm.envAddress("DARKPOOL_OWNER");
 
-        console2.log("Creating DarkPool for BAMM pool...");
+        console2.log("Creating DarkPool for BAMMCore pool...");
         console2.log("Factory:", factory);
         console2.log("BAMM Pool:", bammPool);
         console2.log("Verifier:", verifier);
@@ -35,6 +35,6 @@ contract CreateDarkPool is Script {
 
         console2.log("\n=== DarkPool Created ===");
         console2.log("DarkPool Proxy:", darkPool);
-        console2.log("Serves BAMM Pool:", bammPool);
+        console2.log("Serves BAMMCore Pool:", bammPool);
     }
 }

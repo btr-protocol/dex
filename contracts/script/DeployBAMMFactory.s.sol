@@ -3,11 +3,11 @@ pragma solidity ^0.8.28;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
-import {BAMM} from "../src/bamm/BAMM.sol";
+import {BAMMCore} from "../src/bamm/BAMMCore.sol";
 import {BAMMFactory} from "../src/bamm/BAMMFactory.sol";
 
 /// @title DeployBAMMFactory
-/// @notice Deployment script for BAMM Factory and Implementation
+/// @notice Deployment script for BAMMCore Factory and Implementation
 /// @dev Usage: forge script script/DeployBAMMFactory.s.sol:DeployBAMMFactory --rpc-url <RPC> --broadcast
 contract DeployBAMMFactory is Script {
 
@@ -18,7 +18,7 @@ contract DeployBAMMFactory is Script {
 
         // 1. Deploy the implementation contract
         console2.log("Deploying BAMM...");
-        BAMM implementation = new BAMM();
+        BAMMCore implementation = new BAMMCore();
         console2.log("BAMM deployed at:", address(implementation));
 
         // 2. Deploy the factory (which deploys the beacon internally)

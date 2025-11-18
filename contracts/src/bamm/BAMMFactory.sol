@@ -53,39 +53,30 @@ contract BAMMFactory is BeaconFactory {
 
     function deployPool(
         address _baseToken,
-        address _baseMainOracle,
-        address _baseFallbackOracle,
-        uint128 _baseMinLiquidity,
         address _poolOwner,
-        address _guardian,
-        address _treasury,
-        uint16 _baseFee,
-        uint16 _maxFee,
-        uint16 _withdrawalFee,
-        uint16 _maxTWAPChange,
-        uint16 _protocolFeeBps,
-        uint16 _flashFeeBps,
-        bool _enableDarkPool
+        address _pricingFacet,
+        address _adminFacet,
+        address _oracleFacet,
+        bytes4[] calldata _adminSelectors,
+        bytes4[] calldata _oracleSelectors
     ) external returns (address pool) {
-        if (_baseToken == address(0) || _poolOwner == address(0) || _guardian == address(0)) {
+        if (_baseToken == address(0) || _poolOwner == address(0)) {
+            revert E.ZeroAddress();
+        }
+        if (_pricingFacet == address(0) || _adminFacet == address(0) || _oracleFacet == address(0)) {
             revert E.ZeroAddress();
         }
 
+        // Encode initialization call with new diamond-style signature
         bytes memory initData = abi.encodeWithSignature(
-            "initialize(address,address,address,uint128,address,address,address,uint16,uint16,uint16,uint16,uint16,uint16)",
+            "initialize(address,address,address,address,address,bytes4[],bytes4[])",
             _baseToken,
-            _baseMainOracle,
-            _baseFallbackOracle,
-            _baseMinLiquidity,
+            _pricingFacet,
+            _adminFacet,
+            _oracleFacet,
             _poolOwner,
-            _guardian,
-            _treasury,
-            _baseFee,
-            _maxFee,
-            _withdrawalFee,
-            _maxTWAPChange,
-            _protocolFeeBps,
-            _flashFeeBps
+            _adminSelectors,
+            _oracleSelectors
         );
 
         pool = LibClone.deployERC1967BeaconProxy(address(_beacon), initData);
@@ -93,7 +84,7 @@ contract BAMMFactory is BeaconFactory {
         poolInfo[pool] = PoolInfo({
             baseToken: _baseToken,
             poolOwner: _poolOwner,
-            guardian: _guardian,
+            guardian: _poolOwner,  // Default: pool owner is also guardian
             deployedAt: block.timestamp,
             exists: true,
             hasDarkPool: false
@@ -101,12 +92,7 @@ contract BAMMFactory is BeaconFactory {
 
         pools.push(pool);
 
-        emit PoolDeployed(pool, _baseToken, _poolOwner, _guardian);
-
-        // Optionally deploy DarkPool
-        if (_enableDarkPool) {
-            _enableDarkPoolForBAMM(pool, _poolOwner);
-        }
+        emit PoolDeployed(pool, _baseToken, _poolOwner, _poolOwner);
     }
 
     /// @notice Enable DarkPool for an existing BAMM pool

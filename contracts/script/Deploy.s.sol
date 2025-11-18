@@ -3,8 +3,11 @@ pragma solidity ^0.8.28;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
-import {BAMM} from "../src/bamm/BAMM.sol";
+import {BAMMCore} from "../src/bamm/BAMMCore.sol";
 import {BAMMFactory} from "../src/bamm/BAMMFactory.sol";
+import {BAMMAdmin} from "../src/bamm/BAMMAdmin.sol";
+import {BAMMPricing} from "../src/bamm/BAMMPricing.sol";
+import {BAMMInternalOracle} from "../src/bamm/BAMMInternalOracle.sol";
 
 /// @title Deploy BAMM
 /// @notice Deployment script for BAMM
@@ -16,7 +19,7 @@ contract Deploy is Script {
         vm.startBroadcast(deployerKey);
 
         console2.log("Deploying BAMM...");
-        BAMM implementation = new BAMM();
+        BAMMCore implementation = new BAMMCore();
         console2.log("Implementation:", address(implementation));
 
         console2.log("Deploying BAMMFactory...");
@@ -25,27 +28,46 @@ contract Deploy is Script {
         console2.log("Beacon:", address(factory.beacon()));
 
         if (vm.envBool("DEPLOY_POOL")) {
+            console2.log("\nDeploying facets...");
+            BAMMAdmin adminFacet = new BAMMAdmin();
+            console2.log("Admin facet:", address(adminFacet));
+
+            BAMMPricing pricingFacet = new BAMMPricing();
+            console2.log("Pricing facet:", address(pricingFacet));
+
+            BAMMInternalOracle oracleFacet = new BAMMInternalOracle();
+            console2.log("Oracle facet:", address(oracleFacet));
+
             address baseToken = vm.envAddress("BASE_TOKEN");
             address poolOwner = vm.envAddress("POOL_OWNER");
-            address guardian = vm.envAddress("GUARDIAN");
-            address treasury = vm.envOr("TREASURY", address(0));  // address(0) = defaults to owner
 
-            // Base asset oracle parameters
-            address baseMainOracle = vm.envOr("BASE_MAIN_ORACLE", address(0));
-            address baseFallbackOracle = vm.envOr("BASE_FALLBACK_ORACLE", address(0));
-            uint128 baseMinLiquidity = uint128(vm.envOr("BASE_MIN_LIQUIDITY", uint256(1000)));
+            // Admin facet selectors: addAsset, pausePool, unpausePool, collectProtocolFees, freezeAsset, unfreezeAsset, updateFeeConfig, blacklistAddress, unblacklistAddress
+            bytes4[] memory adminSelectors = new bytes4[](9);
+            adminSelectors[0] = BAMMAdmin.addAsset.selector;
+            adminSelectors[1] = BAMMAdmin.pausePool.selector;
+            adminSelectors[2] = BAMMAdmin.unpausePool.selector;
+            adminSelectors[3] = BAMMAdmin.collectProtocolFees.selector;
+            adminSelectors[4] = BAMMAdmin.freezeAsset.selector;
+            adminSelectors[5] = BAMMAdmin.unfreezeAsset.selector;
+            adminSelectors[6] = BAMMAdmin.updateFeeConfig.selector;
+            adminSelectors[7] = BAMMAdmin.blacklistAddress.selector;
+            adminSelectors[8] = BAMMAdmin.unblacklistAddress.selector;
 
-            // Fee parameters with defaults
-            uint16 baseFee = uint16(vm.envOr("BASE_FEE", uint256(30)));
-            uint16 maxFee = uint16(vm.envOr("MAX_FEE", uint256(1000)));
-            uint16 withdrawalFee = uint16(vm.envOr("WITHDRAWAL_FEE", uint256(0)));  // 0% (haircut is sufficient)
-            uint16 maxTWAPChange = uint16(vm.envOr("MAX_PRICE_CHANGE", uint256(500)));
-            uint16 protocolFeeBps = uint16(vm.envOr("PROTOCOL_FEE_BPS", uint256(1000)));  // 10% to treasury
-
-            uint16 flashFeeBps = 0; // Default: 0% flash loan fee (free like Balancer)
+            // Oracle facet selectors: pushPrice, getOracleData
+            bytes4[] memory oracleSelectors = new bytes4[](2);
+            oracleSelectors[0] = BAMMInternalOracle.pushPrice.selector;
+            oracleSelectors[1] = BAMMInternalOracle.getOracleData.selector;
 
             console2.log("\nDeploying example pool...");
-            address pool = factory.deployPool(baseToken, baseMainOracle, baseFallbackOracle, baseMinLiquidity, poolOwner, guardian, treasury, baseFee, maxFee, withdrawalFee, maxTWAPChange, protocolFeeBps, flashFeeBps, false);
+            address pool = factory.deployPool(
+                baseToken,
+                poolOwner,
+                address(pricingFacet),
+                address(adminFacet),
+                address(oracleFacet),
+                adminSelectors,
+                oracleSelectors
+            );
             console2.log("Pool:", pool);
         }
 

@@ -45,9 +45,11 @@ See [README_DUMP.md](README_DUMP.md) for details.
 
 ## Documentation
 
-- **Specifications:** [contracts/specs/](contracts/specs/) - Canonical technical specifications
-- **Audit Reference:** [contracts/AUDIT_READY_SUMMARY.md](contracts/AUDIT_READY_SUMMARY.md)
-- **Circuit Setup:** [circuits/SETUP.md](circuits/SETUP.md)
+- **Specifications:** [specs/](specs/) - Canonical technical specifications
+- **Security Audit Fixes:** [specs/SECURITY_AUDIT_FIXES.md](specs/SECURITY_AUDIT_FIXES.md) - Expert review findings & fixes
+- **Implementation Summary:** [specs/IMPLEMENTATION_SUMMARY.md](specs/IMPLEMENTATION_SUMMARY.md) - Summary of all changes
+- **Next Steps:** [specs/NEXT_STEPS.md](specs/NEXT_STEPS.md) - Deployment roadmap
+- **Circuit Setup:** [scripts/trusted-setup-ceremony.sh](scripts/trusted-setup-ceremony.sh) - Automated ceremony script
 
 ## License
 

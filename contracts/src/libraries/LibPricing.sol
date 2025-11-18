@@ -3,11 +3,11 @@ pragma solidity ^0.8.28;
 
 import {IBAMM} from "../interfaces/IBAMM.sol";
 import {IInternalOracle} from "../interfaces/IInternalOracle.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
 import {LibMaths as M} from "./LibMaths.sol";
 import {LibUtils as Cast} from "./LibUtils.sol";
 import {LibStorage as S} from "./LibStorage.sol";
 import {LibMakimaPricing as MakimaP} from "./LibMakimaPricing.sol";
-import {LibOracle} from "./LibOracle.sol";
 import {BAMMErrors as E} from "../bamm/BAMMErrors.sol";
 import {FPMaths as FPMath} from "solady/utils/FixedPointMathLib.sol";
 
@@ -22,8 +22,8 @@ library LibPricing {
     // FeeParams moved to IBAMM.sol for single source of truth
 
     // Type aliases for external structs (avoid duplication)
-    // Use LibOracle.FeedData directly - single source of truth
-    // See LibOracle.sol for struct definition
+    // Use IOracle.DecodedFeedData directly - single source of truth
+    // See IOracle.sol for struct definition
 
     struct RouteQuote {
         uint256 amountOut;
@@ -61,8 +61,8 @@ library LibPricing {
 
         if (!rq.isTriangulated) {
             // Direct swap: A ↔ base (two legs, but one is base)
-            LibOracle.FeedData memory dataIn = decodeOracle(oracleIn);
-            LibOracle.FeedData memory dataOut = decodeOracle(oracleOut);
+            IOracle.DecodedFeedData memory dataIn = decodeOracle(oracleIn);
+            IOracle.DecodedFeedData memory dataOut = decodeOracle(oracleOut);
 
             // Get spot prices for deviation calculation (with coverage-aware depth)
             uint256 priceIn = _segmentPrice(tokenIn, assetIn, profIn, dataIn, amountIn);
@@ -70,8 +70,8 @@ library LibPricing {
 
             // Inherit vol/deviation from non-base token
             bool inIsBase = (tokenIn == baseToken);
-            LibOracle.FeedData memory effectiveDataIn = inIsBase ? dataOut : dataIn;
-            LibOracle.FeedData memory effectiveDataOut = inIsBase ? dataOut : dataIn;
+            IOracle.DecodedFeedData memory effectiveDataIn = inIsBase ? dataOut : dataIn;
+            IOracle.DecodedFeedData memory effectiveDataOut = inIsBase ? dataOut : dataIn;
 
             // Compute path fee with coverage timing
             (uint256 totalFeeBps, uint256 amountAfterFee) = _computePathFee(
@@ -99,9 +99,9 @@ library LibPricing {
             // Triangulated swap: A → base (virtual) → B
 
             // Decode oracles
-            LibOracle.FeedData memory dataIn = decodeOracle(oracleIn);
-            LibOracle.FeedData memory dataBase = decodeOracle(oracleBase);
-            LibOracle.FeedData memory dataOut = decodeOracle(oracleOut);
+            IOracle.DecodedFeedData memory dataIn = decodeOracle(oracleIn);
+            IOracle.DecodedFeedData memory dataBase = decodeOracle(oracleBase);
+            IOracle.DecodedFeedData memory dataOut = decodeOracle(oracleOut);
 
             // Virtual depth for base (path independence using coverage-aware depth)
             uint256 virtualBaseDepth1 = _depthForPricing(tokenIn);
@@ -152,16 +152,48 @@ library LibPricing {
         }
     }
 
-    // ========== ORACLE DECODING (delegated to LibOracle) ==========
+    // ========== ORACLE DECODING (internal helper functions) ==========
 
-    /// @notice Decode oracle entry - delegates to LibOracle for consistency
+    /// @notice Decode oracle entry to compute TWAPs and prices
     /// @dev Single source of truth eliminates duplication across codebase
-    function decodeOracle(IInternalOracle.InternalFeedData storage oracle) internal view returns (LibOracle.FeedData memory) {
-        return LibOracle.decodeOracle(oracle);  // Direct passthrough, no copy needed
+    /// @dev Shared logic with BAMMInternalOracle (see _decodeOracle there)
+    function decodeOracle(IInternalOracle.InternalFeedData storage oracle) internal view returns (IOracle.DecodedFeedData memory data) {
+        // Compute current accumulator with elapsed time
+        uint256 elapsed = block.timestamp - oracle.base.updatedAt;
+        uint256 accum = oracle.priceAccumulator + uint256(oracle.currentPrice) * elapsed;
+
+        // Fast TWAP
+        uint256 dtFast = block.timestamp - oracle.fastSnapshotTime;
+        data.fastTWAP = dtFast == 0
+            ? oracle.currentPrice
+            : uint64((accum - oracle.fastAccumSnapshot) / dtFast);
+
+        // Slow TWAP
+        uint256 dtSlow = block.timestamp - oracle.slowSnapshotTime;
+        data.slowTWAP = dtSlow == 0
+            ? oracle.currentPrice
+            : uint64((accum - oracle.slowAccumSnapshot) / dtSlow);
+
+        // Convert B64 to 1e18 prices
+        data.priceFast = M.b64ToPrice(data.fastTWAP);
+        data.priceSlow = M.b64ToPrice(data.slowTWAP);
+
+        // Volatility (no clamping for baseline)
+        data.volFast = oracle.base.fastVolEMA;
+        data.volSlow = oracle.base.slowVolEMA;
+        data.volBaseline = oracle.base.slowVolEMA;
     }
 
-    function getFastPrice(IInternalOracle.InternalFeedData storage oracle) internal view returns (uint256) {
-        return LibOracle.getFastPrice(oracle);
+    function getFastPrice(IInternalOracle.InternalFeedData storage oracle) internal view returns (uint256 fastPrice) {
+        uint256 elapsed = block.timestamp - oracle.base.updatedAt;
+        uint256 accum = oracle.priceAccumulator + uint256(oracle.currentPrice) * elapsed;
+
+        uint256 dtFast = block.timestamp - oracle.fastSnapshotTime;
+        uint64 fastTWAP = dtFast == 0
+            ? oracle.currentPrice
+            : uint64((accum - oracle.fastAccumSnapshot) / dtFast);
+
+        fastPrice = M.b64ToPrice(fastTWAP);
     }
 
     // ========== FEE CALCULATION ==========
@@ -176,8 +208,8 @@ library LibPricing {
     function _computePathFee(
         IBAMM.Asset storage assetIn,
         IBAMM.Asset storage assetOut,
-        LibOracle.FeedData memory dataIn,
-        LibOracle.FeedData memory dataOut,
+        IOracle.DecodedFeedData memory dataIn,
+        IOracle.DecodedFeedData memory dataOut,
         uint256 poolPriceIn,
         uint256 poolPriceOut,
         IBAMM.DynamicFeeConfig storage params,
@@ -215,7 +247,7 @@ library LibPricing {
 
     function _assetMultiplierWithTiming(
         IBAMM.Asset storage asset,
-        LibOracle.FeedData memory data,
+        IOracle.DecodedFeedData memory data,
         uint256 poolPrice,
         IBAMM.DynamicFeeConfig storage params,
         uint256 deltaAmount,
@@ -373,13 +405,9 @@ library LibPricing {
     /// @dev When L > R: amplifies depth by D = R + (L - R) × C, capped at alphaMax × R
     /// @dev When L ≤ R: no amplification, D = R
     /// @param asset Asset storage (contains reserves and liabilities)
-    /// @param lpState LP state (reserved for future decay-curve refinements)
-    /// @param risk Risk config (for future alphaMax parameterization)
     /// @return D Effective depth for pricing
     function _effectiveDepthToken(
-        IBAMM.Asset storage asset,
-        IBAMM.LPState storage lpState,
-        IBAMM.RiskConfig storage risk
+        IBAMM.Asset storage asset
     ) private view returns (uint256 D) {
         // Use post-decay liabilities; BAMM.swap calls LibLiability.updateDecay() first
         uint256 R = uint256(asset.reserves);
@@ -409,22 +437,19 @@ library LibPricing {
     }
 
     /// @notice Wrapper to compute effective depth for pricing (adds token lookup)
-    /// @dev Fetches lpState and riskConfig for the given asset
     /// @dev Used for both direct swaps and virtual depth in triangulated swaps
     function _depthForPricing(address token) private view returns (uint256) {
         IBAMM.BAMMStorage storage $ = S.bamm();
         IBAMM.Asset storage asset = $.assets[token];
-        IBAMM.LPState storage lpState = $.lpStates[token];
-        IBAMM.RiskConfig storage risk = $.riskConfigs[token];
 
-        return _effectiveDepthToken(asset, lpState, risk);
+        return _effectiveDepthToken(asset);
     }
 
     function _segmentPrice(
         address token,
         IBAMM.Asset storage asset,
         IBAMM.LiquidityProfile storage prof,
-        LibOracle.FeedData memory data,
+        IOracle.DecodedFeedData memory data,
         uint256 amount
     ) private view returns (uint256) {
         return _segmentPriceWithDepth(token, asset, prof, data, amount, 0);
@@ -441,7 +466,7 @@ library LibPricing {
         address token,
         IBAMM.Asset storage asset,
         IBAMM.LiquidityProfile storage prof,
-        LibOracle.FeedData memory data,
+        IOracle.DecodedFeedData memory data,
         uint256 amount,
         uint256 virtualDepth
     ) private view returns (uint256) {

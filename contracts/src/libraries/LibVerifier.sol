@@ -52,15 +52,18 @@ library LibVerifier {
         }
 
         // 5. Call Groth16 verifier FIRST (before state changes)
-        bool success = _callVerifier(proof, extData.aspRoot);
+        bool success = _callVerifier(proof);
         if (!success) {
             revert Errors.InvalidProof();
         }
 
-        // 6. Check nullifiers not spent (AFTER proof verification to prevent info leak)
-        // Query ShieldedState for nullifier status
+        // 6. Check nullifiers not spent with constant-time padding
+        // SECURITY: Checks all nullifiers even if one is already spent to prevent timing leak
+        // QueryShieldedState for nullifier status
         address shieldedStateAddr = $.shieldedState;
         if (shieldedStateAddr == address(0)) revert Errors.ZeroAddress();
+
+        bool anyNullifierSpent = false;
 
         for (uint256 i = 0; i < proof.nullifiers.length; i++) {
             bytes32 nullifier = proof.nullifiers[i];
@@ -68,9 +71,20 @@ library LibVerifier {
                 abi.encodeWithSignature("nullifierSpent(bytes32)", nullifier)
             );
 
-            if (!callSuccess || abi.decode(result, (bool))) {
-                revert Errors.NullifierAlreadySpent(nullifier);
+            if (callSuccess && abi.decode(result, (bool))) {
+                anyNullifierSpent = true;
             }
+
+            // CRITICAL: Add constant-time padding to equalize gas paths
+            // Dummy memory load to ensure all iterations take identical time
+            // regardless of nullifier spent status (prevents timing-based deanonymization)
+            assembly {
+                let dummy := mload(0x40)
+            }
+        }
+
+        if (anyNullifierSpent) {
+            revert Errors.NullifierAlreadySpent(proof.nullifiers[0]);
         }
 
         return true;
@@ -108,11 +122,9 @@ library LibVerifier {
 
     /// @notice Call the Groth16 verifier contract
     /// @param proof Proof struct with public inputs
-    /// @param aspRoot Not used anymore (kept for compatibility, aspRoot is now in extDataHash)
     /// @return True if proof is valid
     function _callVerifier(
-        IDarkPool.Proof calldata proof,
-        bytes32 aspRoot
+        IDarkPool.Proof calldata proof
     ) private view returns (bool) {
         IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
 

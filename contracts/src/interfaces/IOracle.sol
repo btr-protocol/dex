@@ -30,6 +30,19 @@ interface IOracle {
         uint16 ttl;                   // Time-to-live: max age in seconds before feed is stale (e.g., 3600 = 1 hour)
     }
 
+    /// @notice Decoded oracle data with computed TWAPs and prices
+    /// @dev Output format for oracle decoding (both internal and external)
+    /// @dev Used by pricing and other modules that need computed values
+    struct DecodedFeedData {
+        uint64 fastTWAP;
+        uint64 slowTWAP;
+        uint256 priceFast;      // 1e18
+        uint256 priceSlow;      // 1e18
+        uint32 volFast;
+        uint32 volSlow;
+        uint32 volBaseline;     // = volSlow (baseline volatility, no clamping)
+    }
+
     // ========== VIEW FUNCTIONS ==========
     // These functions MUST be implemented by both internal and external oracles
 

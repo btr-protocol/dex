@@ -6,7 +6,7 @@ import {console2} from "forge-std/console2.sol";
 import {BAMMFactory} from "../src/bamm/BAMMFactory.sol";
 
 /// @title EnableDarkPool
-/// @notice Enable DarkPool for an existing BAMM pool
+/// @notice Enable DarkPool for an existing BAMMCore pool
 contract EnableDarkPool is Script {
     function run() external {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
@@ -14,7 +14,7 @@ contract EnableDarkPool is Script {
         address bammPool = vm.envAddress("BAMM_POOL");
         address darkPoolOwner = vm.envAddress("DARKPOOL_OWNER");
 
-        console2.log("=== Enabling DarkPool for BAMM Pool ===");
+        console2.log("=== Enabling DarkPool for BAMMCore Pool ===");
         console2.log("Factory:", factory);
         console2.log("BAMM Pool:", bammPool);
         console2.log("DarkPool Owner:", darkPoolOwner);
