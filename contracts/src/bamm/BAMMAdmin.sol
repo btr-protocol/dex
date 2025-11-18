@@ -69,16 +69,6 @@ contract BAMMAdmin {
         emit IBAMM.LPTokenSet(asset, lpToken);
     }
 
-    /// @notice Pause entire pool (owner only)
-    function pausePool() external onlyOwner {
-        // Pause is handled in BAMMCore directly via pausePool()
-    }
-
-    /// @notice Unpause pool (owner only)
-    function unpausePool() external onlyOwner {
-        // Unpause is handled in BAMMCore directly via unpausePool()
-    }
-
     /// @notice Collect protocol fees (owner only)
     function collectProtocolFees(address[] calldata tokens) external onlyOwner {
         IBAMM.BAMMStorage storage $ = S.bamm();
