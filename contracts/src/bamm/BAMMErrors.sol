@@ -39,6 +39,7 @@ library BAMMErrors {
     // LP errors
     error InsufficientBalance();
     error SlippageExceeded();
+    error InvalidLPToken();
 
     // Role errors
     error PendingAcceptance();

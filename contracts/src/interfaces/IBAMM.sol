@@ -193,6 +193,7 @@ interface IBAMM {
     event AssetUnfrozen(address indexed token);
     event BaseAssetUpdated(address indexed oldBase, address indexed newBase);
     event FeeConfigUpdated(address indexed token, FeeConfig fees);
+    event LPTokenSet(address indexed token, address indexed lpToken);
     event OracleConfigUpdated(address indexed token, address indexed mainOracle, address indexed fallbackOracle);
     event RiskConfigUpdated(address indexed token, RiskConfig risk);
 
