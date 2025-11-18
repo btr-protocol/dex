@@ -68,6 +68,7 @@ contract BAMMFactory is BeaconFactory {
         }
 
         // Encode initialization call with new diamond-style signature
+        // CRITICAL #7 VERIFIED: Signature matches BAMMCore.initialize() exactly
         bytes memory initData = abi.encodeWithSignature(
             "initialize(address,address,address,address,address,bytes4[],bytes4[])",
             _baseToken,
