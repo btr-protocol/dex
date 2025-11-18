@@ -54,7 +54,6 @@ library LibPricing {
         IBAMM.LiquidityProfile storage profBase,
         IInternalOracle.InternalFeedData storage oracleIn,
         IInternalOracle.InternalFeedData storage oracleOut,
-        IInternalOracle.InternalFeedData storage oracleBase,
         IBAMM.DynamicFeeConfig storage params
     ) internal view returns (RouteQuote memory rq) {
         rq.isTriangulated = (tokenIn != baseToken && tokenOut != baseToken);
@@ -100,8 +99,9 @@ library LibPricing {
 
             // Decode oracles
             IOracle.DecodedFeedData memory dataIn = decodeOracle(oracleIn);
-            IOracle.DecodedFeedData memory dataBase = decodeOracle(oracleBase);
+            // Use dataOut for base pricing (oracleBase parameter removed - base/base oracle not needed)
             IOracle.DecodedFeedData memory dataOut = decodeOracle(oracleOut);
+            IOracle.DecodedFeedData memory dataBase = dataOut;  // Reuse output oracle data for base
 
             // ✅ CRITICAL FIX #2: Virtual depth using geometric mean for path independence
             // Compute effective depths for both legs
