@@ -1,17 +1,29 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {BAMMErrors as E} from "../bamm/BAMMEvents.sol";
+import {FPMaths as FPMath} from "solady/utils/FixedPointMathLib.sol";
+import {BAMMErrors as E} from "../bamm/BAMMErrors.sol";
 
 /// @title LibMaths
 /// @notice Library for mathematical operations including B64 encoding/decoding and decimal conversions
 library LibMaths {
     // ========== CONSTANTS ==========
 
-    uint256 internal constant BPS_PRECISION = 10_000;
+    /// @notice Fee precision: 1,000,000 base (1 unit = 0.0001% = 0.01 bps)
+    /// @dev Allows expressing 0.5 bps (0.005%) as 50 units
+    /// @dev Max uint32 safe: 65000 = 6.5% (hard cap for safety)
+    /// @dev Max theoretical: 4,294,967,295 = 429,496.7% (uint32.max, not used)
+    uint256 internal constant BPS_PRECISION = 1_000_000;
+    uint256 internal constant MAX_FEE_BPS = 65_000; // 6.5% hard cap
     uint256 internal constant PRECISION = 1e18;
     uint256 internal constant PRICE_PRECISION = 1e18;
+
+    /// @notice Liquidity index initial value (lower than PRECISION for overflow protection)
+    /// @dev Starts at 1e12, can grow to uint128.max ≈ 3.4e38 (growth factor of 3.4e26x)
+    /// @dev This allows billions of swaps with compound fee accumulation without overflow
+    /// @dev With 0.1% fee per swap: 1 billion swaps → index can grow ~1e434342x (theoretical)
+    /// @dev But practical limit is uint128.max, giving 3.4e26x growth = 340 quadrillion-fold
+    uint256 internal constant INDEX_PRECISION = 1e12;
 
     uint256 internal constant B64_MANTISSA_BITS = 52;
     uint256 internal constant B64_EXPONENT_BITS = 5;
@@ -33,7 +45,7 @@ library LibMaths {
     int256 internal constant MAX_EXP = 63;
 
     uint256 internal constant MIN_SEGMENTS = 3;
-    uint256 internal constant MAX_SEGMENTS = 16;
+    uint256 internal constant MAX_SEGMENTS = 32;
 
     uint256 internal constant WEIGHT_SUM = 255;
 
@@ -328,7 +340,7 @@ library LibMaths {
         return uint32(v);
     }
 
-    // NOTE: Custom mulDiv removed - use FixedPointMathLib.fullMulDiv instead
+    // NOTE: Custom mulDiv removed - use FPMath.fullMulDiv instead
     // NOTE: Trivial math helpers (min/max/abs/clamp) removed for conciseness
     // Use inline ternaries instead: a < b ? a : b, a > b ? a : b, etc.
     // This reduces bytecode and makes operations more explicit at call sites
@@ -350,7 +362,7 @@ library LibMaths {
     ) internal pure returns (uint256 value) {
         // First calculate value in amountDecimals precision
         // value = amount * price / 1e18
-        uint256 rawValue = FixedPointMathLib.fullMulDiv(amount, price1e18, PRICE_PRECISION);
+        uint256 rawValue = FPMath.fullMulDiv(amount, price1e18, PRICE_PRECISION);
 
         // Adjust from amountDecimals to valueDecimals
         return adjustDecimals(rawValue, amountDecimals, valueDecimals);
@@ -375,7 +387,7 @@ library LibMaths {
         uint256 adjustedValue = adjustDecimals(value, valueDecimals, targetDecimals);
 
         // Calculate amount = adjustedValue * PRICE_PRECISION / price
-        return FixedPointMathLib.fullMulDiv(adjustedValue, PRICE_PRECISION, price1e18);
+        return FPMath.fullMulDiv(adjustedValue, PRICE_PRECISION, price1e18);
     }
 
     /// @notice Calculate token value using b64 price directly
@@ -413,13 +425,13 @@ library LibMaths {
         if (priceOut == 0) revert E.InvalidPrice();
 
         // Calculate value in 1e18 terms
-        uint256 value = FixedPointMathLib.fullMulDiv(amountIn, priceIn, PRICE_PRECISION);
+        uint256 value = FPMath.fullMulDiv(amountIn, priceIn, PRICE_PRECISION);
 
         // Adjust decimals: from decimalsIn to decimalsOut
         uint256 adjustedValue = adjustDecimals(value, decimalsIn, decimalsOut);
 
         // Convert value to output amount
-        return FixedPointMathLib.fullMulDiv(adjustedValue, PRICE_PRECISION, priceOut);
+        return FPMath.fullMulDiv(adjustedValue, PRICE_PRECISION, priceOut);
     }
 
     // ========== FEE CALCULATIONS ==========
@@ -435,7 +447,7 @@ library LibMaths {
     ) internal pure returns (uint256 amountAfterFee, uint256 feeAmount) {
         if (feeBps > BPS_PRECISION) revert E.InvalidParameter();
 
-        feeAmount = FixedPointMathLib.fullMulDiv(amount, feeBps, BPS_PRECISION);
+        feeAmount = FPMath.fullMulDiv(amount, feeBps, BPS_PRECISION);
         amountAfterFee = amount - feeAmount;
     }
 
@@ -445,7 +457,7 @@ library LibMaths {
     /// @return feeAmount Calculated fee
     function calculateFee(uint256 amount, uint256 feeBps) internal pure returns (uint256 feeAmount) {
         if (feeBps > BPS_PRECISION) revert E.InvalidParameter();
-        return FixedPointMathLib.fullMulDiv(amount, feeBps, BPS_PRECISION);
+        return FPMath.fullMulDiv(amount, feeBps, BPS_PRECISION);
     }
 
     /// @notice Split amount according to basis points
@@ -459,7 +471,7 @@ library LibMaths {
     ) internal pure returns (uint256 portion1, uint256 portion2) {
         if (splitBps > BPS_PRECISION) revert E.InvalidParameter();
 
-        portion1 = FixedPointMathLib.fullMulDiv(amount, splitBps, BPS_PRECISION);
+        portion1 = FPMath.fullMulDiv(amount, splitBps, BPS_PRECISION);
         portion2 = amount - portion1;
     }
 
@@ -477,11 +489,11 @@ library LibMaths {
 
         if (newValue >= oldValue) {
             uint256 increase = newValue - oldValue;
-            uint256 increaseBps = FixedPointMathLib.fullMulDiv(increase, BPS_PRECISION, oldValue);
+            uint256 increaseBps = FPMath.fullMulDiv(increase, BPS_PRECISION, oldValue);
             return int256(increaseBps);
         } else {
             uint256 decrease = oldValue - newValue;
-            uint256 decreaseBps = FixedPointMathLib.fullMulDiv(decrease, BPS_PRECISION, oldValue);
+            uint256 decreaseBps = FPMath.fullMulDiv(decrease, BPS_PRECISION, oldValue);
             return -int256(decreaseBps);
         }
     }
@@ -497,7 +509,7 @@ library LibMaths {
         uint256 diff = value1 > value2 ? value1 - value2 : value2 - value1;
         uint256 base = value1 > value2 ? value2 : value1; // Use smaller as base
 
-        return FixedPointMathLib.fullMulDiv(diff, BPS_PRECISION, base);
+        return FPMath.fullMulDiv(diff, BPS_PRECISION, base);
     }
 
     // ========== INTERPOLATION ==========
@@ -520,10 +532,10 @@ library LibMaths {
         // interpolated = value0 + (value1 - value0) * position / PRECISION
         if (value1 >= value0) {
             uint256 delta = value1 - value0;
-            return value0 + FixedPointMathLib.fullMulDiv(delta, position, PRECISION);
+            return value0 + FPMath.fullMulDiv(delta, position, PRECISION);
         } else {
             uint256 delta = value0 - value1;
-            return value0 - FixedPointMathLib.fullMulDiv(delta, position, PRECISION);
+            return value0 - FPMath.fullMulDiv(delta, position, PRECISION);
         }
     }
 
@@ -546,7 +558,7 @@ library LibMaths {
         if (position == maxPosition) return value1;
 
         // Convert position to PRECISION base and use lerp
-        uint256 normalizedPosition = FixedPointMathLib.fullMulDiv(position, PRECISION, maxPosition);
+        uint256 normalizedPosition = FPMath.fullMulDiv(position, PRECISION, maxPosition);
         return lerp(value0, value1, normalizedPosition);
     }
 }

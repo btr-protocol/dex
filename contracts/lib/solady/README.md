@@ -76,7 +76,7 @@ utils
 ├─ EfficientHashLib — "Library for efficiently performing keccak256 hashes"
 ├─ EnumerableMapLib — "Library for managing enumerable maps in storage"
 ├─ EnumerableSetLib — "Library for managing enumerable sets in storage"
-├─ FixedPointMathLib — "Arithmetic library with operations for fixed-point numbers"
+├─ FPMaths — "Arithmetic library with operations for fixed-point numbers"
 ├─ GasBurnerLib — "Library for burning gas without reverting"
 ├─ Initializable — "Initializable mixin for the upgradeable contracts"
 ├─ JSONParserLib — "Library for parsing JSONs"

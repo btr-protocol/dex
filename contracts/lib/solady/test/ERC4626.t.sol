@@ -6,7 +6,7 @@ import "./utils/SoladyTest.sol";
 import {ERC20, MockERC20} from "./utils/mocks/MockERC20.sol";
 import {ERC4626, MockERC4626} from "./utils/mocks/MockERC4626.sol";
 import {SafeTransferLib} from "../src/utils/SafeTransferLib.sol";
-import {FixedPointMathLib} from "../src/utils/FixedPointMathLib.sol";
+import {FPMaths} from "../src/utils/FPMaths.sol";
 
 contract ERC4626Test is SoladyTest {
     MockERC20 underlying;
@@ -51,12 +51,12 @@ contract ERC4626Test is SoladyTest {
     }
 
     function fullMulDivChecked(uint256 x, uint256 y, uint256 d) public pure {
-        FixedPointMathLib.fullMulDiv(x, y, d + 1);
+        FPMaths.fullMulDiv(x, y, d + 1);
     }
 
     function fullMulDivUnchecked(uint256 x, uint256 y, uint256 d) public pure {
         unchecked {
-            FixedPointMathLib.fullMulDiv(x, y, d + 1);
+            FPMaths.fullMulDiv(x, y, d + 1);
         }
     }
 

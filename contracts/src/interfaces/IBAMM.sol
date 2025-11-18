@@ -1,206 +1,227 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {IOracle} from "./IOracle.sol";
+import {IInternalOracle} from "./IInternalOracle.sol";
+
+import {LibLiquiditySegments as SegLib} from "../libraries/LibLiquiditySegments.sol";
+
 /// @title IBAMM
 /// @notice Interface for the BTR AMM (Bayesian True Range AMM) protocol
 /// @dev Defines all external functions and events for the AMM
 interface IBAMM {
     // ========== CONFIGURATION STRUCTS ==========
 
-    /// @notice Liquidity profile parameters (for updates only)
-    struct LiquidityProfileParams {
-        uint8[16] segmentWeights;   // Liquidity weights for each segment
-        int8[17] twapOffsets;       // Price offset points base 100
-        uint64 minBreadth;          // Min breadth at volatility=0
-        uint64 maxBreadth;          // Max breadth at volatility=100_000_000
+    /// @notice Per-asset fee configuration (all 6 fee types consolidated)
+    /// @dev 1 unit = 0.0001% = 0.01 bps, precision = 100,000 (BPS_PRECISION)
+    /// @dev Max value: 65535 = 6.5535% (uint16 max, always cast to uint256 for arithmetic)
+    /// @dev Total: 12 bytes (perfectly packed)
+    struct FeeConfig {
+        uint16 minFeeBps;           // Min swap fee (e.g., 100 = 0.01% = 1 bps)
+        uint16 maxFeeBps;           // Max swap fee (e.g., 50000 = 5% = 500 bps)
+        uint16 depositFeeBps;       // Deposit fee (default 0)
+        uint16 withdrawalFeeBps;    // Withdrawal fee (default 0)
+        uint16 flashFeeBps;         // Flash loan fee (default 0, target 50 = 0.005% = 0.5bps)
+        uint16 protocolFeeBps;      // Protocol fee split (e.g., 1000 = 1% of swap fees to treasury)
     }
 
-    /// @notice Liquidity configuration (ALM model - no target weights)
-    struct LiquidityConfig {
-        uint128 minLiquidity;       // Minimum required liquidity
-        uint8 segmentCount;         // Number of segments (2-16)
-        uint8[16] segmentWeights;   // Liquidity weights for each segment
-        int8[17] twapOffsets;       // Price offset points base 100
-        uint64 minBreadth;          // Min breadth at volatility=0
-        uint64 maxBreadth;          // Max breadth at volatility=100_000_000
+    /// @notice Dynamic fee calculation configuration (per-asset)
+    /// @dev Used for tri-factor swap fee calculation (coverage × volatility × deviation)
+    /// @dev See FEES.md for complete tri-factor model specification
+    struct DynamicFeeConfig {
+        // Coverage factor params (per-asset reserves/liabilities ratio)
+        uint16 minCovMult;          // Min coverage multiplier when under-collateralized (×100, e.g., 20 = 0.2x)
+        uint16 maxCovMult;          // Max coverage multiplier when over-collateralized (×100, e.g., 10000 = 100x)
+        uint256 maxCovUnder;        // Max under-coverage deviation to scale (WAD, e.g., 0.5e18 = 50%)
+        uint256 maxCovOver;         // Max over-coverage deviation to scale (WAD, e.g., 0.5e18 = 50%)
+
+        // Volatility factor params
+        uint16 volBeta;             // Volatility shock sensitivity (×100, e.g., 100 = 1x pass-through)
+        uint16 maxVolR;             // Max shock ratio (×100, e.g., 500 = 5x)
+        uint16 maxVolMult;          // Max volatility multiplier (×100, e.g., 500 = 5x)
+        uint16 volEpsilon;          // Min baseline volatility for safety (1e6 base, e.g., 1000 = 0.001%)
+
+        // Deviation factor params (price divergence)
+        uint16 maxDevD1;            // Max spot-vs-fast deviation (bps, e.g., 500 = 5%)
+        uint16 maxDevD2;            // Max fast-vs-slow deviation (bps, e.g., 200 = 2%)
+        uint16 devAlpha;            // Deviation multiplier weight (×100, e.g., 50 = 0.5x weight on oracle drift)
+        uint16 maxDevMult;          // Max deviation multiplier (×100, e.g., 300 = 3x)
+
+        // Base fee params
+        uint16 baseK;               // Base fee slope multiplier (×100, e.g., 30 = 0.3% per 1% vol)
+        uint16 minBaseFee;          // Min base fee (bps, 100k precision, e.g., 100 = 1 bps)
+
+        // Total multiplier bounds
+        uint16 minMult;             // Min total multiplier (×100, e.g., 10 = 0.1x)
+        uint16 maxMult;             // Max total multiplier (×100, e.g., 10000 = 100x)
     }
 
-    /// @notice Oracle configuration
+    /// @notice Oracle configuration (per-asset)
+    /// @dev feedId computed dynamically: keccak256(abi.encodePacked(token, baseToken))
     struct OracleConfig {
         address mainOracle;         // Main oracle (address(this)=internal, else=external IOracle)
         address fallbackOracle;     // Fallback oracle (address(0)=disabled, address(this)=internal)
-        uint16 maxTWAPChange;       // Max price change per update in bps (e.g., 1000 = 10%)
-        uint32 fastWindow;          // Fast TWAP window in seconds (e.g., 6 hours = 21600)
-        uint32 slowWindow;          // Slow TWAP window in seconds (e.g., 7 days = 604800)
-        bytes extension;            // Internal oracle init: abi.encode(uint64 currentPrice, uint32 fastVol, uint32 slowVol)
+        bytes extension;            // Internal oracle init: abi.encode(uint64 price, uint32 fastVolEMA, uint32 slowVolEMA, uint16 maxTWAPChange, uint32 fastWindow, uint32 slowWindow)
     }
 
-    /// @notice Fee configuration (per-asset)
-    struct FeeConfig {
-        uint16 minFeeBps;           // Minimum swap fee in bps (e.g., 1 = 0.01%)
-        uint16 maxFeeBps;           // Maximum swap fee in bps (e.g., 500 = 5%)
-        uint16 protocolFeeBps;      // Protocol fee in bps (e.g., 1000 = 10% of swap fees)
-        uint16 depositFeeBps;       // Deposit fee in bps (default 0, for LP arbitrage mitigation)
-        uint16 withdrawalFeeBps;    // Withdrawal fee in bps (default 0, for LP arbitrage mitigation)
-        uint16 flashFeeBps;         // Flash loan fee in bps (default 0, e.g., 0 = 0% like Balancer)
+    /// @notice Risk configuration (separate mapping: riskConfigs[token])
+    /// @dev Circuit breakers + liability decay params (3 slots)
+    struct RiskConfig {
+        uint128 minLiquidity;          // Min reserves required
+        uint64 reservePrice;           // Reserve price floor in b64 (Circuit Breaker #1, 0=disabled)
+        bytes32 refFeed;               // Reference oracle feedId for beta deviation check (0=disabled)
+        uint16 maxBetaDeviationBps;    // Max beta deviation: |(fast/slow)/(refFast/refSlow) - 1| (adaptive depeg detection)
+        uint16 maxFastDeviationBps;    // Max fast-vs-spot deviation (Circuit Breaker #2, 0=disabled)
+        uint16 maxSlowDeviationBps;    // Max slow-vs-fast deviation (Circuit Breaker #3, 0=disabled)
+        uint16 decayStartRatioBps;     // Coverage threshold to start decay (e.g., 9800 = 98%, 0=disabled)
+        uint16 decayAmplification;     // Decay curve exponent × 10000 (e.g., 10000 = linear, 20000 = quadratic)
+        uint32 decaySlope;             // Decay rate: liabilities decrease by (slope × elapsed) per second
+        uint16 flags;                  // Bit-packed: bit0=frozen, bit1=swapEnabled, bit2=liabilitySwapEnabled, bit3=decayEnabled, bit4=flashEnabled, bit5=feeOnTransfer
     }
 
-    /// @notice Circuit breaker configuration
-    struct CircuitBreakerConfig {
-        address referenceAsset;     // Reference asset to compare against (address(0) = disabled)
-        uint16 maxDeviationBps;     // Max deviation in bps (e.g., 100 = 1% for stables, 300 = 3% for LSTs)
+    /// @notice Liquidity profile parameters (for Makima spline configuration)
+    /// @dev Slopes must be pre-computed off-chain using Makima algorithm
+    struct LiquidtyConfig {
+        uint8[] weights;            // Liquidity weights (must sum to 255)
+        int8[] endOffsets;          // TWAP offsets as % of breadth (-100 to +100)
+        int32[] slopes;             // Pre-computed Makima slopes (int32 fixed-point, scale=1e9)
+        uint32 baseBreadth;         // Base breadth (bps, 1M precision, 0.0001% base), breadth when vol=0
+        uint32 maxBreadth;          // Max breadth in bps (1M precision, 0.0001% base)
+        uint32 volKappa;            // Volatility sensitivity (1e6 precision)
     }
 
-    // ========== STRUCTS ==========
+    // ========== ASSET STRUCTS (HOT PATH OPTIMIZED) ==========
 
-    /// @notice Core state for each asset (OPTIMIZED: 9 slots with liability tracking and flash loans)
-    /// @dev Oracle modes: internal-only (both=pool), external-only (both=external), hybrid (mix)
-    /// @dev Packing strategy groups fields by size to minimize storage slots
-    /// @dev Coverage ratio = reserves / liabilities (clamped to [0, 1] for withdrawal haircut)
-    /// @dev Target coverage ratio > 1 (e.g., 1.05 = 105% = seek 5% over-collateralization)
+    /// @notice Asset hot path data (2 slots = 64 bytes, accessed every swap/deposit/withdraw)
+    /// @dev Optimized for minimal SLOADs in critical paths
+    /// @dev Stored in mapping: assets[token]
+    /// @dev Oracle addresses stored separately in oracleConfigs[token]
     struct Asset {
-        // SLOT 1: uint128 + uint128 = 32 bytes
-        uint128 reserves;              // Physical tokens in pool (assets)
-        uint128 liabilities;           // Total deposited amount (LP claims in token units, Wombat-style)
+        // SLOT 0: LP state (32 bytes)
+        uint128 reserves;              // Physical tokens in pool
+        uint128 liabilities;           // Total LP claims (Wombat-style)
 
-        // SLOT 2: address + uint8 + uint8 + 2×bool = 22 bytes
-        address mainOracle;            // Main oracle (address(this)=internal, else=external IOracle)
-        uint8 decimals;                // Token decimals (6, 8, 18, etc.)
-        uint8 segmentCount;            // Active segments (2-16)
-        bool isFrozen;                 // If true, only withdrawals allowed
-        bool flashLoanEnabled;         // If true, asset can be flash loaned
-
-        // SLOT 3: address + 6×uint16 = 32 bytes
-        address fallbackOracle;        // Fallback oracle (address(0)=disabled, address(this)=internal)
-        uint16 minFeeBps;              // Minimum swap fee for this asset (basis points)
-        uint16 maxFeeBps;              // Maximum swap fee for this asset (basis points)
-        uint16 protocolFeeBps;         // Protocol fee as % of swap fees (basis points, e.g., 1000 = 10%)
-        uint16 depositFeeBps;          // Deposit fee in bps (default 0, for LP arbitrage mitigation)
-        uint16 withdrawalFeeBps;       // Withdrawal fee in bps (default 0, for LP arbitrage mitigation)
-        uint16 flashFeeBps;            // Flash loan fee in bps (default 0, e.g., 0 = 0% like Balancer)
-
-        // SLOT 4: address + uint16 = 22 bytes
-        address hooks;                 // Hook contract implementing IBAMMHooks interface
-        uint16 targetCoverageRatio;    // Target coverage ratio in bps (e.g., 10500 = 1.05 = 105%, seeking 5% overcollateralization)
-
-        // SLOT 5: uint128 = 16 bytes
-        uint128 minLiquidity;          // Minimum liquidity that must remain in pool
-
-        // SLOT 6: bytes32 = 32 bytes
-        bytes32 oracleId;              // keccak256(abi.encodePacked(token, quoteAsset)) - tracks base/quote pair
+        // SLOT 1: Fees + metadata (14 bytes used, 18 bytes spare)
+        FeeConfig fees;                // All 6 fee types (12 bytes)
+        uint8 decimals;                // Token decimals (1 byte)
+        uint8 segmentCount;            // Active Makima segments cached from profile (1 byte)
+        // 18 bytes spare for future use
     }
 
-    /// @notice Liquidity profile for piecewise bonding curve
-    /// @dev N segments require N weights and N+1 price points
-    /// @dev Price points are defined as EMA offsets (base 100: -100 to +100)
-    /// @dev Breadth (distribution spread) scales with volatility
-    struct LiquidityProfile {
-        uint8[16] segmentWeights;     // Weight per segment/vector (sum=255)
-        int8[17] twapOffsets;          // Price offset points, base 100 (0 = EMA price)
-        uint64 minBreadth;            // Min breadth at volatility=0 (1e8 precision, e.g., 5000 = 0.005%)
-        uint64 maxBreadth;            // Max breadth at volatility=100_000_000 (1e8 precision, e.g., 1000000 = 1%)
-    }
-
-    /// @notice LP token state for rebasing
+    /// @notice LP state (separate mapping: lpStates[token])
+    /// @dev 3 slots = 96 bytes (includes decay state)
     struct LPState {
-        uint128 totalScaledSupply;    // Sum of scaled balances
-        uint128 liquidityIndex;       // Rebasing multiplier (starts 1e18)
+        uint128 totalScaledSupply;     // Sum of scaled LP balances (1e12 precision)
+        uint128 liquidityIndex;        // Rebasing multiplier (starts 1e18, needs precision)
+        uint64 decayStartTime;         // Liability decay start timestamp (0 = inactive)
+        uint32 coverageAtStart;        // Coverage ratio when decay started (bps)
+        uint32 lastUpdateTime;         // Last decay update timestamp
     }
 
-    /// @notice Circuit breaker configuration (read by off-chain guardian)
-    /// @dev ALL deviation checking is performed off-chain by guardian
-    /// @dev Stablecoins: Guardian compares oracle prices directly (USDC vs DAI should be ~1:1)
-    /// @dev Correlated assets: Guardian compares relative weekly price changes independently
-    ///      Example: If WETH +5% over week and wstETH +2%, deviation = 3% (triggers at 3%+ for LSTs)
-    /// @dev Volatile assets: Guardian uses same relative change methodology with higher thresholds
-    struct CircuitBreaker {
-        address referenceAsset;       // Reference asset to compare against (address(0) = disabled)
-        uint16 maxDeviation;          // Max deviation in bps (100=1% stables, 300=3% LSTs, 3000=30% volatile)
+    /// @notice Liquidity profile for Makima cubic spline bonding curve
+    /// @dev Separate mapping: liquidityProfiles[token]
+    /// @dev Breadth scales with volatility: breadth = min(baseBreadth + vol×κ, maxBreadth)
+    struct LiquidityProfile {
+        uint32 baseBreadth;            // Base breadth when vol=0 (bps, 1M precision)
+        uint32 maxBreadth;             // Max breadth cap (bps, 1M precision)
+        uint32 volKappa;               // Volatility sensitivity (1e6 precision)
+        SegLib.PackedSegments segments; // Packed segment data (weights, offsets, slopes)
     }
 
     /// @notice Fee components for transparency
-    /// @dev For two-leg routes, totalFeeBps is the notional-weighted average across both legs
+    /// @dev For two-leg routes, totalFeeBps is the weighted average of leg1FeeBps and leg2FeeBps
     struct FeeComponents {
-        uint256 baseFee;
-        uint256 volatilityMultiplier;
-        uint256 inventoryMultiplier;
-        uint256 divergenceMultiplier;
-        uint256 exitInventoryDivergence;   // Exit-leg inventory divergence multiplier (hub routing)
-        uint256 totalFeeBps;                // User-visible effective fee (single-leg or weighted avg)
-        // Per-leg breakdown (populated for two-leg hub routes, 0 for single-leg)
-        uint256 leg1FeeBps;                 // Fee for first leg (A→base)
-        uint256 leg2FeeBps;                 // Fee for second leg (base→B)
-        uint256 leg1Notional;               // Notional value of first leg
-        uint256 leg2Notional;               // Notional value of second leg
+        uint256 baseFee;                    // Base component
+        uint256 volatilityMultiplier;       // Volatility component
+        uint256 inventoryMultiplier;        // Inventory (coverage) component
+        uint256 divergenceMultiplier;       // Divergence component
+        uint256 totalFeeBps;                // Effective fee (single-leg or weighted avg)
+        uint256 leg1FeeBps;                 // Fee for leg1 (A→base), 0 if direct base exit
+        uint256 leg2FeeBps;                 // Fee for leg2 (base→B), 0 if not triangulated
+    }
+
+    // ========== STORAGE LAYOUT ==========
+
+    /// @notice Main storage structure for BAMM - ULTRA-LEAN
+    /// @custom:storage-location erc7201:bamm.storage
+    /// @dev Pausable handled by Solady's Pausable mixin (no storage needed)
+    struct BAMMStorage {
+        // SLOT 0: Base token
+        address baseToken;              // 20 bytes
+
+        // SLOT 1: WETH address for native token wrapping
+        address weth;                   // 20 bytes (WETH contract for native ETH support)
+
+        // Arrays and mappings (each gets independent slots)
+        address[] registeredAssets;
+
+        // Hot path: Asset struct (2 slots per asset)
+        mapping(address => Asset) assets;
+
+        // Cold storage: Separate configs (accessed infrequently)
+        mapping(address => LPState) lpStates;
+        mapping(address => LiquidityProfile) liquidityProfiles;
+        mapping(address => RiskConfig) riskConfigs;
+        mapping(address => DynamicFeeConfig) dynamicFeeConfigs; // Tri-factor fee calculation params per asset
+        mapping(address => OracleConfig) oracleConfigs;  // Oracle addresses per asset
+        mapping(address => address) hooks;  // Hook contract per asset
+
+        // LP balances and protocol fees
+        mapping(address => mapping(address => uint256)) scaledBalances;
+        mapping(address => uint256) protocolFees;
+        mapping(address => bool) blacklisted;
+
+        // Internal oracle feed data by feedId (keccak256(abi.encodePacked(token, baseToken)))
+        mapping(bytes32 => IInternalOracle.InternalFeedData) internalFeeds;
     }
 
     // ========== EVENTS ==========
 
-    event Swap(
-        address indexed user,
-        address indexed receiver,
-        address indexed tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        uint256 amountOut,
-        uint256 feeBps
-    );
+    // Pool events
+    event Swapped(address indexed sender, address indexed receiver, address indexed tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut, uint256 feeBps);
+    event SwappedTwoLeg(address indexed sender, address indexed receiver, address indexed tokenIn, address base, address tokenOut, uint256 amountIn, uint256 amountOut, uint256 leg1FeeBps, uint256 leg2FeeBps);
+    event BatchSwapped(address indexed sender, address indexed receiver, address[] path, uint256[] amounts);
+    event LiabilitySwapped(address indexed user, address indexed tokenIn, address indexed tokenOut, uint256 lpAmountIn, uint256 lpAmountOut, uint256 haircut);
+    event Deposited(address indexed sender, address indexed token, uint256 amount, uint256 lpTokens);
+    event Withdrawn(address indexed sender, address indexed token, uint256 lpTokens, uint256 amount, uint256 feeBps);
+    event ProtocolFeesCollected(address indexed treasury, address[] tokens, uint256[] amounts);
 
-    event BatchSwap(
-        address indexed user,
-        address indexed receiver,
-        address[] path,
-        uint256[] amounts
-    );
-
-    event Deposit(
-        address indexed user,
-        address indexed token,
-        uint256 amount,
-        uint256 lpTokensMinted
-    );
-
-    event Withdraw(
-        address indexed user,
-        address indexed token,
-        uint256 lpTokensBurned,
-        uint256 amountOut,
-        uint256 withdrawalFeeBps
-    );
-
+    // Asset events
+    event AssetAdded(address indexed token, uint128 minLiquidity);
     event AssetFrozen(address indexed token, string reason);
     event AssetUnfrozen(address indexed token);
+    event BaseAssetUpdated(address indexed oldBase, address indexed newBase);
+    event FeeConfigUpdated(address indexed token, FeeConfig fees);
+    event OracleConfigUpdated(address indexed token, address indexed mainOracle, address indexed fallbackOracle);
+    event RiskConfigUpdated(address indexed token, RiskConfig risk);
+
+    // Oracle events
+    event OracleFeedUpdated(bytes32 indexed feedId, IOracle.FeedData data, address indexed updater);
+    event LiquidityProfileUpdated(address indexed token, uint8 segments);
+    event CircuitBreakerTriggered(address indexed token, int256 deviationBps, uint256 timestamp);
+
+    // Owner events
     event PoolPaused();
     event PoolUnpaused();
-    event BaseAssetUpdated(address indexed oldBase, address indexed newBase);
+    event RoleGrantPending(address indexed account, bytes32 indexed role, address indexed replacing);
+    event RoleAccepted(address indexed account, bytes32 indexed role);
+    event RoleRevoked(address indexed account, bytes32 indexed role);
 
-    event AssetAdded(
-        address indexed token,
-        uint128 minLiquidity
-    );
+    // Blacklist events
+    event AddressBlacklisted(address indexed account);
+    event AddressRemovedFromBlacklist(address indexed account);
 
-    event LiquidityProfileUpdated(
-        address indexed token,
-        uint8 segmentCount
-    );
+    // Hook events
+    event HooksUpdated(address indexed token, address indexed hookAddress);
 
-    event CircuitBreakerTriggered(
-        address indexed token,
-        int256 divergenceBps,
-        uint256 timestamp
-    );
+    // Flash loan events (enable/disable only, fee changes emit FeeConfigUpdated)
+    event FlashLoansEnabled(address indexed token);
+    event FlashLoansDisabled(address indexed token);
 
-    event MinLiquidityUpdated(
-        address indexed token,
-        uint128 oldMinLiquidity,
-        uint128 newMinLiquidity
-    );
-
-    event OracleUpdated(
-        address indexed token,
-        address indexed mainOracle,
-        address indexed fallbackOracle
-    );
+    // Liability decay events
+    event LiabilityDecayStarted(address indexed token, uint256 liabilityAtStart, uint256 coverageAtStart, uint256 timestamp);
+    event LiabilityDecayStopped(address indexed token, uint256 finalLiability, uint256 finalCoverage, uint256 timestamp);
+    event LiabilityDecayApplied(address indexed token, uint256 oldLiability, uint256 newLiability, uint256 coverage, uint256 elapsed);
 
     // ========== BATCH SWAP STRUCTS ==========
 
@@ -228,7 +249,7 @@ interface IBAMM {
         uint256 amountIn,
         uint256 minAmountOut,
         address receiver
-    ) external returns (uint256 amountOut);
+    ) external payable returns (uint256 amountOut);
 
     /// @notice Execute multiple swaps in sequence with optimized gas usage
     /// @dev Supports multi-hop swaps (e.g., USDC → WETH → DAI)
@@ -240,7 +261,20 @@ interface IBAMM {
     function batchSwap(
         SwapStep[] calldata steps,
         address receiver
-    ) external returns (uint256[] memory amounts);
+    ) external payable returns (uint256[] memory amounts);
+
+    /// @notice Swap LP liability between assets (rebalancing without haircut)
+    /// @param tokenIn Asset to reduce liability from
+    /// @param tokenOut Asset to add liability to
+    /// @param lpAmountIn LP tokens to swap
+    /// @param minLpAmountOut Minimum LP tokens to receive
+    /// @return lpAmountOut LP tokens received (after haircut if any)
+    function swapLiability(
+        address tokenIn,
+        address tokenOut,
+        uint256 lpAmountIn,
+        uint256 minLpAmountOut
+    ) external returns (uint256 lpAmountOut);
 
     /// @notice Deposit single asset and receive LP tokens
     /// @param token Token to deposit
@@ -251,7 +285,7 @@ interface IBAMM {
         address token,
         uint256 amount,
         uint256 minLpTokens
-    ) external returns (uint256 lpTokens);
+    ) external payable returns (uint256 lpTokens);
 
     /// @notice Withdraw single asset by burning LP tokens
     /// @param token Token to withdraw
@@ -265,11 +299,6 @@ interface IBAMM {
     ) external returns (uint256 amountOut);
 
     // ========== VIEW FUNCTIONS ==========
-
-    /// @notice Get LP state for a token
-    /// @param token Token address
-    /// @return LP state (totalScaledSupply and liquidityIndex)
-    function lpStates(address token) external view returns (LPState memory);
 
     /// @notice Calculate swap fee for a potential trade
     /// @return Fee components breakdown
@@ -299,41 +328,67 @@ interface IBAMM {
 
     /// @notice Get total value locked in base token terms
     /// @return tvl Total value locked
+    function lpStates(address token) external view returns (LPState memory);
     function getTotalValue() external view returns (uint256 tvl);
+
+    /// @notice Get oracle data for any asset (public for external contracts)
+    /// @dev Abstracts feed ID resolution and fallback logic
+    /// @dev Works with both internal and external oracles
+    /// @param token Asset address
+    /// @return fastEMA Fast price EMA in b64 format
+    /// @return slowEMA Slow price EMA in b64 format
+    /// @return fastVolEMA Fast volatility EMA (1e6 base: 1_000_000 = 1%)
+    /// @return slowVolEMA Slow volatility EMA (1e6 base: 1_000_000 = 1%)
+    /// @return updatedAt Last oracle update timestamp
+    function getFeedData(address token) external view returns (
+        uint64 fastEMA,
+        uint64 slowEMA,
+        uint32 fastVolEMA,
+        uint32 slowVolEMA,
+        uint32 updatedAt
+    );
+
+    /// @notice Get asset state for frontend (prices, reserves, liabilities)
+    /// @dev Returns packed data for efficient multicall aggregation
+    /// @param token Asset address
+    /// @return fastEMA Fast price EMA in b64 format (decode: price_1e18 = M.decodePriceTo1e18(fastEMA))
+    /// @return slowEMA Slow price EMA in b64 format (decode: price_1e18 = M.decodePriceTo1e18(slowEMA))
+    /// @return reserves Reserves in token decimals
+    /// @return liabilities Liabilities in token decimals
+    /// @return reservesValue Reserves value in accounting base (1e18)
+    /// @return liabilitiesValue Liabilities value in accounting base (1e18)
+    function getAssetState(address token) external view returns (
+        uint64 fastEMA,
+        uint64 slowEMA,
+        uint128 reserves,
+        uint128 liabilities,
+        uint256 reservesValue,
+        uint256 liabilitiesValue
+    );
+
+    /// @notice Get LP state for a token
+    /// @param token Asset address
+    /// @return LP state (totalScaledSupply, liquidityIndex, decayStartTime)
+    function getLPState(address token) external view returns (LPState memory);
 
     // ========== OWNER FUNCTIONS ==========
 
     /// @notice Add new asset to the pool
     /// @param token Token address
-    /// @param liquidityConfig Liquidity and allocation configuration
-    /// @param oracleConfig Oracle and TWAP window configuration
-    /// @param feeConfig Fee bounds and protocol fee configuration
-    /// @param circuitBreaker Circuit breaker configuration
+    /// @param fees Fee configuration (deposit, withdrawal, min, max, flash, protocol)
+    /// @param oracle Oracle configuration (main, fallback, extension)
+    /// @param risk Risk configuration (minLiquidity, reservePrice, refFeed, deviations, decay params, flags)
+    /// @param profile Liquidity profile (weights, offsets, slopes, baseBreadth, maxBreadth, volKappa)
     /// @dev For internal oracle (mainOracle == address(this)), extension must contain:
-    ///      abi.encode(uint64 currentPrice, uint32 fastVol, uint32 slowVol)
-    /// @dev For external oracle, extension is ignored and oracle is read on-chain (reverts if fails)
+    ///      abi.encode(uint64 price, uint32 fastVolEMA, uint32 slowVolEMA, uint16 maxTWAPChange, uint32 fastWindow, uint32 slowWindow)
+    /// @dev feedId always computed as keccak256(abi.encodePacked(token, baseToken))
     function addAsset(
         address token,
-        LiquidityConfig calldata liquidityConfig,
-        OracleConfig calldata oracleConfig,
-        FeeConfig calldata feeConfig,
-        CircuitBreakerConfig calldata circuitBreaker
+        FeeConfig calldata fees,
+        OracleConfig calldata oracle,
+        RiskConfig calldata risk,
+        LiquidtyConfig calldata profile
     ) external;
-
-    /// @notice Start paginated base asset migration (STEP 1 of 3)
-    /// @param newBaseToken New base token address
-    /// @param oracleReinitData Oracle reinitialization data for internal oracles
-    function startBaseAssetUpdate(address newBaseToken, bytes calldata oracleReinitData) external;
-
-    /// @notice Process batch of asset price conversions during base asset migration (STEP 2 of 3, call repeatedly)
-    /// @param batchSize Number of assets to process in this batch
-    function batchMigrateAssetPrices(uint256 batchSize) external;
-
-    /// @notice Complete base asset migration (STEP 3 of 3)
-    function finishBaseAssetUpdate() external;
-
-    /// @notice Cancel an in-progress base asset migration
-    function cancelBaseAssetUpdate() external;
 
     /// @notice Pause entire pool
     function pausePool() external;
@@ -350,56 +405,44 @@ interface IBAMM {
     /// @param token Token to unfreeze
     function unfreezeAsset(address token) external;
 
-    /// @notice Configure circuit breaker for an asset
-    /// @param token Token to configure
-    /// @param referenceAsset Reference asset to compare against (address(0) = disable check)
-    /// @param maxDeviation Max deviation from reference in bps (e.g., 100 = 1%)
-    function updateCircuitBreaker(
-        address token,
-        address referenceAsset,
-        uint16 maxDeviation
-    ) external;
+    /// @notice Update fee configuration
+    /// @param token Asset address
+    /// @param fees New fee configuration (all 6 fee types)
+    function updateFeeConfig(address token, FeeConfig calldata fees) external;
 
-    /// @notice Update minimum liquidity requirement for an asset
-    /// @param token Token address
-    /// @param newMinLiquidity New minimum liquidity amount
-    function updateMinLiquidity(
-        address token,
-        uint128 newMinLiquidity
-    ) external;
+    /// @notice Update oracle configuration
+    /// @param token Asset address
+    /// @param oracle New oracle configuration (main, fallback, extension for init)
+    function updateOracleConfig(address token, OracleConfig calldata oracle) external;
 
-    /// @notice Update oracle configuration for an asset
-    /// @param token Token address
-    /// @param mainOracle Main oracle (address(this)=internal, else=external IOracle contract)
-    /// @param fallbackOracle Fallback oracle (address(0)=disabled, address(this)=internal)
-    function updateOracleConfig(
-        address token,
-        address mainOracle,
-        address fallbackOracle
-    ) external;
+    /// @notice Update risk configuration
+    /// @param token Asset address
+    /// @param risk New risk configuration (minLiquidity, reservePrice, refFeed, deviations, decay params, flags)
+    function updateRiskConfig(address token, RiskConfig calldata risk) external;
 
-    /// @notice Update fee bounds for an asset
-    /// @param token Token address
-    /// @param minFeeBps New minimum fee in basis points
-    /// @param maxFeeBps New maximum fee in basis points
-    function updateAssetFeeBounds(
-        address token,
-        uint16 minFeeBps,
-        uint16 maxFeeBps
-    ) external;
-
-    /// @notice Enable flash loans for an asset
+    /// @notice Enable flash loans for an asset (sets flag)
     /// @param token Token address
     function enableFlashLoans(address token) external;
 
-    /// @notice Disable flash loans for an asset
+    /// @notice Disable flash loans for an asset (clears flag)
     /// @param token Token address
     function disableFlashLoans(address token) external;
 
-    /// @notice Update flash loan fee for an asset
+    /// @notice Enable liability decay for an asset (sets flag)
     /// @param token Token address
-    /// @param flashFeeBps New flash loan fee in basis points
-    function updateFlashFee(address token, uint16 flashFeeBps) external;
+    function enableDecay(address token) external;
+
+    /// @notice Disable liability decay for an asset (clears flag)
+    /// @param token Token address
+    function disableDecay(address token) external;
+
+    /// @notice Enable liability swaps for an asset (sets flag)
+    /// @param token Token address
+    function enableLiabilitySwap(address token) external;
+
+    /// @notice Disable liability swaps for an asset (clears flag)
+    /// @param token Token address
+    function disableLiabilitySwap(address token) external;
 
     /// @notice Update hook contract for an asset
     /// @param token Token address
@@ -414,30 +457,18 @@ interface IBAMM {
     /// @return hookAddress Current hook contract address
     function getHooks(address token) external view returns (address hookAddress);
 
-    /// @notice Update volatility EMA weights
-    /// @param fastWeight Weight for fast volatility (0-100, e.g., 90 = 90% old, 10% new)
-    /// @param slowWeight Weight for slow volatility (0-100, e.g., 95 = 95% old, 5% new)
-    /// @dev Price TWAPs use accumulator pattern (Uniswap V3 style), these weights only affect volatility smoothing
-    /// @dev Conversion from half-life to weight: w = 100 * 0.5^(1/h)
-    ///      Examples: h=7 → w≈90, h=14 → w≈95, h=10 → w≈93
-    function updateVolatilityWeights(uint8 fastWeight, uint8 slowWeight) external;
-
-    /// @notice Get current volatility EMA weights
-    /// @return fastWeight Weight for fast volatility
-    /// @return slowWeight Weight for slow volatility
-    function getVolatilityWeights() external view returns (uint8 fastWeight, uint8 slowWeight);
 
     // ========== GUARDIAN FUNCTIONS ==========
 
     /// @notice Update oracle data for an asset (internal oracle only)
     /// @param token Token address
-    /// @param newPrice New spot price in base token terms (B64 encoded - decodes to 1e18 internally)
-    /// @param newVolatility New volatility measurement (base 1e6: 1_000_000 = 1%)
+    /// @param newPrice New spot price in base token terms (b64 encoded - decodes to 1e18 internally)
+    /// @param newVolEMA New volatility measurement (base 1e6: 1_000_000 = 1%)
     /// @dev Updates both fast and slow EMAs internally
     function updateOracle(
         address token,
         uint64 newPrice,
-        uint32 newVolatility
+        uint32 newVolEMA
     ) external;
 
     /// @notice Update liquidity profile for an asset
@@ -445,7 +476,7 @@ interface IBAMM {
     /// @param profile New liquidity profile configuration
     function updateLiquidityProfile(
         address token,
-        LiquidityProfileParams calldata profile
+        LiquidtyConfig calldata profile
     ) external;
 
     /// @notice Trigger circuit breaker to freeze an asset

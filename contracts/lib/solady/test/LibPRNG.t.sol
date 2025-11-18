@@ -4,7 +4,7 @@ pragma solidity ^0.8.4;
 import "./utils/SoladyTest.sol";
 import {LibPRNG} from "../src/utils/LibPRNG.sol";
 import {LibSort} from "../src/utils/LibSort.sol";
-import {FixedPointMathLib} from "../src/utils/FixedPointMathLib.sol";
+import {FPMaths} from "../src/utils/FPMaths.sol";
 
 library RunningStatsLib {
     struct RunningStats {
@@ -48,7 +48,7 @@ library RunningStatsLib {
     }
 
     function standardDeviation(RunningStats memory rs) internal pure returns (int256) {
-        return int256(FixedPointMathLib.sqrt(uint256(variance(rs))));
+        return int256(FPMaths.sqrt(uint256(variance(rs))));
     }
 }
 
@@ -134,7 +134,7 @@ contract LibPRNGTest is SoladyTest {
                 t.a = new int256[](1 << s); // 2, 4, 8, 16, ...
                 t.rsElements = new RunningStatsLib.RunningStats[](t.a.length);
                 for (uint256 i; i < t.a.length; ++i) {
-                    int256 x = int256(i * FixedPointMathLib.WAD);
+                    int256 x = int256(i * FPMaths.WAD);
                     t.a[i] = x;
                 }
                 t.hashBefore = keccak256(abi.encode(t.a));
@@ -178,7 +178,7 @@ contract LibPRNGTest is SoladyTest {
                 }
                 bool done = true;
                 for (uint256 i; i < 8; ++i) {
-                    if (FixedPointMathLib.dist(3500000, t.rsElements[i].mean()) > 350000) {
+                    if (FPMaths.dist(3500000, t.rsElements[i].mean()) > 350000) {
                         done = false;
                         break;
                     }
@@ -250,7 +250,7 @@ contract LibPRNGTest is SoladyTest {
                 }
                 bool done = true;
                 for (uint256 i; i < k; ++i) {
-                    if (FixedPointMathLib.dist(3500000, t.rsElements[i].mean()) > 350000) {
+                    if (FPMaths.dist(3500000, t.rsElements[i].mean()) > 350000) {
                         done = false;
                         break;
                     }
@@ -348,12 +348,12 @@ contract LibPRNGTest is SoladyTest {
                 emit LogUint("gasUsed", gasUsed);
                 rs.push(x);
             }
-            int256 wad = int256(FixedPointMathLib.WAD);
+            int256 wad = int256(FPMaths.WAD);
             emit LogInt("mean", rs.mean());
             int256 sd = rs.standardDeviation();
-            assertLt(FixedPointMathLib.abs(rs.mean()), uint256(wad / 8));
+            assertLt(FPMaths.abs(rs.mean()), uint256(wad / 8));
             emit LogInt("standard deviation", sd);
-            assertLt(FixedPointMathLib.abs(sd - wad), uint256(wad / 8));
+            assertLt(FPMaths.abs(sd - wad), uint256(wad / 8));
         }
     }
 
@@ -370,12 +370,12 @@ contract LibPRNGTest is SoladyTest {
                 emit LogUint("gasUsed", gasUsed);
                 rs.push(x);
             }
-            int256 wad = int256(FixedPointMathLib.WAD);
+            int256 wad = int256(FPMaths.WAD);
             emit LogInt("mean", rs.mean());
             int256 sd = rs.standardDeviation();
-            assertLt(FixedPointMathLib.abs(rs.mean() - wad), uint256(wad / 8));
+            assertLt(FPMaths.abs(rs.mean() - wad), uint256(wad / 8));
             emit LogInt("standard deviation", sd);
-            assertLt(FixedPointMathLib.abs(sd - wad), uint256(wad / 8));
+            assertLt(FPMaths.abs(sd - wad), uint256(wad / 8));
         }
     }
 
@@ -432,7 +432,7 @@ contract LibPRNGTest is SoladyTest {
                 done = true;
                 uint256 thres = uint256(expectedAvgSum / 8);
                 for (uint256 i; i != 17; ++i) {
-                    if (FixedPointMathLib.abs(sums[i] - expectedAvgSum) >= thres) {
+                    if (FPMaths.abs(sums[i] - expectedAvgSum) >= thres) {
                         done = false;
                         m *= 2;
                         break;

@@ -3,7 +3,7 @@ pragma solidity ^0.8.4;
 
 import "./utils/SoladyTest.sol";
 import {LibRLP} from "../src/utils/LibRLP.sol";
-import {FixedPointMathLib} from "../src/utils/FixedPointMathLib.sol";
+import {FPMaths} from "../src/utils/FPMaths.sol";
 
 contract LibRLPTest is SoladyTest {
     using LibRLP for LibRLP.List;
@@ -633,7 +633,7 @@ contract LibRLPTest is SoladyTest {
 
     function testSmallLog256Equivalence(uint256 n) public {
         n = _bound(n, 0, 0xffffffff);
-        assertEq(_smallLog256(n), FixedPointMathLib.log256(n));
+        assertEq(_smallLog256(n), FPMaths.log256(n));
         assertEq(_smallLog256(n), _smallLog256Simple(n));
         n = _random() & 0xffffffff;
         assertEq(_smallLog256(n), _smallLog256Simple(n));

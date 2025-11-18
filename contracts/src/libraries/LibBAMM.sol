@@ -3,7 +3,8 @@ pragma solidity ^0.8.28;
 
 import {IBAMM} from "../interfaces/IBAMM.sol";
 import {IDarkPool} from "../interfaces/IDarkPool.sol";
-import {LibStorage} from "./LibStorage.sol";
+import {IDarkPoolStorage} from "../interfaces/IDarkPoolStorage.sol";
+import {LibStorage as S} from "./LibStorage.sol";
 import {DarkPoolErrors as Errors} from "../darkpool/DarkPoolErrors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
@@ -14,7 +15,7 @@ library LibBAMM {
 
     // ========== CONSTANTS ==========
 
-    uint256 constant PRECISION = LibStorage.PRECISION;
+    uint256 constant PRECISION = S.PRECISION;
 
     // ========== ACTIONS ==========
 
@@ -27,13 +28,13 @@ library LibBAMM {
 
         uint8 actionType = extData.actionType;
 
-        if (actionType == LibStorage.ACTION_TRANSFER) {
+        if (actionType == S.ACTION_TRANSFER) {
             _executeTransfer(extData);
-        } else if (actionType == LibStorage.ACTION_SWAP) {
+        } else if (actionType == S.ACTION_SWAP) {
             _executeSwap(extData);
-        } else if (actionType == LibStorage.ACTION_LP_DEPOSIT) {
+        } else if (actionType == S.ACTION_LP_DEPOSIT) {
             _executeLPDeposit(extData);
-        } else if (actionType == LibStorage.ACTION_LP_WITHDRAW) {
+        } else if (actionType == S.ACTION_LP_WITHDRAW) {
             _executeLPWithdraw(extData);
         } else {
             revert Errors.InvalidActionType(actionType);
@@ -77,8 +78,14 @@ library LibBAMM {
 
     /// @notice Execute swap on BAMM
     /// @param extData External data
+    /// @dev Swap semantics:
+    ///      - extOut[0] = amountIn (private funds consumed, sent to BAMM)
+    ///      - extIn[1] = minAmountOut (slippage protection)
+    ///      - receivers[0] = recipient address (if address(0), tokens remain for re-shielding)
+    /// @dev Re-shielding: When receiver is unset or zero, swapped tokens stay in DarkPool
+    ///      for subsequent private use, maintaining privacy throughout multi-hop flows
     function _executeSwap(IDarkPool.ExtData calldata extData) private {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
         address bamm = $.bammPool;
 
         // Expect: extData.assets = [tokenIn, tokenOut]
@@ -108,6 +115,7 @@ library LibBAMM {
         if (extData.receivers.length > 0 && extData.receivers[0] != address(0)) {
             tokenOut.safeTransfer(extData.receivers[0], amountOut);
         }
+        // else: tokens remain in DarkPool for subsequent private transactions
     }
 
     // ========== LP DEPOSIT ==========
@@ -115,7 +123,7 @@ library LibBAMM {
     /// @notice Execute LP deposit to BAMM
     /// @param extData External data
     function _executeLPDeposit(IDarkPool.ExtData calldata extData) private {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
         address bamm = $.bammPool;
 
         // Expect: extData.assets = [token]
@@ -129,7 +137,7 @@ library LibBAMM {
         uint256 minLpTokens = extData.extIn[0];
 
         // CHECKS: Read liquidityIndex BEFORE deposit (for correct accounting)
-        IBAMM.LPState memory lpStateBefore = IBAMM(bamm).lpStates(token);
+        IBAMM.LPState memory lpStateBefore = IBAMM(bamm).getLPState(token);
         uint128 liquidityIndexBefore = lpStateBefore.liquidityIndex;
 
         // INTERACTIONS: Approve and deposit (external calls)
@@ -137,7 +145,7 @@ library LibBAMM {
         uint256 lpTokens = IBAMM(bamm).deposit(token, amount, minLpTokens);
 
         // CHECKS: Verify liquidityIndex hasn't changed unexpectedly (front-run protection)
-        IBAMM.LPState memory lpStateAfter = IBAMM(bamm).lpStates(token);
+        IBAMM.LPState memory lpStateAfter = IBAMM(bamm).getLPState(token);
         if (lpStateAfter.liquidityIndex != liquidityIndexBefore) {
             // Index changed - verify we got expected LP tokens based on new index
             uint256 expectedScaledShares = (lpTokens * PRECISION) / lpStateAfter.liquidityIndex;
@@ -152,24 +160,21 @@ library LibBAMM {
         // Off-chain must compute scaledShares = (lpTokens * PRECISION) / liquidityIndex
         // and create LP note commitment with scaledShares
 
-        // Emit event for off-chain tracking
-        emit LPDeposited(token, amount, lpTokens, liquidityIndexBefore);
+        // Event emitted at DarkPool contract level (see DarkPool.depositAndMintLP)
     }
-
-    /// @notice Event for LP deposit tracking
-    event LPDeposited(
-        address indexed token,
-        uint256 amountIn,
-        uint256 lpTokensOut,
-        uint128 liquidityIndex
-    );
 
     // ========== LP WITHDRAW ==========
 
     /// @notice Execute LP withdraw from BAMM
     /// @param extData External data
+    /// @dev LP withdraw semantics:
+    ///      - extIn[0] = scaledShares (from private note)
+    ///      - extOut[0] = minAmountOut (slippage protection)
+    ///      - receivers[0] = recipient address (if address(0), tokens remain for re-shielding)
+    /// @dev Re-shielding: When receiver is unset or zero, withdrawn tokens stay in DarkPool
+    ///      for subsequent private transactions, maintaining privacy after liquidity exit
     function _executeLPWithdraw(IDarkPool.ExtData calldata extData) private {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
         address bamm = $.bammPool;
 
         // Expect: extData.assets = [token]
@@ -183,7 +188,7 @@ library LibBAMM {
         uint256 minAmountOut = extData.extOut[0];
 
         // Read liquidityIndex BEFORE withdraw
-        IBAMM.LPState memory lpState = IBAMM(bamm).lpStates(token);
+        IBAMM.LPState memory lpState = IBAMM(bamm).getLPState(token);
         uint128 liquidityIndex = lpState.liquidityIndex;
 
         // Compute LP tokens from scaled shares
@@ -197,17 +202,11 @@ library LibBAMM {
         if (extData.receivers.length > 0 && extData.receivers[0] != address(0)) {
             token.safeTransfer(extData.receivers[0], amountOut);
         }
+        // else: tokens remain in DarkPool for subsequent private transactions
 
-        emit LPWithdrawn(token, lpTokens, amountOut, liquidityIndex);
+        // Note: Event should be emitted at DarkPool contract level if needed
+        // Currently not emitted from transact() to avoid duplication
     }
-
-    /// @notice Event for LP withdraw tracking
-    event LPWithdrawn(
-        address indexed token,
-        uint256 lpTokensIn,
-        uint256 amountOut,
-        uint128 liquidityIndex
-    );
 
     // ========== HELPERS ==========
 
@@ -229,15 +228,23 @@ library LibBAMM {
         }
     }
 
+    /// @notice Public wrapper for safe approve (used by DarkPool.depositAndMintLP)
+    /// @param token Token to approve
+    /// @param spender Spender address
+    /// @param amount Amount to approve
+    function _safeApprovePublic(address token, address spender, uint256 amount) internal {
+        _safeApprove(token, spender, amount);
+    }
+
     /// @notice Compute LP tokens from scaled shares
     /// @param token Token address
     /// @param scaledShares Scaled shares amount
     /// @return lpTokens LP token amount
     function computeLPTokens(address token, uint256 scaledShares) internal view returns (uint256 lpTokens) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
         address bamm = $.bammPool;
 
-        IBAMM.LPState memory lpState = IBAMM(bamm).lpStates(token);
+        IBAMM.LPState memory lpState = IBAMM(bamm).getLPState(token);
         lpTokens = (scaledShares * lpState.liquidityIndex) / PRECISION;
     }
 
@@ -246,10 +253,10 @@ library LibBAMM {
     /// @param lpTokens LP token amount
     /// @return scaledShares Scaled shares amount
     function computeScaledShares(address token, uint256 lpTokens) internal view returns (uint256 scaledShares) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
         address bamm = $.bammPool;
 
-        IBAMM.LPState memory lpState = IBAMM(bamm).lpStates(token);
+        IBAMM.LPState memory lpState = IBAMM(bamm).getLPState(token);
         scaledShares = (lpTokens * PRECISION) / lpState.liquidityIndex;
     }
 }

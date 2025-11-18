@@ -18,14 +18,21 @@ contract DarkPoolFactory is IDarkPoolFactory, BeaconFactory {
     /// @notice Mapping from BAMM pool to DarkPool proxy
     mapping(address => address) public override darkPoolForBAMM;
 
+    /// @notice Global shared shielded state (single tree and nullifier set for all DarkPools)
+    address public immutable shieldedState;
+
     // ========== CONSTRUCTOR ==========
 
-    /// @notice Deploy factory with DarkPool implementation
-    /// @param implementation Initial DarkPool implementation
+    /// @notice Deploy factory with DarkPool implementation and ShieldedState
+    /// @param _implementation Initial DarkPool implementation
     /// @param initialOwner Factory owner (can upgrade beacon and deploy DarkPools)
-    constructor(address implementation, address initialOwner)
-        BeaconFactory(implementation, initialOwner)
-    {}
+    /// @param _shieldedState Global shielded state contract
+    constructor(address _implementation, address initialOwner, address _shieldedState)
+        BeaconFactory(_implementation, initialOwner)
+    {
+        if (_shieldedState == address(0)) revert Errors.ZeroAddress();
+        shieldedState = _shieldedState;
+    }
 
     // ========== FACTORY FUNCTIONS ==========
 
@@ -48,8 +55,8 @@ contract DarkPoolFactory is IDarkPoolFactory, BeaconFactory {
         // Deploy beacon proxy
         darkPool = LibClone.deployERC1967BeaconProxy(address(_beacon));
 
-        // Initialize the proxy
-        DarkPool(darkPool).initialize(bammPool, verifier, darkPoolOwner);
+        // Initialize the proxy with reference to global shielded state
+        DarkPool(darkPool).initialize(bammPool, verifier, darkPoolOwner, shieldedState);
 
         // Register mapping
         darkPoolForBAMM[bammPool] = darkPool;

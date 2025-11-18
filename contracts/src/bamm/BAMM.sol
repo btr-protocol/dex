@@ -1,1277 +1,1030 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IBAMM} from "../interfaces/IBAMM.sol";
-import {IBAMMHooks} from "../interfaces/IBAMMHooks.sol";
 import {ERC1155} from "solady/tokens/ERC1155.sol";
-import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
-import {Initializable} from "solady/utils/Initializable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {BAMMErrors as E} from "./BAMMEvents.sol";
-import {BAMMEvents as Events} from "./BAMMEvents.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {FPMaths as FPMath} from "solady/utils/FixedPointMathLib.sol";
+import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
+import {LibStorage as S} from "../libraries/LibStorage.sol";
 import {LibPricing as P} from "../libraries/LibPricing.sol";
+import {LibMakimaPricing as MakimaP} from "../libraries/LibMakimaPricing.sol";
+import {LibLiquiditySegments as SegLib} from "../libraries/LibLiquiditySegments.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibUtils} from "../libraries/LibUtils.sol";
-import {LibStorage} from "../libraries/LibStorage.sol";
+import {LibNativeToken} from "../libraries/LibNativeToken.sol";
+import {LibLiability} from "../libraries/LibLiability.sol";
+import {IBAMM} from "../interfaces/IBAMM.sol";
+import {IBAMMHooks} from "../interfaces/IBAMMHooks.sol";
+import {IInternalOracle} from "../interfaces/IInternalOracle.sol";
 import {InternalOracle} from "./InternalOracle.sol";
 import {BAMMManagement} from "./BAMMManagement.sol";
+import {BAMMStorage} from "./BAMMStorage.sol";
 import {BAMMFlashLender} from "./BAMMFlashLender.sol";
+import {BAMMErrors as E} from "./BAMMErrors.sol";
 
-/// @title BAMM
-/// @notice Balanced Automated Market Maker with dynamic fees and internal oracle
+/// @title BAMM - Bonding AMM with ALM and unified routing
 contract BAMM is ERC1155, InternalOracle, BAMMManagement, BAMMFlashLender {
     using SafeTransferLib for address;
-    using LibUtils for uint256;
-    using LibUtils for address;
+    using SafeCastLib for uint256;
 
-    // ========== STORAGE ACCESS IMPLEMENTATIONS ==========
+    // ========== INTERNAL STRUCTS ==========
 
-    /// @notice Get full storage struct (required by BAMMManagement)
-    function _s() internal pure override(BAMMManagement, BAMMFlashLender) returns (LibStorage.BAMMStorage storage) {
-        return LibStorage.getStorage();
-    }
-
-    /// @notice Get asset storage for given token (required by InternalOracle & BAMMManagement & BAMMFlashLender)
-    function _getAsset(address token) internal view override(InternalOracle, BAMMManagement, BAMMFlashLender) returns (IBAMM.Asset storage) {
-        return _s().assets[token];
-    }
-
-    /// @notice Get fast TWAP for asset (required by BAMMManagement)
-    function _getFastTWAP(address token, IBAMM.Asset storage asset) internal view override returns (uint64) {
-        return super._getFastTWAP(token, asset);
-    }
-
-    /// @notice Get registered assets (required by InternalOracle & BAMMManagement)
-    function _getRegisteredAssets() internal view override(InternalOracle, BAMMManagement) returns (address[] memory) {
-        return _s().registeredAssets;
-    }
-
-    /// @notice Check if pool is paused (required by BAMMFlashLender)
-    function _isPoolPaused() internal view override returns (bool) {
-        return _s().isPoolPaused;
-    }
-
-    /// @notice Get fast TWAP weight (required by InternalOracle)
-    function _getFastTWAPWeight() internal view override(InternalOracle) returns (uint8) {
-        return _s().fastTWAPWeight;
-    }
-
-    /// @notice Get slow TWAP weight (required by InternalOracle)
-    function _getSlowTWAPWeight() internal view override(InternalOracle) returns (uint8) {
-        return _s().slowTWAPWeight;
-    }
-
-    /// @notice Get token decimals (required by BAMMManagement)
-    function _getDecimals(address token) internal view override returns (uint8) {
-        if (token.code.length == 0) revert E.InvalidParameter();
-        // Use selector instead of signature for gas efficiency (0x313ce567 = decimals())
-        (bool success, bytes memory data) = token.staticcall(abi.encodeWithSelector(0x313ce567));
-        return success && data.length >= 32 ? abi.decode(data, (uint8)) : 18;
-    }
-
-    /// @notice Get oracle entry for given oracle ID (required by InternalOracle)
-    function _getOracleEntry(bytes32 oracleId) internal view override returns (LibStorage.OracleEntry storage) {
-        return _s().oracleEntries[oracleId];
+    struct TokenDelta {
+        address token;
+        int256 reserveDelta;
+        uint256 lpFees;
+        uint256 protocolFees;
     }
 
     // ========== MODIFIERS ==========
 
     modifier notFrozen(address token) {
-        if (_s().assets[token].isFrozen) revert E.AssetFrozen();
+        RiskConfig storage risk = _sb().riskConfigs[token];
+        if (S._isFrozen(risk)) revert E.AssetFrozen();
         _;
     }
 
-    // ========== INITIALIZATION ==========
+    // ========== STORAGE ACCESS OVERRIDES ==========
 
-    // NOTE: _updateAlloc removed - ALM model uses coverage-based fees, not target allocations
+    /// @notice Flash lender storage accessor
+    function _sf() internal pure override returns (IBAMM.BAMMStorage storage) {
+        return S.bamm();
+    }
 
-    // ========== USER FUNCTIONS ==========
+    /// @notice Flash lender asset accessor
+    function _getAssetFlash(address token) internal view override returns (IBAMM.Asset storage) {
+        return S.bamm().assets[token];
+    }
+
+    // ========== PAUSABLE OVERRIDES ==========
+
+    // Override conflicts from multiple inheritance
+    function _requireNotPaused() internal view override(BAMMManagement) {
+        if (_getPaused()) revert E.PoolPaused();
+    }
+
+    function _isPaused() internal view override returns (bool) {
+        return _getPaused();
+    }
+
+    // Helper to compute feedId (since not stored in Asset)
+    function _feedId(address token) private view returns (bytes32) {
+        return S.computeOracleId(token, _sb().baseToken);
+    }
+
+    // ========== MAIN SWAP FUNCTION ==========
 
     function swap(
-        address tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut, address receiver
-    ) external override nonReentrant notPaused returns (uint256 amountOut) {
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        address receiver
+    ) external payable override nonReentrant whenNotPaused returns (uint256 amountOut) {
+        // Input validation (4 locals max)
         if (tokenIn == tokenOut) revert E.InvalidParameter();
-        LibUtils.requireNonZero(amountIn);
+        if (amountIn == 0) revert E.ZeroAmount();
         LibUtils.requireNonZero(receiver);
 
-        LibStorage.BAMMStorage storage $ = _s();
+        // Storage access (1 pointer)
+        IBAMM.BAMMStorage storage $ = _sb();
 
-        // Check blacklist for both sender and receiver
-        if ($.blacklisted[msg.sender]) revert E.Blacklisted();
-        if ($.blacklisted[receiver]) revert E.Blacklisted();
+        // Blacklist check
+        if ($.blacklisted[msg.sender] || $.blacklisted[receiver]) revert E.Blacklisted();
 
+        // Derive base and branch (1 local)
+        address base = $.baseToken;
+
+        // Dispatch to specialized handlers (isolated stack frames)
+        if (tokenIn != base && tokenOut != base) {
+            amountOut = _swapTriangulated($, tokenIn, tokenOut, base, amountIn, receiver);
+        } else {
+            amountOut = _swapDirect($, tokenIn, tokenOut, base, amountIn, receiver);
+        }
+
+        // Slippage enforcement
+        if (amountOut < minAmountOut) revert E.SlippageExceeded();
+    }
+
+    // ========== SWAP HELPERS (STACK-OPTIMIZED) ==========
+
+    function _swapDirect(
+        IBAMM.BAMMStorage storage $,
+        address tokenIn,
+        address tokenOut,
+        address base,
+        uint256 amountIn,
+        address receiver
+    ) private returns (uint256 amountOut) {
+        // Asset fetching (2 storage pointers)
         Asset storage assetIn = $.assets[tokenIn];
         Asset storage assetOut = $.assets[tokenOut];
 
-        LibUtils.requireActive(assetIn);
-        LibUtils.requireActive(assetOut);
+        // Reserve checks
+        if (assetIn.reserves == 0 || assetOut.reserves == 0) revert E.InsufficientReserves();
 
-        address base = $.baseToken;
+        // Decay updates
+        LibLiability.updateDecay(tokenIn);
+        LibLiability.updateDecay(tokenOut);
 
-        // Hub-and-spoke routing: if neither token is base, route through base (inline two-leg execution)
-        if (tokenIn != base && tokenOut != base) {
-            Asset storage assetBase = $.assets[base];
-            LibUtils.requireActive(assetBase);
+        // Inline feed ID computation (avoids hidden _sb() calls in _feedId helper)
+        bytes32 feedIn = S.computeOracleId(tokenIn, base);
+        bytes32 feedOut = S.computeOracleId(tokenOut, base);
+        bytes32 feedBase = S.computeOracleId(base, base);
 
-            // Use cached total value
-            uint256 totalValue = $.cachedTotalValue;
-            if (totalValue == 0) {
-                totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
-                $.cachedTotalValue = totalValue;
-            }
+        // Oracle fetching (scoped to minimize liveness)
+        IInternalOracle.InternalFeedData storage oracleIn = $.internalFeeds[feedIn];
+        IInternalOracle.InternalFeedData storage oracleOut = $.internalFeeds[feedOut];
+        IInternalOracle.InternalFeedData storage oracleBase = $.internalFeeds[feedBase];
 
-            // Get oracle entries for all three assets
-            LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
-            LibStorage.OracleEntry storage oracleBase = $.oracleEntries[assetBase.oracleId];
-            LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
+        // Oracle validation (storage refs can be dropped after)
+        _checkOracleOrFallback(oracleIn, tokenIn);
+        _checkOracleOrFallback(oracleOut, tokenOut);
+        _checkOracleOrFallback(oracleBase, base);
 
-            // Calculate notionals for fee calculation (decode TWAPs inline)
-            uint256 timeElapsedIn = block.timestamp - oracleIn.lastOracleUpdate;
-            uint256 currentAccumIn = oracleIn.priceAccumulator + (uint256(oracleIn.currentPrice) * timeElapsedIn);
-            uint256 timeDeltaIn = block.timestamp - oracleIn.fastSnapshotTime;
-            uint64 fastTWAPIn = timeDeltaIn == 0 ? oracleIn.currentPrice : uint64((currentAccumIn - oracleIn.fastAccumSnapshot) / timeDeltaIn);
-            uint256 inFast = M.b64ToPrice(fastTWAPIn);
+        // Circuit breakers
+        _checkCircuitBreaker(oracleIn, $.riskConfigs[tokenIn]);
+        _checkCircuitBreaker(oracleOut, $.riskConfigs[tokenOut]);
+        _checkCircuitBreaker(oracleBase, $.riskConfigs[base]);
 
-            uint256 timeElapsedBase = block.timestamp - oracleBase.lastOracleUpdate;
-            uint256 currentAccumBase = oracleBase.priceAccumulator + (uint256(oracleBase.currentPrice) * timeElapsedBase);
-            uint256 timeDeltaBase = block.timestamp - oracleBase.fastSnapshotTime;
-            uint64 fastTWAPBase = timeDeltaBase == 0 ? oracleBase.currentPrice : uint64((currentAccumBase - oracleBase.fastAccumSnapshot) / timeDeltaBase);
-            uint256 baseFast = M.b64ToPrice(fastTWAPBase);
+        // Fetch base asset AFTER oracle checks (reduces concurrent live storage pointers)
+        Asset storage assetBase = $.assets[base];
 
-            uint256 timeElapsedOut = block.timestamp - oracleOut.lastOracleUpdate;
-            uint256 currentAccumOut = oracleOut.priceAccumulator + (uint256(oracleOut.currentPrice) * timeElapsedOut);
-            uint256 timeDeltaOut = block.timestamp - oracleOut.fastSnapshotTime;
-            uint64 fastTWAPOut = timeDeltaOut == 0 ? oracleOut.currentPrice : uint64((currentAccumOut - oracleOut.fastAccumSnapshot) / timeDeltaOut);
-            uint256 outFast = M.b64ToPrice(fastTWAPOut);
-
-            uint256 leg1Notional = FixedPointMathLib.fullMulDiv(amountIn, inFast, M.PRICE_PRECISION);
-            uint256 leg2Notional = FixedPointMathLib.fullMulDiv(leg1Notional, baseFast, outFast);
-
-            // TWO-LEG HUB ROUTING: Calculate fees for each leg separately using tri-factor model
-
-            // Leg 1: tokenIn → base (use cached liabilities)
-            uint256 totalLiabilities = $.cachedTotalLiabilities;
-            FeeComponents memory fees1 = P.calculateSwapFee(
-                assetIn, assetBase,
-                $.liquidityProfiles[tokenIn], $.liquidityProfiles[base],
-                oracleIn, oracleBase,
-                $.feeParams,
-                amountIn,
-                totalValue,
-                totalLiabilities
-            );
-
-            // Leg 2: base → tokenOut (calculate notional after leg 1 fee)
-            uint256 amountAfterFee1Temp = (amountIn * (M.BPS_PRECISION - fees1.totalFeeBps)) / M.BPS_PRECISION;
-            uint256 priceInTemp = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee1Temp);
-            uint256 priceBaseTemp = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, 0);
-            uint256 leg2InputNotional = priceBaseTemp > 0
-                ? FixedPointMathLib.mulDiv(amountAfterFee1Temp, priceInTemp, priceBaseTemp)
-                : 0;
-            leg2InputNotional = M.adjustDecimals(leg2InputNotional, assetIn.decimals, assetBase.decimals);
-
-            FeeComponents memory fees2 = P.calculateSwapFee(
-                assetBase, assetOut,
-                $.liquidityProfiles[base], $.liquidityProfiles[tokenOut],
-                oracleBase, oracleOut,
-                $.feeParams,
-                leg2InputNotional,
-                totalValue,
-                totalLiabilities
-            );
-
-            // Aggregate fees (notional-weighted average approach)
-            uint256 totalNotional = leg1Notional + leg2Notional;
-            uint256 aggregatedFeeBps = totalNotional > 0
-                ? (fees1.totalFeeBps * leg1Notional + fees2.totalFeeBps * leg2Notional) / totalNotional
-                : (fees1.totalFeeBps + fees2.totalFeeBps) / 2;
-
-            // Build aggregate fee components for return
-            FeeComponents memory fees = FeeComponents({
-                baseFee: (fees1.baseFee + fees2.baseFee) / 2,
-                totalFeeBps: aggregatedFeeBps,
-                volatilityMultiplier: (fees1.volatilityMultiplier + fees2.volatilityMultiplier) / 2,
-                inventoryMultiplier: (fees1.inventoryMultiplier + fees2.inventoryMultiplier) / 2,
-                divergenceMultiplier: (fees1.divergenceMultiplier + fees2.divergenceMultiplier) / 2,
-                exitInventoryDivergence: 100,
-                leg1FeeBps: fees1.totalFeeBps,
-                leg2FeeBps: fees2.totalFeeBps,
-                leg1Notional: leg1Notional,
-                leg2Notional: leg2Notional
-            });
-
-            // === LEG 1: tokenIn → base ===
-            uint256 amountAfterFee1 = (amountIn * (M.BPS_PRECISION - fees.leg1FeeBps)) / M.BPS_PRECISION;
-            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee1);
-            uint256 priceBase1 = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, 0);
-
-            if (priceBase1 == 0) revert E.InvalidPrice();
-            uint256 amountBase = FixedPointMathLib.mulDiv(amountAfterFee1, priceIn, priceBase1);
-            amountBase = M.adjustDecimals(amountBase, assetIn.decimals, assetBase.decimals);
-
-            // Leg 1 fee distribution
-            uint256 totalFee1 = amountIn - amountAfterFee1;
-            uint256 protocolFee1 = (totalFee1 * assetIn.protocolFeeBps) / M.BPS_PRECISION;
-            uint256 lpFee1 = totalFee1 - protocolFee1;
-            uint256 feeForInputLPs1 = lpFee1 >> 1;
-            uint256 feeForOutputLPs1 = lpFee1 - feeForInputLPs1;
-
-            // Convert feeForOutputLPs1 to base token
-            uint256 feeInBase = 0;
-            if (feeForOutputLPs1 > 0 && inFast > 0 && baseFast > 0) {
-                uint256 feeValueRaw = FixedPointMathLib.mulDiv(feeForOutputLPs1, inFast, baseFast);
-                feeInBase = M.adjustDecimals(feeValueRaw, assetIn.decimals, assetBase.decimals);
-            }
-
-            // === LEG 2: base → tokenOut ===
-            uint256 amountAfterFee2 = (amountBase * (M.BPS_PRECISION - fees.leg2FeeBps)) / M.BPS_PRECISION;
-            uint256 priceBase2 = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, amountAfterFee2);
-            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, oracleOut, amountAfterFee2);
-
-            if (priceOut == 0) revert E.InvalidPrice();
-            amountOut = FixedPointMathLib.mulDiv(amountAfterFee2, priceBase2, priceOut);
-            amountOut = M.adjustDecimals(amountOut, assetBase.decimals, assetOut.decimals);
-
-            if (amountOut < minAmountOut) revert E.SlippageExceeded();
-
-            // Leg 2 fee distribution
-            uint256 totalFee2 = amountBase - amountAfterFee2;
-            uint256 protocolFee2 = (totalFee2 * assetBase.protocolFeeBps) / M.BPS_PRECISION;
-            uint256 lpFee2 = totalFee2 - protocolFee2;
-            uint256 feeForInputLPs2 = lpFee2 >> 1;
-            uint256 feeForOutputLPs2 = lpFee2 - feeForInputLPs2;
-
-            // Convert feeForOutputLPs2 to tokenOut
-            uint256 feeInTokenOut = 0;
-            if (feeForOutputLPs2 > 0 && baseFast > 0 && outFast > 0) {
-                uint256 feeValueRaw = FixedPointMathLib.mulDiv(feeForOutputLPs2, baseFast, outFast);
-                feeInTokenOut = M.adjustDecimals(feeValueRaw, assetBase.decimals, assetOut.decimals);
-            }
-
-            // Check reserves for leg 2
-            uint256 totalOutRequired = amountOut + feeInTokenOut;
-            if (totalOutRequired > assetOut.reserves) revert E.InsufficientReserves();
-            if (assetOut.reserves - totalOutRequired < assetOut.minLiquidity) revert E.BelowMinimumLiquidity();
-
-            // Store old reserves for delta calculations
-            uint128 oldReservesIn = assetIn.reserves;
-            uint128 oldReservesBase = assetBase.reserves;
-            uint128 oldReservesOut = assetOut.reserves;
-
-            // Update reserves and indices for all three assets
-            // tokenIn: receives amountIn, pays protocol fee
-            uint256 lpFeesForIn = feeForInputLPs1 + (feeInBase == 0 ? feeForOutputLPs1 : 0);
-            uint256 finalReservesIn = uint256(oldReservesIn) + amountIn - protocolFee1 + lpFeesForIn;
-            assetIn.reserves = finalReservesIn.toUint128();
-
-            LPState storage lpStateIn = $.lpStates[tokenIn];
-            if (lpFeesForIn > 0 && lpStateIn.totalScaledSupply > 0 && oldReservesIn > 0) {
-                uint256 newIndex = FixedPointMathLib.mulDiv(
-                    uint256(lpStateIn.liquidityIndex), finalReservesIn, uint256(oldReservesIn)
-                );
-                lpStateIn.liquidityIndex = newIndex.toUint128();
-            }
-
-            // base: receives amountBase, pays amountBase, gets fees from leg 1, pays fees to leg 2
-            uint256 lpFeesForBase = feeInBase + feeForInputLPs2 + (feeInTokenOut == 0 ? feeForOutputLPs2 : 0);
-            uint256 finalReservesBase = uint256(oldReservesBase) + amountBase - amountBase - protocolFee2 + lpFeesForBase;
-            assetBase.reserves = finalReservesBase.toUint128();
-
-            LPState storage lpStateBase = $.lpStates[base];
-            if (lpFeesForBase > 0 && lpStateBase.totalScaledSupply > 0 && oldReservesBase > 0) {
-                uint256 newIndex = FixedPointMathLib.mulDiv(
-                    uint256(lpStateBase.liquidityIndex), finalReservesBase, uint256(oldReservesBase)
-                );
-                lpStateBase.liquidityIndex = newIndex.toUint128();
-            }
-
-            // tokenOut: pays amountOut and feeInTokenOut
-            uint256 finalReservesOut = uint256(oldReservesOut) - amountOut - feeInTokenOut;
-            assetOut.reserves = finalReservesOut.toUint128();
-
-            if (feeInTokenOut > 0) {
-                LPState storage lpStateOut = $.lpStates[tokenOut];
-                if (lpStateOut.totalScaledSupply > 0 && oldReservesOut > 0) {
-                    uint256 newIndex = FixedPointMathLib.mulDiv(
-                        uint256(lpStateOut.liquidityIndex), finalReservesOut, uint256(oldReservesOut)
-                    );
-                    lpStateOut.liquidityIndex = newIndex.toUint128();
-                }
-            }
-
-            // Accrue protocol fees
-            if (protocolFee1 > 0) $.protocolFees[tokenIn] += protocolFee1;
-            if (protocolFee2 > 0) $.protocolFees[base] += protocolFee2;
-
-            // Update cached total value with deltas
-            int256 deltaIn = int256(finalReservesIn) - int256(uint256(oldReservesIn));
-            int256 deltaBase = int256(finalReservesBase) - int256(uint256(oldReservesBase));
-            int256 deltaOut = int256(finalReservesOut) - int256(uint256(oldReservesOut));
-
-            totalValue = P.updateTotalValueDelta(totalValue, assetIn, oracleIn, deltaIn);
-            totalValue = P.updateTotalValueDelta(totalValue, assetBase, oracleBase, deltaBase);
-            totalValue = P.updateTotalValueDelta(totalValue, assetOut, oracleOut, deltaOut);
-            $.cachedTotalValue = totalValue;
-
-            // INVARIANT: Two-leg swap fee conservation (development/testing only)
-            assert(finalReservesIn >= oldReservesIn); // Leg 1 inflow
-            assert(finalReservesOut <= oldReservesOut); // Leg 2 outflow
-            // Base asset should be neutral (receives from leg1, sends to leg2, collects fees)
-            // Note: baseReserves may increase/decrease depending on fees collected/paid
-
-            // Pre-buy hook: Pool is about to RECEIVE tokenIn (optional: no-op if hooks not configured)
-            if (assetIn.hooks != address(0)) {
-                IBAMMHooks(assetIn.hooks).preBuy(tokenIn, msg.sender, amountIn, tokenOut, amountOut, "");
-            }
-
-            // Transfers with fee-on-transfer protection
-            uint256 balanceInBefore = tokenIn.balanceOf(address(this));
-            tokenIn.safeTransferFrom(msg.sender, address(this), amountIn);
-            uint256 actualAmountIn = tokenIn.balanceOf(address(this)) - balanceInBefore;
-
-            // Adjust reserves if transfer tax was applied
-            if (actualAmountIn != amountIn) {
-                int256 deficit = int256(amountIn) - int256(actualAmountIn);
-                assetIn.reserves = uint128(int128(int256(uint256(assetIn.reserves)) - deficit));
-                totalValue = P.updateTotalValueDelta(totalValue, assetIn, oracleIn, -deficit);
-                $.cachedTotalValue = totalValue;
-            }
-
-            // Post-buy hook: Pool RECEIVED tokenIn (optional: no-op if hooks not configured)
-            if (assetIn.hooks != address(0)) {
-                IBAMMHooks(assetIn.hooks).postBuy(tokenIn, msg.sender, actualAmountIn, tokenOut, amountOut, "");
-            }
-
-            // Pre-sell hook: Pool is about to GIVE tokenOut (optional: no-op if hooks not configured)
-            if (assetOut.hooks != address(0)) {
-                IBAMMHooks(assetOut.hooks).preSell(tokenOut, msg.sender, actualAmountIn, tokenIn, amountOut, "");
-            }
-
-            uint256 balanceOutBefore = tokenOut.balanceOf(receiver);
-            tokenOut.safeTransfer(receiver, amountOut);
-            uint256 actualAmountOut = tokenOut.balanceOf(receiver) - balanceOutBefore;
-
-            // Post-sell hook: Pool GAVE tokenOut (optional: no-op if hooks not configured)
-            if (assetOut.hooks != address(0)) {
-                IBAMMHooks(assetOut.hooks).postSell(tokenOut, msg.sender, actualAmountIn, tokenIn, actualAmountOut, "");
-            }
-
-            emit Events.Swap(msg.sender, receiver, tokenIn, tokenOut, actualAmountIn, actualAmountOut, fees.totalFeeBps);
-            return actualAmountOut;
-        }
-
-        // Use cached total value (O(1) - no loop!)
-        uint256 totalValue = $.cachedTotalValue;
-        if (totalValue == 0) {
-            // First operation - initialize cache
-            totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
-            $.cachedTotalValue = totalValue;
-        }
-
-        // Get oracle entries
-        LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
-        LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
-
-        uint256 totalLiabilities = $.cachedTotalLiabilities;
-        FeeComponents memory fees = P.calculateSwapFee(
-            assetIn, assetOut, $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut],
-            oracleIn, oracleOut, $.feeParams, amountIn, totalValue, totalLiabilities
+        // Route quote (single memory struct)
+        P.RouteQuote memory rq = P.quoteRoute(
+            tokenIn, tokenOut, base, amountIn,
+            assetIn, assetOut, assetBase,
+            $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut], $.liquidityProfiles[base],
+            oracleIn, oracleOut, oracleBase,
+            $.dynamicFeeConfigs[tokenIn]
         );
-        uint256 amountAfterFee = (amountIn * (M.BPS_PRECISION - fees.totalFeeBps)) / M.BPS_PRECISION;
-        uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee);
-        uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, oracleOut, 0);
 
-        if (priceOut == 0) revert E.InvalidPrice();
-        // Use mulDiv for precise calculation, avoiding intermediate overflow
-        amountOut = FixedPointMathLib.mulDiv(amountAfterFee, priceIn, priceOut);
+        amountOut = rq.amountOut;
 
-        // Adjust for decimal differences using LibMaths (avoids expensive EXP opcode)
-        amountOut = M.adjustDecimals(amountOut, assetIn.decimals, assetOut.decimals);
-
-        if (amountOut == 0) revert E.ZeroAmount();
-        if (amountOut < minAmountOut) revert E.SlippageExceeded();
-
-        uint256 totalFee = amountIn - amountAfterFee;
-
-        // Split fee between protocol and LPs (per-asset protocol fee)
-        uint256 protocolFee = (totalFee * assetIn.protocolFeeBps) / M.BPS_PRECISION;
-        uint256 lpFee = totalFee - protocolFee;
-
-        // Split LP fee 50/50 between input and output LPs
-        uint256 feeForInputLPs;
-        uint256 feeForOutputLPs;
-        unchecked {
-            // SAFE: Bit shift for division by 2
-            feeForInputLPs = lpFee >> 1;
-            feeForOutputLPs = lpFee - feeForInputLPs;
-        }
-        uint256 feeInTokenOut = 0;
-
-        uint64 fastTWAPIn = _getFastTWAP(tokenIn, assetIn);
-        uint64 fastTWAPOut = _getFastTWAP(tokenOut, assetOut);
-        if (feeForOutputLPs > 0 && fastTWAPIn > 0 && fastTWAPOut > 0) {
-            // Use mulDiv for precise fee conversion, then adjust decimals
-            uint256 feeValueRaw = FixedPointMathLib.mulDiv(feeForOutputLPs, fastTWAPIn, fastTWAPOut);
-            feeInTokenOut = M.adjustDecimals(feeValueRaw, assetIn.decimals, assetOut.decimals);
-        }
-
-        // Accrue protocol fee (tracked separately, not in reserves)
-        if (protocolFee > 0) {
-            $.protocolFees[tokenIn] += protocolFee;
-        }
-
-        uint256 totalOutRequired = amountOut + feeInTokenOut;
-        if (totalOutRequired > assetOut.reserves) revert E.InsufficientReserves();
-        if (assetOut.reserves - totalOutRequired < assetOut.minLiquidity) revert E.BelowMinimumLiquidity();
-
-        // Store old reserves to calculate deltas
-        uint128 oldReservesIn = assetIn.reserves;
-        uint128 oldReservesOut = assetOut.reserves;
-
-        // Optimization #1: Calculate final reserves once, write once (eliminates redundant SSTOREs)
-        // Old approach: write reserves, then accrueFeesToLPs overwrites reserves (2-3 SSTOREs per asset)
-        // New approach: calculate final reserves including all fees, write once (1 SSTORE per asset)
-
-        uint256 lpFeesForIn = feeForInputLPs + (feeInTokenOut == 0 ? feeForOutputLPs : 0);
-        uint256 finalReservesIn = uint256(oldReservesIn) + amountIn - protocolFee + lpFeesForIn;
-        uint256 finalReservesOut = uint256(oldReservesOut) - amountOut - feeInTokenOut;
-
-        // Single SSTORE per asset
-        assetIn.reserves = finalReservesIn.toUint128();
-        assetOut.reserves = finalReservesOut.toUint128();
-
-        // Update liquidity indices (accrueFeesToLPs logic inlined without modifying reserves)
-        LPState storage lpStateIn = $.lpStates[tokenIn];
-        if (lpFeesForIn > 0 && lpStateIn.totalScaledSupply > 0 && oldReservesIn > 0) {
-            uint256 newIndex = FixedPointMathLib.mulDiv(
-                uint256(lpStateIn.liquidityIndex),
-                finalReservesIn,
-                uint256(oldReservesIn)
-            );
-            lpStateIn.liquidityIndex = newIndex.toUint128();
-        }
-
-        if (feeInTokenOut > 0) {
-            LPState storage lpStateOut = $.lpStates[tokenOut];
-            if (lpStateOut.totalScaledSupply > 0 && oldReservesOut > 0) {
-                uint256 newIndex = FixedPointMathLib.mulDiv(
-                    uint256(lpStateOut.liquidityIndex),
-                    finalReservesOut,
-                    uint256(oldReservesOut)
-                );
-                lpStateOut.liquidityIndex = newIndex.toUint128();
-            }
-        }
-
-        // Update cached total value with deltas (O(1) - no loop!)
-        int256 deltaIn = int256(uint256(assetIn.reserves)) - int256(uint256(oldReservesIn));
-        int256 deltaOut = int256(uint256(assetOut.reserves)) - int256(uint256(oldReservesOut));
-
-        totalValue = P.updateTotalValueDelta(totalValue, assetIn, oracleIn, deltaIn);
-        totalValue = P.updateTotalValueDelta(totalValue, assetOut, oracleOut, deltaOut);
-        $.cachedTotalValue = totalValue;
-
-        // INVARIANT: Fee conservation check (development/testing only)
-        // Total input = total output + protocol fees + LP fees
-        // Note: In production, these assertions should be removed or gated by DEBUG flag
-        uint256 totalFeesAccounted = protocolFee + lpFeesForIn;
-        assert(finalReservesIn >= oldReservesIn); // Inflow check
-        assert(finalReservesOut <= oldReservesOut); // Outflow check
-        // Fee accounting: reserves increased by (amountIn - protocolFee + lpFees)
-        // This is already enforced by the calculation, but we assert for safety
-        assert(finalReservesIn == uint256(oldReservesIn) + amountIn - protocolFee + lpFeesForIn);
-        assert(finalReservesOut == uint256(oldReservesOut) - amountOut - feeInTokenOut);
-
-        // Pre-buy hook: Pool is about to RECEIVE tokenIn (optional: no-op if hooks not configured)
-        if (assetIn.hooks != address(0)) {
-            IBAMMHooks(assetIn.hooks).preBuy(tokenIn, msg.sender, amountIn, tokenOut, amountOut, "");
-        }
-
-        // Fee-on-transfer protection: measure actual received amount
-        uint256 balanceInBefore = tokenIn.balanceOf(address(this));
-        tokenIn.safeTransferFrom(msg.sender, address(this), amountIn);
-        uint256 actualAmountIn = tokenIn.balanceOf(address(this)) - balanceInBefore;
-
-        // If actual received differs from requested, adjust reserves
-        if (actualAmountIn != amountIn) {
-            int256 deficit = int256(amountIn) - int256(actualAmountIn);
-            assetIn.reserves = uint128(int128(int256(uint256(assetIn.reserves)) - deficit));
-            $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, assetIn, oracleIn, -deficit);
-        }
-
-        // Post-buy hook: Pool RECEIVED tokenIn (optional: no-op if hooks not configured)
-        if (assetIn.hooks != address(0)) {
-            IBAMMHooks(assetIn.hooks).postBuy(tokenIn, msg.sender, actualAmountIn, tokenOut, amountOut, "");
-        }
-
-        // Pre-sell hook: Pool is about to GIVE tokenOut (optional: no-op if hooks not configured)
-        if (assetOut.hooks != address(0)) {
-            IBAMMHooks(assetOut.hooks).preSell(tokenOut, msg.sender, actualAmountIn, tokenIn, amountOut, "");
-        }
-
-        // Fee-on-transfer protection: measure actual sent amount
-        uint256 balanceOutBefore = tokenOut.balanceOf(receiver);
-        tokenOut.safeTransfer(receiver, amountOut);
-        uint256 actualAmountOut = tokenOut.balanceOf(receiver) - balanceOutBefore;
-
-        // Post-sell hook: Pool GAVE tokenOut (optional: no-op if hooks not configured)
-        if (assetOut.hooks != address(0)) {
-            IBAMMHooks(assetOut.hooks).postSell(tokenOut, msg.sender, actualAmountIn, tokenIn, actualAmountOut, "");
-        }
-
-        emit Events.Swap(msg.sender, receiver, tokenIn, tokenOut, actualAmountIn, actualAmountOut, fees.totalFeeBps);
+        // Execute (delegates to existing implementation)
+        _executeDirectSwap($, tokenIn, tokenOut, amountIn, rq, receiver);
     }
 
-    /// @notice Execute multiple swaps with optimized delta settlement
-    /// @dev Accumulates all reserve/index changes in memory, applies once per token at end
-    /// @dev Optimizations:
-    ///      - Eliminates redundant SSTOREs (from 7-9 per swap to 2-3 per swap)
-    ///      - When token repeats N times: saves ~3N SSTOREs (only 3 SSTOREs total)
-    ///      - Single total value calc + batch transfers
-    /// @param steps Array of swap steps
-    /// @param receiver Address to receive final output
-    /// @return amounts Output amounts for each step
-    function batchSwap(
-        SwapStep[] calldata steps,
+    function _swapTriangulated(
+        IBAMM.BAMMStorage storage $,
+        address tokenIn,
+        address tokenOut,
+        address base,
+        uint256 amountIn,
         address receiver
-    ) external override nonReentrant notPaused returns (uint256[] memory amounts) {
-        if (steps.length == 0 || steps.length > 8) revert E.InvalidParameter();
-        LibUtils.requireNonZero(receiver);
+    ) private returns (uint256 amountOut) {
+        // Asset fetching
+        Asset storage assetIn = $.assets[tokenIn];
+        Asset storage assetOut = $.assets[tokenOut];
 
-        LibStorage.BAMMStorage storage $ = _s();
+        if (assetIn.reserves == 0 || assetOut.reserves == 0) revert E.InsufficientReserves();
 
-        // Single blacklist check for sender and receiver
-        if ($.blacklisted[msg.sender]) revert E.Blacklisted();
-        if ($.blacklisted[receiver]) revert E.Blacklisted();
+        // Decay for all three assets (base is virtual but still needs decay)
+        LibLiability.updateDecay(tokenIn);
+        LibLiability.updateDecay(tokenOut);
+        LibLiability.updateDecay(base);
 
-        amounts = new uint256[](steps.length);
-        address[] memory path = new address[](steps.length + 1);
+        // Inline feed ID computation
+        bytes32 feedIn = S.computeOracleId(tokenIn, base);
+        bytes32 feedOut = S.computeOracleId(tokenOut, base);
+        bytes32 feedBase = S.computeOracleId(base, base);
 
-        // Cache total value (calculated once, reused for all swaps)
-        uint256 totalValue = $.cachedTotalValue;
-        if (totalValue == 0) {
-            totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
-            $.cachedTotalValue = totalValue;
+        // Oracle fetching
+        IInternalOracle.InternalFeedData storage oracleIn = $.internalFeeds[feedIn];
+        IInternalOracle.InternalFeedData storage oracleOut = $.internalFeeds[feedOut];
+        IInternalOracle.InternalFeedData storage oracleBase = $.internalFeeds[feedBase];
+
+        // Oracle validation
+        _checkOracleOrFallback(oracleIn, tokenIn);
+        _checkOracleOrFallback(oracleOut, tokenOut);
+        _checkOracleOrFallback(oracleBase, base);
+
+        // Circuit breakers for all three assets
+        _checkCircuitBreaker(oracleIn, $.riskConfigs[tokenIn]);
+        _checkCircuitBreaker(oracleOut, $.riskConfigs[tokenOut]);
+        _checkCircuitBreaker(oracleBase, $.riskConfigs[base]);
+
+        // Fetch base asset after validation (scoped liveness)
+        Asset storage assetBase = $.assets[base];
+
+        // Route quote
+        P.RouteQuote memory rq = P.quoteRoute(
+            tokenIn, tokenOut, base, amountIn,
+            assetIn, assetOut, assetBase,
+            $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut], $.liquidityProfiles[base],
+            oracleIn, oracleOut, oracleBase,
+            $.dynamicFeeConfigs[tokenIn]
+        );
+
+        amountOut = rq.amountOut;
+
+        _executeTriangulatedSwap($, tokenIn, tokenOut, base, amountIn, rq, receiver);
+    }
+
+    // ========== EXECUTION HELPERS ==========
+
+    function _executeDirectSwap(
+        IBAMM.BAMMStorage storage $,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        P.RouteQuote memory rq,
+        address receiver
+    ) private {
+        Asset storage assetIn = $.assets[tokenIn];
+        Asset storage assetOut = $.assets[tokenOut];
+
+        // Check reserves
+        if (rq.amountOut > assetOut.reserves) revert E.InsufficientReserves();
+        if (assetOut.reserves - rq.amountOut < $.riskConfigs[tokenOut].minLiquidity) revert E.BelowMinimumLiquidity();
+
+        // Split LP fees by liabilities
+        (uint256 feeForInputLPs, uint256 feeForOutputLPs) = _splitLpFee(
+            rq.lpFeeIn, assetIn.liabilities, assetOut.liabilities
+        );
+
+        // Convert output LP fee to tokenOut units
+        uint256 feeForOutputLPsInOut = 0;
+        if (feeForOutputLPs > 0) {
+            uint256 priceFastIn = P.getFastPrice($.internalFeeds[_feedId(tokenIn)]);
+            uint256 priceFastOut = P.getFastPrice($.internalFeeds[_feedId(tokenOut)]);
+            if (priceFastIn > 0 && priceFastOut > 0) {
+                feeForOutputLPsInOut = FPMath.mulDiv(feeForOutputLPs, priceFastIn, priceFastOut);
+                feeForOutputLPsInOut = M.adjustDecimals(feeForOutputLPsInOut, assetIn.decimals, assetOut.decimals);
+            }
         }
 
-        // Track first input and last output for batch transfers
-        address firstTokenIn = address(0);
-        address lastTokenOut = address(0);
-        uint256 totalFirstTokenIn = 0;
+        // Store old reserves
+        uint128 oldIn = assetIn.reserves;
+        uint128 oldOut = assetOut.reserves;
 
-        // Optimization #2: Delta tracking for cross-swap batching (max 16 unique tokens per batch)
-        // Use parallel arrays since Solidity doesn't support memory mappings
-        address[16] memory touchedTokens;
-        uint128[16] memory oldReserves;
-        uint128[16] memory newReserves;
-        uint128[16] memory oldIndices;
-        uint128[16] memory newIndices;
-        uint256 touchedCount = 0;
+        // Pre-hook
+        if ($.hooks[tokenIn] != address(0)) {
+            IBAMMHooks($.hooks[tokenIn]).preBuy(tokenIn, msg.sender, amountIn, tokenOut, rq.amountOut, "");
+        }
 
-        // Execute swaps and accumulate deltas (deferred SSTOREs)
-        for (uint256 i = 0; i < steps.length; i++) {
-            SwapStep calldata step = steps[i];
+        // Pull tokenIn with FOT handling
+        uint256 actualAmountIn = _pullToken(tokenIn, msg.sender, amountIn);
 
-            if (step.tokenIn == step.tokenOut) revert E.InvalidParameter();
+        // Handle FOT scaling
+        if (actualAmountIn != amountIn) {
+            uint256 scale = FPMath.mulDiv(actualAmountIn, M.PRECISION, amountIn);
+            feeForInputLPs = FPMath.mulDiv(feeForInputLPs, scale, M.PRECISION);
+            feeForOutputLPsInOut = FPMath.mulDiv(feeForOutputLPsInOut, scale, M.PRECISION);
+            rq.protocolFeeIn = FPMath.mulDiv(rq.protocolFeeIn, scale, M.PRECISION);
 
-            path[i] = step.tokenIn;
-            if (i == steps.length - 1) path[i + 1] = step.tokenOut;
+            uint256 deficit = amountIn - actualAmountIn;
+            require(deficit <= assetIn.reserves, "FOT deficit exceeds reserves");
+            assetIn.reserves -= uint128(deficit);
+        }
 
-            // Determine input amount (0 = use previous output for chaining)
-            uint256 amountIn = step.amountIn;
-            if (amountIn == 0) {
-                if (i == 0) revert E.ZeroAmount(); // First step must have explicit amount
-                if (step.tokenIn != steps[i - 1].tokenOut) revert E.InvalidParameter(); // Chaining requires matching tokens
-                amountIn = amounts[i - 1]; // Use previous output
-            }
+        // Update reserves
+        assetIn.reserves = (uint256(oldIn) + actualAmountIn - rq.protocolFeeIn).toUint128();
+        assetOut.reserves = (uint256(oldOut) - rq.amountOut).toUint128();
 
-            if (i == 0) {
-                firstTokenIn = step.tokenIn;
-                totalFirstTokenIn = amountIn;
-            }
+        // Update LP indices
+        _updateLPIndex(tokenIn, feeForInputLPs, oldIn);
+        _updateLPIndex(tokenOut, feeForOutputLPsInOut, uint128(uint256(oldOut) - rq.amountOut));
 
-            Asset storage assetIn = $.assets[step.tokenIn];
-            Asset storage assetOut = $.assets[step.tokenOut];
+        // Protocol fees
+        if (rq.protocolFeeIn > 0) $.protocolFees[tokenIn] += rq.protocolFeeIn;
 
-            LibUtils.requireActive(assetIn);
-            LibUtils.requireActive(assetOut);
+        // TODO: Re-enable total value caching if needed for analytics
 
-            // Get or initialize token tracking
-            uint256 idxIn = type(uint256).max;
-            uint256 idxOut = type(uint256).max;
+        // Post-hook
+        if ($.hooks[tokenIn] != address(0)) {
+            IBAMMHooks($.hooks[tokenIn]).postBuy(tokenIn, msg.sender, actualAmountIn, tokenOut, rq.amountOut, "");
+        }
 
-            for (uint256 j = 0; j < touchedCount; j++) {
-                if (touchedTokens[j] == step.tokenIn) idxIn = j;
-                if (touchedTokens[j] == step.tokenOut) idxOut = j;
-            }
+        // Pre-sell hook
+        if ($.hooks[tokenOut] != address(0)) {
+            IBAMMHooks($.hooks[tokenOut]).preSell(tokenOut, msg.sender, actualAmountIn, tokenIn, rq.amountOut, "");
+        }
 
-            // Initialize tracking for tokenIn if first time
-            if (idxIn == type(uint256).max) {
-                if (touchedCount >= 16) revert E.InvalidParameter(); // Max tokens exceeded
-                idxIn = touchedCount;
-                touchedTokens[touchedCount] = step.tokenIn;
-                oldReserves[touchedCount] = assetIn.reserves;
-                newReserves[touchedCount] = assetIn.reserves;
-                oldIndices[touchedCount] = $.lpStates[step.tokenIn].liquidityIndex;
-                newIndices[touchedCount] = $.lpStates[step.tokenIn].liquidityIndex;
-                touchedCount++;
-            }
+        // Push tokenOut with FOT handling
+        (uint256 actualAmountOut, uint256 retained) = _pushToken(tokenOut, receiver, rq.amountOut);
 
-            // Initialize tracking for tokenOut if first time
-            if (idxOut == type(uint256).max) {
-                if (touchedCount >= 16) revert E.InvalidParameter(); // Max tokens exceeded
-                idxOut = touchedCount;
-                touchedTokens[touchedCount] = step.tokenOut;
-                oldReserves[touchedCount] = assetOut.reserves;
-                newReserves[touchedCount] = assetOut.reserves;
-                oldIndices[touchedCount] = $.lpStates[step.tokenOut].liquidityIndex;
-                newIndices[touchedCount] = $.lpStates[step.tokenOut].liquidityIndex;
-                touchedCount++;
-            }
+        // Handle output FOT
+        if (retained > 0) {
+            _reconcileOutputFOT(retained, assetOut, $.lpStates[tokenOut]);
+        }
 
-            // Use virtual reserves for calculations (accumulated state)
-            uint128 currentReservesIn = newReserves[idxIn];
-            uint128 currentReservesOut = newReserves[idxOut];
+        // Post-sell hook
+        if ($.hooks[tokenOut] != address(0)) {
+            IBAMMHooks($.hooks[tokenOut]).postSell(tokenOut, msg.sender, actualAmountIn, tokenIn, actualAmountOut, "");
+        }
 
-            // Get oracle entries
-            LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
-            LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
+        emit Swapped(msg.sender, receiver, tokenIn, tokenOut, actualAmountIn, actualAmountOut, rq.feeBps);
+    }
 
-            // Calculate swap (using cached totalValue)
-            uint256 totalLiabilities = $.cachedTotalLiabilities;
-            FeeComponents memory fees = P.calculateSwapFee(
-                assetIn, assetOut, $.liquidityProfiles[step.tokenIn], $.liquidityProfiles[step.tokenOut],
-                oracleIn, oracleOut, $.feeParams, amountIn, totalValue, totalLiabilities
+    function _executeTriangulatedSwap(
+        IBAMM.BAMMStorage storage $,
+        address tokenIn,
+        address tokenOut,
+        address base,
+        uint256 amountIn,
+        P.RouteQuote memory rq,
+        address receiver
+    ) private {
+        Asset storage assetIn = $.assets[tokenIn];
+        Asset storage assetOut = $.assets[tokenOut];
+        Asset storage assetBase = $.assets[base];
+
+        // Check final output reserves
+        if (rq.amountOut > assetOut.reserves) revert E.InsufficientReserves();
+        if (assetOut.reserves - rq.amountOut < $.riskConfigs[tokenOut].minLiquidity) revert E.BelowMinimumLiquidity();
+
+        // Store old reserves (base not modified in virtual routing)
+        uint128 oldIn = assetIn.reserves;
+        uint128 oldOut = assetOut.reserves;
+
+        // Pre-hook
+        if ($.hooks[tokenIn] != address(0)) {
+            IBAMMHooks($.hooks[tokenIn]).preBuy(tokenIn, msg.sender, amountIn, tokenOut, rq.amountOut, "");
+        }
+
+        // Pull tokenIn with FOT handling
+        uint256 actualAmountIn = _pullToken(tokenIn, msg.sender, amountIn);
+
+        // Handle FOT - need to recalculate route if actual amount differs
+        if (actualAmountIn != amountIn) {
+            // Recalculate route with actual amount
+            rq = P.quoteRoute(
+                tokenIn, tokenOut, base, actualAmountIn,
+                assetIn, assetOut, assetBase,
+                $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut], $.liquidityProfiles[base],
+                $.internalFeeds[_feedId(tokenIn)], $.internalFeeds[_feedId(tokenOut)], $.internalFeeds[_feedId(base)],
+                $.dynamicFeeConfigs[tokenIn]
             );
 
-            uint256 amountAfterFee = (amountIn * (M.BPS_PRECISION - fees.totalFeeBps)) / M.BPS_PRECISION;
-            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[step.tokenIn], $.feeParams, oracleIn, amountAfterFee);
-            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[step.tokenOut], $.feeParams, oracleOut, 0);
-
-            if (priceOut == 0) revert E.InvalidPrice();
-            // Use mulDiv for precise calculation, avoiding intermediate overflow
-            uint256 amountOut = FixedPointMathLib.mulDiv(amountAfterFee, priceIn, priceOut);
-
-            // Adjust for decimal differences using LibMaths (avoids expensive EXP opcode)
-            amountOut = M.adjustDecimals(amountOut, assetIn.decimals, assetOut.decimals);
-
-            if (amountOut == 0) revert E.ZeroAmount();
-            if (amountOut < step.minAmountOut) revert E.SlippageExceeded();
-
-            amounts[i] = amountOut;
-            if (i == steps.length - 1) lastTokenOut = step.tokenOut;
-
-            // Fee distribution
-            uint256 totalFee = amountIn - amountAfterFee;
-            uint256 protocolFee = (totalFee * assetIn.protocolFeeBps) / M.BPS_PRECISION;
-            uint256 lpFee = totalFee - protocolFee;
-
-            uint256 feeForInputLPs;
-            uint256 feeForOutputLPs;
-            unchecked {
-                feeForInputLPs = lpFee >> 1;
-                feeForOutputLPs = lpFee - feeForInputLPs;
-            }
-
-            uint256 feeInTokenOut = 0;
-            uint64 fastTWAPIn = _getFastTWAP(step.tokenIn, assetIn);
-            uint64 fastTWAPOut = _getFastTWAP(step.tokenOut, assetOut);
-            if (feeForOutputLPs > 0 && fastTWAPIn > 0 && fastTWAPOut > 0) {
-                // Use mulDiv for precise fee conversion, then adjust decimals
-                uint256 feeValueRaw = FixedPointMathLib.mulDiv(feeForOutputLPs, fastTWAPIn, fastTWAPOut);
-                feeInTokenOut = M.adjustDecimals(feeValueRaw, assetIn.decimals, assetOut.decimals);
-            }
-
-            // Protocol fees tracked separately
-            if (protocolFee > 0) {
-                $.protocolFees[step.tokenIn] += protocolFee;
-            }
-
-            // Check reserves using virtual state
-            uint256 totalOutRequired = amountOut + feeInTokenOut;
-            if (totalOutRequired > currentReservesOut) revert E.InsufficientReserves();
-            if (currentReservesOut - totalOutRequired < assetOut.minLiquidity) revert E.BelowMinimumLiquidity();
-
-            // Optimization #1 + #2: Calculate final reserves, accumulate in memory (NO SSTORE yet)
-            uint256 lpFeesForIn = feeForInputLPs + (feeInTokenOut == 0 ? feeForOutputLPs : 0);
-            uint256 finalReservesIn = uint256(currentReservesIn) + amountIn - protocolFee + lpFeesForIn;
-            uint256 finalReservesOut = uint256(currentReservesOut) - amountOut - feeInTokenOut;
-
-            // Update virtual reserves for next iteration (accumulate changes)
-            newReserves[idxIn] = finalReservesIn.toUint128();
-            newReserves[idxOut] = finalReservesOut.toUint128();
-
-            // Calculate new liquidity indices (accumulate in memory)
-            LPState storage lpStateIn = $.lpStates[step.tokenIn];
-            if (lpFeesForIn > 0 && lpStateIn.totalScaledSupply > 0 && currentReservesIn > 0) {
-                uint256 newIndex = FixedPointMathLib.mulDiv(
-                    uint256(newIndices[idxIn]),
-                    finalReservesIn,
-                    uint256(currentReservesIn)
-                );
-                newIndices[idxIn] = newIndex.toUint128();
-            }
-
-            if (feeInTokenOut > 0) {
-                LPState storage lpStateOut = $.lpStates[step.tokenOut];
-                if (lpStateOut.totalScaledSupply > 0 && currentReservesOut > 0) {
-                    uint256 newIndex = FixedPointMathLib.mulDiv(
-                        uint256(newIndices[idxOut]),
-                        finalReservesOut,
-                        uint256(currentReservesOut)
-                    );
-                    newIndices[idxOut] = newIndex.toUint128();
-                }
-            }
-
-            // Update total value with deltas (using virtual state)
-            int256 deltaIn = int256(finalReservesIn) - int256(uint256(currentReservesIn));
-            int256 deltaOut = int256(finalReservesOut) - int256(uint256(currentReservesOut));
-
-            totalValue = P.updateTotalValueDelta(totalValue, assetIn, oracleIn, deltaIn);
-            totalValue = P.updateTotalValueDelta(totalValue, assetOut, oracleOut, deltaOut);
+            uint256 deficit = amountIn - actualAmountIn;
+            require(deficit <= assetIn.reserves, "FOT deficit exceeds reserves");
+            assetIn.reserves -= uint128(deficit);
         }
 
-        // Phase 2: Settlement - apply all accumulated changes ONCE per unique token
-        // This is where Optimization #2 provides massive savings when tokens repeat
-        for (uint256 i = 0; i < touchedCount; i++) {
-            address token = touchedTokens[i];
-            Asset storage asset = $.assets[token];
-            LPState storage lpState = $.lpStates[token];
+        // Update reserves (base is virtual, not modified)
+        assetIn.reserves = (uint256(oldIn) + actualAmountIn - rq.protocolFeeIn).toUint128();
+        assetOut.reserves = (uint256(oldOut) - rq.amountOut).toUint128();
 
-            // Single SSTORE per asset for entire batch (vs N SSTOREs if token appeared N times)
-            asset.reserves = newReserves[i];
-            lpState.liquidityIndex = newIndices[i];
+        // Update LP indices (only for tokenIn and tokenOut, base earns no LP fees)
+        _updateLPIndex(tokenIn, rq.lpFeeIn, oldIn);
+        _updateLPIndex(tokenOut, rq.lpFeeOut, uint128(uint256(oldOut) - rq.amountOut));
+
+        // Protocol fees (collect for all three)
+        if (rq.protocolFeeIn > 0) $.protocolFees[tokenIn] += rq.protocolFeeIn;
+        if (rq.protocolFeeOut > 0) $.protocolFees[tokenOut] += rq.protocolFeeOut;
+        if (rq.protocolFeeBase > 0) $.protocolFees[base] += rq.protocolFeeBase;
+
+        // TODO: Re-enable total value caching if needed for analytics
+
+        // Post-buy + pre-sell hooks
+        if ($.hooks[tokenIn] != address(0)) {
+            IBAMMHooks($.hooks[tokenIn]).postBuy(tokenIn, msg.sender, actualAmountIn, tokenOut, rq.amountOut, "");
+            IBAMMHooks($.hooks[tokenOut]).preSell(tokenOut, msg.sender, actualAmountIn, tokenIn, rq.amountOut, "");
         }
 
-        // Update cached total value after all swaps
-        $.cachedTotalValue = totalValue;
+        // Push tokenOut with FOT handling
+        (uint256 actualAmountOut, uint256 retained) = _pushToken(tokenOut, receiver, rq.amountOut);
 
-        // Batch transfers with fee-on-transfer protection
-        if (firstTokenIn != address(0)) {
-            uint256 balanceInBefore = firstTokenIn.balanceOf(address(this));
-            firstTokenIn.safeTransferFrom(msg.sender, address(this), totalFirstTokenIn);
-            uint256 actualAmountIn = firstTokenIn.balanceOf(address(this)) - balanceInBefore;
-
-            // Adjust reserves if transfer tax was applied
-            if (actualAmountIn != totalFirstTokenIn) {
-                Asset storage firstAsset = $.assets[firstTokenIn];
-                LibStorage.OracleEntry storage oracleFirstAsset = $.oracleEntries[firstAsset.oracleId];
-                int256 deficit = int256(totalFirstTokenIn) - int256(actualAmountIn);
-                firstAsset.reserves = uint128(int128(int256(uint256(firstAsset.reserves)) - deficit));
-                $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, firstAsset, oracleFirstAsset, -deficit);
-            }
+        // Handle output FOT
+        if (retained > 0) {
+            _reconcileOutputFOT(retained, assetOut, $.lpStates[tokenOut]);
         }
 
-        if (lastTokenOut != address(0)) {
-            uint256 finalAmountOut = amounts[amounts.length - 1];
-            uint256 balanceOutBefore = lastTokenOut.balanceOf(receiver);
-            lastTokenOut.safeTransfer(receiver, finalAmountOut);
-            uint256 actualAmountOut = lastTokenOut.balanceOf(receiver) - balanceOutBefore;
-
-            // Update final output amount in array
-            if (actualAmountOut != finalAmountOut) {
-                amounts[amounts.length - 1] = actualAmountOut;
-            }
+        // Post-sell hook
+        if ($.hooks[tokenOut] != address(0)) {
+            IBAMMHooks($.hooks[tokenOut]).postSell(tokenOut, msg.sender, actualAmountIn, tokenIn, actualAmountOut, "");
         }
 
-        emit Events.BatchSwap(msg.sender, receiver, path, amounts);
+        emit SwappedTwoLeg(
+            msg.sender, receiver, tokenIn, base, tokenOut,
+            actualAmountIn, actualAmountOut, rq.leg1FeeBps, rq.leg2FeeBps
+        );
     }
 
-    function deposit(
-        address token, uint256 amount, uint256 minLpTokens
-    ) external override nonReentrant notPaused notFrozen(token) returns (uint256 lpTokens) {
-        LibUtils.requireNonZero(amount);
-
-        LibStorage.BAMMStorage storage $ = _s();
-
-        // Check blacklist (consistent with swap)
-        if ($.blacklisted[msg.sender]) revert E.Blacklisted();
-        Asset storage asset = $.assets[token];
-        LPState storage lpState = $.lpStates[token];
-
-        if (asset.reserves == 0 && amount < asset.minLiquidity) revert E.BelowMinimumLiquidity();
-        if (lpState.liquidityIndex == 0) lpState.liquidityIndex = uint128(M.PRECISION);
-
-        // Pre-deposit hook (optional: no-op if hooks not configured)
-        if (asset.hooks != address(0)) {
-            IBAMMHooks(asset.hooks).preDeposit(token, msg.sender, amount, "");
-        }
-
-        // Apply deposit fee (for LP arbitrage mitigation, default 0)
-        uint256 amountAfterFee = amount;
-        if (asset.depositFeeBps > 0) {
-            uint256 depositFee = (amount * asset.depositFeeBps) / M.BPS_PRECISION;
-            amountAfterFee = amount - depositFee;
-            // Deposit fees accrue to existing LPs
-            P.accrueFeesToLPs(asset, lpState, depositFee);
-        }
-
-        lpTokens = lpState.totalScaledSupply == 0 ? amountAfterFee :
-            (amountAfterFee * lpState.totalScaledSupply * M.PRECISION) / (uint256(asset.reserves) * lpState.liquidityIndex);
-
-        if (lpTokens < minLpTokens) revert E.SlippageExceeded();
-
-        uint256 scaledAmount = (lpTokens * M.PRECISION) / lpState.liquidityIndex;
-
-        // Store old reserves and liabilities for delta calculation
-        uint128 oldReserves = asset.reserves;
-        uint128 oldLiabilities = asset.liabilities;
-
-        unchecked {
-            // SAFE: Both additions checked by toUint128() which reverts on overflow
-            lpState.totalScaledSupply = (lpState.totalScaledSupply + scaledAmount).toUint128();
-            asset.reserves = (asset.reserves + amount).toUint128();
-            // Track liabilities for coverage ratio (Wombat-style ALM)
-            asset.liabilities = (asset.liabilities + amount).toUint128();
-        }
-
-        // Update cached total value with delta (O(1) - no loop!)
-        LibStorage.OracleEntry storage oracle = $.oracleEntries[asset.oracleId];
-        uint256 totalValue = $.cachedTotalValue;
-        if (totalValue == 0) {
-            // First operation - initialize cache
-            totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
-        } else {
-            int256 delta = int256(uint256(asset.reserves)) - int256(uint256(oldReserves));
-            totalValue = P.updateTotalValueDelta(totalValue, asset, oracle, delta);
-        }
-        $.cachedTotalValue = totalValue;
-
-        // Update cached liabilities with delta
-        int256 liabilitiesDelta = int256(uint256(asset.liabilities)) - int256(uint256(oldLiabilities));
-        $.cachedTotalLiabilities = P.updateTotalLiabilitiesDelta($.cachedTotalLiabilities, asset, oracle, liabilitiesDelta);
-
-        // Fee-on-transfer protection: measure actual received amount
-        uint256 balanceBefore = token.balanceOf(address(this));
-        token.safeTransferFrom(msg.sender, address(this), amount);
-        uint256 actualAmount = token.balanceOf(address(this)) - balanceBefore;
-
-        // Adjust reserves and LP tokens if transfer tax was applied
-        if (actualAmount != amount) {
-            uint256 deficit = amount - actualAmount;
-            asset.reserves = uint128(uint256(asset.reserves) - deficit);
-            asset.liabilities = uint128(uint256(asset.liabilities) - deficit);
-
-            // Recalculate LP tokens based on actual received amount
-            uint256 actualLpTokens = lpState.totalScaledSupply == 0 ? actualAmount :
-                (actualAmount * lpState.totalScaledSupply * M.PRECISION) / (uint256(asset.reserves) * lpState.liquidityIndex);
-
-            if (actualLpTokens < minLpTokens) revert E.SlippageExceeded();
-
-            // Update totalScaledSupply with corrected amount
-            uint256 actualScaledAmount = (actualLpTokens * M.PRECISION) / lpState.liquidityIndex;
-            lpState.totalScaledSupply = uint128(uint256(lpState.totalScaledSupply) - (lpTokens - actualLpTokens) * M.PRECISION / lpState.liquidityIndex);
-
-            lpTokens = actualLpTokens;
-
-            // Update cached total value and liabilities with deficit
-            int256 deficitDelta = -int256(deficit);
-            $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, asset, oracle, deficitDelta);
-            $.cachedTotalLiabilities = P.updateTotalLiabilitiesDelta($.cachedTotalLiabilities, asset, oracle, deficitDelta);
-        }
-
-        _mint(msg.sender, token.addressToTokenId(), lpTokens, "");
-
-        // Post-deposit hook (optional: no-op if hooks not configured)
-        if (asset.hooks != address(0)) {
-            IBAMMHooks(asset.hooks).postDeposit(token, msg.sender, actualAmount, lpTokens, "");
-        }
-
-        emit Events.Deposit(msg.sender, token, actualAmount, lpTokens);
-    }
-
-    function withdraw(
-        address token, uint256 lpTokens, uint256 minAmountOut
-    ) external override nonReentrant returns (uint256 amountOut) {
-        LibUtils.requireNonZero(lpTokens);
-
-        LibStorage.BAMMStorage storage $ = _s();
-
-        // Check blacklist (consistent with swap)
-        if ($.blacklisted[msg.sender]) revert E.Blacklisted();
-        Asset storage asset = $.assets[token];
-        LPState storage lpState = $.lpStates[token];
-
-        if (lpState.liquidityIndex == 0 || lpState.totalScaledSupply == 0) revert E.NotInitialized();
-
-        // Pre-withdraw hook (optional: no-op if hooks not configured)
-        if (asset.hooks != address(0)) {
-            IBAMMHooks(asset.hooks).preWithdraw(token, msg.sender, lpTokens, "");
-        }
-
-        uint256 scaledAmount;
-        unchecked {
-            // SAFE: lpTokens * M.PRECISION cannot realistically overflow uint256
-            scaledAmount = (lpTokens * M.PRECISION) / lpState.liquidityIndex;
-        }
-        if ($.scaledBalances[msg.sender][token] < scaledAmount) revert E.InsufficientBalance();
-
-        // Calculate LP's proportional share of liabilities (their claim)
-        uint256 liabilityShare = (scaledAmount * lpState.liquidityIndex * asset.liabilities) /
-                                 (lpState.totalScaledSupply * M.PRECISION);
-
-        // Calculate coverage ratio: C = reserves / liabilities, clamped to [0, 1]
-        // If C >= 1: pool is healthy (over-collateralized), LP gets full claim
-        // If C < 1: pool is under-collateralized, LP gets haircutted at coverage ratio
-        uint256 coverageRatio = asset.liabilities > 0
-            ? (uint256(asset.reserves) * M.PRECISION) / uint256(asset.liabilities)
-            : M.PRECISION;
-
-        // Clamp coverage ratio to [0, 1] for withdrawal calculation
-        // Coverage > 1 doesn't give bonus, it accumulates as reserves for fees
-        if (coverageRatio > M.PRECISION) coverageRatio = M.PRECISION;
-
-        // Apply coverage ratio haircut to liability claim
-        // amountOut = liabilityShare * min(C, 1.0)
-        // Examples:
-        // - C = 1.0 (100%): LP gets 100% of claim (no haircut)
-        // - C = 0.5 (50%): LP gets 50% of claim (50% haircut, fair pro-rata loss)
-        // - C = 1.5 (150%): LP gets 100% of claim (excess stays as reserves)
-        amountOut = (liabilityShare * coverageRatio) / M.PRECISION;
-
-        uint256 withdrawalFeeBps = P.calculateWithdrawalFee(asset);
-        if (withdrawalFeeBps > 0) {
-            uint256 feeAmount = (amountOut * withdrawalFeeBps) / M.BPS_PRECISION;
-            amountOut -= feeAmount;
-            P.accrueFeesToLPs(asset, lpState, feeAmount);
-        }
-
-        if (amountOut < minAmountOut) revert E.SlippageExceeded();
-        if (amountOut > asset.reserves) revert E.InsufficientReserves();
-        if (asset.reserves - amountOut < asset.minLiquidity && lpState.totalScaledSupply - scaledAmount > 0) {
-            revert E.BelowMinimumLiquidity();
-        }
-
-        // Store old reserves and liabilities for delta calculation
-        uint128 oldReserves = asset.reserves;
-        uint128 oldLiabilities = asset.liabilities;
-
-        unchecked {
-            // SAFE: Both subtractions checked by toUint128(), underflow impossible due to prior checks
-            lpState.totalScaledSupply = (lpState.totalScaledSupply - scaledAmount).toUint128();
-            asset.reserves = (asset.reserves - amountOut).toUint128();
-            // Reduce liabilities by LP's proportional share
-            // This maintains accurate coverage ratio tracking: C = reserves / liabilities
-            asset.liabilities = (asset.liabilities - liabilityShare).toUint128();
-        }
-
-        _burn(msg.sender, token.addressToTokenId(), lpTokens);
-
-        // Update cached total value with delta (O(1) - no loop!)
-        LibStorage.OracleEntry storage oracle = $.oracleEntries[asset.oracleId];
-        uint256 totalValue = $.cachedTotalValue;
-        if (totalValue == 0) {
-            // Shouldn't happen but handle gracefully
-            totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
-        } else {
-            int256 delta = int256(uint256(asset.reserves)) - int256(uint256(oldReserves));
-            totalValue = P.updateTotalValueDelta(totalValue, asset, oracle, delta);
-        }
-        $.cachedTotalValue = totalValue;
-
-        // Update cached liabilities with delta
-        int256 liabilitiesDelta = int256(uint256(asset.liabilities)) - int256(uint256(oldLiabilities));
-        $.cachedTotalLiabilities = P.updateTotalLiabilitiesDelta($.cachedTotalLiabilities, asset, oracle, liabilitiesDelta);
-
-        // Fee-on-transfer protection: measure actual sent amount
-        uint256 balanceBefore = msg.sender.balance;
-        uint256 actualAmountOut;
-        if (token == address(0)) {
-            // ETH transfer
-            balanceBefore = msg.sender.balance;
-            token.safeTransfer(msg.sender, amountOut);
-            actualAmountOut = msg.sender.balance - balanceBefore;
-
-            // Adjust reserves if transfer tax was applied (shouldn't happen with ETH, but defensive)
-            if (actualAmountOut != amountOut) {
-                uint256 retained = amountOut - actualAmountOut;
-                asset.reserves = uint128(uint256(asset.reserves) + retained);
-                int256 retainedDelta = int256(retained);
-                $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, asset, oracle, retainedDelta);
-                // Note: Liabilities don't change on fee-on-transfer in withdrawal (already reduced above)
-            }
-        } else {
-            // ERC20 transfer
-            balanceBefore = token.balanceOf(msg.sender);
-            token.safeTransfer(msg.sender, amountOut);
-            actualAmountOut = token.balanceOf(msg.sender) - balanceBefore;
-
-            // Adjust reserves if transfer tax was applied
-            if (actualAmountOut != amountOut) {
-                uint256 retained = amountOut - actualAmountOut;
-                asset.reserves = uint128(uint256(asset.reserves) + retained);
-                int256 retainedDelta = int256(retained);
-                $.cachedTotalValue = P.updateTotalValueDelta($.cachedTotalValue, asset, oracle, retainedDelta);
-                // Note: Liabilities don't change on fee-on-transfer in withdrawal (already reduced above)
-            }
-        }
-
-        // Post-withdraw hook (optional: no-op if hooks not configured)
-        if (asset.hooks != address(0)) {
-            IBAMMHooks(asset.hooks).postWithdraw(token, msg.sender, lpTokens, actualAmountOut, "");
-        }
-
-        emit Events.Withdraw(msg.sender, token, lpTokens, actualAmountOut, withdrawalFeeBps);
-    }
-
-    // ========== ASSET MANAGEMENT ==========
-
-
-    // ========== VIEW FUNCTIONS ==========
-
-    function baseToken() public view returns (address) { return _s().baseToken; }
-    function isPoolPaused() public view returns (bool) { return _s().isPoolPaused; }
-    function assets(address token) public view returns (Asset memory) { return _s().assets[token]; }
-    function lpStates(address token) public view returns (LPState memory) { return _s().lpStates[token]; }
-    function registeredAssets() public view returns (address[] memory) { return _s().registeredAssets; }
-    function scaledBalances(address user, address token) public view returns (uint256) {
-        return _s().scaledBalances[user][token];
-    }
+    // ========== QUOTE FUNCTION ==========
 
     function getSwapQuote(
-        address tokenIn, address tokenOut, uint256 amountIn
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
     ) external view override returns (uint256 amountOut, uint256 feeBps) {
-        LibStorage.BAMMStorage storage $ = _s();
+        IBAMM.BAMMStorage storage $ = _sb();
+
         Asset storage assetIn = $.assets[tokenIn];
         Asset storage assetOut = $.assets[tokenOut];
 
         if (assetIn.reserves == 0 || assetOut.reserves == 0) return (0, 0);
 
         address base = $.baseToken;
-        uint256 totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
+        Asset storage assetBase = $.assets[base];
 
-        // Hub-and-spoke routing: if neither token is base, route through base
-        if (tokenIn != base && tokenOut != base) {
-            Asset storage assetBase = $.assets[base];
-            if (assetBase.reserves == 0) return (0, 0);
+        P.RouteQuote memory rq = P.quoteRoute(
+            tokenIn, tokenOut, base, amountIn,
+            assetIn, assetOut, assetBase,
+            $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut], $.liquidityProfiles[base],
+            $.internalFeeds[_feedId(tokenIn)], $.internalFeeds[_feedId(tokenOut)], $.internalFeeds[_feedId(base)],
+            $.dynamicFeeConfigs[tokenIn]
+        );
 
-            // Get oracle entries for all three assets
-            LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
-            LibStorage.OracleEntry storage oracleBase = $.oracleEntries[assetBase.oracleId];
-            LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
+        return (rq.amountOut, rq.feeBps);
+    }
 
-            // Leg 1: tokenIn → base
-            // Calculate fee components first to get fee (decode TWAPs inline)
-            uint256 timeElapsedIn = block.timestamp - oracleIn.lastOracleUpdate;
-            uint256 currentAccumIn = oracleIn.priceAccumulator + (uint256(oracleIn.currentPrice) * timeElapsedIn);
-            uint256 timeDeltaIn = block.timestamp - oracleIn.fastSnapshotTime;
-            uint64 fastTWAPIn = timeDeltaIn == 0 ? oracleIn.currentPrice : uint64((currentAccumIn - oracleIn.fastAccumSnapshot) / timeDeltaIn);
-            uint256 inFast = M.b64ToPrice(fastTWAPIn);
+    // ========== BATCH SWAP (simplified) ==========
 
-            uint256 timeElapsedBase = block.timestamp - oracleBase.lastOracleUpdate;
-            uint256 currentAccumBase = oracleBase.priceAccumulator + (uint256(oracleBase.currentPrice) * timeElapsedBase);
-            uint256 timeDeltaBase = block.timestamp - oracleBase.fastSnapshotTime;
-            uint64 fastTWAPBase = timeDeltaBase == 0 ? oracleBase.currentPrice : uint64((currentAccumBase - oracleBase.fastAccumSnapshot) / timeDeltaBase);
-            uint256 baseFast = M.b64ToPrice(fastTWAPBase);
+    function batchSwap(
+        SwapStep[] calldata steps,
+        address receiver
+    ) external payable override nonReentrant whenNotPaused returns (uint256[] memory amounts) {
+        if (steps.length == 0 || steps.length > 8) revert E.InvalidParameter();
+        LibUtils.requireNonZero(receiver);
 
-            uint256 timeElapsedOut = block.timestamp - oracleOut.lastOracleUpdate;
-            uint256 currentAccumOut = oracleOut.priceAccumulator + (uint256(oracleOut.currentPrice) * timeElapsedOut);
-            uint256 timeDeltaOut = block.timestamp - oracleOut.fastSnapshotTime;
-            uint64 fastTWAPOut = timeDeltaOut == 0 ? oracleOut.currentPrice : uint64((currentAccumOut - oracleOut.fastAccumSnapshot) / timeDeltaOut);
-            uint256 outFast = M.b64ToPrice(fastTWAPOut);
+        IBAMM.BAMMStorage storage $ = _sb();
 
-            uint256 leg1Notional = FixedPointMathLib.fullMulDiv(amountIn, inFast, M.PRICE_PRECISION);
+        if ($.blacklisted[msg.sender] || $.blacklisted[receiver]) revert E.Blacklisted();
 
-            // Estimate leg2 notional (rough estimate for fee calculation)
-            uint256 leg2Notional = FixedPointMathLib.fullMulDiv(leg1Notional, baseFast, outFast);
+        amounts = new uint256[](steps.length);
 
-            // TWO-LEG HUB ROUTING: Calculate fees for each leg separately using tri-factor model
+        // Track deltas in memory
+        TokenDelta[16] memory deltas;
+        uint256 deltaCount;
 
-            // Leg 1: tokenIn → base (use cached liabilities)
-            uint256 totalLiabilities = $.cachedTotalLiabilities;
-            FeeComponents memory fees1 = P.calculateSwapFee(
-                assetIn, assetBase,
-                $.liquidityProfiles[tokenIn], $.liquidityProfiles[base],
-                oracleIn, oracleBase,
-                $.feeParams,
-                amountIn,
-                totalValue,
-                totalLiabilities
+        // Execute swaps virtually
+        for (uint256 i = 0; i < steps.length; i++) {
+            SwapStep memory step = steps[i];
+
+            Asset storage assetIn = $.assets[step.tokenIn];
+            Asset storage assetOut = $.assets[step.tokenOut];
+
+            // Use unified routing
+            P.RouteQuote memory rq = P.quoteRoute(
+                step.tokenIn, step.tokenOut, $.baseToken, step.amountIn,
+                assetIn, assetOut, $.assets[$.baseToken],
+                $.liquidityProfiles[step.tokenIn], $.liquidityProfiles[step.tokenOut], $.liquidityProfiles[$.baseToken],
+                $.internalFeeds[_feedId(step.tokenIn)], $.internalFeeds[_feedId(step.tokenOut)], $.internalFeeds[_feedId($.baseToken)],
+                $.dynamicFeeConfigs[step.tokenIn]
             );
 
-            // Leg 2: base → tokenOut (calculate notional after leg 1 fee)
-            uint256 amountAfterFee1Temp = (amountIn * (M.BPS_PRECISION - fees1.totalFeeBps)) / M.BPS_PRECISION;
-            uint256 priceInTemp = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee1Temp);
-            uint256 priceBaseTemp = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, 0);
-            uint256 leg2InputNotional = priceBaseTemp > 0
-                ? FixedPointMathLib.mulDiv(amountAfterFee1Temp, priceInTemp, priceBaseTemp)
-                : 0;
-            leg2InputNotional = M.adjustDecimals(leg2InputNotional, assetIn.decimals, assetBase.decimals);
+            amounts[i] = rq.amountOut;
 
-            FeeComponents memory fees2 = P.calculateSwapFee(
-                assetBase, assetOut,
-                $.liquidityProfiles[base], $.liquidityProfiles[tokenOut],
-                oracleBase, oracleOut,
-                $.feeParams,
-                leg2InputNotional,
-                totalValue,
-                totalLiabilities
+            // Track deltas
+            deltaCount = _trackDelta(deltas, deltaCount, step.tokenIn, int256(step.amountIn) - int256(rq.protocolFeeIn), rq.lpFeeIn, rq.protocolFeeIn);
+            deltaCount = _trackDelta(deltas, deltaCount, step.tokenOut, -int256(rq.amountOut), rq.lpFeeOut, rq.protocolFeeOut);
+        }
+
+        // Apply all deltas atomically
+        for (uint256 i = 0; i < deltaCount; i++) {
+            if (deltas[i].token == address(0)) continue;
+
+            Asset storage asset = $.assets[deltas[i].token];
+            uint128 oldReserves = asset.reserves;
+
+            if (deltas[i].reserveDelta > 0) {
+                asset.reserves = (uint256(asset.reserves) + uint256(deltas[i].reserveDelta)).toUint128();
+            } else if (deltas[i].reserveDelta < 0) {
+                uint256 decrease = uint256(-deltas[i].reserveDelta);
+                require(decrease <= asset.reserves, "Insufficient reserves");
+                asset.reserves = (uint256(asset.reserves) - decrease).toUint128();
+            }
+
+            if (deltas[i].lpFees > 0) {
+                _updateLPIndex(deltas[i].token, deltas[i].lpFees, oldReserves);
+            }
+
+            if (deltas[i].protocolFees > 0) {
+                $.protocolFees[deltas[i].token] += deltas[i].protocolFees;
+            }
+        }
+
+        // Handle first input and last output transfers
+        _pullToken(steps[0].tokenIn, msg.sender, steps[0].amountIn);
+        _pushToken(steps[steps.length - 1].tokenOut, receiver, amounts[amounts.length - 1]);
+
+        // Build path for event (tokenIn for each step + final tokenOut)
+        address[] memory path = new address[](steps.length + 1);
+        for (uint256 i = 0; i < steps.length; i++) {
+            path[i] = steps[i].tokenIn;
+        }
+        path[steps.length] = steps[steps.length - 1].tokenOut;
+
+        emit BatchSwapped(msg.sender, receiver, path, amounts);
+    }
+
+    // ========== LIABILITY SWAP ==========
+
+    /// @notice Swap LP liability between assets (rebalancing without haircut when coverage neutral)
+    /// @param tokenIn Asset to reduce liability from
+    /// @param tokenOut Asset to add liability to
+    /// @param lpAmountIn LP tokens to swap
+    /// @param minLpAmountOut Minimum LP tokens to receive (slippage protection)
+    /// @return lpAmountOut Actual LP tokens received (after haircut if any)
+    function swapLiability(
+        address tokenIn,
+        address tokenOut,
+        uint256 lpAmountIn,
+        uint256 minLpAmountOut
+    ) external nonReentrant whenNotPaused returns (uint256 lpAmountOut) {
+        if (tokenIn == tokenOut) revert E.InvalidParameter();
+        if (lpAmountIn == 0) revert E.ZeroAmount();
+
+        IBAMM.BAMMStorage storage $ = _sb();
+
+        // Get assets
+        (Asset storage assetIn, Asset storage assetOut, address base) = ($.assets[tokenIn], $.assets[tokenOut], $.baseToken);
+
+        // Asset checks
+        if (assetIn.reserves == 0 || assetOut.reserves == 0) revert E.InsufficientReserves();
+        if (S._isFrozen($.riskConfigs[tokenIn]) || S._isFrozen($.riskConfigs[tokenOut])) revert E.AssetFrozen();
+
+        // Check swap enabled for both assets
+        if (!S._liabilitySwapEnabled($.riskConfigs[tokenIn]) || !S._liabilitySwapEnabled($.riskConfigs[tokenOut])) revert E.LiabilitySwapDisabled();
+
+        // TODO: Add minSwapAmount to RiskConfig if needed
+        // For now, just require non-zero amount
+        if (lpAmountIn == 0) revert E.ZeroAmount();
+
+        IBAMM.RiskConfig storage configIn = $.riskConfigs[tokenIn];
+        IBAMM.RiskConfig storage configOut = $.riskConfigs[tokenOut];
+
+        // Check user has sufficient LP tokens
+        uint256 tokenId_in = uint256(uint160(tokenIn));
+        if (balanceOf(msg.sender, tokenId_in) < lpAmountIn) revert E.InsufficientBalance();
+
+        // Update decay
+        LibLiability.updateDecay(tokenIn);
+        LibLiability.updateDecay(tokenOut);
+
+        // Get oracles
+        IInternalOracle.InternalFeedData storage oracleIn = $.internalFeeds[_feedId(tokenIn)];
+        IInternalOracle.InternalFeedData storage oracleOut = $.internalFeeds[_feedId(tokenOut)];
+
+        // Handle triangulated routing
+        bool isTriangulated = (tokenIn != base && tokenOut != base);
+        Asset storage assetBase = $.assets[base];
+        IInternalOracle.InternalFeedData storage oracleBase = $.internalFeeds[_feedId(base)];
+
+        if (isTriangulated) LibLiability.updateDecay(base);
+
+        // Execute liability swap (reuses LibPricing for quote)
+        uint256 haircut;
+        (lpAmountOut, haircut) = LibLiability.executeSwap(
+            tokenIn, tokenOut, lpAmountIn,
+            assetIn, assetOut, assetBase,
+            $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut], $.liquidityProfiles[base],
+            oracleIn, oracleOut, oracleBase,
+            $.dynamicFeeConfigs[tokenIn], configIn, configOut, base
+        );
+
+        // Slippage check
+        if (lpAmountOut < minLpAmountOut) revert E.SlippageExceeded();
+
+        // Burn source LP tokens
+        _burn(msg.sender, tokenId_in, lpAmountIn);
+
+        // Mint destination LP tokens
+        uint256 tokenId_out = uint256(uint160(tokenOut));
+        _mint(msg.sender, tokenId_out, lpAmountOut, "");
+
+        // Emit event
+        emit LiabilitySwapped(msg.sender, tokenIn, tokenOut, lpAmountIn, lpAmountOut, haircut);
+    }
+
+    // ========== DEPOSIT & WITHDRAW ==========
+
+    function deposit(
+        address token,
+        uint256 amount,
+        uint256 minLpTokens
+    ) external payable override nonReentrant whenNotPaused notFrozen(token) returns (uint256 lpTokens) {
+        LibUtils.requireNonZero(amount);
+        IBAMM.BAMMStorage storage $ = _sb();
+
+        LibLiability.updateDecay(token);
+
+        if ($.blacklisted[msg.sender]) revert E.Blacklisted();
+        Asset storage asset = $.assets[token];
+        LPState storage lpState = $.lpStates[token];
+
+        if (asset.reserves == 0 && amount < $.riskConfigs[token].minLiquidity) revert E.BelowMinimumLiquidity();
+        if (lpState.liquidityIndex == 0) lpState.liquidityIndex = uint128(M.INDEX_PRECISION);
+
+        if ($.hooks[token] != address(0)) IBAMMHooks($.hooks[token]).preDeposit(token, msg.sender, amount, "");
+
+        uint128 oldReserves = asset.reserves;
+
+        // Pull with FOT handling
+        uint256 actualAmount = _pullToken(token, msg.sender, amount);
+
+        // Deposit fee
+        uint256 depositFee = (actualAmount * asset.fees.depositFeeBps) / M.BPS_PRECISION;
+        uint256 amountAfterFee = actualAmount - depositFee;
+
+        // Bump index with deposit fee
+        if (depositFee > 0 && lpState.totalScaledSupply > 0 && oldReserves > 0) {
+            uint256 newIndex = FPMath.mulDiv(
+                uint256(lpState.liquidityIndex),
+                uint256(oldReserves) + depositFee,
+                uint256(oldReserves)
             );
+            lpState.liquidityIndex = newIndex.toUint128();
+        }
 
-            // Aggregate fees (notional-weighted average approach)
-            uint256 totalNotional = leg1Notional + leg2Notional;
-            uint256 aggregatedFeeBps = totalNotional > 0
-                ? (fees1.totalFeeBps * leg1Notional + fees2.totalFeeBps * leg2Notional) / totalNotional
-                : (fees1.totalFeeBps + fees2.totalFeeBps) / 2;
+        // Calculate LP tokens
+        lpTokens = lpState.totalScaledSupply == 0 ? amountAfterFee :
+            (amountAfterFee * lpState.totalScaledSupply * M.PRECISION) / (uint256(oldReserves + depositFee) * lpState.liquidityIndex);
 
-            // Build aggregate fee components for return
-            FeeComponents memory fees = FeeComponents({
-                baseFee: (fees1.baseFee + fees2.baseFee) / 2,
-                totalFeeBps: aggregatedFeeBps,
-                volatilityMultiplier: (fees1.volatilityMultiplier + fees2.volatilityMultiplier) / 2,
-                inventoryMultiplier: (fees1.inventoryMultiplier + fees2.inventoryMultiplier) / 2,
-                divergenceMultiplier: (fees1.divergenceMultiplier + fees2.divergenceMultiplier) / 2,
-                exitInventoryDivergence: 100,
-                leg1FeeBps: fees1.totalFeeBps,
-                leg2FeeBps: fees2.totalFeeBps,
-                leg1Notional: leg1Notional,
-                leg2Notional: leg2Notional
-            });
+        if (lpTokens < minLpTokens) revert E.SlippageExceeded();
 
-            feeBps = fees.totalFeeBps;
-            uint256 amountAfterFee1 = (amountIn * (M.BPS_PRECISION - fees.leg1FeeBps)) / M.BPS_PRECISION;
+        uint256 scaledAmount = (lpTokens * M.PRECISION) / lpState.liquidityIndex;
 
-            // Get segment price with amount for leg 1 (input-side piecewise)
-            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee1);
-            uint256 priceBase = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, 0);
+        // Update state
+        lpState.totalScaledSupply = (lpState.totalScaledSupply + scaledAmount).toUint128();
+        asset.reserves = (asset.reserves + actualAmount).toUint128();
+        asset.liabilities = (asset.liabilities + actualAmount).toUint128();
 
-            if (priceBase == 0) return (0, feeBps);
-            uint256 amountBase = FixedPointMathLib.mulDiv(amountAfterFee1, priceIn, priceBase);
-            amountBase = M.adjustDecimals(amountBase, assetIn.decimals, assetBase.decimals);
+        // TODO: Re-enable total value caching if needed for analytics
 
-            // Leg 2: base → tokenOut
-            uint256 amountAfterFee2 = (amountBase * (M.BPS_PRECISION - fees.leg2FeeBps)) / M.BPS_PRECISION;
+        _mint(msg.sender, uint256(uint160(token)), lpTokens, "");
 
-            // Get segment price with amount for leg 2 (output-side piecewise - marginal pricing)
-            priceBase = P.getSegmentPrice(assetBase, $.liquidityProfiles[base], $.feeParams, oracleBase, amountAfterFee2);
-            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, oracleOut, amountAfterFee2);
+        if ($.hooks[token] != address(0)) IBAMMHooks($.hooks[token]).postDeposit(token, msg.sender, actualAmount, lpTokens, "");
 
-            if (priceOut == 0) return (0, feeBps);
-            amountOut = FixedPointMathLib.mulDiv(amountAfterFee2, priceBase, priceOut);
-            amountOut = M.adjustDecimals(amountOut, assetBase.decimals, assetOut.decimals);
+        emit Deposited(msg.sender, token, actualAmount, lpTokens);
+    }
 
-        } else {
-            // Single-leg: direct pair (one is base)
-            // Get oracle entries
-            LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
-            LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
+    function withdraw(
+        address token,
+        uint256 lpTokens,
+        uint256 minAmount
+    ) external override nonReentrant whenNotPaused notFrozen(token) returns (uint256 amountOut) {
+        LibUtils.requireNonZero(lpTokens);
+        IBAMM.BAMMStorage storage $ = _sb();
 
-            uint256 totalLiabilities = $.cachedTotalLiabilities;
-            FeeComponents memory fees = P.calculateSwapFee(
-                assetIn, assetOut, $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut],
-                oracleIn, oracleOut, $.feeParams, amountIn, totalValue, totalLiabilities
+        LibLiability.updateDecay(token);
+
+        if ($.blacklisted[msg.sender]) revert E.Blacklisted();
+        Asset storage asset = $.assets[token];
+        LPState storage lpState = $.lpStates[token];
+
+        if (lpState.totalScaledSupply == 0) revert E.InsufficientLiquidity();
+
+        if ($.hooks[token] != address(0)) IBAMMHooks($.hooks[token]).preWithdraw(token, msg.sender, lpTokens, "");
+
+        uint128 oldReserves = asset.reserves;
+
+        // Calculate scaled amount
+        uint256 scaledAmount = (lpTokens * M.PRECISION) / lpState.liquidityIndex;
+
+        // Calculate withdrawal amount
+        amountOut = (scaledAmount * lpState.liquidityIndex) / M.PRECISION;
+
+        // Apply coverage ratio haircut
+        if (asset.reserves < asset.liabilities) {
+            uint256 coverageRatio = FPMath.mulDiv(asset.reserves, M.BPS_PRECISION, asset.liabilities);
+            amountOut = FPMath.mulDiv(amountOut, coverageRatio, M.BPS_PRECISION);
+        }
+
+        // Withdrawal fee
+        uint256 withdrawalFee = (amountOut * asset.fees.withdrawalFeeBps) / M.BPS_PRECISION;
+        amountOut -= withdrawalFee;
+
+        if (amountOut < minAmount) revert E.SlippageExceeded();
+        if (amountOut > asset.reserves) revert E.InsufficientReserves();
+        if (asset.reserves - amountOut < $.riskConfigs[token].minLiquidity) revert E.BelowMinimumLiquidity();
+
+        // Update state
+        lpState.totalScaledSupply = (lpState.totalScaledSupply - scaledAmount).toUint128();
+        asset.reserves = (asset.reserves - amountOut).toUint128();
+        asset.liabilities = (asset.liabilities - scaledAmount * lpState.liquidityIndex / M.PRECISION).toUint128();
+
+        // Bump index with withdrawal fee
+        IInternalOracle.InternalFeedData storage oracle = $.internalFeeds[_feedId(token)];
+        if (withdrawalFee > 0 && lpState.totalScaledSupply > 0 && oldReserves - amountOut > 0) {
+            uint256 newIndex = FPMath.mulDiv(
+                uint256(lpState.liquidityIndex),
+                uint256(oldReserves - amountOut) + withdrawalFee,
+                uint256(oldReserves - amountOut)
             );
-            feeBps = fees.totalFeeBps;
+            lpState.liquidityIndex = newIndex.toUint128();
+        }
 
-            uint256 amountAfterFee = (amountIn * (M.BPS_PRECISION - feeBps)) / M.BPS_PRECISION;
-            uint256 priceIn = P.getSegmentPrice(assetIn, $.liquidityProfiles[tokenIn], $.feeParams, oracleIn, amountAfterFee);
-            uint256 priceOut = P.getSegmentPrice(assetOut, $.liquidityProfiles[tokenOut], $.feeParams, oracleOut, 0);
+        // TODO: Re-enable total value caching if needed for analytics
 
-            if (priceOut == 0) return (0, feeBps);
-            amountOut = FixedPointMathLib.mulDiv(amountAfterFee, priceIn, priceOut);
-            amountOut = M.adjustDecimals(amountOut, assetIn.decimals, assetOut.decimals);
+        _burn(msg.sender, uint256(uint160(token)), lpTokens);
+
+        (uint256 actualOut, uint256 retained) = _pushToken(token, msg.sender, amountOut);
+
+        if (retained > 0) {
+            _reconcileOutputFOT(retained, asset, lpState);
+        }
+
+        if ($.hooks[token] != address(0)) IBAMMHooks($.hooks[token]).postWithdraw(token, msg.sender, actualOut, lpTokens, "");
+
+        emit Withdrawn(msg.sender, token, lpTokens, actualOut, asset.fees.withdrawalFeeBps);
+    }
+
+    // ========== SHARED FOT HELPERS ==========
+
+    function _pullToken(address token, address from, uint256 amount) private returns (uint256 actual) {
+        // Track balance before transfer to detect FOT
+        uint256 balBefore = token == address(0) ? 0 : token.balanceOf(address(this));
+
+        // Use LibNativeToken to handle both ERC20 and native ETH
+        LibNativeToken.pullToken(token, from, address(this), amount, _sb().weth);
+
+        // Calculate actual received amount for FOT detection
+        uint256 balAfter = token == address(0) ? 0 : token.balanceOf(address(this));
+        actual = balAfter - balBefore;
+    }
+
+    function _pushToken(address token, address to, uint256 amount) private returns (uint256 actual, uint256 retained) {
+        uint256 balBefore = token.balanceOf(to);
+
+        // Use LibNativeToken to handle both ERC20 and native ETH unwrapping
+        LibNativeToken.pushToken(token, address(this), to, amount, _sb().weth);
+
+        actual = token.balanceOf(to) - balBefore;
+        retained = actual < amount ? amount - actual : 0;
+    }
+
+    function _reconcileOutputFOT(
+        uint256 retained,
+        Asset storage asset,
+        LPState storage lpState
+    ) private {
+        if (retained == 0) return;
+
+        uint128 oldReserves = asset.reserves;
+        asset.reserves = (uint256(oldReserves) + retained).toUint128();
+
+        if (lpState.totalScaledSupply > 0 && oldReserves > 0) {
+            uint256 newIndex = FPMath.mulDiv(
+                lpState.liquidityIndex,
+                uint256(oldReserves) + retained,
+                oldReserves
+            );
+            lpState.liquidityIndex = newIndex.toUint128();
+        }
+
+        IBAMM.BAMMStorage storage $ = _sb();
+    }
+
+    // ========== ORACLE FALLBACK ==========
+
+    function _checkOracleOrFallback(IInternalOracle.InternalFeedData storage oracle, address token) private view {
+        // staleAfter is returned by oracle itself (dynamic), use reasonable default
+        bool mainStale = block.timestamp - oracle.base.updatedAt > 24 hours;
+
+        if (!mainStale) return;
+
+        // Main oracle stale, require fallback oracle configured
+        IBAMM.BAMMStorage storage $ = _sb();
+        LibUtils.requireNonZero($.oracleConfigs[token].fallbackOracle);
+
+        // In the simplified model, we just revert if main is stale and fallback exists
+        // The actual fallback data fetch would require external call infrastructure
+        // For now, this prevents swaps when oracle is stale
+        revert E.OracleInvalid();
+    }
+
+    // ========== CIRCUIT BREAKER ==========
+
+    function _checkCircuitBreaker(
+        IInternalOracle.InternalFeedData storage oracle,
+        IBAMM.RiskConfig storage risk
+    ) private view {
+        // Check reserve price floor (Circuit Breaker #1)
+        if (risk.reservePrice != 0) {
+            uint256 currentPrice = M.b64ToPrice(oracle.currentPrice);
+            uint256 reserveFloor = M.b64ToPrice(risk.reservePrice);
+            if (currentPrice < reserveFloor) {
+                revert E.ReservePriceViolation();
+            }
+        }
+        // Note: Other circuit breakers (maxFastDeviation, maxSlowDeviation, maxBetaDeviation)
+        // are checked off-chain by guardian before calling checkCircuitBreaker()
+    }
+
+    // ========== LP INDEX HELPERS ==========
+
+    function _updateLPIndex(address token, uint256 lpFee, uint128 oldReserves) private {
+        if (lpFee == 0) return;
+
+        IBAMM.BAMMStorage storage $ = _sb();
+        LPState storage lpState = $.lpStates[token];
+        Asset storage asset = $.assets[token];
+
+        if (lpState.totalScaledSupply > 0 && oldReserves > 0) {
+            uint256 newIndex = FPMath.mulDiv(
+                uint256(lpState.liquidityIndex),
+                uint256(oldReserves) + lpFee,
+                uint256(oldReserves)
+            );
+            lpState.liquidityIndex = newIndex.toUint128();
+            asset.liabilities = (uint256(asset.liabilities) + lpFee).toUint128();
+
+            IInternalOracle.InternalFeedData storage oracle = $.internalFeeds[_feedId(token)];
         }
     }
 
-    function getLPValue(address token, uint256 lpTokens) external view override returns (uint256 underlyingAmount) {
-        LibStorage.BAMMStorage storage $ = _s();
-        LPState storage lpState = $.lpStates[token];
-
-        if (lpState.liquidityIndex == 0) return 0;
-
-        uint256 scaledAmount = (lpTokens * M.PRECISION) / lpState.liquidityIndex;
-        underlyingAmount = (scaledAmount * lpState.liquidityIndex * $.assets[token].reserves) /
-                         (lpState.totalScaledSupply * M.PRECISION);
+    function _splitLpFee(uint256 lpFee, uint256 liabIn, uint256 liabOut) private pure returns (uint256 feeIn, uint256 feeOut) {
+        uint256 total = liabIn + liabOut;
+        if (total == 0) {
+            unchecked { feeIn = lpFee >> 1; feeOut = lpFee - feeIn; }
+        } else {
+            feeIn = FPMath.mulDiv(lpFee, liabIn, total);
+            feeOut = lpFee - feeIn;
+        }
     }
 
-    function getTotalValue() external view override returns (uint256) {
-        LibStorage.BAMMStorage storage $ = _s();
-        return P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
+    function _trackDelta(
+        TokenDelta[16] memory deltas,
+        uint256 count,
+        address token,
+        int256 reserveDelta,
+        uint256 lpFees,
+        uint256 protocolFees
+    ) private pure returns (uint256) {
+        for (uint256 i = 0; i < count; i++) {
+            if (deltas[i].token == token) {
+                deltas[i].reserveDelta += reserveDelta;
+                deltas[i].lpFees += lpFees;
+                deltas[i].protocolFees += protocolFees;
+                return count;
+            }
+        }
+        deltas[count] = TokenDelta(token, reserveDelta, lpFees, protocolFees);
+        return count + 1;
     }
 
+    // ========== VIEW FUNCTIONS ==========
+
+    function baseToken() public view returns (address) {
+        return _sb().baseToken;
+    }
+
+    function getAsset(address token) external view returns (Asset memory) {
+        return _sb().assets[token];
+    }
+
+    /// @notice Get token decimals (internal implementation)
+    function _getDecimals(address token) internal view override returns (uint8) {
+        // Return cached decimals from asset (set during addAsset)
+        return _sb().assets[token].decimals;
+    }
+
+    function getLPState(address token) external view returns (LPState memory) {
+        return _sb().lpStates[token];
+    }
+
+    /// @notice ERC1155 URI (required by interface, returns empty for LP tokens)
+    function uri(uint256) public view virtual override returns (string memory) {
+        return "";
+    }
+
+    function getCachedTotals() external pure returns (uint256 totalValue, uint256 totalLiabilities) {
+        // TODO: Implement if caching is re-enabled
+        return (0, 0);
+    }
+
+    // ========== INTERFACE VIEW FUNCTIONS ==========
+
+    /// @inheritdoc IBAMM
+    function lpStates(address token) external view returns (LPState memory) {
+        return _sb().lpStates[token];
+    }
+
+    /// @inheritdoc IBAMM
     function calculateSwapFee(
-        address tokenIn, address tokenOut, uint256 amountIn
-    ) external view override returns (FeeComponents memory) {
-        LibStorage.BAMMStorage storage $ = _s();
-        Asset storage assetIn = $.assets[tokenIn];
-        Asset storage assetOut = $.assets[tokenOut];
-        LibStorage.OracleEntry storage oracleIn = $.oracleEntries[assetIn.oracleId];
-        LibStorage.OracleEntry storage oracleOut = $.oracleEntries[assetOut.oracleId];
-        uint256 totalValue = P.calculateTotalValue($.registeredAssets, $.assets, $.oracleEntries);
-        uint256 totalLiabilities = $.cachedTotalLiabilities;
-        return P.calculateSwapFee(
-            assetIn, assetOut,
-            $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut],
-            oracleIn, oracleOut, $.feeParams, amountIn, totalValue, totalLiabilities
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    ) external view returns (FeeComponents memory) {
+        IBAMM.BAMMStorage storage $ = _sb();
+        Asset storage assetIn = _getAsset(tokenIn);
+        Asset storage assetOut = _getAsset(tokenOut);
+        Asset storage assetBase = _getAsset($.baseToken);
+
+        // Get quote which includes fee breakdown
+        P.RouteQuote memory rq = P.quoteRoute(
+            tokenIn, tokenOut, $.baseToken, amountIn,
+            assetIn, assetOut, assetBase,
+            $.liquidityProfiles[tokenIn], $.liquidityProfiles[tokenOut], $.liquidityProfiles[$.baseToken],
+            $.internalFeeds[_feedId(tokenIn)], $.internalFeeds[_feedId(tokenOut)], $.internalFeeds[_feedId($.baseToken)],
+            $.dynamicFeeConfigs[tokenIn]
+        );
+
+        // Build fee components (simplified - you may want more detail)
+        return FeeComponents({
+            baseFee: 0, // Not exposed in RouteQuote
+            volatilityMultiplier: 0,
+            inventoryMultiplier: 0,
+            divergenceMultiplier: 0,
+            totalFeeBps: rq.feeBps,
+            leg1FeeBps: rq.leg1FeeBps,
+            leg2FeeBps: rq.leg2FeeBps
+        });
+    }
+
+    /// @inheritdoc IBAMM
+    function getLPValue(
+        address token,
+        uint256 lpTokens
+    ) external view returns (uint256 underlyingAmount) {
+        LPState storage lpState = _sb().lpStates[token];
+        if (lpState.totalScaledSupply == 0) return 0;
+
+        // LP value = (lpTokens / totalScaledSupply) * reserves
+        Asset storage asset = _getAsset(token);
+        return (lpTokens * uint256(asset.reserves)) / uint256(lpState.totalScaledSupply);
+    }
+
+    /// @inheritdoc IBAMM
+    function getTotalValue() external view returns (uint256 tvl) {
+        // TODO: Implement if caching is re-enabled or compute on-the-fly
+        return 0;
+    }
+
+    /// @inheritdoc IBAMM
+    function getFeedData(address token) external view returns (
+        uint64 fastTWAP,
+        uint64 slowTWAP,
+        uint32 fastVolEMA,
+        uint32 slowVolEMA,
+        uint32 lastUpdate
+    ) {
+        IInternalOracle.InternalFeedData storage oracle = _sb().internalFeeds[_feedId(token)];
+
+        // TODO: Compute TWAP from accumulators
+        // For now return current price as both TWAPs
+        return (
+            oracle.currentPrice,
+            oracle.currentPrice,
+            oracle.base.fastVolEMA,
+            oracle.base.slowVolEMA,
+            oracle.base.updatedAt
         );
     }
 
-    function getLiquidityProfile(address token) external view returns (
-        uint8[16] memory weights, int8[17] memory offsets, uint64 minBreadth, uint64 maxBreadth
+    /// @inheritdoc IBAMM
+    function getAssetState(address token) external view returns (
+        uint64 fastTWAP,
+        uint64 slowTWAP,
+        uint128 reserves,
+        uint128 liabilities,
+        uint256 reservesValue,
+        uint256 liabilitiesValue
     ) {
-        LiquidityProfile storage profile = _s().liquidityProfiles[token];
-        return (profile.segmentWeights, profile.twapOffsets, profile.minBreadth, profile.maxBreadth);
+        IBAMM.BAMMStorage storage $ = _sb();
+        Asset storage asset = _getAsset(token);
+        IInternalOracle.InternalFeedData storage oracle = $.internalFeeds[_feedId(token)];
+
+        // TODO: Use actual slow TWAP computation
+        // Get price in 1e18
+        uint256 price1e18 = M.decodePriceTo1e18(oracle.currentPrice);
+
+        // Calculate values
+        reservesValue = (uint256(asset.reserves) * price1e18) / (10 ** asset.decimals);
+        liabilitiesValue = (uint256(asset.liabilities) * price1e18) / (10 ** asset.decimals);
+
+        // TODO: Compute TWAP from accumulators
+        return (
+            oracle.currentPrice,
+            oracle.currentPrice,
+            asset.reserves,
+            asset.liabilities,
+            reservesValue,
+            liabilitiesValue
+        );
     }
 
-    // ========== ERC1155 OVERRIDES ==========
+    // ========== STUBS ==========
 
-    function balanceOf(address owner, uint256 id) public view override returns (uint256) {
-        LibStorage.BAMMStorage storage $ = _s();
-        address token = address(uint160(id));
-        LPState storage lpState = $.lpStates[token];
-        uint128 index = lpState.liquidityIndex;
-        if (index == 0) return 0;
-
-        unchecked {
-            // SAFE: Cannot overflow due to LP token supply limits
-            return ($.scaledBalances[owner][token] * index) / M.PRECISION;
-        }
+    /// @inheritdoc IBAMM
+    function checkCircuitBreaker(address /* token */) external returns (bool triggered) {
+        // TODO: Implement circuit breaker logic
+        return false;
     }
 
-    function uri(uint256 id) public view override returns (string memory) {
-        address token = address(uint160(id));
-        return string(abi.encodePacked(
-            "https://btr.supply/pool/",
-            address(this).toHexString(),
-            "/",
-            token.toHexString()
-        ));
+    /// @inheritdoc IBAMM
+    function collectProtocolFees(address[] calldata tokens) external {
+        // TODO: Implement protocol fee collection
     }
 
-    function _afterTokenTransfer(
-        address from,
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes memory data
-    ) internal override {
-        LibStorage.BAMMStorage storage $ = _s();
+    /// @inheritdoc IBAMM
+    function getHooks(address token) external view returns (address hookAddress) {
+        return _sb().hooks[token];
+    }
 
-        uint256 length = ids.length;
-        unchecked {
-            for (uint256 i; i < length; ++i) {
-                address token = address(uint160(ids[i]));
-                LPState storage lpState = $.lpStates[token];
+    /// @notice Check if oracle feed is fresh (updated within 1 hour)
+    function isFreshDefault(bytes32 feedId) external view returns (bool) {
+        IInternalOracle.InternalFeedData storage oracle = _sb().internalFeeds[feedId];
+        return block.timestamp - oracle.base.updatedAt < 1 hours;
+    }
 
-                if (lpState.liquidityIndex == 0) {
-                    if (amounts[i] > 0) revert E.NotInitialized();
-                    continue;
-                }
-
-                uint256 scaledAmount = (amounts[i] * M.PRECISION) / lpState.liquidityIndex;
-
-                if (from != address(0)) {
-                    uint256 fromBalance = $.scaledBalances[from][token];
-                    if (fromBalance < scaledAmount) revert E.InsufficientBalance();
-                    $.scaledBalances[from][token] = fromBalance - scaledAmount;
-                }
-
-                if (to != address(0)) {
-                    $.scaledBalances[to][token] += scaledAmount;
-                }
-            }
-        }
+    /// @inheritdoc IBAMM
+    function updateHooks(address token, address hooks) external onlyOwner {
+        _sb().hooks[token] = hooks;
+        emit HooksUpdated(token, hooks);
     }
 }

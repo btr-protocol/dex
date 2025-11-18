@@ -49,6 +49,9 @@ library DarkPoolErrors {
     error EmptyArray();
     error TooManyInputs();
     error TooManyOutputs();
+
+    // ShieldedState interaction errors
+    error NullifierSpendingFailed();
 }
 
 /// @title DarkPool Events

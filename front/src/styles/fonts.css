@@ -1,0 +1,45 @@
+/* BTR DEX Font Configuration */
+
+/* Inter Variable - Body & Headings */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+
+/* Font Families */
+:root {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Mozilla Text", "SF Mono", "Monaco", "Cascadia Code", "Roboto Mono", "Courier New", monospace;
+  --font-numeric: "Mozilla Text", "SF Mono", "Monaco", monospace;
+}
+
+/* Apply fonts */
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* Numeric values - tabular figures for alignment */
+.numeric,
+[class*="numeric"],
+[data-numeric="true"] {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Monospace for code */
+code,
+pre,
+kbd,
+samp,
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Font weights */
+.font-thin { font-weight: 100; }
+.font-extralight { font-weight: 200; }
+.font-light { font-weight: 300; }
+.font-normal { font-weight: 400; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+.font-extrabold { font-weight: 800; }
+.font-black { font-weight: 900; }

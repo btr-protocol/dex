@@ -7,6 +7,7 @@ import {BAMM} from "../src/bamm/BAMM.sol";
 import {BAMMFactory} from "../src/bamm/BAMMFactory.sol";
 import {DarkPool} from "../src/darkpool/DarkPool.sol";
 import {DarkPoolFactory} from "../src/darkpool/DarkPoolFactory.sol";
+import {ShieldedState} from "../src/darkpool/ShieldedState.sol";
 
 /// @title DeployAll
 /// @notice Complete deployment script for BAMM + DarkPool infrastructure
@@ -21,30 +22,38 @@ contract DeployAll is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        // ========== STEP 1: Deploy DarkPool Infrastructure ==========
-        console2.log("Step 1: Deploying DarkPool infrastructure...");
+        // ========== STEP 1: Deploy Shared ShieldedState ==========
+        console2.log("Step 1: Deploying ShieldedState (global Merkle tree and nullifier set)...");
+
+        ShieldedState shieldedState = new ShieldedState(deployer);
+        console2.log("  ShieldedState:", address(shieldedState));
+
+        // ========== STEP 2: Deploy DarkPool Infrastructure ==========
+        console2.log("");
+        console2.log("Step 2: Deploying DarkPool infrastructure...");
 
         DarkPool darkPoolImpl = new DarkPool();
         console2.log("  DarkPool implementation:", address(darkPoolImpl));
 
         DarkPoolFactory darkPoolFactory = new DarkPoolFactory(
             address(darkPoolImpl),
-            deployer
+            deployer,
+            address(shieldedState)
         );
         console2.log("  DarkPoolFactory:", address(darkPoolFactory));
         console2.log("  DarkPool Beacon:", darkPoolFactory.beacon());
 
-        // ========== STEP 2: Deploy Groth16 Verifier (Placeholder) ==========
+        // ========== STEP 3: Deploy Groth16 Verifier (Placeholder) ==========
         console2.log("");
-        console2.log("Step 2: Verifier contract...");
+        console2.log("Step 3: Verifier contract...");
         console2.log("  TODO: Deploy actual Groth16 verifier");
         console2.log("  For now, using placeholder address");
         address verifier = address(0x0); // TODO: Replace with actual verifier
         console2.log("  Verifier (placeholder):", verifier);
 
-        // ========== STEP 3: Deploy BAMM Infrastructure ==========
+        // ========== STEP 4: Deploy BAMM Infrastructure ==========
         console2.log("");
-        console2.log("Step 3: Deploying BAMM infrastructure...");
+        console2.log("Step 4: Deploying BAMM infrastructure...");
 
         BAMM bammImpl = new BAMM();
         console2.log("  BAMM implementation:", address(bammImpl));
@@ -53,9 +62,9 @@ contract DeployAll is Script {
         console2.log("  BAMMFactory:", address(bammFactory));
         console2.log("  BAMM Beacon:", address(bammFactory.beacon()));
 
-        // ========== STEP 4: Configure BAMM Factory with DarkPool ==========
+        // ========== STEP 5: Configure BAMM Factory with DarkPool ==========
         console2.log("");
-        console2.log("Step 4: Configuring BAMM Factory for DarkPool...");
+        console2.log("Step 5: Configuring BAMM Factory for DarkPool...");
 
         bammFactory.setDarkPoolFactory(address(darkPoolFactory));
         console2.log("  DarkPoolFactory set in BAMMFactory");
@@ -72,6 +81,9 @@ contract DeployAll is Script {
         // ========== SUMMARY ==========
         console2.log("");
         console2.log("=== Deployment Summary ===");
+        console2.log("");
+        console2.log("Shielded State:");
+        console2.log("  ShieldedState:", address(shieldedState));
         console2.log("");
         console2.log("DarkPool Infrastructure:");
         console2.log("  Implementation:", address(darkPoolImpl));

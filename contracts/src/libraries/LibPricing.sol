@@ -2,882 +2,559 @@
 pragma solidity ^0.8.28;
 
 import {IBAMM} from "../interfaces/IBAMM.sol";
-import {BAMMErrors as E} from "../bamm/BAMMEvents.sol";
+import {IInternalOracle} from "../interfaces/IInternalOracle.sol";
 import {LibMaths as M} from "./LibMaths.sol";
 import {LibUtils as Cast} from "./LibUtils.sol";
-import {LibStorage} from "./LibStorage.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {LibStorage as S} from "./LibStorage.sol";
+import {LibMakimaPricing as MakimaP} from "./LibMakimaPricing.sol";
+import {LibOracle} from "./LibOracle.sol";
+import {BAMMErrors as E} from "../bamm/BAMMErrors.sol";
+import {FPMaths as FPMath} from "solady/utils/FixedPointMathLib.sol";
 
-/// @title LibPricing
-/// @notice Pure arithmetic library for ALM-style pricing and fee calculations
-/// @dev ALL prices in calculations are in PRICE_PRECISION (1e18) format for maximum precision
-/// @dev Uses Solady's FixedPointMathLib for precision-critical operations
-/// @dev Library functions are pure where possible - caller decodes TWAPs and passes them in
-///
-/// @dev RECENT ENHANCEMENTS:
-/// @dev 1. Midpoint segment averaging: Uses (leftPrice + rightPrice)/2 instead of leftPrice
-/// @dev    to reduce systematic undercharging and LVR leakage
-/// @dev 2. Two-leg hub routing: For A→B where neither is base, routes A→base→B with
-/// @dev    piecewise impact on both legs and notional-weighted fee aggregation
-/// @dev 3. Exit-leg inventory divergence: Scales fees based on post-trade weight vs target
-/// @dev    to protect against exit asset depletion (penalty) or incentivize rebalancing (rebate)
-/// @dev 4. Pool-vs-oracle divergence: Optional additional multiplier comparing hub-implied
-/// @dev    cross price to TWAP cross (capped at 2x for stability)
-/// @dev 5. Oracle decode helpers: Reusable functions to avoid redundant TWAP calculations
-/// @dev    across multiple legs (significant gas savings for hub routes)
+/// @title LibPricing - Tri-factor ALM with coverage-based routing
+/// @notice Implements tri-factor fee model: coverage × volatility × deviation
+/// @dev Dynamic piecewise bonding curve + liability time decay
 library LibPricing {
     using Cast for uint256;
 
-    // ========== FEE PARAMETERS STRUCT ==========
+    // ========== STRUCTS ==========
 
-    /// @notice Tri-factor fee model parameters (Wombat-inspired ALM)
-    /// @dev All multipliers stored in 1e2 format (100 = 1.0x), all divergences in bps
-    /// @dev Three capped linear factors: inventory (coverage), volatility shock, price divergence
-    /// @dev Unified volatility: single oracle decode per asset, reused for breadth + fees
-    struct FeeParams {
-        // Inventory factor (coverage-based: reserves/liabilities)
-        uint16 invMinMult;        // m_inv,min in 1e2 (e.g., 20 = 0.2x min rebate)
-        uint16 invMaxMult;        // m_inv,max in 1e2 (e.g., 10000 = 100x max penalty)
-        uint16 invMaxDivergence;  // x_inv,max in bps (e.g., 5000 = 50% for full scale)
+    // FeeParams moved to IBAMM.sol for single source of truth
 
-        // Baseline volatility (unified for breadth + fees)
-        uint16 volWeight;         // w weight for fast vol in 1e2 (e.g., 70 = 0.7, so 70% fast + 30% slow)
-        uint32 volFloor;          // v_floor minimum baseline in vol units (e.g., 100000 = 0.1%)
-        uint32 volMax;            // v_max maximum baseline in vol units (e.g., 50000000 = 50%)
+    // Type aliases for external structs (avoid duplication)
+    // Use LibOracle.FeedData directly - single source of truth
+    // See LibOracle.sol for struct definition
 
-        // Volatility shock factor (fast/slow ratio)
-        uint16 volBeta;           // β sensitivity in 1e2 (e.g., 150 = 1.5)
-        uint16 volRMax;           // r_max cap in 1e2 (e.g., 1000 = 10x)
-        uint16 volMaxMult;        // m_vol,max cap in 1e2 (e.g., 10000 = 100x)
-        uint16 volEpsilon;        // Minimum denominator for ratio (e.g., 1000 = 0.1% vol)
-
-        // Breadth shock (optional additive term for faster reaction)
-        uint16 breadthShockKappa; // κ_shock multiplier in 1e2 (e.g., 10 = 0.1, set 0 to disable)
-
-        // Price divergence factor (spot vs oracle TWAPs)
-        uint16 pdD1Max;           // d_1,max in bps: spot-vs-fast (e.g., 1000 = 10%)
-        uint16 pdD2Max;           // d_2,max in bps: fast-vs-slow (e.g., 1500 = 15%)
-        uint16 pdAlpha;           // α weight for regime shift in 1e2 (e.g., 50 = 0.5)
-        uint16 pdMaxMult;         // m_pd,max cap in 1e2 (e.g., 10000 = 100x)
-
-        // Base fee (slow vol-aware)
-        uint16 baseK;             // k multiplier in 1e2 (e.g., 100 = 1.0)
-        uint16 baseMin;           // f_min in bps (e.g., 1 = 0.01%)
-        uint16 baseMax;           // f_max in bps (e.g., 500 = 5%)
-
-        // Global caps
-        uint16 minMult;           // m_min overall in 1e2 (e.g., 20 = 0.2x from inventory rebates)
-        uint16 maxMult;           // m_max overall in 1e2 (e.g., 10000 = 100x)
-
-        // Legacy
-        uint16 maxTWAPChange;     // Max price change per update in bps (circuit breaker)
-        uint16 protocolFeeBps;    // Protocol fee split in bps (e.g., 1000 = 10% to treasury)
-        uint16 withdrawalFeeBps;  // Withdrawal fee in bps (default 0)
+    struct RouteQuote {
+        uint256 amountOut;
+        uint256 feeBps;           // Total path fee (visible to trader)
+        uint256 lpFeeIn;          // LP fee for leg1 (in tokenIn units)
+        uint256 lpFeeOut;         // LP fee for leg2 (in tokenOut units)
+        uint256 protocolFeeIn;    // Protocol fee for leg1
+        uint256 protocolFeeOut;   // Protocol fee for leg2
+        bool isTriangulated;      // true = A→base→B, false = A↔base (direct)
+        uint256 leg1FeeBps;       // Fee bps for leg1 (always totalFeeBps/2)
+        uint256 leg2FeeBps;       // Fee bps for leg2 (always totalFeeBps/2)
+        uint256 amountBase;       // Intermediate amount (triangulated only)
+        uint256 protocolFeeBase;  // Protocol fee in base units (triangulated only)
     }
 
-    // ========== ORACLE DATA STRUCT (for stack depth optimization) ==========
+    // ========== MAIN ROUTING FUNCTION ==========
 
-    /// @notice Decoded oracle data struct to reduce stack depth
-    /// @dev Used internally to avoid "stack too deep" errors in complex functions
-    struct OracleData {
-        uint64 fastTWAP;         // Fast TWAP in b64 format
-        uint64 slowTWAP;         // Slow TWAP in b64 format
-        uint256 priceFast1e18;   // Fast TWAP decoded to 1e18
-        uint256 priceSlow1e18;   // Slow TWAP decoded to 1e18
-        uint32 fastVol;          // Fast volatility
-        uint32 slowVol;          // Slow volatility
-    }
+    function quoteRoute(
+        address tokenIn,
+        address tokenOut,
+        address baseToken,
+        uint256 amountIn,
+        IBAMM.Asset storage assetIn,
+        IBAMM.Asset storage assetOut,
+        IBAMM.Asset storage assetBase,
+        IBAMM.LiquidityProfile storage profIn,
+        IBAMM.LiquidityProfile storage profOut,
+        IBAMM.LiquidityProfile storage profBase,
+        IInternalOracle.InternalFeedData storage oracleIn,
+        IInternalOracle.InternalFeedData storage oracleOut,
+        IInternalOracle.InternalFeedData storage oracleBase,
+        IBAMM.DynamicFeeConfig storage params
+    ) internal view returns (RouteQuote memory rq) {
+        rq.isTriangulated = (tokenIn != baseToken && tokenOut != baseToken);
 
-    // ========== CONSTANTS ==========
+        if (!rq.isTriangulated) {
+            // Direct swap: A ↔ base (two legs, but one is base)
+            LibOracle.FeedData memory dataIn = decodeOracle(oracleIn);
+            LibOracle.FeedData memory dataOut = decodeOracle(oracleOut);
 
-    /// @notice Maximum breadth to prevent underflow in segment pricing
-    /// @dev Ensures 10000 + breadthBps * offset never goes negative
-    uint256 private constant MAX_BREADTH_BPS = 10000;
+            // Get spot prices for deviation calculation (with coverage-aware depth)
+            uint256 priceIn = _segmentPrice(tokenIn, assetIn, profIn, dataIn, amountIn);
+            uint256 priceOut = _segmentPrice(tokenOut, assetOut, profOut, dataOut, 0);
 
-    /// @notice Maximum segments allowed (prevents DoS and array bounds issues)
-    uint8 private constant MAX_SEGMENT_COUNT = 16;
+            // Inherit vol/deviation from non-base token
+            bool inIsBase = (tokenIn == baseToken);
+            LibOracle.FeedData memory effectiveDataIn = inIsBase ? dataOut : dataIn;
+            LibOracle.FeedData memory effectiveDataOut = inIsBase ? dataOut : dataIn;
 
-
-    // ========== PIECEWISE BONDING CURVE PRICING ==========
-
-    /// @notice Calculate execution price using piecewise liquidity distribution with unified volatility
-    /// @dev Walks through segments, consuming liquidity and accumulating weighted average price
-    /// @dev Uses baseline volatility and shock ratio computed once per asset (gas-efficient, consistent)
-    /// @dev IMPORTANT: Always returns price in PRICE_PRECISION (1e18) format
-    /// @param twapPrice1e18 TWAP price already decoded to 1e18 format (caller should use slow TWAP)
-    /// @param baselineVol Baseline volatility v_base (computed once per asset, reused for fees)
-    /// @param shockRatio Shock ratio r (computed once per asset, reused for fees)
-    /// @param reserves Total reserves available
-    /// @param segmentCount Number of segments in curve
-    /// @param offsets Segment offset array
-    /// @param weights Segment weight array
-    /// @param minBreadth Minimum breadth (1e8 base)
-    /// @param maxBreadth Maximum breadth (1e8 base)
-    /// @param breadthShockKappa κ_shock multiplier for optional shock term
-    /// @param amount Amount to trade (0 = spot price at TWAP)
-    /// @return Execution price in PRICE_PRECISION (1e18)
-    function getSegmentPricePure(
-        uint256 twapPrice1e18,
-        uint32 baselineVol,
-        uint256 shockRatio,
-        uint128 reserves,
-        uint8 segmentCount,
-        int8[17] memory offsets,
-        uint8[16] memory weights,
-        uint64 minBreadth,
-        uint64 maxBreadth,
-        uint16 breadthShockKappa,
-        uint256 amount
-    ) internal pure returns (uint256) {
-        // Validate inputs
-        if (twapPrice1e18 == 0) return M.PRICE_PRECISION; // Default to 1.0
-        if (segmentCount <= 1 || segmentCount > MAX_SEGMENT_COUNT) return twapPrice1e18;
-        if (reserves == 0) return twapPrice1e18;
-
-        // If amount is 0, return spot price (TWAP is the reference)
-        if (amount == 0) return twapPrice1e18;
-
-        // Calculate current breadth using unified baseline volatility + optional shock
-        uint256 breadthBps = _calculateBreadth(baselineVol, shockRatio, minBreadth, maxBreadth, breadthShockKappa);
-
-        // Calculate weighted average execution price with streaming computation
-        return _calculateExecutionPriceStreaming(
-            amount,
-            reserves,
-            twapPrice1e18,
-            breadthBps,
-            offsets,
-            weights,
-            segmentCount
-        );
-    }
-
-    /// @notice View function with unified volatility (decode oracle once, reuse for breadth + fees)
-    /// @dev Computes baseline volatility and shock ratio once per asset, passes to pure function
-    /// @dev This is the recommended entry point - ensures consistency between breadth and fee calculations
-    /// @param asset Asset storage reference
-    /// @param profile Liquidity profile with segment configuration
-    /// @param feeParams Fee parameters (for baseline volatility and shock calculation)
-    /// @param oracle Oracle entry for price and volatility data
-    /// @param amount Amount to trade (0 = spot price at TWAP)
-    /// @return Execution price in PRICE_PRECISION (1e18)
-    function getSegmentPrice(
-        IBAMM.Asset storage asset,
-        IBAMM.LiquidityProfile storage profile,
-        FeeParams storage feeParams,
-        LibStorage.OracleEntry storage oracle,
-        uint256 amount
-    ) internal view returns (uint256) {
-        // Calculate slow TWAP (Uniswap V3 style accumulator)
-        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
-        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
-        uint256 timeDelta = block.timestamp - oracle.slowSnapshotTime;
-        uint64 slowTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.slowAccumSnapshot) / timeDelta);
-
-        // Decode to 1e18 and call pure function
-        uint256 twapPrice1e18 = M.b64ToPrice(slowTWAP);
-
-        // *** UNIFIED VOLATILITY: Compute once per asset, reuse for breadth + fees ***
-        // Baseline volatility: v_base = w * v_f + (1 - w) * v_s, clamped to [v_floor, v_max]
-        uint32 baselineVol = _calculateBaselineVolatility(oracle.fastVolatility, oracle.slowVolatility, feeParams);
-
-        // Shock ratio: r = min(r_max, v_f / max(v_s, ε))
-        uint256 shockRatio = _calculateShockRatio(oracle.fastVolatility, oracle.slowVolatility, feeParams);
-
-        return getSegmentPricePure(
-            twapPrice1e18,
-            baselineVol,
-            shockRatio,
-            asset.reserves,
-            asset.segmentCount,
-            profile.twapOffsets,
-            profile.segmentWeights,
-            profile.minBreadth,
-            profile.maxBreadth,
-            feeParams.breadthShockKappa,
-            amount
-        );
-    }
-
-    /// @notice Calculate breadth (price range width) using unified baseline volatility + optional shock
-    /// @dev breadthBps = breadth_0 + κ_breadth * v_base + κ_shock * (r - 1)
-    /// @dev Uses baseline volatility (weighted fast/slow) for consistency with fee calculation
-    /// @dev Optional shock term allows faster reaction to volatility spikes (set κ_shock = 0 to disable)
-    /// @param baselineVol Baseline volatility v_base in 1e6 units (computed once per asset)
-    /// @param shockRatio Shock ratio r in 1e2 format (computed once per asset)
-    /// @param minBreadth Min breadth at volatility=0 (1e8 base)
-    /// @param maxBreadth Max breadth at volatility=100_000_000 (1e8 base)
-    /// @param breadthShockKappa κ_shock multiplier in 1e2 (e.g., 10 = 0.1, set 0 to disable shock term)
-    /// @return breadthBps Current breadth in basis points (1e4 base), clamped to MAX_BREADTH_BPS
-    function _calculateBreadth(
-        uint32 baselineVol,
-        uint256 shockRatio,
-        uint64 minBreadth,
-        uint64 maxBreadth,
-        uint16 breadthShockKappa
-    ) private pure returns (uint256 breadthBps) {
-        // Linear interpolation based on baseline volatility
-        // breadth = minBreadth + (maxBreadth - minBreadth) * v_base / 100_000_000
-        uint256 vol = uint256(baselineVol);
-        uint256 interpolated;
-
-        if (vol >= 100_000_000) {
-            interpolated = uint256(maxBreadth);
-        } else {
-            interpolated = M.lerpCustom(
-                uint256(minBreadth),
-                uint256(maxBreadth),
-                vol,
-                100_000_000 // Max volatility
+            // Compute path fee with coverage timing
+            (uint256 totalFeeBps, uint256 amountAfterFee) = _computePathFee(
+                assetIn, assetOut, effectiveDataIn, effectiveDataOut,
+                priceIn, priceOut, params, amountIn
             );
-        }
 
-        // Convert from 1e8 to 1e4 (basis points)
-        breadthBps = interpolated / 10000;
+            rq.amountOut = FPMath.mulDiv(amountAfterFee, priceIn, priceOut);
+            rq.amountOut = M.adjustDecimals(rq.amountOut, assetIn.decimals, assetOut.decimals);
 
-        // Optional: Add shock term κ_shock * (r - 1) for faster reaction
-        // shockRatio in 1e2, so (r - 100) gives excess over 1.0x
-        // κ_shock in 1e2, so multiply and divide by 100 * 100 = 10000
-        if (breadthShockKappa > 0 && shockRatio > 100) {
-            uint256 excessRatio = shockRatio - 100; // (r - 1) in 1e2
-            uint256 shockTerm = (uint256(breadthShockKappa) * excessRatio) / 10000; // bps
-            breadthBps = breadthBps + shockTerm;
-        }
+            // Split fee 50/50 between legs (apply totalFeeBps/2 to each)
+            rq.feeBps = totalFeeBps;
+            rq.leg1FeeBps = totalFeeBps / 2;
+            rq.leg2FeeBps = totalFeeBps - rq.leg1FeeBps;  // Handle rounding
 
-        // Clamp to max
-        if (breadthBps > MAX_BREADTH_BPS) breadthBps = MAX_BREADTH_BPS;
-    }
+            // Fees in token units
+            uint256 feeIn = amountIn * rq.leg1FeeBps / M.BPS_PRECISION;
+            uint256 feeOut = rq.amountOut * rq.leg2FeeBps / M.BPS_PRECISION;
 
-    /// @notice Calculate execution price with streaming computation (no temporary array)
-    /// @dev Computes segment prices on-the-fly and accumulates cost in one pass
-    /// @dev Uses Solady's fullMulDiv for maximum precision in cost accumulation
-    /// @param amount Amount to trade
-    /// @param reserves Total reserves available
-    /// @param twapPrice Reference price in 1e18 format
-    /// @param breadthBps Current breadth in basis points (1e4)
-    /// @param offsets Array of offset percentages (-100 to +100)
-    /// @param weights Array of segment weights (sum to WEIGHT_SUM)
-    /// @param segmentCount Number of segments
-    /// @return executionPrice Weighted average execution price (in 1e8)
-    function _calculateExecutionPriceStreaming(
-        uint256 amount,
-        uint128 reserves,
-        uint256 twapPrice,
-        uint256 breadthBps,
-        int8[17] memory offsets,
-        uint8[16] memory weights,
-        uint8 segmentCount
-    ) private pure returns (uint256 executionPrice) {
-        uint256 remainingAmount = amount;
-        uint256 totalCost = 0;
-
-        // Cache constants to stack
-        uint256 pricePrecision = M.PRICE_PRECISION;
-        uint256 weightSum = M.WEIGHT_SUM;
-
-        unchecked {
-            // Walk through segments from lowest to highest price (buy direction)
-            for (uint256 i = 0; i < segmentCount && remainingAmount > 0; ++i) {
-                // Calculate left boundary price on-the-fly
-                int256 leftOffset = int256(int8(offsets[i]));
-                int256 leftChangeBps = (leftOffset * int256(breadthBps)) / 100;
-                int256 leftPriceCalc = (int256(twapPrice) * (10000 + leftChangeBps)) / 10000;
-                uint256 leftPrice = leftPriceCalc > 0 ? uint256(leftPriceCalc) : twapPrice;
-
-                // Calculate right boundary price on-the-fly
-                int256 rightOffset = int256(int8(offsets[i + 1]));
-                int256 rightChangeBps = (rightOffset * int256(breadthBps)) / 100;
-                int256 rightPriceCalc = (int256(twapPrice) * (10000 + rightChangeBps)) / 10000;
-                uint256 rightPrice = rightPriceCalc > 0 ? uint256(rightPriceCalc) : twapPrice;
-
-                // Skip invalid segments
-                if (rightPrice <= leftPrice) continue;
-
-                // Calculate liquidity available in this segment
-                // Use fullMulDiv for precision: segmentLiquidity = reserves * weight / weightSum
-                uint256 segmentLiquidity = FixedPointMathLib.fullMulDiv(
-                    uint256(reserves),
-                    uint256(weights[i]),
-                    weightSum
-                );
-
-                // How much can we fill in this segment?
-                uint256 fillAmount = remainingAmount > segmentLiquidity ? segmentLiquidity : remainingAmount;
-
-                // Calculate average price: use midpoint for accurate integral approximation
-                // This reduces systematic undercharging and LVR vs left-edge pricing
-                uint256 avgPrice = (leftPrice + rightPrice) / 2;
-
-                // Accumulate cost with fullMulDiv for precision: cost = fillAmount * avgPrice / pricePrecision
-                totalCost += FixedPointMathLib.fullMulDiv(fillAmount, avgPrice, pricePrecision);
-                remainingAmount -= fillAmount;
-            }
-        }
-
-        // If we couldn't fill everything, use the highest price (final offset)
-        if (remainingAmount > 0 && segmentCount > 0) {
-            int256 finalOffset = int256(int8(offsets[segmentCount]));
-            int256 finalChangeBps = (finalOffset * int256(breadthBps)) / 100;
-            int256 finalPriceCalc = (int256(twapPrice) * (10000 + finalChangeBps)) / 10000;
-            uint256 highestPrice = finalPriceCalc > 0 ? uint256(finalPriceCalc) : twapPrice;
-
-            totalCost += FixedPointMathLib.fullMulDiv(remainingAmount, highestPrice, pricePrecision);
-        }
-
-        // Return weighted average execution price with fullMulDiv
-        executionPrice = amount > 0
-            ? FixedPointMathLib.fullMulDiv(totalCost, pricePrecision, amount)
-            : twapPrice;
-    }
-
-    // ========== ORACLE HELPERS ==========
-
-    /// @notice Decode oracle TWAPs and volatilities into memory struct (reduces stack depth)
-    /// @dev Calculates fast and slow TWAPs using Uniswap V3 accumulator formula
-    /// @param oracle Oracle entry to decode
-    /// @return data Decoded oracle data struct
-    function _decodeOracleData(LibStorage.OracleEntry storage oracle)
-        private view returns (OracleData memory data)
-    {
-        // Calculate accumulator update
-        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
-        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
-
-        // Calculate fast TWAP
-        uint256 timeDeltaFast = block.timestamp - oracle.fastSnapshotTime;
-        data.fastTWAP = timeDeltaFast == 0
-            ? oracle.currentPrice
-            : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDeltaFast);
-
-        // Calculate slow TWAP
-        uint256 timeDeltaSlow = block.timestamp - oracle.slowSnapshotTime;
-        data.slowTWAP = timeDeltaSlow == 0
-            ? oracle.currentPrice
-            : uint64((currentAccum - oracle.slowAccumSnapshot) / timeDeltaSlow);
-
-        // Decode to 1e18
-        data.priceFast1e18 = M.b64ToPrice(data.fastTWAP);
-        data.priceSlow1e18 = M.b64ToPrice(data.slowTWAP);
-
-        // Copy volatilities
-        data.fastVol = oracle.fastVolatility;
-        data.slowVol = oracle.slowVolatility;
-    }
-
-    // ========== TRI-FACTOR FEE MODEL ==========
-
-    /// @notice Calculate inventory factor based on coverage ratio (Wombat-style ALM)
-    /// @dev Linear rebates when under target (v < t), penalties when over target (v > t)
-    /// @dev v = asset value share, t = liability share (target allocation)
-    /// @param reserves Asset reserves
-    /// @param liabilities Asset liabilities (total deposits)
-    /// @param price Asset price (1e18 format)
-    /// @param totalReserves Sum of all reserve values
-    /// @param totalLiabilities Sum of all liability values
-    /// @param params Fee parameters
-    /// @return mult Multiplier in 1e18 format
-    function _calculateInventoryFactor(
-        uint128 reserves,
-        uint128 liabilities,
-        uint256 price,
-        uint256 totalReserves,
-        uint256 totalLiabilities,
-        FeeParams memory params
-    ) private pure returns (uint256 mult) {
-        if (totalReserves == 0 || totalLiabilities == 0) return M.PRECISION;
-
-        // Calculate asset value and liability value
-        uint256 assetValue = FixedPointMathLib.fullMulDiv(uint256(reserves), price, M.PRICE_PRECISION);
-        uint256 liabValue = FixedPointMathLib.fullMulDiv(uint256(liabilities), price, M.PRICE_PRECISION);
-
-        // Current share: v = assetValue / totalReserves (in bps)
-        uint256 v = FixedPointMathLib.fullMulDiv(assetValue, M.BPS_PRECISION, totalReserves);
-
-        // Target share: t = liabValue / totalLiabilities (in bps)
-        uint256 t = FixedPointMathLib.fullMulDiv(liabValue, M.BPS_PRECISION, totalLiabilities);
-
-        // Protect against division by zero with epsilon (0.1% = 10 bps)
-        uint256 tSafe = t > 10 ? t : 10;
-
-        // Normalized divergence: x = min(1, |v-t| / t / x_inv,max)
-        uint256 divergence = v > t ? v - t : t - v;
-        uint256 x = FixedPointMathLib.fullMulDiv(divergence, M.PRECISION, tSafe);
-        x = FixedPointMathLib.fullMulDiv(x, M.BPS_PRECISION, uint256(params.invMaxDivergence));
-        if (x > M.PRECISION) x = M.PRECISION;
-
-        if (v < t) {
-            // Under target: linear rebate
-            // m = 1 - (1 - m_min) * x
-            uint256 mMin = FixedPointMathLib.fullMulDiv(uint256(params.invMinMult), M.PRECISION, 100);
-            uint256 rebateRange = M.PRECISION - mMin;
-            uint256 rebate = FixedPointMathLib.fullMulDiv(rebateRange, x, M.PRECISION);
-            mult = M.PRECISION - rebate;
+            rq.protocolFeeIn = feeIn * assetIn.fees.protocolFeeBps / M.BPS_PRECISION;
+            rq.protocolFeeOut = feeOut * assetOut.fees.protocolFeeBps / M.BPS_PRECISION;
+            rq.lpFeeIn = feeIn - rq.protocolFeeIn;
+            rq.lpFeeOut = feeOut - rq.protocolFeeOut;
         } else {
-            // Over target: linear penalty
-            // m = 1 + (m_max - 1) * x
-            uint256 mMax = FixedPointMathLib.fullMulDiv(uint256(params.invMaxMult), M.PRECISION, 100);
-            uint256 penaltyRange = mMax - M.PRECISION;
-            uint256 penalty = FixedPointMathLib.fullMulDiv(penaltyRange, x, M.PRECISION);
-            mult = M.PRECISION + penalty;
+            // Triangulated swap: A → base (virtual) → B
+
+            // Decode oracles
+            LibOracle.FeedData memory dataIn = decodeOracle(oracleIn);
+            LibOracle.FeedData memory dataBase = decodeOracle(oracleBase);
+            LibOracle.FeedData memory dataOut = decodeOracle(oracleOut);
+
+            // Virtual depth for base (path independence using coverage-aware depth)
+            uint256 virtualBaseDepth1 = _depthForPricing(tokenIn);
+            uint256 virtualBaseDepth2 = _depthForPricing(tokenOut);
+
+            // Get spot prices (with coverage-aware depth)
+            uint256 priceIn = _segmentPrice(tokenIn, assetIn, profIn, dataIn, amountIn);
+            uint256 priceBase1 = _segmentPriceWithDepth(baseToken, assetBase, profBase, dataBase, 0, virtualBaseDepth1);
+            uint256 priceOut = _segmentPrice(tokenOut, assetOut, profOut, dataOut, 0);
+
+            // Compute total path fee with coverage timing
+            (uint256 totalFeeBps,) = _computePathFee(
+                assetIn, assetOut, dataIn, dataOut,
+                priceIn, priceOut, params, amountIn
+            );
+
+            // Split fee 50/50 between legs
+            rq.feeBps = totalFeeBps;
+            rq.leg1FeeBps = totalFeeBps / 2;
+            rq.leg2FeeBps = totalFeeBps - rq.leg1FeeBps;
+
+            // Leg 1: Apply fee to input
+            uint256 feeAmount1 = amountIn * rq.leg1FeeBps / M.BPS_PRECISION;
+            uint256 amountAfterFee1 = amountIn - feeAmount1;
+
+            rq.amountBase = FPMath.mulDiv(amountAfterFee1, priceIn, priceBase1);
+            rq.amountBase = M.adjustDecimals(rq.amountBase, assetIn.decimals, assetBase.decimals);
+
+            // Leg 2: Get price with actual base amount, apply fee to output
+            uint256 priceBase2 = _segmentPriceWithDepth(baseToken, assetBase, profBase, dataBase, rq.amountBase, virtualBaseDepth2);
+            uint256 rawAmountOut = FPMath.mulDiv(rq.amountBase, priceBase2, priceOut);
+            rawAmountOut = M.adjustDecimals(rawAmountOut, assetBase.decimals, assetOut.decimals);
+
+            uint256 feeAmount2 = rawAmountOut * rq.leg2FeeBps / M.BPS_PRECISION;
+            rq.amountOut = rawAmountOut - feeAmount2;
+
+            // Protocol fees
+            rq.protocolFeeIn = feeAmount1 * assetIn.fees.protocolFeeBps / M.BPS_PRECISION;
+            rq.protocolFeeOut = feeAmount2 * assetOut.fees.protocolFeeBps / M.BPS_PRECISION;
+
+            // LP fees
+            rq.lpFeeIn = feeAmount1 - rq.protocolFeeIn;
+            rq.lpFeeOut = feeAmount2 - rq.protocolFeeOut;
+
+            // Base protocol fee (no LP fees for base in triangulated swaps)
+            // Base doesn't charge fee since it's virtual, but we track for accounting
+            rq.protocolFeeBase = 0;
         }
     }
 
-    /// @notice Calculate volatility shock factor from fast/slow ratio
-    /// @dev Linear with sensitivity gain β: m = clamp(β * r, 1, m_vol,max)
-    /// @param fastVol Fast volatility (oracle uint32, 1e6 base)
-    /// @param slowVol Slow volatility (oracle uint32, 1e6 base)
-    /// @param params Fee parameters
-    /// @return mult Multiplier in 1e18 format
-    function _calculateVolatilityShockFactor(
-        uint32 fastVol,
-        uint32 slowVol,
-        FeeParams memory params
-    ) private pure returns (uint256 mult) {
-        // Protect against division by zero
-        uint256 slowSafe = slowVol > params.volEpsilon ? slowVol : params.volEpsilon;
+    // ========== ORACLE DECODING (delegated to LibOracle) ==========
 
-        // Shock ratio: r = min(r_max, v_fast / v_slow) in 1e2 format
-        uint256 ratio = (uint256(fastVol) * 100) / slowSafe;
-        uint256 rMax = uint256(params.volRMax);
-        if (ratio > rMax) ratio = rMax;
-
-        // Linear map: m = β * r (both in 1e2, result in 1e4, scale to 1e18)
-        mult = FixedPointMathLib.fullMulDiv(uint256(params.volBeta), ratio, 10000);
-        mult = mult * M.PRECISION / 100;  // Scale 1e4 -> 1e18
-
-        // Clamp to [1, m_vol,max]
-        if (mult < M.PRECISION) mult = M.PRECISION;
-        uint256 maxMult = FixedPointMathLib.fullMulDiv(uint256(params.volMaxMult), M.PRECISION, 100);
-        if (mult > maxMult) mult = maxMult;
+    /// @notice Decode oracle entry - delegates to LibOracle for consistency
+    /// @dev Single source of truth eliminates duplication across codebase
+    function decodeOracle(IInternalOracle.InternalFeedData storage oracle) internal view returns (LibOracle.FeedData memory) {
+        return LibOracle.decodeOracle(oracle);  // Direct passthrough, no copy needed
     }
 
-    /// @notice Calculate price divergence factor
-    /// @dev Combines spot-vs-fast (immediate) and fast-vs-slow (regime shift) divergences
-    /// @param spotPrice Pool marginal execution price (1e18)
-    /// @param fastTWAP Oracle fast TWAP (1e18)
-    /// @param slowTWAP Oracle slow TWAP (1e18)
-    /// @param params Fee parameters
-    /// @return mult Multiplier in 1e18 format
-    function _calculatePriceDivergenceFactor(
-        uint256 spotPrice,
-        uint256 fastTWAP,
-        uint256 slowTWAP,
-        FeeParams memory params
-    ) private pure returns (uint256 mult) {
-        // Protect against division by zero (epsilon = 0.001 = 1e15)
-        uint256 fastSafe = fastTWAP > M.PRECISION / 1000 ? fastTWAP : M.PRECISION / 1000;
-        uint256 slowSafe = slowTWAP > M.PRECISION / 1000 ? slowTWAP : M.PRECISION / 1000;
-
-        // d_1 = |spot - fast| / fast (immediate mispricing)
-        uint256 diff1 = spotPrice > fastTWAP ? spotPrice - fastTWAP : fastTWAP - spotPrice;
-        uint256 d1Bps = FixedPointMathLib.fullMulDiv(diff1, M.BPS_PRECISION, fastSafe);
-
-        // d_2 = |fast - slow| / slow (regime shift)
-        uint256 diff2 = fastTWAP > slowTWAP ? fastTWAP - slowTWAP : slowTWAP - fastTWAP;
-        uint256 d2Bps = FixedPointMathLib.fullMulDiv(diff2, M.BPS_PRECISION, slowSafe);
-
-        // Normalize: x_1 = d_1 / d_1,max
-        uint256 x1 = FixedPointMathLib.fullMulDiv(d1Bps, M.PRECISION, uint256(params.pdD1Max));
-
-        // Normalize: x_2 = α * d_2 / d_2,max
-        uint256 x2 = FixedPointMathLib.fullMulDiv(d2Bps, M.PRECISION, uint256(params.pdD2Max));
-        x2 = FixedPointMathLib.fullMulDiv(x2, uint256(params.pdAlpha), 100);
-
-        // Conservative aggregation: x = min(1, max(x_1, x_2))
-        uint256 x = x1 > x2 ? x1 : x2;
-        if (x > M.PRECISION) x = M.PRECISION;
-
-        // Linear ramp: m = 1 + (m_max - 1) * x
-        uint256 mMax = FixedPointMathLib.fullMulDiv(uint256(params.pdMaxMult), M.PRECISION, 100);
-        uint256 rampRange = mMax - M.PRECISION;
-        uint256 ramp = FixedPointMathLib.fullMulDiv(rampRange, x, M.PRECISION);
-        mult = M.PRECISION + ramp;
-    }
-
-    /// @notice Combine three factors into single risk multiplier
-    /// @dev Multiplicative combination with final clamp to global bounds
-    /// @param invMult Inventory multiplier (1e18)
-    /// @param volMult Volatility shock multiplier (1e18)
-    /// @param pdMult Price divergence multiplier (1e18)
-    /// @param params Fee parameters (for min/max bounds)
-    /// @return mult Combined risk multiplier in 1e18 format
-    function _calculateRiskMultiplier(
-        uint256 invMult,
-        uint256 volMult,
-        uint256 pdMult,
-        FeeParams memory params
-    ) private pure returns (uint256 mult) {
-        // Product: m = (m_inv * m_vol * m_pd) / 1e18^2
-        mult = FixedPointMathLib.fullMulDiv(invMult, volMult, M.PRECISION);
-        mult = FixedPointMathLib.fullMulDiv(mult, pdMult, M.PRECISION);
-
-        // Clamp to global bounds
-        uint256 minMult = FixedPointMathLib.fullMulDiv(uint256(params.minMult), M.PRECISION, 100);
-        uint256 maxMult = FixedPointMathLib.fullMulDiv(uint256(params.maxMult), M.PRECISION, 100);
-
-        if (mult < minMult) mult = minMult;
-        if (mult > maxMult) mult = maxMult;
-    }
-
-    /// @notice Calculate vol-aware base fee from slow volatility
-    /// @dev f_base = clamp(k * v_slow, f_min, f_max) where v_slow in 1e6 base
-    /// @param slowVol Slow volatility (oracle uint32, 1e6 base: 1M = 1%)
-    /// @param params Fee parameters
-    /// @return feeBps Base fee in basis points
-    function _calculateBaseFee(
-        uint32 slowVol,
-        FeeParams memory params
-    ) private pure returns (uint256 feeBps) {
-        // k * v_slow: k in 1e2, v_slow in 1e6 → result in bps
-        // Formula: (k * v_slow) / 1e4 to get bps
-        feeBps = (uint256(params.baseK) * uint256(slowVol)) / 10000;
-
-        // Clamp to [f_min, f_max]
-        if (feeBps < uint256(params.baseMin)) feeBps = uint256(params.baseMin);
-        if (feeBps > uint256(params.baseMax)) feeBps = uint256(params.baseMax);
-    }
-
-    /// @notice Calculate baseline volatility (unified for breadth + fees)
-    /// @dev v_base = w * v_f + (1 - w) * v_s, clamped to [v_floor, v_max]
-    /// @dev Computed once per asset per leg, reused for both breadth and fee calculations
-    /// @param fastVol Fast volatility in 1e6 units (e.g., 5000000 = 5%)
-    /// @param slowVol Slow volatility in 1e6 units
-    /// @param params Fee parameters containing weight, floor, and max
-    /// @return baselineVol Baseline volatility in 1e6 units
-    function _calculateBaselineVolatility(
-        uint32 fastVol,
-        uint32 slowVol,
-        FeeParams memory params
-    ) private pure returns (uint32 baselineVol) {
-        // Weighted average: v_base = w * v_f + (1 - w) * v_s
-        // w is in 1e2 format (e.g., 70 = 0.7)
-        uint256 w = uint256(params.volWeight);
-        uint256 vf = uint256(fastVol);
-        uint256 vs = uint256(slowVol);
-
-        // Calculate: (w * v_f + (100 - w) * v_s) / 100
-        uint256 weighted = (w * vf + (100 - w) * vs) / 100;
-
-        // Clamp to [v_floor, v_max]
-        if (weighted < uint256(params.volFloor)) weighted = uint256(params.volFloor);
-        if (weighted > uint256(params.volMax)) weighted = uint256(params.volMax);
-
-        baselineVol = uint32(weighted);
-    }
-
-    /// @notice Calculate shock ratio (unified for fee shock factor + optional breadth shock)
-    /// @dev r = min(r_max, v_f / max(v_s, ε))
-    /// @dev Captures regime breaks even when absolute volatility is small (critical for stables)
-    /// @dev Computed once per asset per leg, reused for volatility shock factor + breadth shock
-    /// @param fastVol Fast volatility in 1e6 units
-    /// @param slowVol Slow volatility in 1e6 units
-    /// @param params Fee parameters containing r_max and epsilon
-    /// @return shockRatio Shock ratio in 1e2 format (e.g., 300 = 3.0x)
-    function _calculateShockRatio(
-        uint32 fastVol,
-        uint32 slowVol,
-        FeeParams memory params
-    ) private pure returns (uint256 shockRatio) {
-        // r = v_f / max(v_s, ε)
-        uint256 vf = uint256(fastVol);
-        uint256 vs = uint256(slowVol);
-        uint256 epsilon = uint256(params.volEpsilon);
-
-        // Guard against division by zero
-        uint256 vsSafe = vs > epsilon ? vs : epsilon;
-
-        // Ratio in 1e2 format: (v_f * 100) / v_s
-        shockRatio = (vf * 100) / vsSafe;
-
-        // Clamp to r_max
-        uint256 rMax = uint256(params.volRMax);
-        if (shockRatio > rMax) shockRatio = rMax;
+    function getFastPrice(IInternalOracle.InternalFeedData storage oracle) internal view returns (uint256) {
+        return LibOracle.getFastPrice(oracle);
     }
 
     // ========== FEE CALCULATION ==========
 
-    /// @notice Calculate swap fee using tri-factor model (coverage-based ALM with unified volatility)
-    /// @dev Uses Wombat-inspired coverage ratio for inventory factor
-    /// @dev Unified volatility: decode oracle once, compute baseline vol and shock ratio once, reuse for pricing + fees
-    /// @param feeParams Fee parameters with all tri-factor settings
-    /// @param totalLiabilities Total pool liabilities (CACHED - O(1), never iterate!)
-    function calculateSwapFee(
+    /// @notice Compute total path fee using tri-factor model with geometric mean
+    /// @dev Tri-factor: coverage × volatility × deviation
+    /// @dev Uses geometric mean of asset multipliers for balanced incentives
+    /// @dev 50/50 fee split between legs ensures LP reward fairness
+    /// @param amount Input amount (for coverage timing adjustment)
+    /// @return totalFeeBps Total path fee in basis points (split 50/50 per leg)
+    /// @return amountAfterFee Amount after deducting total fee
+    function _computePathFee(
         IBAMM.Asset storage assetIn,
         IBAMM.Asset storage assetOut,
-        IBAMM.LiquidityProfile storage profileIn,
-        IBAMM.LiquidityProfile storage profileOut,
-        LibStorage.OracleEntry storage oracleIn,
-        LibStorage.OracleEntry storage oracleOut,
-        FeeParams storage feeParams,
-        uint256 amountIn,
-        uint256 totalValue,
-        uint256 totalLiabilities
-    ) internal view returns (IBAMM.FeeComponents memory feeComps) {
-        // Decode oracles into structs (reduces stack depth)
-        OracleData memory dataIn = _decodeOracleData(oracleIn);
-        OracleData memory dataOut = _decodeOracleData(oracleOut);
+        LibOracle.FeedData memory dataIn,
+        LibOracle.FeedData memory dataOut,
+        uint256 poolPriceIn,
+        uint256 poolPriceOut,
+        IBAMM.DynamicFeeConfig storage params,
+        uint256 amount
+    ) private view returns (uint256 totalFeeBps, uint256 amountAfterFee) {
+        // Coverage timing (ALM incentives):
+        // - assetIn: post-swap (after adding amountIn) → penalizes imbalance
+        // - assetOut: pre-swap (before removing) → rewards rebalancing
 
-        // *** TRI-FACTOR MODEL ***
-
-        // 1. Base fee from slow volatility (long-term volatility baseline)
-        feeComps.baseFee = _calculateBaseFee(
-            (dataIn.slowVol + dataOut.slowVol) / 2,
-            feeParams
+        // Per-asset tri-factor multipliers with proper coverage timing
+        uint256 multIn = _assetMultiplierWithTiming(
+            assetIn, dataIn, poolPriceIn, params, amount, true  // post-swap (inflow)
+        );
+        uint256 multOut = _assetMultiplierWithTiming(
+            assetOut, dataOut, poolPriceOut, params, 0, false  // pre-swap (outflow)
         );
 
-        // 2. Inventory factor (coverage-based ALM - Wombat style)
-        uint256 invMultIn = _calculateInventoryFactor(
-            assetIn.reserves,
-            assetIn.liabilities,
-            dataIn.priceFast1e18,
-            totalValue,
-            totalLiabilities,
-            feeParams
-        );
-        uint256 invMultOut = _calculateInventoryFactor(
-            assetOut.reserves,
-            assetOut.liabilities,
-            dataOut.priceFast1e18,
-            totalValue,
-            totalLiabilities,
-            feeParams
-        );
-        uint256 invMult = invMultIn > invMultOut ? invMultIn : invMultOut;
+        // Geometric mean of multipliers with overflow protection
+        // Max multipliers capped at maxVolMult, maxDevMult, maxCovMult (~100x each)
+        // Worst case: 100 * 100 = 10,000 (well within uint256)
+        // Additional guard: ensure individual multipliers don't exceed 1e20
+        if (multIn > 1e20 || multOut > 1e20) revert E.InvalidParameter();
+        uint256 pathMult = FPMath.sqrt(multIn * multOut);
 
-        // 3. Volatility shock factor (fast/slow ratio for regime breaks)
-        uint256 volMultIn = _calculateVolatilityShockFactor(
-            dataIn.fastVol,
-            dataIn.slowVol,
-            feeParams
-        );
-        uint256 volMultOut = _calculateVolatilityShockFactor(
-            dataOut.fastVol,
-            dataOut.slowVol,
-            feeParams
-        );
-        uint256 volMult = volMultIn > volMultOut ? volMultIn : volMultOut;
+        // Base fee (from baseline volatility average)
+        uint256 baseFee = _baseFee((dataIn.volBaseline + dataOut.volBaseline) / 2, params);
 
-        // 4. Price divergence factor (spot vs oracle TWAPs)
-        uint256 spotPriceIn = getSegmentPrice(assetIn, profileIn, feeParams, oracleIn, amountIn);
-        uint256 spotPriceOut = getSegmentPrice(assetOut, profileOut, feeParams, oracleOut, 0);
+        // Total path fee
+        totalFeeBps = baseFee * pathMult / M.PRECISION;
+        if (totalFeeBps < params.minBaseFee) totalFeeBps = params.minBaseFee;
+        if (totalFeeBps > M.MAX_FEE_BPS) totalFeeBps = M.MAX_FEE_BPS;
 
-        uint256 divMultIn = _calculatePriceDivergenceFactor(
-            spotPriceIn,
-            dataIn.priceFast1e18,
-            dataIn.priceSlow1e18,
-            feeParams
-        );
-        uint256 divMultOut = _calculatePriceDivergenceFactor(
-            spotPriceOut,
-            dataOut.priceFast1e18,
-            dataOut.priceSlow1e18,
-            feeParams
-        );
-        uint256 divMult = divMultIn > divMultOut ? divMultIn : divMultOut;
-
-        // 5. Combine factors multiplicatively
-        uint256 riskMult = _calculateRiskMultiplier(invMult, volMult, divMult, feeParams);
-
-        // 6. Apply risk multiplier to base fee
-        uint256 fee = FixedPointMathLib.fullMulDiv(feeComps.baseFee, riskMult, M.PRECISION);
-
-        // Enforce asset-specific bounds (use min of both minimums, max of both maximums)
-        uint256 minFee = assetIn.minFeeBps < assetOut.minFeeBps ? assetIn.minFeeBps : assetOut.minFeeBps;
-        uint256 maxFee = assetIn.maxFeeBps > assetOut.maxFeeBps ? assetIn.maxFeeBps : assetOut.maxFeeBps;
-
-        // Clamp to asset bounds
-        fee = fee < minFee ? minFee : (fee > maxFee ? maxFee : fee);
-
-        // Populate fee components (convert to base 100 for display)
-        feeComps.totalFeeBps = fee;
-        feeComps.volatilityMultiplier = FixedPointMathLib.fullMulDiv(volMult, 100, M.PRECISION);
-        feeComps.inventoryMultiplier = FixedPointMathLib.fullMulDiv(invMult, 100, M.PRECISION);
-        feeComps.divergenceMultiplier = FixedPointMathLib.fullMulDiv(divMult, 100, M.PRECISION);
-        feeComps.exitInventoryDivergence = 100; // Single-leg: no exit divergence
-        // Single-leg: no per-leg breakdown
-        feeComps.leg1FeeBps = 0;
-        feeComps.leg2FeeBps = 0;
-        feeComps.leg1Notional = 0;
-        feeComps.leg2Notional = 0;
+        amountAfterFee = amount * (M.BPS_PRECISION - totalFeeBps) / M.BPS_PRECISION;
     }
 
-    /// @notice Calculate withdrawal fee (ALM model - flat rate)
-    /// @dev In ALM model, withdrawals charged flat fee (if any) for LP arbitrage mitigation
-    /// @param asset Asset being withdrawn
-    /// @return fee Withdrawal fee in bps
-    function calculateWithdrawalFee(
-        IBAMM.Asset storage asset
-    ) internal view returns (uint256 fee) {
-        // ALM model: flat withdrawal fee (default 0)
-        // No deviation-based fees - pool balances organically via swap fees
-        return asset.withdrawalFeeBps;
-    }
-
-    // ========== PORTFOLIO VALUATION ==========
-
-    /// @notice Calculate total portfolio value (O(n) - only for view functions)
-    /// @dev Uses fast TWAP computed inline with Uniswap V3 accumulator formula
-    /// @dev NOTE: Returns 0 instead of 1 sentinel - caller should handle zero case
-    /// @return total Total value in base asset terms (can be 0 if no assets)
-    function calculateTotalValue(
-        address[] storage registeredAssets,
-        mapping(address => IBAMM.Asset) storage assets,
-        mapping(bytes32 => LibStorage.OracleEntry) storage oracleEntries
-    ) internal view returns (uint256 total) {
-        uint256 length = registeredAssets.length;
-
-        for (uint256 i = 0; i < length; i++) {
-            address token = registeredAssets[i];
-            IBAMM.Asset storage asset = assets[token];
-            LibStorage.OracleEntry storage oracle = oracleEntries[asset.oracleId];
-
-            // Calculate fast TWAP inline (Uniswap V3 style)
-            uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
-            uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
-            uint256 timeDelta = block.timestamp - oracle.fastSnapshotTime;
-            uint64 fastTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDelta);
-
-            if (fastTWAP > 0) {
-                // Decode b64 to 1e8 and calculate value with fullMulDiv
-                uint256 price1e8 = M.b64ToPrice(fastTWAP);
-                uint256 value = FixedPointMathLib.fullMulDiv(uint256(asset.reserves), price1e8, M.PRICE_PRECISION);
-                total += value;
-            }
-        }
-
-        // Return 0 explicitly instead of sentinel - caller should guard against division by zero
-        return total;
-    }
-
-    /// @notice Calculate value of a single token's reserves (O(1))
-    /// @dev Used for delta-based cache updates with inline TWAP calculation
-    /// @param asset The asset to value
-    /// @param oracle The oracle entry for this asset
-    /// @return value Value in base asset terms
-    function calculateTokenValue(
+    function _assetMultiplierWithTiming(
         IBAMM.Asset storage asset,
-        LibStorage.OracleEntry storage oracle
-    ) internal view returns (uint256 value) {
-        // Calculate fast TWAP inline
-        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
-        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
-        uint256 timeDelta = block.timestamp - oracle.fastSnapshotTime;
-        uint64 fastTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDelta);
+        LibOracle.FeedData memory data,
+        uint256 poolPrice,
+        IBAMM.DynamicFeeConfig storage params,
+        uint256 deltaAmount,
+        bool isInflow
+    ) private view returns (uint256) {
+        // Coverage timing:
+        // - Inflow (selling into pool): use post-swap reserves for penalties
+        // - Outflow (buying from pool): use pre-swap reserves for rebates
+        uint256 adjustedReserves = isInflow
+            ? uint256(asset.reserves) + deltaAmount
+            : uint256(asset.reserves);
 
-        if (fastTWAP == 0) return 0;
+        // 1. Coverage factor with timing
+        uint256 covMult = _coverageFactor(uint128(adjustedReserves), asset.liabilities, params);
 
-        uint256 price1e8 = M.b64ToPrice(fastTWAP);
-        value = FixedPointMathLib.fullMulDiv(uint256(asset.reserves), price1e8, M.PRICE_PRECISION);
+        // 2. Volatility shock multiplier
+        uint256 volMult = _volShock(data.volFast, data.volSlow, params);
+
+        // 3. Price deviation multiplier
+        uint256 devMult = _deviationFactor(poolPrice, data.priceFast, data.fastTWAP, data.slowTWAP, params);
+
+        // Combine: m_asset = m_cov * m_vol * m_dev / 1e36
+        uint256 mult = covMult * volMult / M.PRECISION;
+        mult = mult * devMult / M.PRECISION;
+
+        // No explicit min/max clamps - handled by individual factor limits
+        // Coverage: minCovMult to maxCovMult (implicit min via rebate)
+        // Volatility: capped by maxVolMult
+        // Deviation: capped by maxDevMult
+        return mult;
     }
 
-    /// @notice Update cached total value with reserve delta (O(1))
-    /// @dev Called on swap/deposit/withdraw to maintain cache without O(n) loop
-    /// @dev Uses fullMulDiv for precision and returns 0 instead of sentinel
-    /// @param cachedTotal Current cached total value
-    /// @param asset The asset that changed
-    /// @param oracle The oracle entry for this asset
-    /// @param reservesDelta Change in reserves (can be negative)
-    /// @return newTotal Updated total value (can be 0)
-    function updateTotalValueDelta(
-        uint256 cachedTotal,
-        IBAMM.Asset storage asset,
-        LibStorage.OracleEntry storage oracle,
-        int256 reservesDelta
-    ) internal view returns (uint256 newTotal) {
-        if (reservesDelta == 0) return cachedTotal;
+    /// @notice Per-asset coverage factor (NOT global pool coverage)
+    /// @dev Coverage = reserves / liabilities (in token units, not value)
+    /// @dev Global pool coverage is NOT used in fee calculation, only for analytics
+    /// @param reserves Asset reserves (with timing adjustment from caller)
+    /// @param liabilities Asset liabilities (LP claims in token units)
+    /// @param params Fee parameters
+    /// @return Coverage multiplier in 1e18 precision
+    function _coverageFactor(
+        uint128 reserves,
+        uint128 liabilities,
+        IBAMM.DynamicFeeConfig storage params
+    ) private view returns (uint256) {
+        // Per-asset coverage ratio (NOT value-weighted global coverage)
+        if (liabilities == 0) return M.PRECISION;
 
-        // Calculate fast TWAP inline
-        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
-        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
-        uint256 timeDelta = block.timestamp - oracle.fastSnapshotTime;
-        uint64 fastTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDelta);
+        uint256 coverage = uint256(reserves) * M.PRECISION / uint256(liabilities);
 
-        if (fastTWAP == 0) return cachedTotal;
+        if (coverage < M.PRECISION) {
+            // Under-collateralized (< 100%): linear rebate to attract deposits
+            uint256 deltaUnder = (M.PRECISION - coverage) * M.PRECISION / params.maxCovUnder;
+            if (deltaUnder > M.PRECISION) deltaUnder = M.PRECISION;
 
-        uint256 price1e8 = M.b64ToPrice(fastTWAP);
-
-        if (reservesDelta > 0) {
-            // Positive delta: add value with fullMulDiv
-            uint256 valueDelta = FixedPointMathLib.fullMulDiv(uint256(reservesDelta), price1e8, M.PRICE_PRECISION);
-            newTotal = cachedTotal + valueDelta;
+            uint256 minMult = params.minCovMult * M.PRECISION / 100;
+            return M.PRECISION - (M.PRECISION - minMult) * deltaUnder / M.PRECISION;
         } else {
-            // Negative delta: subtract value with fullMulDiv
-            uint256 valueDelta = FixedPointMathLib.fullMulDiv(uint256(-reservesDelta), price1e8, M.PRICE_PRECISION);
-            newTotal = cachedTotal > valueDelta ? cachedTotal - valueDelta : 0;
-        }
+            // Over-collateralized (> 100%): linear penalty to discourage deposits
+            uint256 deltaOver = (coverage - M.PRECISION) * M.PRECISION / params.maxCovOver;
+            if (deltaOver > M.PRECISION) deltaOver = M.PRECISION;
 
-        // Return 0 explicitly instead of sentinel - caller should handle
-        return newTotal;
+            uint256 maxMult = params.maxCovMult * M.PRECISION / 100;
+            return M.PRECISION + (maxMult - M.PRECISION) * deltaOver / M.PRECISION;
+        }
     }
 
-    /// @notice Update cached total liabilities with liability delta (O(1))
-    /// @dev Called on deposit/withdraw to maintain cache without O(n) loop
-    /// @dev Uses fullMulDiv for precision and returns 0 instead of sentinel
-    /// @param cachedTotal Current cached total liabilities
-    /// @param asset The asset that changed
-    /// @param oracle The oracle entry for this asset
-    /// @param liabilitiesDelta Change in liabilities (can be negative)
-    /// @return newTotal Updated total liabilities (can be 0)
-    function updateTotalLiabilitiesDelta(
-        uint256 cachedTotal,
-        IBAMM.Asset storage asset,
-        LibStorage.OracleEntry storage oracle,
-        int256 liabilitiesDelta
-    ) internal view returns (uint256 newTotal) {
-        if (liabilitiesDelta == 0) return cachedTotal;
+    function _volShock(uint32 fast, uint32 slow, IBAMM.DynamicFeeConfig storage params) private view returns (uint256) {
+        // Ensure minimum baseline volatility (prevents division issues and unrealistic ratios)
+        uint256 slowSafe = slow > params.volEpsilon ? slow : params.volEpsilon;
 
-        // Calculate fast TWAP inline
-        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
-        uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
-        uint256 timeDelta = block.timestamp - oracle.fastSnapshotTime;
-        uint64 fastTWAP = timeDelta == 0 ? oracle.currentPrice : uint64((currentAccum - oracle.fastAccumSnapshot) / timeDelta);
+        // Calculate shock ratio: r = fast / slowSafe
+        uint256 r = fast * M.PRECISION / slowSafe;
 
-        if (fastTWAP == 0) return cachedTotal;
+        uint256 rMax = params.maxVolR * M.PRECISION / 100;
+        if (r > rMax) r = rMax;
 
-        uint256 price1e8 = M.b64ToPrice(fastTWAP);
+        if (r <= M.PRECISION) return M.PRECISION;
 
-        if (liabilitiesDelta > 0) {
-            // Positive delta: add value with fullMulDiv
-            uint256 valueDelta = FixedPointMathLib.fullMulDiv(uint256(liabilitiesDelta), price1e8, M.PRICE_PRECISION);
-            newTotal = cachedTotal + valueDelta;
-        } else {
-            // Negative delta: subtract value with fullMulDiv
-            uint256 valueDelta = FixedPointMathLib.fullMulDiv(uint256(-liabilitiesDelta), price1e8, M.PRICE_PRECISION);
-            newTotal = cachedTotal > valueDelta ? cachedTotal - valueDelta : 0;
-        }
-
-        // Return 0 explicitly instead of sentinel - caller should handle
-        return newTotal;
+        uint256 shock = M.PRECISION + (r - M.PRECISION) * params.volBeta / 100;
+        uint256 volMax = params.maxVolMult * M.PRECISION / 100;
+        return shock > volMax ? volMax : shock;
     }
 
-    // ========== LP FEE ACCRUAL ==========
+    function _baseFee(uint32 volBaseline, IBAMM.DynamicFeeConfig storage params) private view returns (uint256) {
+        // Linear scaling: baseFee = max(minBaseFee, slowVol * baseK / 1e6)
+        // volBaseline in 1e6 base (1_000_000 = 1%)
+        // No upper clamp - global MAX_FEE_BPS applied at final fee calculation
+        uint256 volFee = (uint256(volBaseline) * params.baseK) / 1_000_000;
+        return volFee > params.minBaseFee ? volFee : params.minBaseFee;
+    }
 
-    /// @notice Accrue fees to LP token holders via liquidity index
-    /// @dev Increases reserves and adjusts liquidityIndex proportionally with fullMulDiv
-    /// @param asset Asset storage reference
-    /// @param lpState LP state storage reference
-    /// @param feeAmount Fee amount to accrue
+    /// @notice Accrue LP fees by increasing reserves (rebasing mechanism)
+    /// @dev Used by swaps, flash loans, and other fee-generating operations
     function accrueFeesToLPs(
         IBAMM.Asset storage asset,
         IBAMM.LPState storage lpState,
         uint256 feeAmount
     ) internal {
-        if (lpState.totalScaledSupply == 0) return;
-        if (feeAmount == 0) return;
+        if (lpState.totalScaledSupply == 0 || feeAmount == 0) return;
 
-        // Add fee to reserves
-        uint256 oldReserves = asset.reserves;
-        asset.reserves = (oldReserves + feeAmount).toUint128();
+        // Add fee to reserves (increases LP token value)
+        uint256 newReserves = uint256(asset.reserves) + feeAmount;
 
-        // Update liquidity index with fullMulDiv for precision
-        // newIndex = oldIndex * newReserves / oldReserves
-        if (oldReserves > 0) {
-            uint256 newIndex = FixedPointMathLib.fullMulDiv(
-                uint256(lpState.liquidityIndex),
-                uint256(asset.reserves),
-                oldReserves
-            );
-            lpState.liquidityIndex = newIndex.toUint128();
+        // Protect against uint128 overflow
+        if (newReserves > type(uint128).max) {
+            newReserves = type(uint128).max;
         }
+
+        asset.reserves = uint128(newReserves);
+    }
+
+    function _deviationFactor(
+        uint256 poolPrice,
+        uint256 oracleFast,
+        uint64 fastTWAP,
+        uint64 slowTWAP,
+        IBAMM.DynamicFeeConfig storage params
+    ) private view returns (uint256) {
+        // Dual deviation: pool vs oracle + oracle drift
+
+        // 1. Pool execution price vs fast oracle (LVR risk)
+        uint256 poolDev = 0;
+        if (oracleFast > 0) {
+            uint256 diff = poolPrice > oracleFast ? poolPrice - oracleFast : oracleFast - poolPrice;
+            poolDev = (diff * M.BPS_PRECISION) / oracleFast;
+        }
+
+        // 2. Fast TWAP vs slow TWAP (oracle uncertainty)
+        uint256 oracleDev = 0;
+        if (slowTWAP > 0) {
+            uint256 diff = fastTWAP > slowTWAP ? fastTWAP - slowTWAP : slowTWAP - fastTWAP;
+            oracleDev = (diff * M.BPS_PRECISION) / slowTWAP;
+        }
+
+        // Combine additively
+        uint256 totalDev = poolDev + oracleDev;
+
+        // Apply threshold and scaling
+        if (totalDev <= params.maxDevD1) return M.PRECISION;
+
+        uint256 excessDev = totalDev - params.maxDevD1;
+        if (excessDev > params.maxDevD2) excessDev = params.maxDevD2;
+
+        uint256 mult = M.PRECISION + (excessDev * params.devAlpha) / 100;
+        uint256 maxMult = M.PRECISION * params.maxDevMult / 100;
+        if (mult > maxMult) mult = maxMult;
+
+        return mult;
+    }
+
+    // ========== SEGMENT PRICING ==========
+
+    /// @notice Calculate effective depth using coverage-aware amplification
+    /// @dev Uses decayed liabilities (caller must call LibLiability.updateDecay first)
+    /// @dev When L > R: amplifies depth by D = R + (L - R) × C, capped at alphaMax × R
+    /// @dev When L ≤ R: no amplification, D = R
+    /// @param asset Asset storage (contains reserves and liabilities)
+    /// @param lpState LP state (reserved for future decay-curve refinements)
+    /// @param risk Risk config (for future alphaMax parameterization)
+    /// @return D Effective depth for pricing
+    function _effectiveDepthToken(
+        IBAMM.Asset storage asset,
+        IBAMM.LPState storage lpState,
+        IBAMM.RiskConfig storage risk
+    ) private view returns (uint256 D) {
+        // Use post-decay liabilities; BAMM.swap calls LibLiability.updateDecay() first
+        uint256 R = uint256(asset.reserves);
+        uint256 L = uint256(asset.liabilities);
+
+        // No liabilities or no reserves → no amplification
+        if (L == 0 || R == 0) return R;
+
+        // Over-collateralized (C ≥ 1) → no virtual liquidity
+        if (L <= R) return R;
+
+        // Under-collateralized (C < 1) → amplify based on coverage ratio
+        // Coverage C = R/L in WAD (1e18)
+        uint256 C = FPMath.mulDiv(R, 1e18, L);
+
+        // Smooth amplification: D = R + (L - R) × C
+        // This gives linear interpolation: at C=1, D=L; at C→0, D→R
+        uint256 extra = FPMath.mulDiv(L - R, C, 1e18);
+        uint256 rawD = R + extra;
+
+        // Hard cap on amplification (alphaMax = 12000 bps → 1.2x reserves)
+        // TODO: Make alphaMax configurable per-asset via risk.maxAmplificationBps
+        uint256 alphaMaxBps = 12000;
+        uint256 maxD = FPMath.mulDiv(R, alphaMaxBps, 10000);
+
+        D = rawD > maxD ? maxD : rawD;
+    }
+
+    /// @notice Wrapper to compute effective depth for pricing (adds token lookup)
+    /// @dev Fetches lpState and riskConfig for the given asset
+    /// @dev Used for both direct swaps and virtual depth in triangulated swaps
+    function _depthForPricing(address token) private view returns (uint256) {
+        IBAMM.BAMMStorage storage $ = S.bamm();
+        IBAMM.Asset storage asset = $.assets[token];
+        IBAMM.LPState storage lpState = $.lpStates[token];
+        IBAMM.RiskConfig storage risk = $.riskConfigs[token];
+
+        return _effectiveDepthToken(asset, lpState, risk);
+    }
+
+    function _segmentPrice(
+        address token,
+        IBAMM.Asset storage asset,
+        IBAMM.LiquidityProfile storage prof,
+        LibOracle.FeedData memory data,
+        uint256 amount
+    ) private view returns (uint256) {
+        return _segmentPriceWithDepth(token, asset, prof, data, amount, 0);
+    }
+
+    /// @notice Calculate segment-based price using Makima cubic splines
+    /// @dev Virtual depth achieves path independence for triangulated swaps:
+    /// @dev - A→base→B should have same slippage as direct A↔B
+    /// @dev - virtualDepth makes base appear as deep/shallow as the real asset
+    /// @dev Example: If A has 1000 reserves, base has 100, depthMult = 10 → base appears 10x deeper
+    /// @param token Token address (used to compute effective depth)
+    /// @param virtualDepth If non-zero, overrides effective depth calculation
+    function _segmentPriceWithDepth(
+        address token,
+        IBAMM.Asset storage asset,
+        IBAMM.LiquidityProfile storage prof,
+        LibOracle.FeedData memory data,
+        uint256 amount,
+        uint256 virtualDepth
+    ) private view returns (uint256) {
+        if (data.priceSlow == 0) return M.PRICE_PRECISION;
+        if (asset.segmentCount <= 1 || asset.reserves == 0) return data.priceSlow;
+
+        // Limit amount to prevent DoS
+        uint256 maxAmount = uint256(asset.reserves) * 100;
+        if (amount > maxAmount) amount = maxAmount;
+
+        // Calculate effective depth:
+        // - If virtualDepth specified (triangulated swaps), use it
+        // - Otherwise, use coverage-aware effective depth based on decayed liabilities
+        uint256 effectiveDepth = virtualDepth > 0 ? virtualDepth : _depthForPricing(token);
+
+        // Use Makima pricing with effective depth
+        (, uint256 avgPrice) = MakimaP.quoteSwap(
+            amount,
+            effectiveDepth,
+            prof,
+            data.priceSlow,
+            data.volBaseline,
+            asset.segmentCount
+        );
+
+        return avgPrice;
+    }
+
+    // ========== PORTFOLIO CALCULATIONS ==========
+
+    function calculateTotalValue(
+        address[] storage registeredAssets,
+        mapping(address => IBAMM.Asset) storage assets,
+        mapping(bytes32 => IInternalOracle.InternalFeedData) storage oracleEntries,
+        address baseToken
+    ) internal view returns (uint256 total) {
+        uint256 length = registeredAssets.length;
+        for (uint256 i = 0; i < length; i++) {
+            address token = registeredAssets[i];
+            IBAMM.Asset storage asset = assets[token];
+            bytes32 feedId = S.computeOracleId(token, baseToken);
+            IInternalOracle.InternalFeedData storage oracle = oracleEntries[feedId];
+
+            if (block.timestamp - oracle.base.updatedAt > 1 hours) continue;
+
+            uint256 price = getFastPrice(oracle);
+            if (price > 0) {
+                total += FPMath.fullMulDiv(asset.reserves, price, M.PRICE_PRECISION);
+            }
+        }
+    }
+
+    function calculateTotalLiabilities(
+        address[] storage registeredAssets,
+        mapping(address => IBAMM.Asset) storage assets,
+        mapping(bytes32 => IInternalOracle.InternalFeedData) storage oracleEntries,
+        address baseToken
+    ) internal view returns (uint256 total) {
+        uint256 length = registeredAssets.length;
+        for (uint256 i = 0; i < length; i++) {
+            address token = registeredAssets[i];
+            IBAMM.Asset storage asset = assets[token];
+            bytes32 feedId = S.computeOracleId(token, baseToken);
+            IInternalOracle.InternalFeedData storage oracle = oracleEntries[feedId];
+
+            if (block.timestamp - oracle.base.updatedAt > 1 hours) continue;
+
+            uint256 price = getFastPrice(oracle);
+            if (price > 0) {
+                total += FPMath.fullMulDiv(asset.liabilities, price, M.PRICE_PRECISION);
+            }
+        }
+    }
+
+    function updateTotalValueDelta(
+        uint256 totalValue,
+        IBAMM.Asset storage, // asset
+        IInternalOracle.InternalFeedData storage oracle,
+        int256 delta
+    ) internal view returns (uint256) {
+        if (delta == 0) return totalValue;
+
+        uint256 price = getFastPrice(oracle);
+        if (price == 0) return totalValue;
+
+        int256 valueDelta = int256(FPMath.fullMulDiv(uint256(delta > 0 ? delta : -delta), price, M.PRICE_PRECISION));
+
+        if (delta < 0) valueDelta = -valueDelta;
+
+        int256 newValue = int256(totalValue) + valueDelta;
+        return newValue > 0 ? uint256(newValue) : 0;
+    }
+
+    function updateTotalLiabilitiesDelta(
+        uint256 totalLiabilities,
+        IBAMM.Asset storage, // asset
+        IInternalOracle.InternalFeedData storage oracle,
+        int256 delta
+    ) internal view returns (uint256) {
+        if (delta == 0) return totalLiabilities;
+
+        uint256 price = getFastPrice(oracle);
+        if (price == 0) return totalLiabilities;
+
+        int256 liabDelta = int256(FPMath.fullMulDiv(uint256(delta > 0 ? delta : -delta), price, M.PRICE_PRECISION));
+
+        if (delta < 0) liabDelta = -liabDelta;
+
+        int256 newLiab = int256(totalLiabilities) + liabDelta;
+        return newLiab > 0 ? uint256(newLiab) : 0;
+    }
+
+    function calculateWithdrawalFee(IBAMM.Asset storage asset) internal view returns (uint256) {
+        return asset.fees.withdrawalFeeBps;
     }
 }

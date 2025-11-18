@@ -1,0 +1,142 @@
+[
+  {
+    "name": "ALLOCATION_AND_VESTING",
+    "path": "ALLOCATION_AND_VESTING",
+    "type": "file"
+  },
+  {
+    "name": "ALM_AND_COVERAGE",
+    "path": "ALM_AND_COVERAGE",
+    "type": "file"
+  },
+  {
+    "name": "ARCHITECTURE",
+    "path": "ARCHITECTURE",
+    "type": "file"
+  },
+  {
+    "name": "B64_FLOAT",
+    "path": "B64_FLOAT",
+    "type": "file"
+  },
+  {
+    "name": "BAMM_HOOKS",
+    "path": "BAMM_HOOKS",
+    "type": "file"
+  },
+  {
+    "name": "BATCH_SWAP",
+    "path": "BATCH_SWAP",
+    "type": "file"
+  },
+  {
+    "name": "BAYESIAN_UPDATE",
+    "path": "BAYESIAN_UPDATE",
+    "type": "file"
+  },
+  {
+    "name": "CIRCUIT_BREAKERS",
+    "path": "CIRCUIT_BREAKERS",
+    "type": "file"
+  },
+  {
+    "name": "DARK_POOL",
+    "path": "DARK_POOL",
+    "type": "file"
+  },
+  {
+    "name": "ERC1155_LP_TOKENS",
+    "path": "ERC1155_LP_TOKENS",
+    "type": "file"
+  },
+  {
+    "name": "FEES",
+    "path": "FEES",
+    "type": "file"
+  },
+  {
+    "name": "FLASH_LOANS",
+    "path": "FLASH_LOANS",
+    "type": "file"
+  },
+  {
+    "name": "INTERNALS",
+    "path": "INTERNALS",
+    "type": "file"
+  },
+  {
+    "name": "LEVERAGE_TRADING",
+    "path": "LEVERAGE_TRADING",
+    "type": "file"
+  },
+  {
+    "name": "LIABILITY_SWAP",
+    "path": "LIABILITY_SWAP",
+    "type": "file"
+  },
+  {
+    "name": "LIABILITY_TIME_DECAY",
+    "path": "LIABILITY_TIME_DECAY",
+    "type": "file"
+  },
+  {
+    "name": "LIQUIDITY_SHAPING",
+    "path": "LIQUIDITY_SHAPING",
+    "type": "file"
+  },
+  {
+    "name": "NATIVE_TOKEN_SUPPORT",
+    "path": "NATIVE_TOKEN_SUPPORT",
+    "type": "file"
+  },
+  {
+    "name": "ORACLE",
+    "path": "ORACLE",
+    "type": "file"
+  },
+  {
+    "name": "ORACLE_ARCHITECTURE",
+    "path": "ORACLE_ARCHITECTURE",
+    "type": "file"
+  },
+  {
+    "name": "ORBITAL_VS_BAMM",
+    "path": "ORBITAL_VS_BAMM",
+    "type": "file"
+  },
+  {
+    "name": "PARAMETERS",
+    "path": "PARAMETERS",
+    "type": "file"
+  },
+  {
+    "name": "README",
+    "path": "README",
+    "type": "file"
+  },
+  {
+    "name": "RESERVES_HYPOTHECATION",
+    "path": "RESERVES_HYPOTHECATION",
+    "type": "file"
+  },
+  {
+    "name": "STRUCT_OPTIMIZATION_AUDIT_FIXES",
+    "path": "STRUCT_OPTIMIZATION_AUDIT_FIXES",
+    "type": "file"
+  },
+  {
+    "name": "SWAP",
+    "path": "SWAP",
+    "type": "file"
+  },
+  {
+    "name": "TOKENOMICS",
+    "path": "TOKENOMICS",
+    "type": "file"
+  },
+  {
+    "name": "UPGRADEABILITY",
+    "path": "UPGRADEABILITY",
+    "type": "file"
+  }
+]

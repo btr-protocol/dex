@@ -3,12 +3,13 @@ pragma solidity ^0.8.28;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
-import {BAMMErrors} from "../bamm/BAMMEvents.sol";
+import {BAMMErrors} from "../bamm/BAMMErrors.sol";
+import {IRescuable} from "../interfaces/IRescuable.sol";
 
 /// @title Rescuable
 /// @notice Emergency asset recovery mechanism with timelock
 /// @dev Inherit this contract and restrict rescue functions to authorized roles
-abstract contract Rescuable is ReentrancyGuard {
+abstract contract Rescuable is IRescuable, ReentrancyGuard {
     using SafeTransferLib for address;
 
     // Timelock constants
@@ -28,11 +29,6 @@ abstract contract Rescuable is ReentrancyGuard {
     }
 
     mapping(address => RescueRequest) private _rescueRequests;
-
-    // Events
-    event RescueRequested(address indexed requester, address indexed token, uint256 amount);
-    event RescueExecuted(address indexed receiver, address indexed token, uint256 amount);
-    event RescueCancelled(address indexed requester, address indexed token);
 
     /// @notice Request asset recovery with 4-day timelock and 3-day acceptance window
     /// @dev Snapshots the current balance; tokens sent after request are NOT included

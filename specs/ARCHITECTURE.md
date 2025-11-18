@@ -27,8 +27,6 @@ BeaconFactory.sol     ~80 lines   (abstract base for all factories)
 BAMMFactory.sol       ~180 lines  (extends BeaconFactory)
 DarkPoolFactory.sol   ~80 lines   (extends BeaconFactory)
 OracleFactory.sol     ~110 lines  (extends BeaconFactory)
-
-BAMMEvents.sol        ~70 lines   (errors + events)
 ```
 
 **Factory System:**
@@ -88,34 +86,17 @@ struct LPState {
 
 ### Hub-and-Spoke Model
 
-All swaps route through the base token (USDC):
+All swaps route through the base token (typically USDC) as a pricing numéraire. The system supports two swap types:
 
-```
-TokenA → USDC → TokenB
-```
+1. **Direct swaps** (A ↔ base): One token is the base token
+2. **Triangulated swaps** (A → base → B): Base token is virtual numéraire only
 
-**Price calculation:**
-```solidity
-amountOut = (amountIn * priceIn) / priceOut
-```
+**Key properties**:
+- Base token reserves/liabilities unchanged in triangulated swaps
+- Virtual depth ensures path independence (A→base→B has same slippage as direct A↔B)
+- Fee split 50/50 between real liquidity providers (base earns nothing in triangulated swaps)
 
-**With decimals:**
-```solidity
-if (decimalsIn > decimalsOut) {
-    amountOut /= 10 ** (decimalsIn - decimalsOut)
-} else {
-    amountOut *= 10 ** (decimalsOut - decimalsIn)
-}
-```
-
-**Flow:**
-1. Calculate fee (multi-factor)
-2. Deduct fee from input
-3. Calculate output via prices
-4. Adjust for decimals
-5. Check reserves & slippage
-6. Execute transfers
-7. Update allocations
+**For complete swap routing specification**, including pricing flow, virtual depth mechanics, and numéraire concepts, see **[SWAP.md](./SWAP.md)**.
 
 ---
 
@@ -129,10 +110,10 @@ function addAsset(
     address oracle,
     uint16 targetAllocBps,
     uint8 segmentCount,
-    uint8[16] calldata weights,
-    int8[17] calldata offsets,
-    uint64 minBreadth,
-    uint64 maxBreadth
+    uint8[32] calldata weights,
+    int8[33] calldata offsets,
+    uint32 minPriceStep,
+    uint32 maxBreadth
 ) external onlyOwner
 ```
 

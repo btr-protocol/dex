@@ -3,52 +3,58 @@ pragma solidity ^0.8.28;
 
 import {IBAMM} from "../interfaces/IBAMM.sol";
 import {IInternalOracle} from "../interfaces/IInternalOracle.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
 import {BaseOracle} from "../oracles/BaseOracle.sol";
-import {BAMMErrors as E} from "./BAMMEvents.sol";
-import {BAMMEvents as Events} from "./BAMMEvents.sol";
+import {BAMMErrors as E} from "./BAMMErrors.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibUtils} from "../libraries/LibUtils.sol";
-import {LibStorage} from "../libraries/LibStorage.sol";
+import {LibStorage as S} from "../libraries/LibStorage.sol";
+import {BAMMStorage} from "./BAMMStorage.sol";
 
 /// @title InternalOracle
 /// @notice BAMM's internal accumulator-based oracle (Uniswap V3-style TWAP)
 /// @dev Implements IInternalOracle - ONLY manages internal accumulator
 /// @dev Does NOT handle external oracle reading - that's BAMM's responsibility
 /// @dev Extends BaseOracle for common validation functionality
-abstract contract InternalOracle is BaseOracle, IInternalOracle {
+abstract contract InternalOracle is BAMMStorage, BaseOracle, IInternalOracle {
 
-    // ========== STORAGE ACCESS (must be implemented by child) ==========
+    // ========== HELPER FUNCTIONS ==========
 
-    /// @dev Oracle data by oracleId = keccak256(abi.encodePacked(baseAsset, quoteAsset))
-    /// @dev Must be implemented by child contract (returns reference to LibStorage.OracleEntry)
-    function _getOracleEntry(bytes32 oracleId) internal view virtual returns (LibStorage.OracleEntry storage);
+    /// @notice Get all registered assets (returns array copy)
+    function _getRegisteredAssets() internal view returns (address[] memory) {
+        return _sb().registeredAssets;
+    }
 
-    /// @notice Get asset storage for given token
-    function _getAsset(address token) internal view virtual returns (IBAMM.Asset storage);
+    /// @notice Get fast TWAP weight (hardcoded for gas efficiency)
+    function _getFastTWAPWeight() internal pure returns (uint8) {
+        return 128; // 50% weight (128/256)
+    }
 
-    /// @notice Get all registered assets
-    function _getRegisteredAssets() internal view virtual returns (address[] memory);
-
-    /// @notice Get fast TWAP weight
-    function _getFastTWAPWeight() internal view virtual returns (uint8);
-
-    /// @notice Get slow TWAP weight
-    function _getSlowTWAPWeight() internal view virtual returns (uint8);
+    /// @notice Get slow TWAP weight (hardcoded for gas efficiency)
+    function _getSlowTWAPWeight() internal pure returns (uint8) {
+        return 32; // ~12.5% weight (32/256)
+    }
 
     // ========== ORACLE UPDATES ==========
 
     /// @notice Update internal oracle with new price and volatility data
     /// @dev Implements IInternalOracle.updateOracle
-    /// @param oracleId Oracle identifier (keccak256 of base/quote pair)
+    /// @param feedId Oracle identifier (keccak256 of base/quote pair)
     /// @param newPrice New spot price (b64 format)
     /// @param newVolatility New volatility measurement (1e6 base: 1_000_000 = 1%)
-    function updateOracle(bytes32 oracleId, uint64 newPrice, uint32 newVolatility) external virtual override {
-        LibStorage.OracleEntry storage oracle = _getOracleEntry(oracleId);
-        if (!oracle.exists) revert E.InvalidParameter();
+    function updateOracle(bytes32 feedId, uint64 newPrice, uint32 newVolatility) external virtual override {
+        IInternalOracle.InternalFeedData storage oracle = _getOracleEntry(feedId);
+        if (oracle.base.updatedAt == 0) revert E.InvalidParameter(); // Oracle doesn't exist
 
         // Validate inputs
         if (!_validatePrice(newPrice)) revert E.InvalidPrice();
         if (!_validateVolatility(newVolatility)) revert E.InvalidParameter();
+
+        // Bound volatility to [0, 100%]
+        uint32 MAX_VOLATILITY = 100_000_000; // 100% in 1e6 base
+        if (newVolatility > MAX_VOLATILITY) {
+            revert E.VolatilityTooHigh(newVolatility, MAX_VOLATILITY);
+        }
 
         // Cache timestamp to avoid repeated SLOAD operations (gas optimization)
         uint256 currentTime = block.timestamp;
@@ -62,13 +68,12 @@ abstract contract InternalOracle is BaseOracle, IInternalOracle {
             oracle.fastSnapshotTime = currentTime32;
             oracle.slowAccumSnapshot = 0;
             oracle.slowSnapshotTime = currentTime32;
-            oracle.fastVolatility = newVolatility;
-            oracle.slowVolatility = newVolatility;
-            oracle.lastOracleUpdate = currentTime32;
+            oracle.base.fastVolEMA = newVolatility;
+            oracle.base.slowVolEMA = newVolatility;
+            oracle.base.updatedAt = currentTime32;
 
             // Emit event with initial values
-            emit Events.OracleUpdate(oracleId, newPrice, newPrice,
-                                    newVolatility, newVolatility, msg.sender);
+            emit OracleUpdate(feedId, newPrice, newPrice, newVolatility, newVolatility, msg.sender);
         } else {
             // Check price change is within bounds (compare in 1e18 format for precision)
             uint256 oldPrice1e18 = M.decodePriceTo1e18(oracle.currentPrice);
@@ -78,7 +83,7 @@ abstract contract InternalOracle is BaseOracle, IInternalOracle {
             if (priceDelta > maxChange) revert E.PriceChangeTooLarge();
 
             // Update accumulator: Σ(price × timeElapsed) - Uniswap V3 pattern
-            uint256 timeElapsed = currentTime - oracle.lastOracleUpdate;
+            uint256 timeElapsed = currentTime - oracle.base.updatedAt;
             uint256 newAccumulator = oracle.priceAccumulator + uint256(oracle.currentPrice) * timeElapsed;
             oracle.priceAccumulator = newAccumulator;
 
@@ -120,36 +125,35 @@ abstract contract InternalOracle is BaseOracle, IInternalOracle {
             }
 
             // Update volatility using EMA (appropriate for variance smoothing)
-            oracle.fastVolatility = M.updateVolatilityEMA(oracle.fastVolatility, newVolatility, _getFastTWAPWeight());
-            oracle.slowVolatility = M.updateVolatilityEMA(oracle.slowVolatility, newVolatility, _getSlowTWAPWeight());
+            oracle.base.fastVolEMA = M.updateVolatilityEMA(oracle.base.fastVolEMA, newVolatility, _getFastTWAPWeight());
+            oracle.base.slowVolEMA = M.updateVolatilityEMA(oracle.base.slowVolEMA, newVolatility, _getSlowTWAPWeight());
 
-            oracle.lastOracleUpdate = currentTime32;
+            oracle.base.updatedAt = currentTime32;
 
             // Emit event with precomputed TWAPs (no external calls or recomputation)
-            emit Events.OracleUpdate(oracleId, fastTWAP, slowTWAP,
-                                    oracle.fastVolatility, oracle.slowVolatility, msg.sender);
+            emit OracleUpdate(feedId, fastTWAP, slowTWAP, oracle.base.fastVolEMA, oracle.base.slowVolEMA, msg.sender);
         }
     }
 
     /// @notice Reset oracle accumulator (e.g., after base/quote currency change)
     /// @dev Implements IInternalOracle.resetOracle
     /// @dev Clears accumulator state and reinitializes with new values
-    /// @param oracleId Oracle identifier to reset
+    /// @param feedId Oracle identifier to reset
     /// @param initialPrice Initial price (b64 format)
-    /// @param initialFastVol Initial fast volatility (1e6 base)
-    /// @param initialSlowVol Initial slow volatility (1e6 base)
+    /// @param fastVolEMA Initial fast vol (1e6 base)
+    /// @param slowVolEMA Initial slow vol (1e6 base)
     function resetOracle(
-        bytes32 oracleId,
+        bytes32 feedId,
         uint64 initialPrice,
-        uint32 initialFastVol,
-        uint32 initialSlowVol
+        uint32 fastVolEMA,
+        uint32 slowVolEMA
     ) external virtual override {
-        LibStorage.OracleEntry storage oracle = _getOracleEntry(oracleId);
+        IInternalOracle.InternalFeedData storage oracle = _getOracleEntry(feedId);
 
         // Validate inputs
         if (!_validatePrice(initialPrice)) revert E.InvalidPrice();
-        if (!_validateVolatility(initialFastVol)) revert E.InvalidParameter();
-        if (!_validateVolatility(initialSlowVol)) revert E.InvalidParameter();
+        if (!_validateVolatility(fastVolEMA)) revert E.InvalidParameter();
+        if (!_validateVolatility(slowVolEMA)) revert E.InvalidParameter();
 
         // Reset accumulator state to zero
         oracle.currentPrice = initialPrice;
@@ -158,55 +162,56 @@ abstract contract InternalOracle is BaseOracle, IInternalOracle {
         oracle.fastSnapshotTime = uint32(block.timestamp);
         oracle.slowAccumSnapshot = 0;
         oracle.slowSnapshotTime = uint32(block.timestamp);
-        oracle.fastVolatility = initialFastVol;
-        oracle.slowVolatility = initialSlowVol;
-        oracle.lastOracleUpdate = uint32(block.timestamp);
-        oracle.exists = true;
+        oracle.base.fastVolEMA = fastVolEMA;
+        oracle.base.slowVolEMA = slowVolEMA;
+        oracle.base.updatedAt = uint32(block.timestamp);
 
-        emit OracleReset(oracleId, initialPrice, initialFastVol, initialSlowVol);
+        emit OracleReset(feedId, initialPrice, fastVolEMA, slowVolEMA);
     }
 
     // ========== IORACLE IMPLEMENTATION ==========
 
-    /// @notice Get oracle data for a specific oracle ID
-    /// @dev Implements IOracle.getOracleData - reads from internal accumulator
-    /// @param oracleId Oracle identifier to query
+    /// @notice Get oracle data for a specific feed ID
+    /// @dev Implements IOracle.getFeedData - reads from internal accumulator
+    /// @param feedId Oracle identifier to query
     /// @return data Oracle data with fast/slow TWAPs, volatility, and timestamp
-    function getOracleData(bytes32 oracleId) external view virtual override returns (OracleData memory data) {
-        LibStorage.OracleEntry storage oracle = _getOracleEntry(oracleId);
-        if (!oracle.exists) revert E.InvalidParameter();
+    function getFeedData(bytes32 feedId) external view virtual override returns (FeedData memory data) {
+        IInternalOracle.InternalFeedData storage oracle = _getOracleEntry(feedId);
+        if (oracle.base.updatedAt == 0) revert E.InvalidParameter();
 
         // Calculate TWAPs from accumulator
         uint64 fastTWAP = _calculateTWAPFromAccumulator(oracle, oracle.fastSnapshotTime, oracle.fastAccumSnapshot);
         uint64 slowTWAP = _calculateTWAPFromAccumulator(oracle, oracle.slowSnapshotTime, oracle.slowAccumSnapshot);
 
-        return OracleData({
-            fastTWAP: fastTWAP,
-            slowTWAP: slowTWAP,
-            fastVolatility: oracle.fastVolatility,
-            slowVolatility: oracle.slowVolatility,
-            lastUpdate: oracle.lastOracleUpdate
+        return FeedData({
+            fastEMA: fastTWAP,
+            slowEMA: slowTWAP,
+            fastVolEMA: oracle.base.fastVolEMA,
+            slowVolEMA: oracle.base.slowVolEMA,
+            updatedAt: oracle.base.updatedAt,
+            maxDeviation: oracle.maxTWAPChange,
+            ttl: 3600 // 1 hour default TTL
         });
     }
 
     /// @notice Check if oracle data is fresh
     /// @dev Implements IOracle.isFresh
-    /// @param oracleId Oracle identifier to check
+    /// @param feedId Oracle identifier to check
     /// @param maxAge Maximum acceptable age in seconds
     /// @return isFresh True if data is fresh
-    function isFresh(bytes32 oracleId, uint32 maxAge) external view virtual override returns (bool) {
-        LibStorage.OracleEntry storage oracle = _getOracleEntry(oracleId);
-        if (!oracle.exists || oracle.lastOracleUpdate == 0) return false;
-        return block.timestamp - oracle.lastOracleUpdate <= maxAge;
+    function isFresh(bytes32 feedId, uint32 maxAge) external view virtual override returns (bool) {
+        IInternalOracle.InternalFeedData storage oracle = _getOracleEntry(feedId);
+        if (oracle.base.updatedAt == 0) return false;
+        return block.timestamp - oracle.base.updatedAt <= maxAge;
     }
 
     /// @notice Get just the fast TWAP (most gas efficient)
     /// @dev Implements IOracle.getFastPrice
-    /// @param oracleId Oracle identifier to query
+    /// @param feedId Oracle identifier to query
     /// @return fastTWAP Current fast TWAP in b64 format
-    function getFastPrice(bytes32 oracleId) external view virtual override returns (uint64 fastTWAP) {
-        LibStorage.OracleEntry storage oracle = _getOracleEntry(oracleId);
-        if (!oracle.exists) revert E.InvalidParameter();
+    function getFastPrice(bytes32 feedId) external view virtual override returns (uint64 fastTWAP) {
+        IInternalOracle.InternalFeedData storage oracle = _getOracleEntry(feedId);
+        if (oracle.base.updatedAt == 0) revert E.InvalidParameter();
         return _calculateTWAPFromAccumulator(oracle, oracle.fastSnapshotTime, oracle.fastAccumSnapshot);
     }
 
@@ -220,12 +225,12 @@ abstract contract InternalOracle is BaseOracle, IInternalOracle {
     /// @param accumSnapshot Accumulator value at snapshot time
     /// @return TWAP value in b64 format
     function _calculateTWAPFromAccumulator(
-        LibStorage.OracleEntry storage oracle,
+        IInternalOracle.InternalFeedData storage oracle,
         uint32 snapshotTime,
         uint256 accumSnapshot
     ) private view returns (uint64) {
         // Calculate current accumulator value
-        uint256 timeElapsed = block.timestamp - oracle.lastOracleUpdate;
+        uint256 timeElapsed = block.timestamp - oracle.base.updatedAt;
         uint256 currentAccum = oracle.priceAccumulator + (uint256(oracle.currentPrice) * timeElapsed);
 
         // Calculate TWAP from snapshot

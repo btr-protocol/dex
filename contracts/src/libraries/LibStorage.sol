@@ -2,7 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {IBAMM} from "../interfaces/IBAMM.sol";
+import {IInternalOracle} from "../interfaces/IInternalOracle.sol";
+import {IDarkPoolStorage} from "../interfaces/IDarkPoolStorage.sol";
 import {LibPricing as P} from "./LibPricing.sol";
+import {LibMaths as M} from "./LibMaths.sol";
 
 /// @title LibStorage
 /// @notice Centralized EIP-7201 namespaced storage for the entire protocol
@@ -10,73 +13,91 @@ import {LibPricing as P} from "./LibPricing.sol";
 library LibStorage {
 
     // ========================================
-    // ORACLE STORAGE
+    // FEED ID COMPUTATION
     // ========================================
 
-    /// @notice Oracle data stored per oracleId (base/quote pair)
-    /// @dev Separates oracle state from Asset struct to support quote currency changes
-    struct OracleEntry {
-        uint256 priceAccumulator;      // Σ(price × timeElapsed) - cumulative price-seconds
-        uint64 currentPrice;            // Current spot price in b64 format
-        uint256 fastAccumSnapshot;      // Accumulator value at last fast snapshot
-        uint32 fastSnapshotTime;        // When fast snapshot was taken
-        uint256 slowAccumSnapshot;      // Accumulator value at last slow snapshot
-        uint32 slowSnapshotTime;        // When slow snapshot was taken
-        uint32 fastWindow;             // Fast TWAP window in seconds (e.g., 6 hours)
-        uint32 slowWindow;             // Slow TWAP window in seconds (e.g., 7 days)
-        uint32 fastVolatility;         // Fast volatility EMA (1e6 base)
-        uint32 slowVolatility;         // Slow volatility EMA (1e6 base)
-        uint32 lastOracleUpdate;       // Timestamp of last update
-        uint16 maxTWAPChange;          // Max price change per update in bps
-        bool exists;                   // Whether this oracle entry is initialized
-    }
-
-    /// @notice Compute oracle ID from base and quote assets
+    /// @notice Compute feed ID from base and quote assets
+    /// @dev Feed ID = keccak256(abi.encodePacked(baseAsset, quoteAsset))
     /// @param baseAsset Asset being priced
     /// @param quoteAsset Pricing currency (e.g., pool's baseToken)
-    /// @return oracleId keccak256 hash of packed addresses
+    /// @return feedId keccak256 hash of packed addresses
     function computeOracleId(address baseAsset, address quoteAsset) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(baseAsset, quoteAsset));
     }
 
     // ========================================
-    // BAMM STORAGE
+    // RISK CONFIG FLAGS HELPERS
     // ========================================
 
-    /// @notice Base asset migration state (for paginated updates)
-    struct BaseAssetMigration {
-        address newBase;           // Target base asset
-        address oldBase;           // Current base asset (snapshot)
-        uint256 conversionRate;    // Conversion rate (1e18 precision)
-        uint256 nextIndex;         // Next asset index to process
-        uint256 totalAssets;       // Total number of assets to migrate
-        bool inProgress;           // Migration in progress flag
-        uint256 startedAt;         // Timestamp when migration started
-        bytes oracleReinitData;    // Oracle reinitialization data for internal oracles
+    /// @notice RiskConfig flags bit masks (stored in RiskConfig.flags)
+    uint16 internal constant RISK_FLAG_FROZEN = 0x01;                  // bit0
+    uint16 internal constant RISK_FLAG_SWAP_ENABLED = 0x02;            // bit1
+    uint16 internal constant RISK_FLAG_LIABILITY_SWAP_ENABLED = 0x04;  // bit2
+    uint16 internal constant RISK_FLAG_DECAY_ENABLED = 0x08;           // bit3
+    uint16 internal constant RISK_FLAG_FLASH_ENABLED = 0x10;           // bit4
+    uint16 internal constant RISK_FLAG_FEE_ON_TRANSFER = 0x20;         // bit5
+
+    /// @notice Check if asset is frozen
+    function _isFrozen(IBAMM.RiskConfig storage risk) internal view returns (bool) {
+        return (risk.flags & RISK_FLAG_FROZEN) != 0;
     }
 
-    /// @notice Main storage structure for BAMM
-    /// @custom:storage-location erc7201:bamm.storage
-    struct BAMMStorage {
-        address baseToken;
-        bool isPoolPaused;
-        uint256 cachedTotalValue;       // Delta-based cache: sum of (reserves * price) for all assets
-        uint256 cachedTotalLiabilities; // Delta-based cache: sum of (liabilities * price) for all assets
-        uint256 cacheTimestamp;
-        address[] registeredAssets;
-        mapping(address => IBAMM.Asset) assets;
-        mapping(address => IBAMM.LiquidityProfile) liquidityProfiles;
-        mapping(address => IBAMM.LPState) lpStates;
-        mapping(address => IBAMM.CircuitBreaker) circuitBreakers;
-        mapping(address => mapping(address => uint256)) scaledBalances;
-        mapping(address => uint256) protocolFees;
-        mapping(address => bool) blacklisted;
-        P.FeeParams feeParams;
-        uint8 fastTWAPWeight;
-        uint8 slowTWAPWeight;
-        BaseAssetMigration baseAssetMigration;  // Paginated migration state
-        mapping(bytes32 => OracleEntry) oracleEntries;  // Oracle data by oracleId
+    /// @notice Check if swaps are enabled
+    function _swapEnabled(IBAMM.RiskConfig storage risk) internal view returns (bool) {
+        return (risk.flags & RISK_FLAG_SWAP_ENABLED) != 0;
     }
+
+    /// @notice Check if liability swaps are enabled
+    function _liabilitySwapEnabled(IBAMM.RiskConfig storage risk) internal view returns (bool) {
+        return (risk.flags & RISK_FLAG_LIABILITY_SWAP_ENABLED) != 0;
+    }
+
+    /// @notice Check if decay is enabled
+    function _decayEnabled(IBAMM.RiskConfig storage risk) internal view returns (bool) {
+        return (risk.flags & RISK_FLAG_DECAY_ENABLED) != 0;
+    }
+
+    /// @notice Check if flash loans are enabled
+    function _flashEnabled(IBAMM.RiskConfig storage risk) internal view returns (bool) {
+        return (risk.flags & RISK_FLAG_FLASH_ENABLED) != 0;
+    }
+
+    /// @notice Check if asset has fee-on-transfer
+    function _hasFeeOnTransfer(IBAMM.RiskConfig storage risk) internal view returns (bool) {
+        return (risk.flags & RISK_FLAG_FEE_ON_TRANSFER) != 0;
+    }
+
+    // ========================================
+    // DARKPOOL FLAGS HELPERS
+    // ========================================
+
+    /// @notice DarkPool flags bit masks
+    uint8 internal constant DARKPOOL_FLAG_PAUSED = 0x01;      // bit0
+    uint8 internal constant DARKPOOL_FLAG_REQUIRE_ASP = 0x02; // bit1
+
+    /// @notice Check if DarkPool is paused
+    function _isDarkPoolPaused(IDarkPoolStorage.DarkPoolStorage storage $) internal view returns (bool) {
+        return ($.flags & DARKPOOL_FLAG_PAUSED) != 0;
+    }
+
+    /// @notice Check if DarkPool requires ASP
+    function _requiresASP(IDarkPoolStorage.DarkPoolStorage storage $) internal view returns (bool) {
+        return ($.flags & DARKPOOL_FLAG_REQUIRE_ASP) != 0;
+    }
+
+    /// @notice Set DarkPool paused flag
+    function _setDarkPoolPaused(IDarkPoolStorage.DarkPoolStorage storage $, bool paused) internal {
+        $.flags = paused ? $.flags | DARKPOOL_FLAG_PAUSED : $.flags & ~DARKPOOL_FLAG_PAUSED;
+    }
+
+    /// @notice Set DarkPool require ASP flag
+    function _setRequireASP(IDarkPoolStorage.DarkPoolStorage storage $, bool requireASP) internal {
+        $.flags = requireASP ? $.flags | DARKPOOL_FLAG_REQUIRE_ASP : $.flags & ~DARKPOOL_FLAG_REQUIRE_ASP;
+    }
+
+    // ========================================
+    // BAMM STORAGE
+    // ========================================
 
     /// @notice EIP-7201 storage slot for BAMM
     /// @dev keccak256(abi.encode(uint256(keccak256("bamm.storage.v1")) - 1)) & ~bytes32(uint256(0xff))
@@ -84,7 +105,7 @@ library LibStorage {
         0x8757882912c4910e2fa81a635c8b91b57e7ace2779ba7ca50d0cf6d4b7658b00;
 
     /// @notice Get BAMM storage pointer using EIP-7201
-    function getStorage() internal pure returns (BAMMStorage storage $) {
+    function bamm() internal pure returns (IBAMM.BAMMStorage storage $) {
         assembly { $.slot := BAMM_STORAGE_SLOT }
     }
 
@@ -92,59 +113,23 @@ library LibStorage {
     // DARKPOOL STORAGE
     // ========================================
 
-    // DarkPool constants
+    // DarkPool constants (duplicated from IDarkPoolStorage for access)
     uint8 internal constant TREE_HEIGHT = 32;
     uint32 internal constant ROOT_HISTORY_SIZE = 100;
     uint256 internal constant PRECISION = 1e18;
     uint8 internal constant NOTE_TYPE_TOKEN = 0;
     uint8 internal constant NOTE_TYPE_LP = 1;
-
-    // Action types
     uint8 internal constant ACTION_TRANSFER = 0;
     uint8 internal constant ACTION_SWAP = 1;
     uint8 internal constant ACTION_LP_DEPOSIT = 2;
     uint8 internal constant ACTION_LP_WITHDRAW = 3;
-
-    /// @notice Main storage structure for DarkPool
-    /// @custom:storage-location erc7201:darkpool.storage.v1
-    struct DarkPoolStorage {
-        // Associated BAMM Pool
-        address bammPool;
-
-        // Merkle Tree State
-        uint32 nextLeafIndex;
-        bytes32 currentRoot;
-        bytes32[ROOT_HISTORY_SIZE] rootHistory;
-        uint32 rootHistoryIndex;
-        uint256 rootTimestamp; // Timestamp of current root for expiration tracking
-
-        // Incremental Merkle Tree: filled subtrees at each level
-        // filledSubtrees[level] = rightmost filled subtree hash at that level
-        mapping(uint8 => bytes32) filledSubtrees;
-
-        // Nullifier Tracking
-        mapping(bytes32 => bool) nullifierSpent;
-
-        // Verifier & Config
-        address verifier;
-        uint8 treeHeight;
-        uint32 rootHistorySize;
-        bool paused;
-        bool requireASP;
-
-        // Association Set Roots with expiration
-        mapping(bytes32 => uint256) aspRootExpiry; // timestamp when ASP root expires (0 = not approved)
-
-        // Reserved for future upgrades
-        uint256[37] __gap;
-    }
 
     /// @dev keccak256(abi.encode(uint256(keccak256("darkpool.storage.v1")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant DARKPOOL_STORAGE_SLOT =
         0xd520fb88501ea3fd6f848e11ec42e1ae44feb0f5d56e27f3b5b3569dc75a5d00;
 
     /// @notice Get DarkPool storage pointer using EIP-7201
-    function getDarkPoolStorage() internal pure returns (DarkPoolStorage storage $) {
+    function darkPool() internal pure returns (IDarkPoolStorage.DarkPoolStorage storage $) {
         assembly { $.slot := DARKPOOL_STORAGE_SLOT }
     }
 
@@ -155,30 +140,41 @@ library LibStorage {
     /// @notice Check if a root is in the history and not expired
     /// @param root Root to check
     /// @return True if root is in history and still valid
+    /// @dev O(1) lookup using ShieldedState.rootInHistory mapping
     function isKnownRoot(bytes32 root) internal view returns (bool) {
-        DarkPoolStorage storage $ = getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = darkPool();
 
-        // Current root is always valid
-        if ($.currentRoot == root) return true;
+        // Get ShieldedState contract
+        address shieldedStateAddr = $.shieldedState;
+        if (shieldedStateAddr == address(0)) return false;
 
-        for (uint256 i = 0; i < ROOT_HISTORY_SIZE; i++) {
-            if ($.rootHistory[i] == root) {
-                // Found the root - it's valid if within history
-                return true;
-            }
-        }
-        return false;
+        // Call ShieldedState to check root
+        (bool success, bytes memory result) = shieldedStateAddr.staticcall(
+            abi.encodeWithSignature("isKnownRoot(bytes32)", root)
+        );
+
+        if (!success) return false;
+        return abi.decode(result, (bool));
     }
 
-    /// @notice Add a root to the history with timestamp
+    /// @notice Add a root to the history via ShieldedState
     /// @param root Root to add
+    /// @dev Delegates to ShieldedState.addRoot()
     function addRoot(bytes32 root) internal {
-        DarkPoolStorage storage $ = getDarkPoolStorage();
-        $.rootHistory[$.rootHistoryIndex] = root;
-        $.rootHistoryIndex = uint32(($.rootHistoryIndex + 1) % ROOT_HISTORY_SIZE);
-        $.currentRoot = root;
-        $.rootTimestamp = block.timestamp;
+        IDarkPoolStorage.DarkPoolStorage storage $ = darkPool();
+
+        address shieldedStateAddr = $.shieldedState;
+        if (shieldedStateAddr == address(0)) revert ZeroAddress();
+
+        // Call ShieldedState to add root (must be called by owner)
+        // This will revert if caller is not owner of ShieldedState
+        (bool success, ) = shieldedStateAddr.call(
+            abi.encodeWithSignature("addRoot(bytes32)", root)
+        );
+
+        if (!success) revert AddRootFailed();
     }
+
 
     // ========================================
     // RESERVED STORAGE SLOTS (FUTURE USE)
@@ -195,4 +191,11 @@ library LibStorage {
     /// @dev Currently hook addresses stored in Asset.hooks field
     bytes32 internal constant HOOK_STORAGE_SLOT =
         0x39ad489ed614fb1cd2c7d913838f5a7d7a73df8b6bd3a3202be6a193febd1000;
+
+    // ========================================
+    // ERRORS
+    // ========================================
+
+    error ZeroAddress();
+    error AddRootFailed();
 }

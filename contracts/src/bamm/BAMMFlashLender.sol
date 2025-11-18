@@ -7,8 +7,7 @@ import {IERC3156FlashBorrower} from "../interfaces/IERC3156FlashBorrower.sol";
 import {IERC3156FlashLender} from "../interfaces/IERC3156FlashLender.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
-import {BAMMErrors as E} from "./BAMMEvents.sol";
-import {BAMMEvents as Events} from "./BAMMEvents.sol";
+import {BAMMErrors as E} from "./BAMMErrors.sol";
 import {LibStorage} from "../libraries/LibStorage.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 
@@ -26,13 +25,13 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
     // ========== STORAGE ACCESS (must be implemented by child) ==========
 
     /// @notice Get full storage struct (implemented by BAMM)
-    function _s() internal pure virtual returns (LibStorage.BAMMStorage storage);
+    function _sf() internal pure virtual returns (IBAMM.BAMMStorage storage);
 
     /// @notice Get asset storage for given token (implemented by BAMM)
-    function _getAsset(address token) internal view virtual returns (IBAMM.Asset storage);
+    function _getAssetFlash(address token) internal view virtual returns (IBAMM.Asset storage);
 
     /// @notice Check if pool is paused (implemented by BAMM)
-    function _isPoolPaused() internal view virtual returns (bool);
+    function _isPaused() internal view virtual returns (bool);
 
     // ========== ERC-3156 INTERFACE ==========
 
@@ -40,12 +39,15 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
     /// @param token Token address
     /// @return Maximum amount that can be borrowed (equals available reserves if enabled)
     function maxFlashLoan(address token) public view override returns (uint256) {
-        IBAMM.Asset storage asset = _getAsset(token);
+        IBAMM.Asset storage asset = _getAssetFlash(token);
 
         // Return 0 if asset not registered, frozen, or flash loans disabled
         if (asset.segmentCount == 0) return 0;
-        if (asset.isFrozen) return 0;
-        if (!asset.flashLoanEnabled) return 0;
+
+        IBAMM.BAMMStorage storage $ = _sf();
+        IBAMM.RiskConfig storage risk = $.riskConfigs[token];
+        if (LibStorage._isFrozen(risk)) return 0;
+        if (!LibStorage._flashEnabled(risk)) return 0;
 
         // Maximum flash loan is the available reserve
         return asset.reserves;
@@ -56,16 +58,19 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
     /// @param amount Loan amount
     /// @return Fee amount in token units
     function flashFee(address token, uint256 amount) public view override returns (uint256) {
-        IBAMM.Asset storage asset = _getAsset(token);
+        IBAMM.Asset storage asset = _getAssetFlash(token);
 
         // Revert if flash loans not available
         if (asset.segmentCount == 0) revert E.AssetNotFound();
-        if (asset.isFrozen) revert E.AssetFrozen();
-        if (!asset.flashLoanEnabled) revert E.Unauthorized();
+
+        IBAMM.BAMMStorage storage $ = _sf();
+        IBAMM.RiskConfig storage risk = $.riskConfigs[token];
+        if (LibStorage._isFrozen(risk)) revert E.AssetFrozen();
+        if (!LibStorage._flashEnabled(risk)) revert E.Unauthorized();
         if (amount > asset.reserves) revert E.InsufficientReserves();
 
         // Calculate fee: amount * flashFeeBps / BPS_PRECISION
-        return (amount * asset.flashFeeBps) / M.BPS_PRECISION;
+        return (amount * asset.fees.flashFeeBps) / M.BPS_PRECISION;
     }
 
     /// @notice Extended flash fee with custom borrower (non-standard, for compatibility)
@@ -95,14 +100,17 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
         uint256 amount,
         bytes calldata data
     ) external override nonReentrant returns (bool) {
-        if (_isPoolPaused()) revert E.PoolPaused();
+        if (_isPaused()) revert E.PoolPaused();
 
-        IBAMM.Asset storage asset = _getAsset(token);
+        IBAMM.BAMMStorage storage $ = _sf();
+        IBAMM.Asset storage asset = _getAssetFlash(token);
 
         // Validate flash loan is available
         if (asset.segmentCount == 0) revert E.AssetNotFound();
-        if (asset.isFrozen) revert E.AssetFrozen();
-        if (!asset.flashLoanEnabled) revert E.Unauthorized();
+
+        IBAMM.RiskConfig storage risk = $.riskConfigs[token];
+        if (LibStorage._isFrozen(risk)) revert E.AssetFrozen();
+        if (!LibStorage._flashEnabled(risk)) revert E.Unauthorized();
         if (amount == 0) revert E.ZeroAmount();
         if (amount > asset.reserves) revert E.InsufficientReserves();
 
@@ -110,8 +118,9 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
         uint128 reservesBefore = asset.reserves;
 
         // Call pre-flash loan hook if configured
-        if (asset.hooks != address(0)) {
-            IBAMMHooks(asset.hooks).preFlashLoan(token, address(receiver), amount, fee, data);
+        address hooks = $.hooks[token];
+        if (hooks != address(0)) {
+            IBAMMHooks(hooks).preFlashLoan(token, address(receiver), amount, fee, data);
         }
 
         // Transfer tokens to receiver
@@ -138,11 +147,11 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
         asset.reserves = uint128(balanceAfter);
 
         // Call post-flash loan hook if configured
-        if (asset.hooks != address(0)) {
-            IBAMMHooks(asset.hooks).postFlashLoan(token, address(receiver), amount, fee, data);
+        if (hooks != address(0)) {
+            IBAMMHooks(hooks).postFlashLoan(token, address(receiver), amount, fee, data);
         }
 
-        emit FlashLoan(msg.sender, amount, fee);
+        emit FlashLoan(address(receiver), token, amount, fee);
 
         return true;
     }
@@ -169,7 +178,7 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
         uint256[] calldata amounts,
         bytes calldata data
     ) external nonReentrant returns (bool) {
-        if (_isPoolPaused()) revert E.PoolPaused();
+        if (_isPaused()) revert E.PoolPaused();
         if (tokens.length == 0) revert E.InvalidParameter();
         if (tokens.length != amounts.length) revert E.InvalidParameter();
         if (tokens.length > 16) revert E.InvalidParameter(); // Max 16 tokens per flash loan
@@ -179,17 +188,21 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
         uint256[] memory fees = new uint256[](length);
         uint256 totalFeeValue = 0;
 
+        IBAMM.BAMMStorage storage $ = _sf();
+
         // Phase 1: Validate and transfer all tokens
         for (uint256 i = 0; i < length; i++) {
             address token = tokens[i];
             uint256 amount = amounts[i];
 
-            IBAMM.Asset storage asset = _getAsset(token);
+            IBAMM.Asset storage asset = _getAssetFlash(token);
 
             // Validate flash loan is available
             if (asset.segmentCount == 0) revert E.AssetNotFound();
-            if (asset.isFrozen) revert E.AssetFrozen();
-            if (!asset.flashLoanEnabled) revert E.Unauthorized();
+
+            IBAMM.RiskConfig storage risk = $.riskConfigs[token];
+            if (LibStorage._isFrozen(risk)) revert E.AssetFrozen();
+            if (!LibStorage._flashEnabled(risk)) revert E.Unauthorized();
             if (amount == 0) revert E.ZeroAmount();
             if (amount > asset.reserves) revert E.InsufficientReserves();
 
@@ -198,8 +211,9 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
             reservesBefore[i] = asset.reserves;
 
             // Call pre-flash loan hook if configured
-            if (asset.hooks != address(0)) {
-                IBAMMHooks(asset.hooks).preFlashLoan(token, address(receiver), amount, fees[i], data);
+            address hooks = $.hooks[token];
+            if (hooks != address(0)) {
+                IBAMMHooks(hooks).preFlashLoan(token, address(receiver), amount, fees[i], data);
             }
 
             // Transfer tokens to receiver
@@ -232,15 +246,16 @@ abstract contract BAMMFlashLender is IERC3156FlashLender, ReentrancyGuard {
             }
 
             // Update reserves to include fee
-            IBAMM.Asset storage asset = _getAsset(token);
+            IBAMM.Asset storage asset = _getAssetFlash(token);
             asset.reserves = uint128(balanceAfter);
 
             // Call post-flash loan hook if configured
-            if (asset.hooks != address(0)) {
-                IBAMMHooks(asset.hooks).postFlashLoan(token, address(receiver), amount, fee, data);
+            address hooks = $.hooks[token];
+            if (hooks != address(0)) {
+                IBAMMHooks(hooks).postFlashLoan(token, address(receiver), amount, fee, data);
             }
 
-            emit FlashLoan(msg.sender, amount, fee);
+            emit FlashLoan(address(receiver), token, amount, fee);
         }
 
         return true;

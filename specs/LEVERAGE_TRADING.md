@@ -208,27 +208,25 @@ Requires ETH appreciation > 7%/year to break even
 
 ## Implementation Roadmap
 
-### Phase 1: Core Contracts (4-6 weeks)
+### Phase 1: Core Contracts
 - LeverageManager.sol (position management)
 - BAMMOracle.sol (LP pricing with coverage haircut)
 - FlashLoanCallback.sol (atomic loop execution)
 
-### Phase 2: Money Market Integration (2-4 weeks)
+### Phase 2: Money Market Integration
 - Euler V2 ERC-4626 wrapper for BAMM LP tokens
 - Oracle integration
 - Collateral recognition via EVC
 
-### Phase 3: Risk Management (2-3 weeks)
+### Phase 3: Risk Management
 - LiquidationEngine.sol (partial liquidations)
 - Position health monitoring
-- Liquidation incentives (5% bonus)
+- Liquidation incentives
 
-### Phase 4: UI/UX (3-4 weeks)
+### Phase 4: UI/UX
 - Position dashboard (PnL, health factor)
 - Leverage slider with APY estimates
 - Risk warnings and liquidation alerts
-
-**Total: 11-17 weeks (3-4 months)**
 
 ---
 

@@ -4,19 +4,99 @@
 
 BAMM implements a **Wombat-inspired coverage ratio system** for Active Liquidity Management (ALM). The coverage ratio tracks the health of each asset pool and automatically adjusts fees to incentivize rebalancing.
 
+## Why Single-Pool Architecture at Scale
+
+### The Problem: Isolated Pool Models
+
+Traditional DEX architectures isolate assets into separate pools by risk profile:
+- **Curve**: Separate stable pools (3pool), volatile pools (tricrypto), factory pools
+- **Balancer**: Isolated metapools per asset class, fragmented liquidity
+- **Aave**: Separate lending instances (v2, v3, isolated pools) by risk tier
+- **Venus**: Isolated pools (Core, Stablecoins, DeFi, GameFi)
+- **Platypus**: Separate pools by asset type (Main, Alt, Factory)
+
+**Consequences**:
+- **Liquidity fragmentation**: $100M TVL split across 5 pools = $20M average depth per pool
+- **Routing complexity**: Multi-hop swaps (USDT → 3pool → tricrypto → WETH) = 3× gas + slippage
+- **Capital inefficiency**: Idle liquidity in low-volume pools, congestion in high-volume pools
+- **LP dilution**: Emissions spread thin, APRs inconsistent
+
+### Our Solution: Unified Pool with Multi-Layer Risk Mitigation
+
+**BAMM uses a single pool for all assets** (stables, majors, alts) with **5 complementary protection layers**:
+
+1. **Piecewise bonding curves** (liquidity profiling): Per-asset curves shaped to volatility/momentum profile—tight for stables, wide for alts
+2. **Coverage-only tri-factor swap fees** (dynamic penalties): Simple reserves/liabilities coverage × volatility × divergence—no value weighting, direct ALM alignment
+3. **Liability time decay** (long-term risk socialization): Gradual reduction of underwater LP claims to absorb permanent losses fairly
+4. **Reserve price circuit breakers**: Disable swaps when internal reserve-based price exceeds safe deviation from oracle
+5. **Deviation freeze**: Disable asset when fast TWAP deviates >threshold from slow TWAP (depeg/exploit detection)
+
+**Result**:
+- **Maximum capital efficiency**: All liquidity in one pool, no fragmentation
+- **Minimal slippage**: Deep liquidity for all pairs (single-hop routing)
+- **Contagion isolation**: Circuit breakers + liability decay prevent toxic assets from draining entire pool
+- **Fair risk/reward**: Higher-risk assets earn higher fees + emissions, justified by decay exposure
+
+### Comparison to Isolated Models
+
+| Aspect | Isolated Pools (Aave/Venus/Balancer) | BAMM Single Pool |
+|--------|--------------------------------------|------------------|
+| **Liquidity depth** | Fragmented across instances | Unified, maximum depth |
+| **Routing** | Multi-hop (high gas, slippage) | Single-hop (efficient) |
+| **Contagion risk** | Zero (full isolation) | Mitigated (5-layer protection) |
+| **Capital efficiency** | Low (idle liquidity) | High (all capital active) |
+| **LP experience** | Inconsistent APRs | Balanced APRs with risk tiers |
+| **Scalability** | Linear growth (N pools for N assets) | Sub-linear (1 pool, add assets) |
+
+**Why this works for BAMM**:
+- **Platypus failed** because they had only **single-factor fees** (coverage) and **no circuit breakers**—a USP depeg drained the pool
+- **Wombat** has partial protection but still uses separate pools for risk tiers
+- **BAMM combines** Wombat's ALM + Curve's piecewise curves + comprehensive circuit breakers + liability decay = safe single-pool at scale
+
+### Use Cases Enabled by Single-Pool Design
+
+**Direct pairs without fragmentation**:
+```
+USDC → WETH    (stable → major, 1 hop instead of USDC → 3pool → tricrypto → WETH)
+USDT → ARB     (stable → alt, 1 hop instead of USDT → stable pool → bridge → alt pool)
+DAI → WBTC     (stable → major, single swap)
+stETH → frxETH (LSDs in same pool, no separate metastable pool)
+```
+
+**LP benefits**:
+- Deposit USDC, earn fees from ALL pairs (USDC/WETH, USDC/ARB, USDC/WBTC), not just USDC/USDT
+- Emissions routed per-asset (coverage × utilization), so high-volume pairs get most incentives
+- Circuit breakers protect against toxic assets draining stable positions
+
+**Trader benefits**:
+- Best price execution (deepest liquidity)
+- Lowest gas (single swap, no hops)
+- Competitive fees (dynamic, not fixed 0.3%)
+
 ---
 
 ## Core Concepts
 
 ### Coverage Ratio Definition
 
+**CRITICAL**: Coverage ratio is **unit-based**, NOT value-based.
+
 ```solidity
-Coverage Ratio (C) = reserves / liabilities
+Coverage Ratio (C) = reserves (units) / liabilities (units)
 
 Where:
-- reserves  = actual tokens in the pool (assets)
-- liabilities = total deposited amounts (LP claims in token units)
+- reserves  = actual token UNITS in the pool (e.g., 10M BONK tokens)
+- liabilities = total deposited UNITS (LP claims in token units, e.g., 10M BONK)
 ```
+
+**Price changes alone do NOT change coverage ratio.** Only **swap flows** (which add/remove reserves) change coverage.
+
+**Example**:
+- BONK: 10M reserves, 10M liabilities → C = 1.0
+- BONK price pumps 10× ($0.10 → $1.00)
+- Coverage still 1.0 (price irrelevant)
+- Traders arbitrage: buy BONK via USDC→BONK swaps → reserves drain to 4M
+- Coverage now 4M / 10M = 0.4 (reserves depleted by flows, NOT price change)
 
 ### States
 
@@ -117,32 +197,33 @@ The system creates natural **rebalancing incentives** without explicit haircuts:
 
 ## Tri-Factor Fee Model
 
-The coverage ratio is the **first factor** in the tri-factor fee model. See [`TRI_FACTOR_FEE_MODEL.md`](../TRI_FACTOR_FEE_MODEL.md) for full details.
+The coverage ratio is the **first factor** in the tri-factor fee model. See [`FEES.md`](FEES.md) for full details.
 
-### Inventory Factor (Coverage-Based)
+### Coverage Factor (Per-Asset)
+
+**CRITICAL**: Uses **per-asset coverage** (unit-based), NOT global pool coverage (value-based).
 
 ```solidity
-// Current asset share
-v = (reserves * price) / totalReserves
+// Per-asset coverage (in token units, NOT value)
+C = reserves (units) / liabilities (units)
 
-// Target share (based on liabilities)
-t = (liabilities * price) / totalLiabilities
+// Under-collateralized (C < 1): linear rebate
+if (C < 1e18) {
+    δ_under = min(1e18, (1e18 - C) * 1e18 / covUnderMax);
+    m_cov = 1e18 - (1e18 - covMinMult) * δ_under / 1e18;
+}
 
-// Normalized divergence
-x = min(1, |v - t| / max(t, ε) / x_inv,max)
-
-// Multiplier
-if (v < t) {
-    // Under target: linear rebate
-    m_inv = 1 - (1 - m_inv,min) * x
-} else {
-    // Over target: linear penalty
-    m_inv = 1 + (m_inv,max - 1) * x
+// Over-collateralized (C >= 1): linear penalty
+else {
+    δ_over = min(1e18, (C - 1e18) * 1e18 / covOverMax);
+    m_cov = 1e18 + (covMaxMult - 1e18) * δ_over / 1e18;
 }
 ```
 
 **Key Points**:
-- Uses actual reserves vs. liabilities (Wombat-style)
+- **Per-asset coverage**: `reserves / liabilities` in token units (NOT value-weighted)
+- **Global pool coverage NOT used**: Only for analytics, NOT fee calculation
+- **Coverage timing**: Post-swap for inflows (penalties), pre-swap for outflows (rebates)
 - Linear rebates when under-collateralized (encourages deposits/inflows)
 - Linear penalties when over-collateralized (discourages outflows)
 - No hardcoded thresholds - all configurable parameters
@@ -309,12 +390,13 @@ Swaps don't touch liabilities:
 
 ## Parameter Defaults
 
-### Coverage-Based Inventory Factor
+### Per-Asset Coverage Factor
 
 ```solidity
-invMinMult = 20           // 0.2x min rebate when under-collateralized
-invMaxMult = 10000        // 100x max penalty when over-collateralized
-invMaxDivergence = 5000   // 50% max divergence for full scale
+covMinMult = 20           // 0.2x min rebate when under-collateralized
+covMaxMult = 10000        // 100x max penalty when over-collateralized
+covUnderMax = 0.5e18      // 50% max under-coverage to scale
+covOverMax = 0.5e18       // 50% max over-coverage to scale
 ```
 
 ### Global Fee Caps
@@ -328,13 +410,14 @@ maxMult = 10000           // 100x global max
 
 ## Owner Functions
 
-### Update Inventory Parameters
+### Update Coverage Parameters
 
 ```solidity
-function updateInventoryParams(
-    uint16 _invMinMult,      // 0.2x = 20, 1.0x = 100
-    uint16 _invMaxMult,      // 100x = 10000
-    uint16 _invMaxDivergence // 50% = 5000 bps
+function updateCoverageParams(
+    uint16 _covMinMult,      // 0.2x = 20, 1.0x = 100
+    uint16 _covMaxMult,      // 100x = 10000
+    uint256 _covUnderMax,    // 0.5e18 (50% max under-coverage)
+    uint256 _covOverMax      // 0.5e18 (50% max over-coverage)
 ) external onlyOwner
 ```
 
@@ -594,10 +677,81 @@ uint256 public constant MIN_EXPECTED_COVERAGE = ???;  // TBD via testing
 
 ---
 
+## Bad Debt Management: Liability Time Decay
+
+When an asset becomes persistently underwater (coverage ratio below threshold for extended period), the protocol employs **time-based liability decay** to gradually eliminate bad debt without external subsidies.
+
+### Overview
+
+**Problem:** If coverage ratio stays below 1.0 (e.g., asset crashed 50% and doesn't recover), the pool has structural bad debt.
+
+**Solution:** Gradually reduce liabilities $L'_k$ over time until they match available reserves $A_k$.
+
+### Key Properties
+
+1. **Time-based:** Decay progresses based solely on elapsed time (predictable for LPs)
+2. **Threshold-triggered:** Only activates when $r_k < r_{\text{threshold}}$ (e.g., 98%)
+3. **Auto-shutoff:** Stops automatically when coverage recovers above threshold for 24+ hours
+4. **Parametric curve:** Exponent $n$ controls front-loading vs back-loading
+5. **LP agency preserved:** LPs can withdraw anytime at current coverage ratio
+
+### Formula
+
+$$L'_k(t) = L_0 \cdot \left[1 - \left(1 - \frac{A_k}{L_0}\right) \cdot \left(\frac{\Delta t}{T_{\text{max}}}\right)^n\right]$$
+
+**Terminal state** (at $t = T_{\text{max}}$): $L'_k = A_k$ (full debt absorption, $r_k = 1.0$)
+
+### LP Economics
+
+**Critical insight:** When reserves are constant, LP withdrawable value stays constant during decay:
+
+$$\text{withdrawableAmount} = \text{shares} \times L'_k(t) \times r_k(t) = \text{shares} \times A_k = \text{constant}$$
+
+**Why?** As liabilities decay ($L'_k \downarrow$), coverage ratio improves ($r_k \uparrow$) at exactly offsetting rates.
+
+**Decay is NOT a penalty** - it's a transparency mechanism that brings nominal accounting in line with economic reality over time.
+
+### Example
+
+```
+Scenario: Asset underwater at 90% coverage
+  Initial: A=900, L=1000, r=0.90
+
+t=0 (LP deposits):
+  - Nominal claim: 100 tokens
+  - Coverage haircut: 90%
+  - Withdrawable: 100 × 0.90 = 90 tokens
+
+t=30 days (decay reduces L to 950):
+  - Nominal claim: 95 tokens (decay ate 5)
+  - Coverage: 900/950 = 94.7%
+  - Withdrawable: 95 × 0.947 = 90 tokens ✓
+
+t=90 days (terminal state, L=900):
+  - Nominal claim: 90 tokens (decay ate 10 total)
+  - Coverage: 900/900 = 100%
+  - Withdrawable: 90 × 1.00 = 90 tokens ✓
+```
+
+**Withdrawable amount stays 90 throughout.** The loss was realized at t=0 (reserves < liabilities), decay just spreads the accounting adjustment over time.
+
+### Flash Loan Protection
+
+Decay mechanism includes robust flash loan resistance:
+
+1. **Time-weighted coverage check:** Must stay above threshold for 24 hours
+2. **Improvement requirement:** Coverage must exceed start coverage
+3. **Continued decay during lockout:** Can't skip terminal state
+
+See [`LIABILITY_TIME_DECAY.md`](LIABILITY_TIME_DECAY.md) for full specification.
+
+---
+
 ## Related Documentation
 
 - [FEES.md](FEES.md) - Complete fee model spec
 - [ORACLE.md](ORACLE.md) - Oracle system and price feeds
+- [LIABILITY_TIME_DECAY.md](LIABILITY_TIME_DECAY.md) - Time-based bad debt elimination mechanism
 
 ---
 
@@ -606,9 +760,10 @@ uint256 public constant MIN_EXPECTED_COVERAGE = ???;  // TBD via testing
 1. **Coverage ratio = reserves / liabilities** (inspired by Wombat model)
 2. **Fair pro-rata loss sharing** without explicit haircut penalties
 3. **Natural rebalancing incentives** via tri-factor fee model (higher fees when imbalanced)
-4. **O(1) complexity** with delta-based caching
-5. **Zero breaking changes** to external interfaces
-6. **Negligible gas cost** (~5k additional per deposit/withdraw)
-7. **LP-friendly design**: No penalties for withdrawing during imbalances; coverage ratio naturally reflected in available reserves
+4. **Sustainable bad debt elimination** via time-based liability decay (no protocol subsidies)
+5. **O(1) complexity** with delta-based caching
+6. **Zero breaking changes** to external interfaces
+7. **Negligible gas cost** (~5k additional per deposit/withdraw)
+8. **LP-friendly design**: No penalties for withdrawing during imbalances; coverage ratio naturally reflected in available reserves
 
-**The system promotes fairness and transparency while maintaining proper coverage ratio tracking.**
+**The system promotes fairness, transparency, and long-term sustainability while maintaining proper coverage ratio tracking.**
