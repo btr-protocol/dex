@@ -2,9 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {IDarkPool} from "../interfaces/IDarkPool.sol";
-import {LibStorage} from "./LibStorage.sol";
+import {IDarkPoolStorage} from "../interfaces/IDarkPoolStorage.sol";
+import {LibStorage as S} from "./LibStorage.sol";
 import {DarkPoolErrors as Errors} from "../darkpool/DarkPoolErrors.sol";
-import {Poseidon} from "./generated/Poseidon.sol";
+import {Poseidon} from "./Poseidon.sol";
 
 /// @title LibVerifier
 /// @notice Groth16 proof verification helpers
@@ -19,7 +20,7 @@ library LibVerifier {
         IDarkPool.Proof calldata proof,
         IDarkPool.ExtData calldata extData
     ) internal view returns (bool) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
 
         // 1. Validate array lengths match circuit expectations
         uint256 maxAssets = 4;
@@ -28,7 +29,7 @@ library LibVerifier {
         }
 
         // 2. Check root is known
-        if (!LibStorage.isKnownRoot(proof.merkleRoot)) {
+        if (!S.isKnownRoot(proof.merkleRoot)) {
             revert Errors.RootNotFound();
         }
 
@@ -39,7 +40,7 @@ library LibVerifier {
         }
 
         // 4. Check ASP if required (must be done BEFORE verifier call for correct binding)
-        if ($.requireASP) {
+        if (S._requiresASP($)) {
             if (extData.aspRoot == bytes32(0)) {
                 revert Errors.ASPRootZero();
             }
@@ -57,56 +58,68 @@ library LibVerifier {
         }
 
         // 6. Check nullifiers not spent (AFTER proof verification to prevent info leak)
+        // Query ShieldedState for nullifier status
+        address shieldedStateAddr = $.shieldedState;
+        if (shieldedStateAddr == address(0)) revert Errors.ZeroAddress();
+
         for (uint256 i = 0; i < proof.nullifiers.length; i++) {
-            if ($.nullifierSpent[proof.nullifiers[i]]) {
-                revert Errors.NullifierAlreadySpent(proof.nullifiers[i]);
+            bytes32 nullifier = proof.nullifiers[i];
+            (bool callSuccess, bytes memory result) = shieldedStateAddr.staticcall(
+                abi.encodeWithSignature("nullifierSpent(bytes32)", nullifier)
+            );
+
+            if (!callSuccess || abi.decode(result, (bool))) {
+                revert Errors.NullifierAlreadySpent(nullifier);
             }
         }
 
         return true;
     }
 
-    /// @notice Compute extDataHash using Poseidon to match circuit computation
-    /// @param extData External data
-    /// @return hash Poseidon hash of extData
-    /// @dev Circuit computes: Poseidon(extIn[0..3], extOut[0..3], aspRoot)
-    /// @dev Arrays must be padded to 4 elements with zeros
+    /// @notice Compute extDataHash using two-layer Poseidon2
     function _computeExtDataHash(IDarkPool.ExtData calldata extData) private pure returns (bytes32) {
-        // Pad extIn to 4 elements
+        uint256 asset0 = extData.assets.length > 0 ? uint256(uint160(extData.assets[0])) : 0;
+        uint256 asset1 = extData.assets.length > 1 ? uint256(uint160(extData.assets[1])) : 0;
+        uint256 asset2 = extData.assets.length > 2 ? uint256(uint160(extData.assets[2])) : 0;
+        uint256 asset3 = extData.assets.length > 3 ? uint256(uint160(extData.assets[3])) : 0;
+
+        uint256 recv0 = extData.receivers.length > 0 ? uint256(uint160(extData.receivers[0])) : 0;
+        uint256 recv1 = extData.receivers.length > 1 ? uint256(uint160(extData.receivers[1])) : 0;
+        uint256 recv2 = extData.receivers.length > 2 ? uint256(uint160(extData.receivers[2])) : 0;
+        uint256 recv3 = extData.receivers.length > 3 ? uint256(uint160(extData.receivers[3])) : 0;
+
+        uint256 hAssetsReceivers = Poseidon.hash8(asset0, asset1, asset2, asset3, recv0, recv1, recv2, recv3);
+
         uint256 extIn0 = extData.extIn.length > 0 ? extData.extIn[0] : 0;
         uint256 extIn1 = extData.extIn.length > 1 ? extData.extIn[1] : 0;
         uint256 extIn2 = extData.extIn.length > 2 ? extData.extIn[2] : 0;
         uint256 extIn3 = extData.extIn.length > 3 ? extData.extIn[3] : 0;
 
-        // Pad extOut to 4 elements
         uint256 extOut0 = extData.extOut.length > 0 ? extData.extOut[0] : 0;
         uint256 extOut1 = extData.extOut.length > 1 ? extData.extOut[1] : 0;
         uint256 extOut2 = extData.extOut.length > 2 ? extData.extOut[2] : 0;
         uint256 extOut3 = extData.extOut.length > 3 ? extData.extOut[3] : 0;
 
-        // Compute Poseidon hash
-        uint256 hash = Poseidon.hash9(
-            extIn0, extIn1, extIn2, extIn3,
-            extOut0, extOut1, extOut2, extOut3,
-            uint256(extData.aspRoot)
-        );
+        uint256 hAmounts = Poseidon.hash8(extIn0, extIn1, extIn2, extIn3, extOut0, extOut1, extOut2, extOut3);
 
+        uint256 hash = Poseidon.hash4(uint256(extData.actionType), uint256(extData.aspRoot), hAssetsReceivers, hAmounts);
         return bytes32(hash);
     }
 
     /// @notice Call the Groth16 verifier contract
-    /// @param proof Proof struct
-    /// @param aspRoot Association set root (or 0)
+    /// @param proof Proof struct with public inputs
+    /// @param aspRoot Not used anymore (kept for compatibility, aspRoot is now in extDataHash)
     /// @return True if proof is valid
     function _callVerifier(
         IDarkPool.Proof calldata proof,
         bytes32 aspRoot
     ) private view returns (bool) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
 
-        // Pack public inputs
-        // Order: [merkleRoot, nullifier[0], nullifier[1], ..., extDataHash, aspRoot]
-        uint256 publicInputCount = 2 + proof.nullifiers.length + 1; // root + nullifiers + extDataHash + aspRoot
+        // Pack public inputs (minimal set, matching circuit)
+        // Order: [merkleRoot, nullifier[0], nullifier[1], ..., extDataHash]
+        // Note: aspRoot is now folded into extDataHash for stronger binding
+        uint256 publicInputCount = 1 + proof.nullifiers.length + 1; // root + nullifiers + extDataHash
         uint256[] memory publicInputs = new uint256[](publicInputCount);
 
         publicInputs[0] = uint256(proof.merkleRoot);
@@ -116,7 +129,6 @@ library LibVerifier {
         }
 
         publicInputs[1 + proof.nullifiers.length] = uint256(proof.extDataHash);
-        publicInputs[2 + proof.nullifiers.length] = uint256(aspRoot);
 
         // Call verifier
         // The verifier contract implements: function verify(uint256[8] proof, uint256[] publicInputs) returns (bool)
@@ -133,13 +145,18 @@ library LibVerifier {
         return abi.decode(result, (bool));
     }
 
-    /// @notice Mark nullifiers as spent
+    /// @notice Mark nullifiers as spent in global ShieldedState
     /// @param nullifiers Array of nullifiers to mark
     function markNullifiersSpent(bytes32[] calldata nullifiers) internal {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
+        address shieldedStateAddr = $.shieldedState;
+        if (shieldedStateAddr == address(0)) revert Errors.ZeroAddress();
 
-        for (uint256 i = 0; i < nullifiers.length; i++) {
-            $.nullifierSpent[nullifiers[i]] = true;
-        }
+        // Call ShieldedState to mark all nullifiers as spent
+        (bool success, ) = shieldedStateAddr.call(
+            abi.encodeWithSignature("spendNullifiers(bytes32[])", nullifiers)
+        );
+
+        if (!success) revert Errors.NullifierSpendingFailed();
     }
 }

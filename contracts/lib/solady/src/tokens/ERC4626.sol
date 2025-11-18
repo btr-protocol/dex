@@ -2,7 +2,7 @@
 pragma solidity ^0.8.4;
 
 import {ERC20} from "./ERC20.sol";
-import {FixedPointMathLib} from "../utils/FixedPointMathLib.sol";
+import {FPMaths} from "../utils/FPMaths.sol";
 import {SafeTransferLib} from "../utils/SafeTransferLib.sol";
 
 /// @notice Simple ERC4626 tokenized Vault implementation.
@@ -169,13 +169,13 @@ abstract contract ERC4626 is ERC20 {
             uint256 supply = totalSupply();
             return _eitherIsZero(assets, supply)
                 ? _initialConvertToShares(assets)
-                : FixedPointMathLib.fullMulDiv(assets, supply, totalAssets());
+                : FPMaths.fullMulDiv(assets, supply, totalAssets());
         }
         uint256 o = _decimalsOffset();
         if (o == uint256(0)) {
-            return FixedPointMathLib.fullMulDiv(assets, totalSupply() + 1, _inc(totalAssets()));
+            return FPMaths.fullMulDiv(assets, totalSupply() + 1, _inc(totalAssets()));
         }
-        return FixedPointMathLib.fullMulDiv(assets, totalSupply() + 10 ** o, _inc(totalAssets()));
+        return FPMaths.fullMulDiv(assets, totalSupply() + 10 ** o, _inc(totalAssets()));
     }
 
     /// @dev Returns the amount of assets that the Vault will exchange for the amount of
@@ -194,13 +194,13 @@ abstract contract ERC4626 is ERC20 {
             uint256 supply = totalSupply();
             return supply == uint256(0)
                 ? _initialConvertToAssets(shares)
-                : FixedPointMathLib.fullMulDiv(shares, totalAssets(), supply);
+                : FPMaths.fullMulDiv(shares, totalAssets(), supply);
         }
         uint256 o = _decimalsOffset();
         if (o == uint256(0)) {
-            return FixedPointMathLib.fullMulDiv(shares, totalAssets() + 1, _inc(totalSupply()));
+            return FPMaths.fullMulDiv(shares, totalAssets() + 1, _inc(totalSupply()));
         }
-        return FixedPointMathLib.fullMulDiv(shares, totalAssets() + 1, totalSupply() + 10 ** o);
+        return FPMaths.fullMulDiv(shares, totalAssets() + 1, totalSupply() + 10 ** o);
     }
 
     /// @dev Allows an on-chain or off-chain user to simulate the effects of their deposit
@@ -240,13 +240,13 @@ abstract contract ERC4626 is ERC20 {
             uint256 supply = totalSupply();
             return supply == uint256(0)
                 ? _initialConvertToAssets(shares)
-                : FixedPointMathLib.fullMulDivUp(shares, totalAssets(), supply);
+                : FPMaths.fullMulDivUp(shares, totalAssets(), supply);
         }
         uint256 o = _decimalsOffset();
         if (o == uint256(0)) {
-            return FixedPointMathLib.fullMulDivUp(shares, totalAssets() + 1, _inc(totalSupply()));
+            return FPMaths.fullMulDivUp(shares, totalAssets() + 1, _inc(totalSupply()));
         }
-        return FixedPointMathLib.fullMulDivUp(shares, totalAssets() + 1, totalSupply() + 10 ** o);
+        return FPMaths.fullMulDivUp(shares, totalAssets() + 1, totalSupply() + 10 ** o);
     }
 
     /// @dev Allows an on-chain or off-chain user to simulate the effects of their withdrawal
@@ -268,13 +268,13 @@ abstract contract ERC4626 is ERC20 {
             uint256 supply = totalSupply();
             return _eitherIsZero(assets, supply)
                 ? _initialConvertToShares(assets)
-                : FixedPointMathLib.fullMulDivUp(assets, supply, totalAssets());
+                : FPMaths.fullMulDivUp(assets, supply, totalAssets());
         }
         uint256 o = _decimalsOffset();
         if (o == uint256(0)) {
-            return FixedPointMathLib.fullMulDivUp(assets, totalSupply() + 1, _inc(totalAssets()));
+            return FPMaths.fullMulDivUp(assets, totalSupply() + 1, _inc(totalAssets()));
         }
-        return FixedPointMathLib.fullMulDivUp(assets, totalSupply() + 10 ** o, _inc(totalAssets()));
+        return FPMaths.fullMulDivUp(assets, totalSupply() + 10 ** o, _inc(totalAssets()));
     }
 
     /// @dev Allows an on-chain or off-chain user to simulate the effects of their redemption
@@ -304,9 +304,9 @@ abstract contract ERC4626 is ERC20 {
     }
 
     /// @dev Private helper to return `x + 1` without the overflow check.
-    /// Used for computing the denominator input to `FixedPointMathLib.fullMulDiv(a, b, x + 1)`.
+    /// Used for computing the denominator input to `FPMaths.fullMulDiv(a, b, x + 1)`.
     /// When `x == type(uint256).max`, we get `x + 1 == 0` (mod 2**256 - 1),
-    /// and `FixedPointMathLib.fullMulDiv` will revert as the denominator is zero.
+    /// and `FPMaths.fullMulDiv` will revert as the denominator is zero.
     function _inc(uint256 x) private pure returns (uint256) {
         unchecked {
             return x + 1;

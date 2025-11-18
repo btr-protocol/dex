@@ -38,7 +38,7 @@ contract Deploy is Script {
             // Fee parameters with defaults
             uint16 baseFee = uint16(vm.envOr("BASE_FEE", uint256(30)));
             uint16 maxFee = uint16(vm.envOr("MAX_FEE", uint256(1000)));
-            uint16 withdrawalFee = uint16(vm.envOr("WITHDRAWAL_FEE", uint256(10)));
+            uint16 withdrawalFee = uint16(vm.envOr("WITHDRAWAL_FEE", uint256(0)));  // 0% (haircut is sufficient)
             uint16 maxTWAPChange = uint16(vm.envOr("MAX_PRICE_CHANGE", uint256(500)));
             uint16 protocolFeeBps = uint16(vm.envOr("PROTOCOL_FEE_BPS", uint256(1000)));  // 10% to treasury
 

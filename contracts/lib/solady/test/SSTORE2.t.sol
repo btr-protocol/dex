@@ -4,7 +4,7 @@ pragma solidity ^0.8.4;
 import "./utils/SoladyTest.sol";
 import {SSTORE2} from "../src/utils/SSTORE2.sol";
 import {LibString} from "../src/utils/LibString.sol";
-import {FixedPointMathLib} from "../src/utils/FixedPointMathLib.sol";
+import {FPMaths} from "../src/utils/FPMaths.sol";
 
 contract SSTORE2Test is SoladyTest {
     uint256 internal constant _DATA_MAX_LENGTH = 0xfffe;

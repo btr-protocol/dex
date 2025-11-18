@@ -3,7 +3,7 @@ pragma solidity ^0.8.4;
 
 import "./../../utils/SoladyTest.sol";
 import {DelegateCheckerLib} from "../../../src/utils/ext/delegatexyz/DelegateCheckerLib.sol";
-import {FixedPointMathLib} from "../../../src/utils/FixedPointMathLib.sol";
+import {FPMaths} from "../../../src/utils/FPMaths.sol";
 
 interface IDelegateRegistryV1 {
     function delegateForAll(address delegate, bool value) external;
@@ -446,7 +446,7 @@ contract DelegateCheckerLibTest is SoladyTest {
         rights = _maybeMutateRights(rights);
         assertEq(
             _checkDelegateForERC20(to, from, contract_),
-            FixedPointMathLib.max(
+            FPMaths.max(
                 v2.checkDelegateForERC20(to, from, contract_, ""),
                 _uintMaxIfTrueElse0(v1.checkDelegateForContract(to, from, contract_))
             )
@@ -456,7 +456,7 @@ contract DelegateCheckerLibTest is SoladyTest {
         }
         assertEq(
             _checkDelegateForERC20(to, from, contract_, rights),
-            FixedPointMathLib.max(
+            FPMaths.max(
                 v2.checkDelegateForERC20(to, from, contract_, rights),
                 _uintMaxIfTrueElse0(
                     rights == "" && v1.checkDelegateForContract(to, from, contract_)
@@ -500,7 +500,7 @@ contract DelegateCheckerLibTest is SoladyTest {
         id = _maybeMutateId(id);
         assertEq(
             _checkDelegateForERC1155(to, from, contract_, id),
-            FixedPointMathLib.max(
+            FPMaths.max(
                 v2.checkDelegateForERC1155(to, from, contract_, id, ""),
                 _uintMaxIfTrueElse0(v1.checkDelegateForContract(to, from, contract_))
             )
@@ -510,7 +510,7 @@ contract DelegateCheckerLibTest is SoladyTest {
         }
         assertEq(
             _checkDelegateForERC1155(to, from, contract_, id, rights),
-            FixedPointMathLib.max(
+            FPMaths.max(
                 v2.checkDelegateForERC1155(to, from, contract_, id, rights),
                 _uintMaxIfTrueElse0(
                     rights == "" && v1.checkDelegateForContract(to, from, contract_)

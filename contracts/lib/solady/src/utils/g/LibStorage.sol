@@ -23,7 +23,7 @@ using LibStorage for Bump global;
 using LibStorage for Ref global;
 
 /// @notice Library for basic storage operations.
-/// @author Solady (https://github.com/vectorized/solady/blob/main/src/utils/g/LibStorage.sol)
+/// @author Solady (https://github.com/vectorized/solady/blob/main/src/utils/g/S.sol)
 library LibStorage {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTANTS                          */

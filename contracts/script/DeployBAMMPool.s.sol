@@ -28,7 +28,7 @@ contract DeployBAMMPool is Script {
         // Fee parameters with defaults if not set
         uint16 baseFee = uint16(vm.envOr("BASE_FEE", uint256(30)));  // 0.30%
         uint16 maxFee = uint16(vm.envOr("MAX_FEE", uint256(1000)));  // 10%
-        uint16 withdrawalFee = uint16(vm.envOr("WITHDRAWAL_FEE", uint256(10)));  // 0.10%
+        uint16 withdrawalFee = uint16(vm.envOr("WITHDRAWAL_FEE", uint256(0)));  // 0% (haircut is sufficient; set to ~20 for MEV protection)
         uint16 maxTWAPChange = uint16(vm.envOr("MAX_PRICE_CHANGE", uint256(500)));  // 5%
         uint16 protocolFeeBps = uint16(vm.envOr("PROTOCOL_FEE_BPS", uint256(1000)));  // 10% to treasury
 

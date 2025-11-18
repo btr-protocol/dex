@@ -14,11 +14,14 @@ abstract contract BaseOracle is IOracle {
     /// @notice Maximum volatility value (100% in 1e6 base)
     uint256 internal constant MAX_VOLATILITY = 100_000_000;
 
-    /// @notice Maximum price deviation per update (100% in basis points)
-    uint256 internal constant MAX_DEVIATION_BPS = 10_000;
+    /// @notice Maximum deviation threshold (6.5% in 0.0001% precision)
+    /// @dev 65_000 units = 6.5% (10_000 = 1%)
+    ///      Stablecoins need tight thresholds (~10-50 = 0.1-0.5%)
+    ///      Volatile assets max out at 6.5% to prevent excessive slippage
+    uint256 internal constant MAX_DEV_THRESHOLD = 65_000;
 
-    /// @notice Basis points precision (100% = 10000 bps)
-    uint256 internal constant BPS_PRECISION = 10_000;
+    /// @notice Deviation threshold precision: 10,000 base (1 unit = 0.0001%, 10_000 = 1%)
+    uint256 internal constant DEV_THRESHOLD_PRECISION = 10_000;
 
     // ========== VALIDATION HELPERS ==========
 
@@ -36,21 +39,21 @@ abstract contract BaseOracle is IOracle {
         return volatility <= MAX_VOLATILITY;
     }
 
-    /// @notice Validate that deviation is within bounds
-    /// @param deviationBps Deviation in basis points
-    /// @return isValid True if deviation is valid
-    function _validateDeviation(uint16 deviationBps) internal pure returns (bool isValid) {
-        return deviationBps <= MAX_DEVIATION_BPS;
+    /// @notice Validate that deviation threshold is within bounds
+    /// @param maxDeviation Deviation threshold (0.0001% precision: 10_000 = 1%)
+    /// @return isValid True if deviation is valid (<= 6.5%)
+    function _validatemaxDeviation(uint16 maxDeviation) internal pure returns (bool isValid) {
+        return maxDeviation <= MAX_DEV_THRESHOLD;
     }
 
     /// @notice Validate oracle data completeness
     /// @param data Oracle data to validate
     /// @return isValid True if all fields are valid
-    function _validateOracleData(OracleData memory data) internal pure returns (bool isValid) {
-        return _validatePrice(data.fastTWAP) &&
-               _validatePrice(data.slowTWAP) &&
-               _validateVolatility(data.fastVolatility) &&
-               _validateVolatility(data.slowVolatility);
+    function _validateFeedData(FeedData memory data) internal pure returns (bool isValid) {
+        return _validatePrice(data.fastEMA) &&
+               _validatePrice(data.slowEMA) &&
+               _validateVolatility(data.fastVolEMA) &&
+               _validateVolatility(data.slowVolEMA);
     }
 
     /// @notice Calculate absolute difference between two uint64 values

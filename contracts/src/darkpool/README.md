@@ -24,7 +24,7 @@ darkpool/
 ├── DarkPoolErrors.sol            # Centralized errors
 ├── README.md                     # This file│
 └── libraries/
-    ├── LibStorage.sol            # EIP-7201 namespaced storage
+    ├── S.sol            # EIP-7201 namespaced storage
     ├── LibMerkleTree.sol         # Poseidon merkle tree operations
     ├── LibVerifier.sol           # Groth16 proof verification
     └── LibBAMM.sol               # BAMM interaction helpers
@@ -43,7 +43,7 @@ darkpool/
    - Error definitions (`DarkPoolErrors.sol`)
 
 2. **Libraries**
-   - `LibStorage.sol` - EIP-7201 storage pattern
+   - `S.sol` - EIP-7201 storage pattern
    - `LibMerkleTree.sol` - Merkle tree structure (Poseidon placeholder)
    - `LibVerifier.sol` - Proof verification logic
    - `LibBAMM.sol` - BAMM interaction patterns (swap, LP deposit/withdraw)

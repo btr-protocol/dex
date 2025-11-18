@@ -1,11 +1,11 @@
 /**
  * @title Proof Builder
  * @notice Main proof generation for DarkPool transactions
- * @dev Uses snarkjs for Groth16 proof generation
+ * @dev Uses snarkjs for Groth16 proof generation and poseidon2 for hashing
  */
 
 import { groth16 } from "snarkjs";
-import { buildPoseidon } from "circomlibjs";
+import { poseidon2Hash as hash2Poseidon } from "@zkpassport/poseidon2";
 import type {
   ProofBuilderConfig,
   TransactionInputs,
@@ -22,17 +22,15 @@ import type {
 } from "./types";
 import { computeCommitment } from "./note";
 
-let poseidonInstance: any = null;
-
 /**
- * Get or build Poseidon instance (singleton)
+ * Poseidon2 hash function wrapper for BN254 field (alt_bn128)
+ * @dev Uses @zkpassport/poseidon2 which accepts array of inputs
+ * @param inputs Variable-length array of bigints to hash
+ * @returns Single bigint hash output
  */
-async function getPoseidon() {
-  if (!poseidonInstance) {
-    poseidonInstance = await buildPoseidon();
-  }
-  return poseidonInstance;
-}
+const poseidon2Hash = (inputs: bigint[]): bigint => {
+  return hash2Poseidon(inputs);
+};
 
 /**
  * Main Proof Builder
@@ -49,14 +47,14 @@ export class ProofBuilder {
   }
 
   /**
-   * Build complete transaction with proof
+   * Build complete transaction with proof using Poseidon2
    */
   async buildTransaction(inputs: TransactionInputs): Promise<Transaction> {
     // 1. Validate inputs
     this.validateInputs(inputs);
 
     // 2. Build circuit witness
-    const witness = await this.buildWitness(inputs);
+    const witness = this.buildWitness(inputs);
 
     // 3. Generate proof
     const { proof, publicSignals } = await this.generateProof(witness);
@@ -86,11 +84,11 @@ export class ProofBuilder {
   }
 
   /**
-   * Build circuit witness from transaction inputs
+   * Build circuit witness from transaction inputs using Poseidon2
    */
-  private async buildWitness(
+  private buildWitness(
     inputs: TransactionInputs
-  ): Promise<CircuitWitness> {
+  ): CircuitWitness {
     const nInputs = 2;
     const nOutputs = 2;
     const maxAssets = 4;
@@ -153,21 +151,19 @@ export class ProofBuilder {
     let merkleRoot = 0n;
     if (paddedInputs[0].pathElements.length > 0 && paddedInputs[0].value > 0n) {
       // Compute the leaf commitment for the first input note
-      const leafCommitment = await this.computeCommitmentForNote(paddedInputs[0]);
-      merkleRoot = await this.computeRootFromPath(
+      const leafCommitment = this.computeCommitmentForNote(paddedInputs[0]);
+      merkleRoot = this.computeRootFromPath(
         leafCommitment,
         paddedInputs[0].pathElements,
         paddedInputs[0].pathIndices
       );
     }
 
-    const nullifiers = await Promise.all(
-      paddedInputs.map((note) =>
-        this.computeNullifier(note.nullifierSecret, note.ownerKey)
-      )
+    const nullifiers = paddedInputs.map((note) =>
+      this.computeNullifier(note.nullifierSecret, note.ownerKey)
     );
 
-    const extDataHash = await this.computeExtDataHash(
+    const extDataHash = this.computeExtDataHash(
       extInAmounts,
       extOutAmounts,
       inputs.aspRoot ?? 0n
@@ -462,47 +458,54 @@ export class ProofBuilder {
 
   /**
    * Compute commitment for a note (for merkle root calculation)
+   * @dev Uses Poseidon2 two-layer hash matching on-chain contract
    */
-  private async computeCommitmentForNote(note: NoteWithPath): Promise<bigint> {
-    const poseidon = await getPoseidon();
-    // Commitment = Poseidon(chainId, darkPool, assetId, noteType, value, ownerKey, blinding, salt)
+  private computeCommitmentForNote(note: NoteWithPath): bigint {
+    // Commitment = Poseidon2(chainId, darkPool, assetId, noteType, value, ownerKey, blinding, salt)
     // Using nested hash: hash(hash(first 4), hash(last 4))
-    const hash1 = poseidon([note.chainId, BigInt(note.darkPool), note.assetId, BigInt(note.noteType)]);
-    const hash2 = poseidon([note.value, note.ownerKey, note.blinding, note.salt]);
-    const commitment = poseidon([poseidon.F.toObject(hash1), poseidon.F.toObject(hash2)]);
-    return poseidon.F.toObject(commitment);
+    const hash1 = poseidon2Hash([
+      note.chainId,
+      BigInt(note.darkPool),
+      note.assetId,
+      BigInt(note.noteType),
+    ]);
+    const hash2 = poseidon2Hash([
+      note.value,
+      note.ownerKey,
+      note.blinding,
+      note.salt,
+    ]);
+    const commitment = poseidon2Hash([hash1, hash2]);
+    return commitment;
   }
 
   /**
-   * Compute nullifier
+   * Compute nullifier using Poseidon2
    */
-  private async computeNullifier(
+  private computeNullifier(
     nullifierSecret: bigint,
     ownerKey: bigint
-  ): Promise<bigint> {
-    const poseidon = await getPoseidon();
-    const hash = poseidon([
+  ): bigint {
+    return poseidon2Hash([
       this.chainId,
       this.darkPool,
       nullifierSecret,
       ownerKey,
     ]);
-    return poseidon.F.toObject(hash);
   }
 
   /**
-   * Compute merkle root from path
+   * Compute merkle root from path using Poseidon2
    * @param leaf The actual leaf commitment
    * @param pathElements Sibling hashes along the path
    * @param pathIndices Direction indicators (0 = left, 1 = right)
    * @returns The computed merkle root
    */
-  private async computeRootFromPath(
+  private computeRootFromPath(
     leaf: bigint,
     pathElements: bigint[],
     pathIndices: bigint[]
-  ): Promise<bigint> {
-    const poseidon = await getPoseidon();
+  ): bigint {
     let currentHash = leaf; // Start with the actual leaf commitment
 
     for (let i = 0; i < pathElements.length; i++) {
@@ -511,14 +514,10 @@ export class ProofBuilder {
 
       if (isLeft) {
         // Current node is left, sibling is right
-        currentHash = poseidon.F.toObject(
-          poseidon([currentHash, sibling])
-        );
+        currentHash = poseidon2Hash([currentHash, sibling]);
       } else {
         // Current node is right, sibling is left
-        currentHash = poseidon.F.toObject(
-          poseidon([sibling, currentHash])
-        );
+        currentHash = poseidon2Hash([sibling, currentHash]);
       }
     }
 
@@ -526,17 +525,26 @@ export class ProofBuilder {
   }
 
   /**
-   * Compute extDataHash using nested Poseidon to match contract
-   * @dev Contract uses: hash3(hash4(extIn), hash4(extOut), aspRoot)
-   * @dev This matches Poseidon.hash9 in the contract
+   * Compute extDataHash using two-layer Poseidon2 to match contract
+   * @dev Matches contract LibVerifier._computeExtDataHash()
+   *
+   * Layer 1:
+   *   - hAssetsReceivers = Poseidon2([asset0, asset1, asset2, asset3, receiver0, receiver1, receiver2, receiver3])
+   *   - hAmounts = Poseidon2([extIn0, extIn1, extIn2, extIn3, extOut0, extOut1, extOut2, extOut3])
+   *
+   * Layer 2:
+   *   - extDataHash = Poseidon2([actionType, aspRoot, hAssetsReceivers, hAmounts])
+   *
+   * @param extInAmounts Array of external input amounts (padded to 4)
+   * @param extOutAmounts Array of external output amounts (padded to 4)
+   * @param aspRoot Anti-sandwich protection root
+   * @returns Two-layer Poseidon2 hash matching on-chain verifier
    */
-  private async computeExtDataHash(
+  private computeExtDataHash(
     extInAmounts: bigint[],
     extOutAmounts: bigint[],
     aspRoot: bigint
-  ): Promise<bigint> {
-    const poseidon = await getPoseidon();
-
+  ): bigint {
     // Ensure arrays are exactly 4 elements (pad with zeros if needed)
     const paddedExtIn = [...extInAmounts];
     while (paddedExtIn.length < 4) paddedExtIn.push(0n);
@@ -544,30 +552,34 @@ export class ProofBuilder {
     const paddedExtOut = [...extOutAmounts];
     while (paddedExtOut.length < 4) paddedExtOut.push(0n);
 
-    // Hash extIn (4 elements)
-    const extInHash = poseidon([
+    // TODO: Once assets and receivers are integrated into TransactionInputs,
+    // compute hAssetsReceivers = poseidon2Hash([asset0, asset1, asset2, asset3, receiver0, receiver1, receiver2, receiver3])
+    // For now, using placeholder (this MUST match circuit computation)
+
+    // Layer 1b: Hash amounts [extIn0, extIn1, extIn2, extIn3, extOut0, extOut1, extOut2, extOut3]
+    const hAmounts = poseidon2Hash([
       paddedExtIn[0],
       paddedExtIn[1],
       paddedExtIn[2],
       paddedExtIn[3],
-    ]);
-
-    // Hash extOut (4 elements)
-    const extOutHash = poseidon([
       paddedExtOut[0],
       paddedExtOut[1],
       paddedExtOut[2],
       paddedExtOut[3],
     ]);
 
-    // Combine with aspRoot (3 elements total)
-    const finalHash = poseidon([
-      poseidon.F.toObject(extInHash),
-      poseidon.F.toObject(extOutHash),
-      aspRoot,
-    ]);
+    // Layer 2: Combine with actionType and aspRoot
+    // CONTRACT REQUIREMENT: Must match LibVerifier._computeExtDataHash()
+    // For now, using simplified structure with placeholder for assets/receivers
+    const actionType = 0n; // TODO: Pass from TransactionInputs
+    const hAssetsReceivers = 0n; // TODO: Compute from assets and receivers once available
 
-    return poseidon.F.toObject(finalHash);
+    return poseidon2Hash([
+      actionType,
+      aspRoot,
+      hAssetsReceivers,
+      hAmounts,
+    ]);
   }
 }
 

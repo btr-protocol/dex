@@ -51,3 +51,47 @@ The `AGENTS.md` file contains:
 ---
 
 For detailed agent instructions and workflows, see [`AGENTS.md`](AGENTS.md).
+
+---
+
+## Documentation Location
+
+**CRITICAL: All specs live in `./specs/`**
+
+- ✅ **Canonical location**: `/specs/` (root-level)
+
+**When handling duplicate files:**
+1. **ALWAYS check modification dates** (use `stat` or `ls -lh`) before overwriting
+2. **ALWAYS compare content** with `diff` to verify newer version is superset
+3. **ALWAYS ask user for confirmation** before overwriting or deleting files
+4. **Document the consolidation** in commit message
+
+**Never assume newer = better**—always verify!
+
+---
+
+## Communication Style
+
+**CRITICAL: Keep responses SHORT and CONCISE.**
+
+- ❌ **NO** long summaries after completing tasks
+- ❌ **NO** verbose explanations unless explicitly requested
+- ❌ **NO** repeating what you just did in detail
+- ✅ **YES** brief status updates (1-2 lines)
+- ✅ **YES** ask questions when needed
+- ✅ **YES** report errors concisely
+
+**Example of good communication:**
+```
+✅ Fixed all struct optimizations. Main contracts compile. Tests need updates.
+```
+
+**Example of bad communication:**
+```
+❌ [15 paragraphs explaining every change made, gas savings, rationale, etc.]
+```
+
+**When to be verbose:**
+- When explicitly asked for details
+- When writing documentation files
+- When explaining complex architectural decisions

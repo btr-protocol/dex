@@ -662,7 +662,7 @@ Total per private swap: ~500k gas
 └─ Other:                  50k (10%)
 ```
 
-### V2: Poseidon2 Migration (6-12 months)
+### V2: Poseidon2 Migration
 
 **Performance Gains:**
 - 40% lower gas for hash ops (15k vs 25k)
@@ -680,10 +680,10 @@ Total per private swap: ~500k gas
 **Why Not Launch with Poseidon2?**
 - Not in official circomlib yet (PR #98 pending)
 - Limited production usage
-- Poseidon has 5+ years battle-testing
-- Time to market: Ships today vs 6-10 weeks delay
+- Poseidon has extensive battle-testing
+- Time to market: Ships sooner with proven tech
 
-### V3+: Advanced (18+ months)
+### V3+: Advanced Features
 
 **Potential:**
 - Proof systems: PLONK/Plonky2 (no trusted setup), FRI (post-quantum)

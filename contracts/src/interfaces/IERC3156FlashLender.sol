@@ -9,12 +9,18 @@ import {IERC3156FlashBorrower} from "./IERC3156FlashBorrower.sol";
  */
 interface IERC3156FlashLender {
     /**
-     * @notice Flash loan event
-     * @param borrower Address that initiated the flash loan
+     * @notice Flash loan event (EIP-3156 compliant)
+     * @param receiver Address that received the flash loan
+     * @param token Token address that was borrowed
      * @param amount Amount borrowed
      * @param fee Fee charged
      */
-    event FlashLoan(address indexed borrower, uint256 amount, uint256 fee);
+    event FlashLoan(
+        address indexed receiver,
+        address indexed token,
+        uint256 amount,
+        uint256 fee
+    );
 
     /**
      * @notice Maximum flash loan amount available for a token

@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {LibClone} from "solady/utils/LibClone.sol";
 import {BeaconFactory} from "../utils/BeaconFactory.sol";
-import {BAMMErrors as E} from "./BAMMEvents.sol";
+import {BAMMErrors as E} from "./BAMMErrors.sol";
 import {IDarkPoolFactory} from "../interfaces/IDarkPoolFactory.sol";
 
 /// @title BAMMFactory

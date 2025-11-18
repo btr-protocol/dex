@@ -2,7 +2,7 @@
 pragma solidity ^0.8.4;
 
 import "./utils/SoladyTest.sol";
-import {LibStorage} from "../src/utils/LibStorage.sol";
+import {LibStorage as S} from "../src/utils/S.sol";
 
 contract LibStorageTest is SoladyTest {
     using LibStorage for *;
@@ -11,7 +11,7 @@ contract LibStorageTest is SoladyTest {
 
     function testBumpSlot(bytes32 s, uint256 c) public {
         c = c & 0xffffffffffffffffff;
-        LibStorage.Bump storage bump = LibStorage.bump(s);
+        S.Bump storage bump = S.bump(s);
         bump._current = c;
         assertEq(
             bump.slot(),

@@ -4,8 +4,8 @@ pragma solidity ^0.8.28;
 import {IBAMM} from "../interfaces/IBAMM.sol";
 import {IBAMMHooks} from "../interfaces/IBAMMHooks.sol";
 import {IERC165} from "../interfaces/IERC165.sol";
-import {BAMMErrors as E} from "./BAMMEvents.sol";
-import {BAMMEvents as Events} from "./BAMMEvents.sol";
+import {BAMMErrors as E} from "./BAMMErrors.sol";
+import {LibStorage} from "../libraries/LibStorage.sol";
 
 /// @title BAMMHookRegistry
 /// @notice Hook registry functions for BAMM
@@ -15,8 +15,15 @@ abstract contract BAMMHookRegistry {
     /// @notice Get asset storage for given token (must be implemented by child)
     function _getAsset(address token) internal view virtual returns (IBAMM.Asset storage);
 
+    /// @notice Get storage (must be implemented by child)
+    function _sh() internal pure virtual returns (IBAMM.BAMMStorage storage);
+
     /// @notice Modifier for owner-only functions (must be implemented by child)
     modifier onlyOwner() virtual;
+
+    // ========== EVENTS ==========
+
+    event HooksUpdated(address indexed token, address indexed hookAddress);
 
     // ========== HOOK REGISTRY ==========
 
@@ -29,20 +36,21 @@ abstract contract BAMMHookRegistry {
         address token,
         address hookAddress
     ) external onlyOwner {
+        IBAMM.BAMMStorage storage $ = _sh();
         IBAMM.Asset storage asset = _getAsset(token);
         if (asset.segmentCount == 0) revert E.AssetNotFound();
 
         // Early return if hook address unchanged (saves gas on no-op)
-        if (asset.hooks == hookAddress) return;
+        if ($.hooks[token] == hookAddress) return;
 
         // If enabling hooks, validate using ERC-165
         if (hookAddress != address(0)) {
             _validateHookContract(hookAddress);
         }
 
-        asset.hooks = hookAddress;
+        $.hooks[token] = hookAddress;
 
-        emit Events.HooksUpdated(token, hookAddress);
+        emit HooksUpdated(token, hookAddress);
     }
 
     /// @notice Get hook contract for an asset
@@ -52,7 +60,8 @@ abstract contract BAMMHookRegistry {
         IBAMM.Asset storage asset = _getAsset(token);
         if (asset.segmentCount == 0) revert E.AssetNotFound();
 
-        return asset.hooks;
+        IBAMM.BAMMStorage storage $ = _sh();
+        return $.hooks[token];
     }
 
     /// @notice Validate hook contract at registration time (comprehensive check)

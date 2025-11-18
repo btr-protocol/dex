@@ -16,23 +16,47 @@ interface IDarkPool {
     }
 
     /// @notice External action parameters
+    /// @dev extIn/extOut semantics depend on action type:
+    ///      - TRANSFER: extIn = tokens entering privacy pool (pulled from sender)
+    ///                  extOut = tokens exiting privacy pool (sent to receivers)
+    ///      - SWAP: extOut[0] = amountIn (private → BAMM)
+    ///              extIn[1] = minAmountOut (slippage protection)
+    ///              If receiver not specified, swapped tokens remain in DarkPool for re-shielding
+    ///      - LP_DEPOSIT: extOut[0] = token amount to deposit
+    ///                    extIn[0] = minLpTokens (slippage protection)
+    ///                    LP tokens are held by DarkPool; scaled shares encoded in output commitment
+    ///      - LP_WITHDRAW: extIn[0] = scaledShares (from note)
+    ///                     extOut[0] = minAmountOut (slippage protection)
+    ///                     If receiver not specified, withdrawn tokens remain in DarkPool for re-shielding
+    /// @dev Re-shielding: When receiver = address(0), tokens remain in DarkPool for subsequent
+    ///      private transactions, maintaining privacy without exiting to public addresses
     struct ExtData {
         uint8 actionType;            // TRANSFER | SWAP | LP_DEPOSIT | LP_WITHDRAW
         address[] assets;            // Tokens involved
-        uint256[] extIn;             // External inputs per asset
-        uint256[] extOut;            // External outputs per asset
-        address[] receivers;         // External payout addresses
+        uint256[] extIn;             // External inputs per asset (public→private or slippage params)
+        uint256[] extOut;            // External outputs per asset (private→public or action amounts)
+        address[] receivers;         // External payout addresses (address(0) = re-shield)
         bytes32 memoHash;            // Optional metadata hash
         bytes32 aspRoot;             // Association set root (if requireASP enabled)
     }
 
     // ========== EVENTS ==========
 
+    // Privacy events
     event Deposit(address indexed asset, uint256 amount, bytes32 indexed commitment);
     event Transact(bytes32[] nullifiers, bytes32[] outCommitments, bytes32 extDataHash);
     event NewCommitment(bytes32 indexed commitment, uint32 leafIndex, bytes recipientHint);
     event NewNullifier(bytes32 indexed nullifier);
     event NewRoot(bytes32 indexed root, uint32 leafIndex);
+
+    // Merkle tree events
+    event LeafInserted(uint32 indexed leafIndex, bytes32 leaf, bytes32 newRoot);
+
+    // LP events
+    event LPDeposited(address indexed token, uint256 amountIn, uint256 lpTokensOut, uint128 liquidityIndex);
+    event LPWithdrawn(address indexed token, uint256 lpTokensIn, uint256 amountOut, uint128 liquidityIndex);
+
+    // Admin events
     event Paused(bool paused);
     event RequireASPSet(bool requireASP);
     event ASPRootApproved(bytes32 indexed aspRoot, bool approved);
@@ -43,7 +67,8 @@ interface IDarkPool {
     /// @param _bammPool The BAMM pool this DarkPool serves
     /// @param _verifier Groth16 verifier contract
     /// @param _owner Owner address for emergency controls
-    function initialize(address _bammPool, address _verifier, address _owner) external;
+    /// @param _shieldedState Global shielded state contract (shared Merkle tree and nullifier set)
+    function initialize(address _bammPool, address _verifier, address _owner, address _shieldedState) external;
 
     // ========== DEPOSIT FUNCTIONS ==========
 
@@ -57,31 +82,33 @@ interface IDarkPool {
         uint256 amount,
         bytes32 commitment,
         bytes calldata recipientHint
-    ) external;
+    ) external payable;
 
     /// @notice Deposit token to BAMM and create shielded LP note
     /// @param token Underlying token
     /// @param amount Token amount to deposit
     /// @param commitment Commitment to shield LP note
     /// @param recipientHint Encrypted hint for recipient discovery
+    /// @param minLpTokens Minimum LP tokens to receive (slippage protection)
     function depositAndMintLP(
         address token,
         uint256 amount,
         bytes32 commitment,
-        bytes calldata recipientHint
-    ) external;
+        bytes calldata recipientHint,
+        uint256 minLpTokens
+    ) external payable;
 
     // ========== PRIVATE TRANSACT ==========
 
     /// @notice Execute private transaction with ZK proof
     /// @param proof ZK proof with public inputs
     /// @param extData External action parameters
-    /// @param recipientHints Encrypted hints for output notes
+    /// @param recipientHints Encrypted hints for output notes (one bytes32 per output commitment)
     /// @return success True if transaction succeeded
     function transact(
         Proof calldata proof,
         ExtData calldata extData,
-        bytes calldata recipientHints
+        bytes32[] calldata recipientHints
     ) external returns (bool success);
 
     // ========== OWNER FUNCTIONS ==========

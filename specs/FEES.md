@@ -1,41 +1,82 @@
-# BAMM Fee System - Tri-Factor Model with Unified Volatility
+# BAMM Fee System - Tri-Factor ALM Model
 
 ## Overview
 
-BAMM implements a **Wombat-inspired tri-factor fee model** with **unified volatility calculation** for maximum gas efficiency and consistency.
+BAMM implements a **tri-factor fee model** (coverage × volatility × deviation) with **unified volatility calculation** for maximum gas efficiency and direct ALM alignment.
+
+### Fee Precision: 100,000 Base (Not Standard 10,000 BPS)
+
+**Precision**: 1 unit = 0.0001% = 0.01 bps (`BPS_PRECISION = 100_000`)
+
+**Why 10× finer precision than standard BPS:**
+
+1. **Sub-bps fees**: Express 0.5 bps (0.005%) flash loans as 50 units—impossible with standard 10k base
+2. **Tri-factor granularity**: Coverage, volatility, and divergence factors need fine-grained multipliers (0.01 precision instead of 0.1)
+3. **Uint16 efficiency**: Max uint16 (65,535) = 6.5535%, well above theoretical 5% max; fits all fees in single 2-byte field
+4. **Uint256 safety**: All fee calculations cast uint16 params to uint256 at computation time for summation/averaging—no overflow risk, clean math
+5. **Competitive positioning**: 50 units (0.5 bps) for flash loans is 10× cheaper than Aave's 9 bps, enabling MEV and arbitrage use cases
+
+**Examples**:
+- Flash loan (target): 50 = 0.005% = 0.5 bps (vs Aave 9 bps)
+- Min swap fee: 100 = 0.01% = 1 bps
+- Typical swap fee: 3,000 = 0.3% = 30 bps
+- Max swap fee: 50,000 = 5% = 500 bps
+- Protocol take: 10,000 = 1% (NOT 10%—be careful!)
+
+**Calculation**:
+```solidity
+uint256 feeAmount = (amount * feeBps) / BPS_PRECISION;  // BPS_PRECISION = 100_000
+```
+
+**Type safety**: All tri-factor computations explicitly cast uint16 fee params to uint256 before multiplication/division to prevent overflow in intermediate operations.
+
+## Swap Routing Model
+
+**All swaps follow hub-and-spoke routing** through the base token (typically USDC). For complete routing specification, including virtual depth mechanics and numéraire concepts, see **[SWAP.md](./SWAP.md)**.
+
+### Direct vs Triangulated Swaps (Summary)
+
+**Every swap has 2 legs**, but behavior differs based on whether base token is involved:
+
+| Aspect | Direct (A ↔ base) | Triangulated (A → base → B) |
+|--------|-------------------|------------------------------|
+| **Base reserves** | Modified | **Unchanged** (virtual numéraire) |
+| **Base LP fees** | Earned (50% of fees) | **Zero** (only A and B LPs earn) |
+| **Virtual depth** | Not used | **Used** (path independence) |
+| **Slippage source** | Both assets' curves | Only A and B curves |
+| **Fee split** | 50/50 between A and base | 50/50 between A and B |
+
+**See [SWAP.md](./SWAP.md) for detailed routing specification.**
 
 ## Table of Contents
 
 1. [Key Principles](#key-principles)
 2. [Unified Volatility System](#unified-volatility-system)
-3. [Tri-Factor Fee Model](#tri-factor-fee-model)
-4. [Fee Calculation](#fee-calculation)
-5. [Liquidity Breadth Integration](#liquidity-breadth-integration)
-6. [Parameter Configuration](#parameter-configuration)
+3. [Coverage-Only Inventory Factor](#coverage-only-inventory-factor)
+4. [Tri-Factor Fee Model](#tri-factor-fee-model)
+5. [Fee Model: Direct vs Triangulated](#fee-model-direct-vs-triangulated-swaps)
+6. [Liquidity Breadth Integration](#liquidity-breadth-integration)
+7. [Deposit and Withdrawal Fees](#deposit-and-withdrawal-fees)
+8. [Parameter Configuration](#parameter-configuration)
 
 ---
 
 ## Key Principles
 
-1. **Decode oracle once per asset per leg** - Compute baseline volatility and shock ratio once, reuse for both breadth and fees
-2. **Three capped linear factors** - Inventory (coverage), volatility shock, price divergence
-3. **No discontinuities** - All multipliers are smooth linear ramps, preventing arbitrage opportunities
-4. **Coverage-based ALM** - Uses actual reserves/liabilities ratio (Wombat-style), not arbitrary weights
+1. **All swaps have 2 legs** - Buy side (tokenIn) and sell side (tokenOut); distinction is direct vs triangulated
+2. **Decode oracle once per asset** - Compute baseline vol and shock ratio once, reuse for both breadth and fees
+3. **Per-asset coverage** - Uses raw `C = reserves / liabilities` with proper timing (post-swap for inflows, pre-swap for outflows)
+4. **Three multiplicative factors** - Coverage, volatility shock, price divergence combined via geometric mean
+5. **Simple 50/50 fee split** - `totalFeeBps / 2` per leg, no complex value conversions
+6. **Virtual depth for triangulated** - Base acts as numéraire only, reserves unchanged, no base LP fees
 
-### Fee Formula
+### Why Per-Asset Coverage?
 
-```solidity
-// Per-asset multiplier
-m_asset = clamp(m_inv * m_vol * m_pd / Λ², m_min, m_max)
-
-// Per-leg multiplier (max of in/out)
-m_leg = max(m_asset,in, m_asset,out)
-
-// Final fee
-f_bps = clamp(f_base * m_leg / Λ, f_min, f_max)
-
-Where: Λ = 10^18 (precision constant)
-```
+**Per-asset coverage (unit-based) is used instead of global pool coverage** because:
+- Coverage = `reserves / liabilities` in token units (NOT value-weighted)
+- Global pool coverage is for analytics only, NOT used in fee calculation
+- Simpler math: no cross-asset value summation in fee path
+- Direct ALM alignment: same per-asset coverage drives fees and incentives
 
 ---
 
@@ -43,7 +84,7 @@ Where: Λ = 10^18 (precision constant)
 
 ### Design Goal
 
-> Compute baseline volatility and shock ratio **once per asset per leg**, then reuse those values for **both** piecewise price traversal (breadth) and fee computation.
+> Compute baseline vol and shock ratio **once per asset per leg**, then reuse those values for **both** piecewise price traversal (breadth) and fee computation.
 
 This ensures:
 - **Gas efficiency** - Single oracle decode, no redundant SLOADs
@@ -58,12 +99,11 @@ For each asset in the swap leg:
 // 1. Oracle bundle
 fast TWAP: q_f (B64 decoded to 1e18)
 slow TWAP: q_s (B64 decoded to 1e18)
-fast volatility: v_f (1e6 units)
-slow volatility: v_s (1e6 units)
+fast vol: v_f (1e6 units)
+slow vol: v_s (1e6 units)
 
-// 2. Baseline volatility
-v_base = w * v_f + (1 - w) * v_s
-v_base = clamp(v_base, v_floor, v_max)
+// 2. Baseline vol (no clamping)
+v_base = v_s  // Use raw slow vol
 
 // 3. Shock ratio
 r = min(r_max, v_f / max(v_s, ε))
@@ -73,472 +113,475 @@ r = min(r_max, v_f / max(v_s, ε))
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
-| `volWeight` | uint16 (1e2) | Weight w for fast vol | 70 (0.7) |
-| `volFloor` | uint32 (1e6) | Minimum v_base | 100000 (0.1%) |
-| `volMax` | uint32 (1e6) | Maximum v_base | 50000000 (50%) |
-| `volEpsilon` | uint16 (1e6) | Minimum denominator | 1000 (0.001%) |
-| `volRMax` | uint16 (1e2) | Maximum shock ratio | 1000 (10x) |
+| `volEpsilon` | uint16 | Denominator safety (1e6 units) | 1000 (0.001%) |
+| `volRMax` | uint16 | Maximum shock ratio (100x precision) | 500 (5x) |
+
+### Usage Pattern
+
+```solidity
+// Decode once
+OracleData memory data = decodeOracle(oracleEntry);
+// data.volBaseline, data.volFast, data.volSlow available
+
+// Use in breadth
+uint256 breadthBps = data.volBaseline * kappa / 1_000_000;
+
+// Use in fees
+uint256 baseFee = baseMin + (data.volBaseline * baseK) / 1_000_000;
+uint256 shockMult = _volShock(data.volFast, data.volSlow, params);
+```
 
 ---
 
-## Tri-Factor Fee Model
+## Per-Asset Coverage Factor
 
-### 1. Inventory Factor (Coverage-Based)
-
-**Purpose**: Incentivize pool rebalancing via fee rebates/penalties based on coverage ratio.
-
-**Coverage Ratio**: `C = reserves / liabilities` (Wombat-style ALM)
-
-**Calculation**:
+### Coverage Definition
 
 ```solidity
-// Current asset share (value-weighted)
-v = (reserves * price) / totalReserves
+C = reserves (units) / liabilities (units)
+```
 
-// Target share (based on liabilities)
-t = (liabilities * price) / totalLiabilities
+- **Unit-based, NOT value-based**: Only token amounts matter (not value)
+- **Price-invariant**: Only swap flows and deposits/withdrawals change $C$
+- **Per-asset**: Each token has independent coverage
+- **Global pool coverage NOT used**: Only per-asset coverage affects fees (global is analytics-only)
+- **Safe denominator**: If `liabilities == 0`, treat `C = 1` for fees
 
-// Normalized divergence
-x = min(1, |v - t| / max(t, ε) / x_inv,max)
+### Coverage Multiplier
 
-// Multiplier
-if (v < t) {
-    // Under target: linear rebate (encourage inflows)
-    m_inv = 1 - (1 - m_inv,min) * x
-} else {
-    // Over target: linear penalty (discourage outflows)
-    m_inv = 1 + (m_inv,max - 1) * x
+```solidity
+// Under-collateralized (C < 1): linear rebate
+if (C < 1e18) {
+    δ_under = min(1e18, (1e18 - C) * 1e18 / covUnderMax);
+    m_cov = 1e18 - (1e18 - covMinMult) * δ_under / 1e18;
+}
+
+// Over-collateralized (C >= 1): linear penalty
+else {
+    δ_over = min(1e18, (C - 1e18) * 1e18 / covOverMax);
+    m_cov = 1e18 + (covMaxMult - 1e18) * δ_over / 1e18;
 }
 ```
-
-**Parameters**:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `invMinMult` | 20 (0.2x) | Min rebate when under-collateralized |
-| `invMaxMult` | 10000 (100x) | Max penalty when over-collateralized |
-| `invMaxDivergence` | 5000 (50% bps) | Max divergence for full scale |
-
-**See**: [`ALM_COVERAGE_RATIO.md`](ALM_COVERAGE_RATIO.md) for detailed coverage ratio documentation
-
-### 2. Volatility Shock Factor
-
-**Purpose**: React to regime breaks even when absolute volatility remains small (critical for stables).
-
-**Calculation**:
-
-```solidity
-// Shock ratio (computed once per asset, reused for breadth)
-r = min(r_max, v_f / max(v_s, ε))
-
-// Linear multiplier with sensitivity gain
-m_vol = clamp(β * r, 1, m_vol,max)
-```
-
-**Parameters**:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `volBeta` | 150 (1.5x) | Sensitivity gain β |
-| `volRMax` | 1000 (10x) | Max shock ratio cap |
-| `volMaxMult` | 10000 (100x) | Max multiplier cap |
-
-### 3. Price Divergence Factor
-
-**Purpose**: Penalize swaps during oracle mispricing and regime shifts.
-
-**Calculation**:
-
-```solidity
-// d_1: Immediate mispricing (spot vs fast)
-d_1 = |spot - q_f| / max(q_f, ε)
-
-// d_2: Regime shift (fast vs slow)
-d_2 = |q_f - q_s| / max(q_s, ε)
-
-// Conservative aggregation
-x_pd = min(1, max(d_1 / d_1,max, α * d_2 / d_2,max))
-
-// Linear ramp
-m_pd = 1 + (m_pd,max - 1) * x_pd
-```
-
-**Parameters**:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `pdD1Max` | 1000 (10% bps) | Max spot-vs-fast divergence |
-| `pdD2Max` | 1500 (15% bps) | Max fast-vs-slow divergence |
-| `pdAlpha` | 50 (0.5) | Weight for regime shift |
-| `pdMaxMult` | 10000 (100x) | Max multiplier cap |
-
-### 4. Base Fee (Volatility-Aware)
-
-**Purpose**: Establish floor fee based on long-term risk (slow volatility).
-
-**Calculation**:
-
-```solidity
-f_base = clamp(k * v_s, f_min, f_max)
-```
-
-**Parameters**:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `baseK` | 100 (1.0) | Multiplier for slow vol |
-| `baseMin` | 1 (0.01%) | Minimum base fee |
-| `baseMax` | 500 (5%) | Maximum base fee |
-
-### 5. Risk Multiplier Combination
-
-**Calculation**:
-
-```solidity
-// Multiplicative combination
-m = (m_inv * m_vol * m_pd) / Λ²
-
-// Global clamps
-m = clamp(m, m_min, m_max)
-```
-
-**Parameters**:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `minMult` | 20 (0.2x) | Global min (allows inventory rebates) |
-| `maxMult` | 10000 (100x) | Global max |
-
-### 6. Per-Leg Fee
-
-**Calculation**:
-
-```solidity
-// Per asset
-m_asset,in = calculate_multiplier(assetIn, ...)
-m_asset,out = calculate_multiplier(assetOut, ...)
-
-// Per leg: max to avoid diluting stressed side
-m_leg = max(m_asset,in, m_asset,out)
-
-// Final fee
-f_bps = clamp(f_base * m_leg / Λ, f_min, f_max)
-```
-
----
-
-## Fee Calculation
-
-### Execution Flow
-
-#### Single-Leg Swap (A → B)
-
-1. Decode oracle once for A and B
-2. Calculate v_base and r for both assets
-3. Calculate breadth using v_base + optional shock term
-4. Traverse piecewise curve with unified breadth
-5. Calculate fee using tri-factor model with same v_base and r
-6. Apply fee, execute swap
-
-#### Two-Leg Swap (A → base → B)
-
-1. Decode oracle once for A, base, B
-2. Calculate v_base and r for all three assets
-3. **Leg 1** (A → base):
-   - Calculate breadth for A and base
-   - Traverse piecewise curves
-   - Calculate fee using tri-factor
-4. **Leg 2** (base → B):
-   - Calculate breadth for base and B
-   - Traverse piecewise curves
-   - Calculate fee using tri-factor
-5. Apply fees, execute swap
-
-#### Batch Swaps
-
-1. Decode oracle once per unique token in batch
-2. Calculate v_base and r once per token
-3. Reuse across all steps with virtual reserves
-4. Settle each unique token once at end
-
-**Key**: Oracle values are cached in memory, never re-decoded between breadth and fee calculations.
-
----
-
-## Liquidity Breadth Integration
-
-### Breadth Formula
-
-```solidity
-// Base breadth from baseline volatility
-breadthBps = breadth_0 + κ_breadth * v_base
-
-// Optional: Add shock term for faster reaction
-breadthBps += κ_shock * (r - 1)
-
-// Clamp
-breadthBps = min(breadthBps, breadthMaxBps)
-```
-
-Where:
-- `breadth_0` = interpolate(minBreadth, maxBreadth, v_base / 100M)
-- `κ_breadth` = implicit in linear interpolation
-- `κ_shock` = optional multiplier (default 0, disabled)
 
 ### Parameters
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
-| `minBreadth` | uint64 (1e8) | Min breadth at vol=0 | Asset-specific |
-| `maxBreadth` | uint64 (1e8) | Max breadth at vol=100% | Asset-specific |
-| `breadthShockKappa` | uint16 (1e2) | Shock term multiplier | 0 (disabled) |
+| `covMinMult` | uint16 | Min rebate multiplier (100x) | 20 (0.2x) |
+| `covMaxMult` | uint16 | Max penalty multiplier (100x) | 10000 (100x) |
+| `covUnderMax` | uint256 | Max under-coverage to scale (WAD) | 0.5e18 (50%) |
+| `covOverMax` | uint256 | Max over-coverage to scale (WAD) | 0.5e18 (50%) |
 
-### Unified Execution
+### Examples
+
+| Coverage | δ | Multiplier | Effect |
+|----------|---|------------|--------|
+| 0.5 | 1.0 | 0.2x | Max rebate (under 50%) |
+| 0.75 | 0.5 | 0.6x | Partial rebate |
+| 1.0 | 0.0 | 1.0x | Neutral |
+| 1.5 | 1.0 | 100x | Max penalty (over 50%) |
+| 1.25 | 0.5 | 50x | Partial penalty |
+
+---
+
+## Tri-Factor Fee Model
+
+### Per-Asset Multiplier
+
+Each asset computes three independent factors:
 
 ```solidity
-// In getSegmentPrice():
-v_base = calculateBaselineVolatility(v_f, v_s, params)
-r = calculateShockRatio(v_f, v_s, params)
+// 1. Coverage factor
+m_inv = _coverageFactor(reserves, liabilities, params);
 
-// Pass to piecewise traversal
-breadthBps = calculateBreadth(v_base, r, minBreadth, maxBreadth, κ_shock)
-price = executeSegmentTraversal(..., breadthBps, ...)
+// 2. Volatility shock factor
+r = min(volRMax, volFast * 1e18 / max(volSlow, volEpsilon));
+m_vol = clamp(volBeta * r / 100, 1e18, volMaxMult * 1e18 / 100);
 
-// Later, in fee calculation
-m_vol = calculateVolatilityShockFactor(r, ...)  // Reuse r!
-f_bps = calculateFee(v_base, r, ...)  // Reuse v_base and r!
+// 3. Price divergence factor
+d1 = |poolPrice - oracleFast| / oracleFast;
+d2 = |oracleFast - oracleSlow| / oracleSlow;
+x_pd = min(1, max(d1 / pdD1Max, pdAlpha * d2 / pdD2Max));
+m_pd = 1e18 + (pdMaxMult * 1e18 / 100 - 1e18) * x_pd;
+
+// Combined per-asset multiplier
+m_asset = clamp(m_inv * m_vol * m_pd / 1e36, minMult, maxMult);
 ```
 
-**See**: [`PIECEWISE_BONDING_CURVE.md`](PIECEWISE_BONDING_CURVE.md) for detailed breadth mechanics
+### Single-Leg Fee (A ↔ base)
+
+For swaps involving base token:
+
+```solidity
+// Per-leg multiplier (max of in/out assets)
+m_leg = max(m_asset_in, m_asset_out);
+
+// Baseline fee from slow vol
+f_base = max(baseMin, baseK * volBaseline_avg / 1_000_000);
+
+// Final fee
+f_bps = clamp(f_base * m_leg / 1e18, asset.minFeeBps, asset.maxFeeBps);
+```
+
+---
+
+## Fee Model: Direct vs Triangulated Swaps
+
+**All swaps have 2 legs** (buy side + sell side). The distinction is:
+- **Direct**: A ↔ base (one leg is base token)
+- **Triangulated**: A → base → B (base is virtual numéraire)
+
+### Coverage Timing (ALM Incentives)
+
+**Critical**: Coverage must reflect the **marginal** state traders experience:
+- **Inflows** (selling into pool): Use **post-swap** coverage `(reserves + amountIn) / liabilities` for penalties
+  - Penalizes trades that increase imbalance
+- **Outflows** (buying from pool): Use **pre-swap** coverage `reserves / liabilities` for rebates
+  - Rewards trades that rebalance the pool
+
+This timing ensures fees properly incentivize rebalancing toward target coverage.
+
+### Fee Calculation: 50/50 Split for LP Fairness
+
+```solidity
+// 1. Compute total path fee from geometric mean of asset multipliers
+m_in = m_cov(in, post-swap) * m_vol(in) * m_pd(in)
+m_out = m_cov(out, pre-swap) * m_vol(out) * m_pd(out)
+m_path = sqrt(m_in * m_out)  // Geometric mean for balanced incentives
+totalFeeBps = baseFee * m_path / 1e18
+
+// 2. Split 50/50 between legs for LP reward fairness
+leg1FeeBps = totalFeeBps / 2
+leg2FeeBps = totalFeeBps - leg1FeeBps  // Handle rounding
+
+// 3. Apply to each leg's amount
+feeIn = amountIn * leg1FeeBps / BPS_PRECISION
+feeOut = amountOut * leg2FeeBps / BPS_PRECISION
+```
+
+**Why 50/50 split?**
+- **LP fairness**: Equal rewards in value terms for both sides
+- **Simple**: Single `totalFeeBps` visible to trader
+- **Symmetric**: Same logic for direct and triangulated swaps
+- **No complex conversions**: No cross-asset value weighting needed
+
+**Why geometric mean?**
+- Better balanced incentives than max() or addition
+- Prevents one asset's extreme multiplier from dominating
+- Smooth behavior when one asset is neutral
+
+### Direct Swap: A ↔ base
+
+```solidity
+// Two legs: tokenIn and tokenOut (one is base)
+// Volatility/deviation from non-base asset
+// Coverage from both assets (post-swap for in, pre-swap for out)
+
+totalFeeBps = computed as above
+leg1FeeBps = totalFeeBps / 2
+leg2FeeBps = totalFeeBps / 2
+
+feeIn = amountIn * leg1FeeBps / BPS_PRECISION
+feeOut = amountOut * leg2FeeBps / BPS_PRECISION
+```
+
+### Triangulated Swap: A → base (virtual) → B
+
+```solidity
+// Base is virtual numéraire (reserves unchanged)
+// Virtual depth = effectiveDepth(A) for leg1, effectiveDepth(B) for leg2
+// Fee computation same as direct, but base doesn't earn LP fees
+
+totalFeeBps = computed from A and B multipliers
+leg1FeeBps = totalFeeBps / 2
+leg2FeeBps = totalFeeBps / 2
+
+feeIn = amountIn * leg1FeeBps / BPS_PRECISION
+feeOut = amountOut * leg2FeeBps / BPS_PRECISION
+
+// Base earns zero LP fees (virtual routing)
+// Protocol may still collect base protocol fees if desired
+```
+
+### Why This Model?
+
+1. **Simple**: Just `totalFeeBps / 2` per leg, no value conversions
+2. **Fair**: Equal LP rewards in value terms automatically
+3. **Symmetric**: Same logic for direct and triangulated
+4. **Correct timing**: Inflows penalized on post-swap coverage, outflows rebated on pre-swap
+5. **Path independent**: Triangulated uses virtual depth, no base impact on slippage
+
+---
+
+## Liquidity Breadth Integration
+
+### Virtual Depth for Path Independence
+
+**Problem**: In A→base→B routing, base token depth shouldn't affect slippage when it's only a numéraire (denomination), not an input/output.
+
+**Solution**: Use **virtual depth** where base appears as deep/shallow as the real economic assets (A or B), ensuring **path independence**: A→base→B has same slippage as direct A↔B.
+
+#### Virtual Depth Calculation
+
+```solidity
+// Effective depth = reserves (or vol-adjusted)
+function effectiveDepth(Asset storage asset) internal view returns (uint256) {
+    return asset.reserves;  // Simple: just reserves
+}
+
+// Leg 1: A → base (virtual)
+virtualBaseDepth1 = effectiveDepth(assetA);
+
+// Leg 2: base (virtual) → B
+virtualBaseDepth2 = effectiveDepth(assetB);
+```
+
+#### How Virtual Depth Works
+
+```solidity
+// Inside piecewise curve traversal for leg with virtualDepth
+uint256 actualReserves = assetOut.reserves;
+uint256 depthMultiplier = virtualDepthOut * 1e18 / actualReserves;
+
+for (uint i = 0; i < segmentCount; i++) {
+    uint256 segmentLiq = reserves * segmentWeights[i] / WEIGHT_SUM;
+    uint256 virtualSegmentLiq = segmentLiq * depthMultiplier / 1e18;
+
+    // Use virtualSegmentLiq for slippage calculation
+    // But base reserves remain unchanged (virtual only)
+}
+```
+
+**Virtual Depth Behavior**:
+- When `virtualDepth > actualReserves`: Increases segment liquidity (base appears deeper)
+- When `virtualDepth < actualReserves`: Decreases segment liquidity (base appears shallower)
+- This is intentional for path independence, not a bug
+
+**Example**:
+- Asset A has 1000 reserves, base has 100 reserves
+- Virtual depth for A→base leg = 1000 (base appears 10× deeper)
+- This makes slippage identical to direct A↔B routing
+- Base reserves remain unchanged (virtual only)
+
+**Key properties**:
+1. Base reserves are **read** but **never written** in triangulated swaps
+2. Slippage comes entirely from A and B curves
+3. Base acts purely as price denomination
+4. Coverage already affects fees via $m_{\text{cov}}$—no double penalization
+
+### Breadth Calculation
+
+```solidity
+// Reuse baseline vol from oracle decode
+// uint32 precision: 1 unit = 0.0001%, base = 1_000_000 (100_000 = 100%)
+breadthBps = minPriceStep + (volBaseline * 100) / 1000;
+breadthBps = min(breadthBps, MAX_BREADTH_BPS);  // 1_000_000 (100%) cap
+breadthBps = min(breadthBps, maxBreadth);       // per-asset cap
+```
+
+### Segment Traversal
+
+```solidity
+for (uint i = 0; i < segmentCount; i++) {
+    int256 leftOffset = twapOffsets[i];
+    int256 rightOffset = twapOffsets[i+1];
+
+    // BPS_PRECISION = 1_000_000, breadthBps in same units
+    leftPrice = slowTWAP * (BPS_PRECISION + leftOffset * breadthBps / 100) / BPS_PRECISION;
+    rightPrice = slowTWAP * (BPS_PRECISION + rightOffset * breadthBps / 100) / BPS_PRECISION;
+
+    segmentLiquidity = reserves * segmentWeights[i] / WEIGHT_SUM;
+    // ... fill and traverse
+}
+```
+
+---
+
+## Deposit and Withdrawal Fees
+
+### Design Philosophy
+
+**Deposits and withdrawals use optional parametric fees for MEV/arbitrage protection, NOT for routine revenue.**
+
+#### Deposit Fees
+
+```solidity
+// Default: 0 (no penalty for providing liquidity)
+uint16 depositFeeBps = 0;  // Can be set to e.g., 20 (0.02%) to deter flash deposits
+
+// Applied to actual received amount (after FOT handling)
+uint256 depositFee = (actualAmount * asset.depositFeeBps) / BPS_PRECISION;
+uint256 amountAfterFee = actualAmount - depositFee;
+
+// Fee bumps liquidity index for existing LPs (not withdrawn)
+if (depositFee > 0 && lpState.totalScaledSupply > 0) {
+    lpState.liquidityIndex = oldIndex * (oldReserves + depositFee) / oldReserves;
+}
+```
+
+**When to use:**
+- Flash deposit/withdraw arbitrage attacks
+- JIT liquidity sniping (deposit right before large swap, withdraw after)
+- Typical value: 0.02% (20 bps) is dissuasive but not prohibitive
+
+#### Withdrawal Fees
+
+```solidity
+// Default: 0 (coverage ratio haircut is primary mechanism)
+uint16 withdrawalFeeBps = 0;  // Can be set to e.g., 20 (0.02%) for additional protection
+
+// Applied AFTER coverage ratio haircut
+if (asset.reserves < asset.liabilities) {
+    amountOut = amountOut * (reserves / liabilities);  // Haircut first
+}
+uint256 withdrawalFee = (amountOut * asset.withdrawalFeeBps) / BPS_PRECISION;
+amountOut -= withdrawalFee;
+
+// Fee bumps liquidity index for remaining LPs (not withdrawn)
+if (withdrawalFee > 0 && lpState.totalScaledSupply > 0) {
+    lpState.liquidityIndex = oldIndex * (newReserves + withdrawalFee) / newReserves;
+}
+```
+
+**Key properties:**
+1. **Coverage haircut is primary** - Withdrawals already penalized when C < 1
+2. **Parametric fee is optional** - Default 0, can be enabled for additional MEV protection
+3. **No double-dipping** - Fee is `(amountOut_after_haircut * bps)`, not on original amount
+4. **Stays in pool** - Fee redistributed to remaining LPs via index bump
+
+**When to use:**
+- Prevent rapid deposit→withdraw cycles exploiting price updates
+- Deter flash withdraw arbitrage (withdraw before oracle update, re-deposit after)
+- Typical value: 0.02% (20 bps) is empirically proven dissuasive
+
+### Fee Accounting
+
+Both deposit and withdrawal fees:
+- **Stay in reserves** (not withdrawn to treasury)
+- **Bump liquidity index** for existing/remaining LPs
+- **Do NOT affect liabilities** (fees are pure dilution/bonus)
 
 ---
 
 ## Parameter Configuration
 
-### Owner Functions
+### Tri-Factor Fee Parameters (LibPricing.FeeParams)
+
+Used for swap fee calculation (coverage, volatility, divergence factors).
 
 ```solidity
-// Baseline volatility (unified for breadth + fees)
-function updateBaselineVolatilityParams(
-    uint16 volWeight,       // 70 = 0.7
-    uint32 volFloor,        // 100000 = 0.1%
-    uint32 volMax,          // 50000000 = 50%
-    uint16 breadthShockKappa // 0 = disabled, 10 = 0.1
-) external onlyOwner
+struct FeeParams {
+    // Coverage (per-asset, NOT global pool coverage)
+    uint16 covMinMult;         // 20 (0.2x) - min rebate
+    uint16 covMaxMult;         // 10000 (100x) - max penalty
+    uint256 covUnderMax;       // 0.5e18 - max under-coverage to scale
+    uint256 covOverMax;        // 0.5e18 - max over-coverage to scale
 
-// Inventory factor
-function updateInventoryParams(
-    uint16 invMinMult,      // 20 = 0.2x
-    uint16 invMaxMult,      // 10000 = 100x
-    uint16 invMaxDivergence // 5000 = 50%
-) external onlyOwner
+    // Volatility (no clamping - use raw oracle values)
+    uint16 volBeta;            // 100 (1x shock pass-through)
+    uint16 volRMax;            // 500 (5x max shock ratio)
+    uint16 volMaxMult;         // 500 (5x max vol multiplier)
+    uint16 volEpsilon;         // 1000 (0.001% safety)
 
-// Volatility shock factor
-function updateVolatilityParams(
-    uint16 volBeta,         // 150 = 1.5x
-    uint16 volRMax,         // 1000 = 10x
-    uint16 volMaxMult,      // 10000 = 100x
-    uint16 volEpsilon       // 1000 = 0.001%
-) external onlyOwner
+    // Price deviation
+    uint16 devD1Max;           // 500 (5% threshold)
+    uint16 devD2Max;           // 200 (2% threshold)
+    uint16 devAlpha;           // 50 (0.5x weight on oracle drift)
+    uint16 devMaxMult;         // 300 (3x max deviation multiplier)
 
-// Price divergence factor
-function updateDivergenceParams(
-    uint16 pdD1Max,         // 1000 = 10%
-    uint16 pdD2Max,         // 1500 = 15%
-    uint16 pdAlpha,         // 50 = 0.5
-    uint16 pdMaxMult        // 10000 = 100x
-) external onlyOwner
+    // Base fee (uint32, 1M precision: 1 unit = 0.0001%)
+    uint16 baseK;              // 30 (slope: 0.3% per 1% vol)
+    uint32 baseMin;            // 1000 (0.01% = 1 bps)
 
-// Base fee parameters
-function updateBaseFeeParams(
-    uint16 baseK,           // 100 = 1.0
-    uint16 baseMin,         // 1 = 0.01%
-    uint16 baseMax          // 500 = 5%
-) external onlyOwner
+    // Bounds
+    uint16 minMult;            // 10 (0.1x min total multiplier)
+    uint16 maxMult;            // 10000 (100x max total multiplier)
 
-// Global caps
-function updateGlobalFeeParams(
-    uint16 minMult,         // 20 = 0.2x
-    uint16 maxMult,         // 10000 = 100x
-    uint16 maxTWAPChange,   // Circuit breaker
-    uint16 protocolFeeBps,  // Protocol fee split
-    uint16 withdrawalFeeBps // Withdrawal fee
-) external onlyOwner
+    // Oracle
+    uint16 maxTWAPChange;      // 500 (5% max TWAP change per update)
+
+    // Protocol
+    uint16 protocolFeeBps;     // 1000 (1% of swap fee)
+    uint16 withdrawalFeeBps;   // 0 (global default, overridable per-asset)
+}
 ```
 
-### Default Values (Conservative)
+### Per-Asset Fee Configuration (IBAMM.FeeConfig / Asset)
+
+Used when adding assets via `addAsset()`.
 
 ```solidity
-// Baseline volatility
-volWeight: 70          // 70% fast, 30% slow
-volFloor: 100000       // 0.1% minimum
-volMax: 50000000       // 50% maximum
-breadthShockKappa: 0   // Disabled by default
-
-// Inventory
-invMinMult: 20         // 0.2x min rebate
-invMaxMult: 10000      // 100x max penalty
-invMaxDivergence: 5000 // 50% full scale
-
-// Volatility shock
-volBeta: 150           // 1.5x sensitivity
-volRMax: 1000          // 10x max ratio
-volMaxMult: 10000      // 100x max mult
-volEpsilon: 1000       // 0.001% min denom
-
-// Price divergence
-pdD1Max: 1000          // 10% spot-vs-fast
-pdD2Max: 1500          // 15% fast-vs-slow
-pdAlpha: 50            // 0.5 regime weight
-pdMaxMult: 10000       // 100x max mult
-
-// Base fee
-baseK: 100             // 1.0 multiplier
-baseMin: 1             // 0.01% floor
-baseMax: 500           // 5% ceiling
-
-// Global
-minMult: 20            // 0.2x global min
-maxMult: 10000         // 100x global max
+struct FeeConfig {
+    uint16 minFeeBps;          // 100 (0.01% = 1 bps) - min swap fee
+    uint16 maxFeeBps;          // 50000 (5% = 500 bps) - max swap fee
+    uint16 protocolFeeBps;     // 1000 (1% of swap fees to treasury)
+    uint16 depositFeeBps;      // 0 (default: no deposit penalty)
+    uint16 withdrawalFeeBps;   // 0 (default: haircut is sufficient)
+    uint16 flashFeeBps;        // 0 (default at launch, target 50 = 0.5 bps)
+}
 ```
+
+**Key distinction:**
+- **FeeParams** (LibPricing): Global tri-factor swap fee calculation parameters
+- **FeeConfig** (Asset): Per-asset fee overrides and flat fees (deposit/withdrawal/flash)
+
+### Default Values
+
+| Category | Parameter | Value | Meaning |
+|----------|-----------|-------|---------|
+| **Coverage** | covMinMult | 20 | 0.2x min rebate |
+| | covMaxMult | 10000 | 100x max penalty |
+| | covUnderMax | 0.5e18 | 50% under-coverage |
+| | covOverMax | 0.5e18 | 50% over-coverage |
+| **Volatility** | volBeta | 100 | 1x shock pass |
+| | volRMax | 500 | 5x max shock |
+| | volMaxMult | 500 | 5x max vol mult |
+| **Deviation** | pdD1Max | 500 | 5% threshold |
+| | pdD2Max | 200 | 2% threshold |
+| | pdAlpha | 50 | 0.5x drift weight |
+| | pdMaxMult | 300 | 3x max dev mult |
+| **Base** | baseK | 30 | 0.3% per 1% vol |
+| | baseMin | 100 | 1 bps min |
+| **Protocol** | protocolFeeBps | 1000 | 1% of swap fees |
+| **Deposit/Withdraw** | depositFeeBps | 0 | No deposit penalty |
+| | withdrawalFeeBps | 0 | Haircut is sufficient |
+
+**Note**: Deposit/withdrawal fees default to 0 but can be set to ~20 bps (0.02%) for MEV/arbitrage protection.
 
 ---
 
-## Gas Analysis
+## Summary
 
-### Unified Volatility Savings
+### Key Design Principles
 
-**Before** (separate calculations):
-```
-Oracle decode (breadth): ~800 gas
-Oracle decode (fees):    ~800 gas
-Total:                   ~1600 gas
-```
+1. **Per-asset coverage**: Uses raw `C = reserves / liabilities` in token units (NOT value-weighted, global pool coverage NOT used)
+2. **Coverage timing**: Post-swap for inflows (penalties), pre-swap for outflows (rebates) for ALM incentives
+3. **50/50 LP fairness**: `totalFeeBps / 2` per leg for equal LP rewards
+4. **Geometric mean**: Path fee from `sqrt(m_in * m_out)` for balanced incentives
+5. **No vol clamping**: Use raw oracle volatility (total fee has caps, but volatility itself is not clamped)
+6. **Virtual depth**: Achieves path independence for triangulated swaps (A→base→B same slippage as direct A↔B)
 
-**After** (unified):
-```
-Oracle decode (once):    ~800 gas
-Baseline vol calc:       ~100 gas
-Shock ratio calc:        ~100 gas
-Total:                   ~1000 gas
-Savings:                 ~600 gas per asset
-```
-
-**Two-leg swap**: ~1800 gas saved (3 assets × 600)
-**Batch swap**: Scales linearly with unique tokens
-
-### Fee Calculation Overhead
-
-| Operation | Gas Cost | Notes |
-|-----------|----------|-------|
-| Inventory factor | ~500 gas | Coverage ratio + linear math |
-| Volatility shock | ~200 gas | Reuses precomputed r |
-| Price divergence | ~400 gas | Two divergence calculations |
-| Risk multiplier | ~100 gas | Multiplication + clamps |
-| Base fee | ~100 gas | Single multiplication |
-| **Total** | **~1300 gas** | Per leg |
-
-**Comparison to old model**: ~200 gas increase (acceptable for improved accuracy and flexibility)
-
----
-
-## Design Benefits
-
-1. **No discontinuities** - Linear ramps eliminate step-arb opportunities
-2. **Configurable** - All parameters tunable per asset class
-3. **Transparent** - Clear economic rationale for each factor
-4. **Coverage-based** - True ALM model following Wombat principles
-5. **Unified volatility** - Single source of truth, gas-efficient, consistent
-6. **Predictable arbitrage** - Rebates create clear incentives
-7. **Regime-aware** - Shock ratio catches volatility spikes early
-
----
-
-## Related Documentation
-
-- [ALM_AND_COVERAGE.md](ALM_AND_COVERAGE.md) - Coverage ratio system and withdrawal haircut
-- [BONDING_AND_PRICING.md](BONDING_AND_PRICING.md) - Liquidity profile and breadth mechanics
-- [ORACLE.md](ORACLE.md) - Oracle system and TWAP calculations
-
----
-
-## Example Fee Scenarios
-
-### Scenario 1: Balanced Pool, Low Volatility
+### Fee Calculation Flow
 
 ```
-Asset conditions:
-- Coverage ratio: 1.05 (healthy)
-- Fast vol: 2% (low)
-- Slow vol: 1.5% (low)
-- Spot = Fast TWAP = Slow TWAP (no divergence)
+Direct Swap (A ↔ base):
+  1. Decode oracles → volBaseline, volFast, volSlow, TWAPs
+  2. m_in = m_cov(in, post-swap) * m_vol(in) * m_pd(in)
+  3. m_out = m_cov(out, pre-swap) * m_vol(out) * m_pd(out)
+  4. m_path = sqrt(m_in * m_out)
+  5. totalFeeBps = baseFee * m_path / 1e18
+  6. leg1FeeBps = leg2FeeBps = totalFeeBps / 2
+  7. Apply feeIn = amountIn * leg1FeeBps, feeOut = amountOut * leg2FeeBps
 
-Calculation:
-v_base = 0.7 * 2% + 0.3 * 1.5% = 1.85%
-r = 2% / 1.5% = 1.33x
-m_inv = 1.01x (small penalty, slightly over target)
-m_vol = 1.5 * 1.33 = 2.0x (low shock)
-m_pd = 1.0x (no divergence)
-m = 1.01 * 2.0 * 1.0 = 2.02x
-f_base = 1.0 * 1.5% = 1.5 bps (very low)
-f_total = 1.5 * 2.02 = 3 bps (0.03%)
+Triangulated Swap (A → base → B):
+  1. Same as direct, but using virtual depth for base
+  2. Base reserves unchanged, earns no LP fees
+  3. Only A and B LPs rewarded (50/50 split)
 ```
 
-**Result**: Very low fee for healthy, calm market
+### Coverage Timing Summary
 
-### Scenario 2: Imbalanced Pool, High Volatility Spike
-
-```
-Asset conditions:
-- Coverage ratio: 0.7 (under-collateralized)
-- Fast vol: 30% (spike)
-- Slow vol: 5% (calm baseline)
-- Spot diverges 5% from fast TWAP
-
-Calculation:
-v_base = 0.7 * 30% + 0.3 * 5% = 22.5%
-r = 30% / 5% = 6.0x (high shock)
-m_inv = 0.8x (20% rebate, encourage inflows)
-m_vol = 1.5 * 6.0 = 9.0x (capped at max)
-m_pd = 1 + (10 - 1) * (5% / 10%) = 5.5x (moderate divergence)
-m = 0.8 * 9.0 * 5.5 = 39.6x
-f_base = 1.0 * 5% = 5 bps (still low baseline)
-f_total = 5 * 39.6 = 198 bps (1.98%)
-```
-
-**Result**: High fee due to shock and divergence, but with 20% rebate for helping rebalance
-
-### Scenario 3: Extreme Regime Shift
-
-```
-Asset conditions:
-- Coverage ratio: 1.0 (perfect balance)
-- Fast vol: 80% (extreme)
-- Slow vol: 10% (was calm)
-- Fast TWAP diverges 12% from slow TWAP
-
-Calculation:
-v_base = 0.7 * 80% + 0.3 * 10% = 59% (clamped to 50% max)
-r = 80% / 10% = 8.0x (extreme shock)
-m_inv = 1.0x (balanced)
-m_vol = 1.5 * 8.0 = 12.0x (capped at 10x max)
-m_pd = 1 + (10 - 1) * max(0, 0.5 * 12% / 15%) = 3.6x (regime shift)
-m = 1.0 * 10.0 * 3.6 = 36x
-f_base = 1.0 * 10% = 10 bps (high baseline)
-f_total = 10 * 36 = 360 bps (3.6%)
-```
-
-**Result**: Very high fee protecting LPs during extreme regime change
-
----
-
-## Key Takeaways
-
-1. **Unified volatility** = gas-efficient + consistent execution path
-2. **Three factors** = granular risk measurement and response
-3. **Linear ramps** = no discontinuities, predictable arbitrage
-4. **Coverage-based** = true ALM following proven models (Wombat, Platypus)
-5. **Highly configurable** = tune per asset class (stables, vol pairs, exotics)
-6. **Production ready** = fully implemented, tested, documented
-
-**The system is ready for final integration into main swap fee logic.**
+| Flow Direction | Coverage Used | Reason |
+|----------------|---------------|---------|
+| Selling into pool (inflow) | Post-swap `(reserves + amount) / liabilities` | Penalty for oversupply |
+| Buying from pool (outflow) | Pre-swap `reserves / liabilities` | Rebate for restocking |

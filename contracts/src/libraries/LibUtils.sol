@@ -2,44 +2,13 @@
 pragma solidity ^0.8.28;
 
 import {IBAMM} from "../interfaces/IBAMM.sol";
-import {BAMMErrors as E} from "../bamm/BAMMEvents.sol";
+import {BAMMErrors as E} from "../bamm/BAMMErrors.sol";
+import {LibStorage as S} from "./LibStorage.sol";
 
 /// @title LibUtils
-/// @notice Consolidated utility library for casting and validation helpers
-/// @dev Combines LibCast and LibValidation for cleaner imports
+/// @notice Utility library for validation helpers
+/// @dev Casting functions removed - use solady's SafeCastLib instead
 library LibUtils {
-
-    // ========== TYPE CASTING ==========
-
-    /// @notice Safely cast uint256 to uint128 with overflow check
-    function toUint128(uint256 value) internal pure returns (uint128) {
-        if (value > type(uint128).max) revert E.Overflow();
-        return uint128(value);
-    }
-
-    /// @notice Safely cast uint256 to uint64 with overflow check
-    function toUint64(uint256 value) internal pure returns (uint64) {
-        if (value > type(uint64).max) revert E.Overflow();
-        return uint64(value);
-    }
-
-    /// @notice Safely cast uint256 to uint32 with overflow check
-    function toUint32(uint256 value) internal pure returns (uint32) {
-        if (value > type(uint32).max) revert E.Overflow();
-        return uint32(value);
-    }
-
-    /// @notice Safely cast uint256 to uint16 with overflow check
-    function toUint16(uint256 value) internal pure returns (uint16) {
-        if (value > type(uint16).max) revert E.Overflow();
-        return uint16(value);
-    }
-
-    /// @notice Safely cast uint256 to uint8 with overflow check
-    function toUint8(uint256 value) internal pure returns (uint8) {
-        if (value > type(uint8).max) revert E.Overflow();
-        return uint8(value);
-    }
 
     /// @notice Convert address to token ID (for ERC1155)
     function addressToTokenId(address token) internal pure returns (uint256 id) {
@@ -72,19 +41,14 @@ library LibUtils {
     }
 
     /// @notice Require asset is not frozen
-    function requireNotFrozen(IBAMM.Asset storage asset) internal view {
-        if (asset.isFrozen) revert E.AssetFrozen();
+    function requireNotFrozen(IBAMM.RiskConfig storage risk) internal view {
+        if (S._isFrozen(risk)) revert E.AssetFrozen();
     }
 
     /// @notice Require asset exists and is not frozen
-    function requireActive(IBAMM.Asset storage asset) internal view {
+    function requireActive(IBAMM.Asset storage asset, IBAMM.RiskConfig storage risk) internal view {
         requireExists(asset);
-        requireNotFrozen(asset);
-    }
-
-    /// @notice Require pool is not paused
-    function requireNotPaused(bool isPoolPaused) internal pure {
-        if (isPoolPaused) revert E.Paused();
+        requireNotFrozen(risk);
     }
 
     /// @notice Require address is not zero
@@ -98,7 +62,7 @@ library LibUtils {
     }
 
     /// @notice Require reserves meet minimum liquidity
-    function requireMinLiquidity(IBAMM.Asset storage asset) internal view {
-        if (asset.reserves < asset.minLiquidity) revert E.BelowMinimumLiquidity();
+    function requireMinLiquidity(IBAMM.Asset storage asset, IBAMM.RiskConfig storage risk) internal view {
+        if (asset.reserves < risk.minLiquidity) revert E.BelowMinimumLiquidity();
     }
 }

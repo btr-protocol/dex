@@ -3,7 +3,7 @@ pragma solidity ^0.8.4;
 
 import "./utils/SoladyTest.sol";
 import {ERC20, ERC20Votes, MockERC20Votes} from "./utils/mocks/MockERC20Votes.sol";
-import {FixedPointMathLib} from "../src/utils/FixedPointMathLib.sol";
+import {FPMaths} from "../src/utils/FPMaths.sol";
 
 contract ERC20VotesTest is SoladyTest {
     MockERC20Votes erc20Votes;
@@ -289,9 +289,9 @@ contract ERC20VotesTest is SoladyTest {
 
     function testSmallSqrtApprox(uint32 n) public {
         uint256 approx = _smallSqrtApprox(n);
-        uint256 groundTruth = FixedPointMathLib.sqrt(n);
+        uint256 groundTruth = FPMaths.sqrt(n);
         assertGe(approx, groundTruth);
-        assertLe(FixedPointMathLib.dist(approx, groundTruth), 3);
+        assertLe(FPMaths.dist(approx, groundTruth), 3);
     }
 
     function _smallSqrtApprox(uint256 n) internal pure returns (uint256 m) {

@@ -2,16 +2,19 @@
 pragma solidity ^0.8.28;
 
 import {IDarkPool} from "../interfaces/IDarkPool.sol";
+import {IDarkPoolStorage} from "../interfaces/IDarkPoolStorage.sol";
 import {Initializable} from "solady/utils/Initializable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IBAMM} from "../interfaces/IBAMM.sol";
 
-import {LibStorage} from "../libraries/LibStorage.sol";
+import {LibStorage as S} from "../libraries/LibStorage.sol";
 import {LibMerkleTree} from "../libraries/LibMerkleTree.sol";
 import {LibVerifier} from "../libraries/LibVerifier.sol";
 import {LibBAMM} from "../libraries/LibBAMM.sol";
+import {LibNativeToken} from "../libraries/LibNativeToken.sol";
+import {LibUtils} from "../libraries/LibUtils.sol";
 import {DarkPoolErrors as Errors} from "./DarkPoolErrors.sol";
 
 /// @title DarkPool
@@ -23,8 +26,8 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
     // ========== MODIFIERS ==========
 
     modifier notPaused() {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
-        if ($.paused) revert Errors.Paused();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
+        if (S._isDarkPoolPaused($)) revert Errors.Paused();
         _;
     }
 
@@ -34,27 +37,24 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
     function initialize(
         address _bammPool,
         address _verifier,
-        address _owner
+        address _owner,
+        address _shieldedState
     ) external override initializer {
         if (_bammPool == address(0)) revert Errors.ZeroAddress();
         if (_verifier == address(0)) revert Errors.ZeroAddress();
         if (_owner == address(0)) revert Errors.ZeroAddress();
+        if (_shieldedState == address(0)) revert Errors.ZeroAddress();
 
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
 
         $.bammPool = _bammPool;
         $.verifier = _verifier;
-        $.treeHeight = LibStorage.TREE_HEIGHT;
-        $.rootHistorySize = LibStorage.ROOT_HISTORY_SIZE;
-        $.paused = false;
-        $.requireASP = false;
+        $.shieldedState = _shieldedState;
+        S._setDarkPoolPaused($, false);
+        S._setRequireASP($, false);
 
         // Initialize ownership
         _initializeOwner(_owner);
-
-        // Initialize merkle tree with first zero root
-        bytes32 initialRoot = LibMerkleTree.getZeroValue(LibStorage.TREE_HEIGHT);
-        LibStorage.addRoot(initialRoot);
     }
 
     // ========== DEPOSIT FUNCTIONS ==========
@@ -65,13 +65,16 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         uint256 amount,
         bytes32 commitment,
         bytes calldata recipientHint
-    ) external override nonReentrant notPaused {
-        if (token == address(0)) revert Errors.ZeroAddress();
+    ) external payable override nonReentrant notPaused {
+        LibUtils.requireNonZero(token);
         if (amount == 0) revert Errors.ZeroAmount();
         if (commitment == bytes32(0)) revert Errors.InvalidParameter();
 
-        // Transfer token to DarkPool
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        // Get WETH address from BAMM pool (stored in BAMMStorage)
+        address weth = S.bamm().weth;
+
+        // Transfer token to DarkPool (handles native ETH wrapping)
+        LibNativeToken.pullToken(token, msg.sender, address(this), amount, weth);
 
         // Insert commitment into merkle tree
         uint32 leafIndex = LibMerkleTree.insertLeaf(commitment);
@@ -87,37 +90,36 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         address token,
         uint256 amount,
         bytes32 commitment,
-        bytes calldata recipientHint
-    ) external override nonReentrant notPaused {
-        if (token == address(0)) revert Errors.ZeroAddress();
+        bytes calldata recipientHint,
+        uint256 minLpTokens
+    ) external payable nonReentrant notPaused {
+        LibUtils.requireNonZero(token);
         if (amount == 0) revert Errors.ZeroAmount();
         if (commitment == bytes32(0)) revert Errors.InvalidParameter();
 
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
         address bamm = $.bammPool;
+        address weth = S.bamm().weth;
 
-        // Transfer token to DarkPool
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        // Transfer token to DarkPool (handles native ETH wrapping)
+        LibNativeToken.pullToken(token, msg.sender, address(this), amount, weth);
 
         // Read liquidityIndex before deposit
-        IBAMM.LPState memory lpStateBefore = IBAMM(bamm).lpStates(token);
+        IBAMM.LPState memory lpStateBefore = IBAMM(bamm).getLPState(token);
 
-        // Approve and deposit to BAMM
-        token.safeApprove(bamm, amount);
-        uint256 lpTokens = IBAMM(bamm).deposit(token, amount, 0);
-
-        // Compute scaled shares
-        uint256 scaledShares = LibBAMM.computeScaledShares(token, lpTokens);
+        // Approve and deposit to BAMM (using safe approve for USDT compatibility)
+        LibBAMM._safeApprovePublic(token, bamm, amount);
+        uint256 lpTokens = IBAMM(bamm).deposit{value: LibNativeToken.isNative(token) ? amount : 0}(token, amount, minLpTokens);
 
         // Insert commitment into merkle tree
-        // Note: Commitment must encode scaledShares (computed off-chain)
+        // Note: Commitment must encode scaledShares (computed off-chain: LibBAMM.computeScaledShares)
         uint32 leafIndex = LibMerkleTree.insertLeaf(commitment);
 
-        // Emit events
+        // Emit events (consolidated at contract level for ABI discoverability)
         emit Deposit(token, amount, commitment);
         emit NewCommitment(commitment, leafIndex, recipientHint);
         emit NewRoot(currentRoot(), leafIndex);
-        emit LibBAMM.LPDeposited(token, amount, lpTokens, lpStateBefore.liquidityIndex);
+        emit LPDeposited(token, amount, lpTokens, lpStateBefore.liquidityIndex);
     }
 
     // ========== PRIVATE TRANSACT ==========
@@ -126,7 +128,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
     function transact(
         Proof calldata proof,
         ExtData calldata extData,
-        bytes calldata recipientHints
+        bytes32[] calldata recipientHints
     ) external override nonReentrant notPaused returns (bool) {
         // 0. Validate inputs BEFORE any state changes or external calls
         _validateTransactionInputs(proof, extData);
@@ -137,30 +139,33 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         // 2. Mark nullifiers as spent
         LibVerifier.markNullifiersSpent(proof.nullifiers);
 
-        // Emit nullifier events
-        for (uint256 i = 0; i < proof.nullifiers.length; i++) {
+        // Emit nullifier events (cache length for gas efficiency)
+        uint256 nullifierLen = proof.nullifiers.length;
+        for (uint256 i = 0; i < nullifierLen; ) {
             emit NewNullifier(proof.nullifiers[i]);
+            unchecked { i++; }
         }
 
         // 3. Execute external actions (including token intake for extIn)
         LibBAMM.executeActions(extData, msg.sender);
 
-        // 4. Insert output commitments
-        for (uint256 i = 0; i < proof.outCommitments.length; i++) {
+        // 4. Insert output commitments (cache length for gas efficiency)
+        uint256 outLen = proof.outCommitments.length;
+        for (uint256 i = 0; i < outLen; ) {
             uint32 leafIndex = LibMerkleTree.insertLeaf(proof.outCommitments[i]);
 
-            // Extract recipient hint for this output
-            bytes memory hint;
-            if (recipientHints.length >= (i + 1) * 32) {
-                hint = recipientHints[i * 32:(i + 1) * 32];
-            }
+            // Get recipient hint (use zero bytes32 if not provided)
+            bytes32 hint = i < recipientHints.length ? recipientHints[i] : bytes32(0);
 
-            emit NewCommitment(proof.outCommitments[i], leafIndex, hint);
+            emit NewCommitment(proof.outCommitments[i], leafIndex, abi.encodePacked(hint));
+
+            unchecked { i++; }
         }
 
         // 5. Emit transaction event
         emit Transact(proof.nullifiers, proof.outCommitments, proof.extDataHash);
-        emit NewRoot(currentRoot(), LibStorage.getDarkPoolStorage().nextLeafIndex - 1);
+        // Emit NewRoot with the current leaf index from the tree insertion
+        emit NewRoot(currentRoot(), 0); // The actual leaf index is tracked internally in ShieldedState
 
         return true;
     }
@@ -196,12 +201,12 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         }
 
         // Action-specific validation
-        if (extData.actionType == LibStorage.ACTION_TRANSFER) {
+        if (extData.actionType == S.ACTION_TRANSFER) {
             // Transfer can have multiple receivers (one per asset)
             if (extData.receivers.length > extData.assets.length) {
                 revert Errors.ArrayLengthMismatch();
             }
-        } else if (extData.actionType == LibStorage.ACTION_SWAP) {
+        } else if (extData.actionType == S.ACTION_SWAP) {
             // Swap requires exactly 2 assets (tokenIn, tokenOut)
             if (extData.assets.length != 2) {
                 revert Errors.InvalidParameter();
@@ -210,7 +215,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
             if (extData.receivers.length > 1) {
                 revert Errors.ArrayLengthMismatch();
             }
-        } else if (extData.actionType == LibStorage.ACTION_LP_DEPOSIT || extData.actionType == LibStorage.ACTION_LP_WITHDRAW) {
+        } else if (extData.actionType == S.ACTION_LP_DEPOSIT || extData.actionType == S.ACTION_LP_WITHDRAW) {
             // LP operations require exactly 1 asset
             if (extData.assets.length != 1) {
                 revert Errors.InvalidParameter();
@@ -226,15 +231,15 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
 
     /// @inheritdoc IDarkPool
     function setPaused(bool _paused) external override onlyOwner {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
-        $.paused = _paused;
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
+        S._setDarkPoolPaused($, _paused);
         emit Paused(_paused);
     }
 
     /// @inheritdoc IDarkPool
     function setRequireASP(bool _requireASP) external override onlyOwner {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
-        $.requireASP = _requireASP;
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
+        S._setRequireASP($, _requireASP);
         emit RequireASPSet(_requireASP);
     }
 
@@ -242,7 +247,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
     function setASPRootApproved(bytes32 aspRoot, bool approved) external override onlyOwner {
         if (aspRoot == bytes32(0)) revert Errors.ZeroAddress();
 
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
 
         if (approved) {
             // Approve for 30 days by default
@@ -262,7 +267,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         if (aspRoot == bytes32(0)) revert Errors.ZeroAddress();
         if (expiryTimestamp <= block.timestamp) revert Errors.InvalidParameter();
 
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
         $.aspRootExpiry[aspRoot] = expiryTimestamp;
 
         emit ASPRootApproved(aspRoot, true);
@@ -272,27 +277,47 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
 
     /// @inheritdoc IDarkPool
     function currentRoot() public view override returns (bytes32) {
-        return LibStorage.getDarkPoolStorage().currentRoot;
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
+        address shieldedStateAddr = $.shieldedState;
+        if (shieldedStateAddr == address(0)) return bytes32(0);
+
+        // Query current root from ShieldedState
+        (bool success, bytes memory result) = shieldedStateAddr.staticcall(
+            abi.encodeWithSignature("currentRoot()")
+        );
+
+        if (!success) return bytes32(0);
+        return abi.decode(result, (bytes32));
     }
 
     /// @inheritdoc IDarkPool
     function isSpent(bytes32 nullifier) external view override returns (bool) {
-        return LibStorage.getDarkPoolStorage().nullifierSpent[nullifier];
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
+        address shieldedStateAddr = $.shieldedState;
+        if (shieldedStateAddr == address(0)) return false;
+
+        // Query nullifier status from ShieldedState
+        (bool success, bytes memory result) = shieldedStateAddr.staticcall(
+            abi.encodeWithSignature("nullifierSpent(bytes32)", nullifier)
+        );
+
+        if (!success) return false;
+        return abi.decode(result, (bool));
     }
 
     /// @inheritdoc IDarkPool
     function isKnownRoot(bytes32 root) external view override returns (bool) {
-        return LibStorage.isKnownRoot(root);
+        return S.isKnownRoot(root);
     }
 
     /// @inheritdoc IDarkPool
     function getBammPool() external view override returns (address) {
-        return LibStorage.getDarkPoolStorage().bammPool;
+        return S.darkPool().bammPool;
     }
 
     /// @inheritdoc IDarkPool
     function getVerifier() external view override returns (address) {
-        return LibStorage.getDarkPoolStorage().verifier;
+        return S.darkPool().verifier;
     }
 
     /// @inheritdoc IDarkPool
@@ -302,20 +327,22 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
 
     /// @inheritdoc IDarkPool
     function isPaused() external view override returns (bool) {
-        return LibStorage.getDarkPoolStorage().paused;
+        return S._isDarkPoolPaused(S.darkPool());
     }
 
     /// @inheritdoc IDarkPool
     function isASPRequired() external view override returns (bool) {
-        return LibStorage.getDarkPoolStorage().requireASP;
+        return S._requiresASP(S.darkPool());
     }
 
     /// @inheritdoc IDarkPool
     function isASPRootApproved(bytes32 aspRoot) external view override returns (bool) {
-        LibStorage.DarkPoolStorage storage $ = LibStorage.getDarkPoolStorage();
+        IDarkPoolStorage.DarkPoolStorage storage $ = S.darkPool();
         uint256 expiry = $.aspRootExpiry[aspRoot];
         return expiry > 0 && expiry >= block.timestamp;
     }
+
+    // ========== EVENTS (inherited from IDarkPool) ==========
 
     // ========== ERC1155 RECEIVER ==========
 
@@ -329,7 +356,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         bytes calldata
     ) external view returns (bytes4) {
         // Only accept LP tokens from our BAMM pool
-        if (msg.sender != LibStorage.getDarkPoolStorage().bammPool) {
+        if (msg.sender != S.darkPool().bammPool) {
             revert Errors.Unauthorized();
         }
         return this.onERC1155Received.selector;
@@ -345,7 +372,7 @@ contract DarkPool is IDarkPool, Initializable, ReentrancyGuard, Ownable {
         bytes calldata
     ) external view returns (bytes4) {
         // Only accept LP tokens from our BAMM pool
-        if (msg.sender != LibStorage.getDarkPoolStorage().bammPool) {
+        if (msg.sender != S.darkPool().bammPool) {
             revert Errors.Unauthorized();
         }
         return this.onERC1155BatchReceived.selector;

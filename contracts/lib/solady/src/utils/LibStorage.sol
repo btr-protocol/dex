@@ -2,7 +2,7 @@
 pragma solidity ^0.8.4;
 
 /// @notice Library for basic storage operations.
-/// @author Solady (https://github.com/vectorized/solady/blob/main/src/utils/LibStorage.sol)
+/// @author Solady (https://github.com/vectorized/solady/blob/main/src/utils/S.sol)
 library LibStorage {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTANTS                          */

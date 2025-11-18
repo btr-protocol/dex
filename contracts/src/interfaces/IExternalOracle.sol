@@ -12,46 +12,40 @@ import {IOracle} from "./IOracle.sol";
 interface IExternalOracle is IOracle {
 
     // ========== EVENTS ==========
-    // Note: IOracle view functions (getOracleData, isFresh, getFastPrice) are inherited
+    // Note: IOracle view functions (getFeedData, isFresh, getFastPrice) are inherited
 
     /// @notice Emitted when a new oracle pair is added
     event AssetAdded(
-        bytes32 indexed oracleId,
+        bytes32 indexed feedId,
         address indexed baseAsset,
         address indexed quoteAsset,
-        uint64 initialFastPrice,
-        uint64 initialSlowPrice,
-        uint32 initialFastVol,
-        uint32 initialSlowVol,
+        uint64 fastEMA,
+        uint64 slowEMA,
+        uint32 fastVolEMA,
+        uint32 slowVolEMA,
         uint16 maxDeviationBps
     );
 
     /// @notice Emitted when an oracle is updated
     event AssetUpdated(
-        bytes32 indexed oracleId,
+        bytes32 indexed feedId,
         uint64 fastTWAP,
         uint64 slowTWAP,
-        uint32 fastVolatility,
-        uint32 slowVolatility,
+        uint32 fastVolEMA,
+        uint32 slowVolEMA,
         address indexed updater
     );
 
     /// @notice Emitted when multiple oracles are updated in a batch
     event BatchUpdated(
-        bytes32[] oracleIds,
+        bytes32[] feedIds,
         address indexed updater
     );
 
     /// @notice Emitted when oracle-specific configuration is updated
     event AssetConfigUpdated(
-        bytes32 indexed oracleId,
+        bytes32 indexed feedId,
         uint16 maxDeviationBps
-    );
-
-    /// @notice Emitted when global oracle configuration is updated
-    event GlobalConfigUpdated(
-        uint32 minUpdateInterval,
-        uint32 staleAfter
     );
 
     // ========== ERRORS ==========
@@ -66,6 +60,7 @@ interface IExternalOracle is IOracle {
     error AssetNotFound();
     error AssetAlreadyExists();
     error InvalidArrayLength();
+    error InvalidParameter();
 
     // ========== ASSET MANAGEMENT VIEW FUNCTIONS ==========
     // These are external-oracle-specific (not in base IOracle)
@@ -75,47 +70,47 @@ interface IExternalOracle is IOracle {
     /// @return hasRole True if has oracle role
     function hasOracleRole(address account) external view returns (bool hasRole);
 
-    /// @notice Get all registered oracle IDs
-    /// @return oracleIds Array of registered oracle IDs
-    function getRegisteredOracleIds() external view returns (bytes32[] memory oracleIds);
+    /// @notice Get all registered feed IDs
+    /// @return feedIds Array of registered feed IDs
+    function getRegisteredOracleIds() external view returns (bytes32[] memory feedIds);
 
     /// @notice Get count of registered oracles
     /// @return count Number of oracles
     function getOracleCount() external view returns (uint256 count);
 
-    /// @notice Check if oracle ID exists in this oracle
-    /// @param oracleId Oracle identifier
+    /// @notice Check if feed ID exists in this oracle
+    /// @param feedId Oracle identifier
     /// @return exists True if oracle is configured
-    function oracleExists(bytes32 oracleId) external view returns (bool exists);
+    function oracleExists(bytes32 feedId) external view returns (bool exists);
 
     // ========== ORACLE ROLE FUNCTIONS ==========
 
-    /// @notice Update oracle data for a single oracle ID (oracle role only)
-    /// @param oracleId Oracle identifier
-    /// @param newFastTWAP New fast TWAP in b64 format
-    /// @param newSlowTWAP New slow TWAP in b64 format
-    /// @param newFastVol New fast volatility (1e6 base)
-    /// @param newSlowVol New slow volatility (1e6 base)
+    /// @notice Update oracle data for a single feed ID (oracle role only)
+    /// @param feedId Oracle identifier
+    /// @param newFastEMA New fast price EMA in b64 format
+    /// @param newSlowEMA New slow price EMA in b64 format
+    /// @param newFastVolEMA New fast volatility EMA (1e6 base)
+    /// @param newSlowVolEMA New slow volatility EMA (1e6 base)
     function updateOracle(
-        bytes32 oracleId,
-        uint64 newFastTWAP,
-        uint64 newSlowTWAP,
-        uint32 newFastVol,
-        uint32 newSlowVol
+        bytes32 feedId,
+        uint64 newFastEMA,
+        uint64 newSlowEMA,
+        uint32 newFastVolEMA,
+        uint32 newSlowVolEMA
     ) external;
 
-    /// @notice Batch update oracle data for multiple oracle IDs (oracle role only)
-    /// @param oracleIds Array of oracle identifiers
-    /// @param fastTWAPs Array of fast TWAPs in b64 format
-    /// @param slowTWAPs Array of slow TWAPs in b64 format
-    /// @param fastVols Array of fast volatilities (1e6 base)
-    /// @param slowVols Array of slow volatilities (1e6 base)
+    /// @notice Batch update oracle data for multiple feed IDs (oracle role only)
+    /// @param feedIds Array of oracle identifiers
+    /// @param fastEMAs Array of fast price EMAs in b64 format
+    /// @param slowEMAs Array of slow price EMAs in b64 format
+    /// @param fastVolEMAs Array of fast volatility EMAs (1e6 base)
+    /// @param slowVolEMAs Array of slow volatility EMAs (1e6 base)
     function batchUpdateOracles(
-        bytes32[] calldata oracleIds,
-        uint64[] calldata fastTWAPs,
-        uint64[] calldata slowTWAPs,
-        uint32[] calldata fastVols,
-        uint32[] calldata slowVols
+        bytes32[] calldata feedIds,
+        uint64[] calldata fastEMAs,
+        uint64[] calldata slowEMAs,
+        uint32[] calldata fastVolEMAs,
+        uint32[] calldata slowVolEMAs
     ) external;
 
     // ========== OWNER FUNCTIONS ==========
@@ -123,35 +118,31 @@ interface IExternalOracle is IOracle {
     /// @notice Add a new oracle pair (owner only)
     /// @param baseAsset Base asset address (asset being priced)
     /// @param quoteAsset Quote asset address (pricing currency)
-    /// @param initialFastPrice Initial fast TWAP price (b64 format)
-    /// @param initialSlowPrice Initial slow TWAP price (b64 format)
-    /// @param initialFastVol Initial fast volatility (1e6 base)
-    /// @param initialSlowVol Initial slow volatility (1e6 base)
-    /// @param maxDeviationBps Max price change per update (e.g., 500 for 5%)
+    /// @param fastEMA Initial fast price EMA (b64 format)
+    /// @param slowEMA Initial slow price EMA (b64 format)
+    /// @param fastVolEMAEMA Initial fast volatility EMA (1e6 base)
+    /// @param slowVolEMAEMA Initial slow volatility EMA (1e6 base)
+    /// @param maxDeviation Deviation threshold triggering update (0.0001% precision: 10_000 = 1%, max 65_000 = 6.5%)
+    /// @param ttl Time-to-live in seconds (e.g., 3600 = 1 hour)
     function addOraclePair(
         address baseAsset,
         address quoteAsset,
-        uint64 initialFastPrice,
-        uint64 initialSlowPrice,
-        uint32 initialFastVol,
-        uint32 initialSlowVol,
-        uint16 maxDeviationBps
+        uint64 fastEMA,
+        uint64 slowEMA,
+        uint32 fastVolEMAEMA,
+        uint32 slowVolEMAEMA,
+        uint16 maxDeviation,
+        uint16 ttl
     ) external;
 
     /// @notice Update oracle-specific configuration (owner only)
-    /// @param oracleId Oracle identifier
-    /// @param maxDeviationBps New maximum deviation in basis points
+    /// @param feedId Oracle identifier
+    /// @param maxDeviation New deviation threshold (0.0001% precision: 10_000 = 1%, max 65_000 = 6.5%)
+    /// @param ttl New time-to-live in seconds
     function updateOracleConfig(
-        bytes32 oracleId,
-        uint16 maxDeviationBps
-    ) external;
-
-    /// @notice Update global oracle configuration (owner only)
-    /// @param minUpdateInterval New minimum update interval in seconds
-    /// @param staleAfter New staleness threshold in seconds
-    function updateGlobalConfig(
-        uint32 minUpdateInterval,
-        uint32 staleAfter
+        bytes32 feedId,
+        uint16 maxDeviation,
+        uint16 ttl
     ) external;
 
     /// @notice Grant oracle role to an address (owner only)

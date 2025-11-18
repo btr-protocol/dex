@@ -328,7 +328,6 @@ contracts/
     ├── libraries/
     │   └── LibHooks.sol             # 8 execute functions + validation
     │
-    ├── BAMMEvents.sol               # Hook errors + events
     ├── BAMMHookRegistry.sol         # Hook registry functions (copy to BAMMManagement.sol)
     │
     └── hooks/
