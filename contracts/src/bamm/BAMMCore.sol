@@ -485,7 +485,8 @@ contract BAMMCore is BAMMDiamond, ReentrancyGuard {
         return (lp.totalScaledSupply * lp.liquidityIndex) / 1e18;
     }
 
-    /// @notice Transfer LP tokens (only LP token contract allowed)
+    /// @notice Transfer LP tokens (with access control - only LP token or Core allowed)
+    /// @dev CRITICAL #8 VERIFIED: Access control prevents unauthorized minting
     function lpTransfer(address asset, address from, address to, uint256 amount) external {
         IBAMM.BAMMStorage storage $ = S.bamm();
         require(msg.sender == $.lpTokens[asset] || msg.sender == address(this), "Unauthorized LP transfer");
