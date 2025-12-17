@@ -3,8 +3,8 @@
 import fs from "fs";
 import path from "path";
 import { gzipSync } from "zlib";
-import matter from "gray-matter";
-import { marked } from "marked";
+import MiniSearch from "minisearch";
+import { slugifyDoc, generateAnchorId } from "../sdk/src/common/format.js";
 
 interface SearchDocument {
   id: string;
@@ -27,24 +27,62 @@ interface DocStructure {
   children?: DocStructure[];
 }
 
-const docsDirectory = path.join(__dirname, "../specs");
+const docsDirectory = path.join(__dirname, "../docs");
 const frontPublicDir = path.join(__dirname, "../front/public");
 const outputPath = path.join(frontPublicDir, "search-index.json");
 const compressedOutputPath = path.join(frontPublicDir, "search-index.json.gz");
 const docsStructureOutputPath = path.join(frontPublicDir, "docs-structure.json");
 const docsStructureCompressedPath = path.join(frontPublicDir, "docs-structure.json.gz");
 
-// Strip HTML tags and decode entities
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
+// Extract frontmatter from markdown (simple parser, no gray-matter bloat)
+function parseFrontmatter(content: string): { data: Record<string, any>; content: string } {
+  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
+  const match = content.match(frontmatterRegex);
+
+  if (!match) {
+    return { data: {}, content };
+  }
+
+  const [, frontmatterText, markdownContent] = match;
+  const data: Record<string, any> = {};
+
+  // Parse simple YAML-like frontmatter
+  frontmatterText.split('\n').forEach(line => {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex > 0) {
+      const key = line.substring(0, colonIndex).trim();
+      const value = line.substring(colonIndex + 1).trim().replace(/^["']|["']$/g, '');
+      data[key] = value;
+    }
+  });
+
+  return { data, content: markdownContent };
+}
+
+// Note: generateAnchorId is now imported from SDK (../sdk/src/common/format.js)
+
+// Strip markdown formatting (simple, no need for full parser)
+function stripMarkdown(markdown: string): string {
+  return markdown
+    // Remove code blocks
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]+`/g, ' ')
+    // Remove links but keep text
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+    // Remove images
+    .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '')
+    // Remove headings markers
+    .replace(/^#{1,6}\s+/gm, '')
+    // Remove bold/italic
+    .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, '$1')
+    // Remove horizontal rules
+    .replace(/^[-*_]{3,}\s*$/gm, '')
+    // Remove blockquotes
+    .replace(/^>\s+/gm, '')
+    // Remove HTML tags
+    .replace(/<[^>]*>/g, ' ')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -59,13 +97,7 @@ function extractHeadings(
   while ((match = headingRegex.exec(content)) !== null) {
     const level = match[1].length;
     const text = match[2].trim();
-    const anchor = text
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
-
+    const anchor = generateAnchorId(text);
     headings.push({ level, text, anchor });
   }
 
@@ -120,8 +152,8 @@ function generateDocsStructure(dirPath: string, relativePath = ""): DocStructure
     if (fs.statSync(fullPath).isDirectory()) {
       const children = generateDocsStructure(fullPath, itemPath);
       if (children.length > 0) {
-        // Remove number prefix and underscore, convert to proper display name
-        const displayName = item.replace(/^\d+_/, '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        // Use directory name as-is for display
+        const displayName = item;
         structure.push({
           name: displayName,
           path: normalizedPath,
@@ -130,26 +162,60 @@ function generateDocsStructure(dirPath: string, relativePath = ""): DocStructure
         });
       }
     } else if (item.endsWith(".md") || item.endsWith(".mdx")) {
-      // Convert file name to proper display name
       const fileName = path.basename(item, path.extname(item));
-      const displayName = fileName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-      const filePath = normalizedPath.replace(/\.mdx?$/, "");
-
       structure.push({
-        name: displayName,
-        path: filePath,
+        name: fileName,
+        path: slugifyDoc(fileName, relativePath),
         type: "file"
       });
     }
   });
 
-  // Sort structure: directories first, then files, alphabetically
-  structure.sort((a, b) => {
-    if (a.type !== b.type) {
-      return a.type === "directory" ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
+  // Sort: Overview first, then numbered sections, then Foundations/Manifesto/Glossary
+  const sortItems = (items: DocStructure[]) => {
+    items.sort((a, b) => {
+      // Overview always first
+      if (a.name === "Overview") return -1;
+      if (b.name === "Overview") return 1;
+
+      // Extract full numeric prefix (e.g., "1.1.2" from "1.1.2. Title")
+      const aNumMatch = a.name.match(/^([\d.]+)\.\s/);
+      const bNumMatch = b.name.match(/^([\d.]+)\.\s/);
+
+      if (aNumMatch && bNumMatch) {
+        // Split into parts and compare numerically
+        const aParts = aNumMatch[1].split('.').map(n => parseInt(n, 10));
+        const bParts = bNumMatch[1].split('.').map(n => parseInt(n, 10));
+
+        // Compare each part numerically
+        const maxLen = Math.max(aParts.length, bParts.length);
+        for (let i = 0; i < maxLen; i++) {
+          const aVal = aParts[i] || 0;
+          const bVal = bParts[i] || 0;
+          if (aVal !== bVal) return aVal - bVal;
+        }
+        return 0; // Equal
+      }
+
+      // Numbered items come before non-numbered
+      if (aNumMatch) return -1;
+      if (bNumMatch) return 1;
+
+      // Foundations before Manifesto/Glossary
+      if (a.name === "Foundations") return -1;
+      if (b.name === "Foundations") return 1;
+
+      // Default: alphabetical
+      return a.name.localeCompare(b.name);
+    });
+
+    // Sort children recursively
+    items.forEach(item => {
+      if (item.children) sortItems(item.children);
+    });
+  };
+
+  sortItems(structure);
 
   return structure;
 }
@@ -167,23 +233,23 @@ function generateDocsStructureFiles(docsStructure: DocStructure[]) {
 
 // Generate search index
 async function generateSearchIndex() {
-  console.log("🔍 Building search index and docs structure...");
+  console.log("Building search index...");
 
   const markdownFiles = getAllMarkdownFiles(docsDirectory);
   const documents: SearchDocument[] = [];
+  const seenIds = new Set<string>();
 
   for (const filePath of markdownFiles) {
     try {
       const fullPath = path.join(docsDirectory, filePath);
       const fileContents = fs.readFileSync(fullPath, "utf8");
-      const { data, content } = matter(fileContents);
+      const { data, content } = parseFrontmatter(fileContents);
 
-      // Generate slug from file path
-      const slug = filePath.replace(/\.mdx?$/, "").replace(/\\/g, "/");
-
-      // Extract category from path
-      const pathParts = slug.split("/");
+      // Generate slug from filename, store original path for reference
+      const fileName = path.basename(filePath, path.extname(filePath));
+      const pathParts = filePath.split('/');
       const category = pathParts.length > 1 ? pathParts[0] : undefined;
+      const slug = slugifyDoc(fileName, category);
 
       // Use filename as title if not provided in frontmatter
       const title =
@@ -192,9 +258,8 @@ async function generateSearchIndex() {
       // Extract headings from content
       const headings = extractHeadings(content);
 
-      // Convert markdown to HTML then strip to get plain text
-      const htmlContent = marked(content) as string;
-      const plainTextContent = stripHtml(htmlContent);
+      // Strip markdown to get plain text
+      const plainTextContent = stripMarkdown(content);
 
       // Create excerpt (first 200 characters)
       const excerpt =
@@ -213,21 +278,33 @@ async function generateSearchIndex() {
         excerpt,
       };
 
-      documents.push(document);
+      if (!seenIds.has(document.id)) {
+        documents.push(document);
+        seenIds.add(document.id);
+      }
 
       // Also create entries for each heading (for more granular search)
-      headings.forEach((heading) => {
+      headings.forEach((heading, idx) => {
         if (heading.level <= 3) {
           // Only include h1, h2, h3 as separate entries
-          documents.push({
-            id: `${slug}#${heading.anchor}`,
-            title: `${title} - ${heading.text}`,
-            content: heading.text,
-            url: `/docs/${slug}#${heading.anchor}`,
-            category,
-            headings: [],
-            excerpt: `${heading.text} (from ${title})`,
-          });
+          // Make ID unique by appending index if duplicate
+          let headingId = `${slug}#${heading.anchor}`;
+          if (seenIds.has(headingId)) {
+            headingId = `${slug}#${heading.anchor}-${idx}`;
+          }
+
+          if (!seenIds.has(headingId)) {
+            documents.push({
+              id: headingId,
+              title: `${title} - ${heading.text}`,
+              content: heading.text,
+              url: `/docs/${slug}#${heading.anchor}`,
+              category,
+              headings: [],
+              excerpt: `${heading.text} (from ${title})`,
+            });
+            seenIds.add(headingId);
+          }
         }
       });
     } catch (error) {
@@ -241,8 +318,34 @@ async function generateSearchIndex() {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
+  // Create MiniSearch index
+  const miniSearch = new MiniSearch({
+    fields: ['title', 'content', 'category'],
+    storeFields: ['title', 'url', 'excerpt', 'category'],
+    searchOptions: {
+      boost: { title: 2 },
+      fuzzy: 0.2,
+      prefix: true,
+    }
+  });
+
+  miniSearch.addAll(documents);
+
+  // Export index for client-side use
+  const indexData = {
+    index: miniSearch.toJSON(),
+    documents: documents.map(doc => ({
+      id: doc.id,
+      title: doc.title,
+      url: doc.url,
+      content: doc.content, // Full content for searching
+      excerpt: doc.excerpt, // Short excerpt for display
+      category: doc.category,
+    }))
+  };
+
   // Write search index to JSON file
-  const jsonContent = JSON.stringify(documents);
+  const jsonContent = JSON.stringify(indexData);
   fs.writeFileSync(outputPath, jsonContent);
 
   // Create compressed version
@@ -254,22 +357,16 @@ async function generateSearchIndex() {
   const compressionRatio = ((originalSize - compressedSize) / originalSize * 100).toFixed(1);
 
   // Generate docs structure
-  console.log("📁 Generating docs structure...");
   const docsStructure = generateDocsStructure(docsDirectory);
-
   generateDocsStructureFiles(docsStructure);
 
   const docsStructureOriginalSize = fs.statSync(docsStructureOutputPath).size;
   const docsStructureCompressedSize = fs.statSync(docsStructureCompressedPath).size;
   const docsStructureCompressionRatio = ((docsStructureOriginalSize - docsStructureCompressedSize) / docsStructureOriginalSize * 100).toFixed(1);
 
-  console.log(`✅ Search index and docs structure built successfully!`);
-  console.log(`   📄 Processed ${markdownFiles.length} files`);
-  console.log(`   🔍 Generated ${documents.length} search entries`);
-  console.log(`   💾 Search index: ${outputPath} (${(originalSize / 1024).toFixed(1)}KB)`);
-  console.log(`   🗜️  Search compressed: ${compressedOutputPath} (${(compressedSize / 1024).toFixed(1)}KB, ${compressionRatio}% smaller)`);
-  console.log(`   📁 Docs structure: ${docsStructureOutputPath} (${(docsStructureOriginalSize / 1024).toFixed(1)}KB)`);
-  console.log(`   🗜️  Docs compressed: ${docsStructureCompressedPath} (${(docsStructureCompressedSize / 1024).toFixed(1)}KB, ${docsStructureCompressionRatio}% smaller)`);
+  console.log(`Done: ${markdownFiles.length} files, ${documents.length} entries`);
+  console.log(`  index: ${(originalSize / 1024).toFixed(0)}KB -> ${(compressedSize / 1024).toFixed(0)}KB (${compressionRatio}%)`);
+  console.log(`  structure: ${(docsStructureOriginalSize / 1024).toFixed(1)}KB -> ${(docsStructureCompressedSize / 1024).toFixed(1)}KB (${docsStructureCompressionRatio}%)`);
 }
 
 // Run the script
