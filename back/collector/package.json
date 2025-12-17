@@ -1,0 +1,19 @@
+{
+  "name": "@btr/collector",
+  "version": "0.1.0",
+  "description": "Market data collector with OHLC caching",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/server-main.ts",
+    "start": "bun src/server-main.ts",
+    "collector": "bun src/index.ts",
+    "test": "bun src/direct-test.ts",
+    "test:aliases": "bun src/test-aliases.ts"
+  },
+  "dependencies": {
+    "ccxt": "^4.4.96"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
