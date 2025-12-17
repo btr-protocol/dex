@@ -2,9 +2,9 @@
 pragma solidity ^0.8.4;
 
 /// @notice Arithmetic library with operations for fixed-point numbers.
-/// @author Solady (https://github.com/vectorized/solady/blob/main/src/utils/FPMaths.sol)
-/// @author Modified from Solmate (https://github.com/transmissions11/solmate/blob/main/src/utils/FPMaths.sol)
-library FPMaths {
+/// @author Solady (https://github.com/vectorized/solady/blob/main/src/utils/FixedPointMathLib.sol)
+/// @author Modified from Solmate (https://github.com/transmissions11/solmate/blob/main/src/utils/FixedPointMathLib.sol)
+library FixedPointMathLib {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                       CUSTOM ERRORS                        */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -1048,7 +1048,7 @@ library FPMaths {
     /// Use `SafeCastLib` to safely ensure that the `packed` number is small
     /// enough to fit in the desired unsigned integer type:
     /// ```
-    ///     uint32 packed = SafeCastLib.toUint32(FPMaths.packSci(777 ether));
+    ///     uint32 packed = SafeCastLib.toUint32(FixedPointMathLib.packSci(777 ether));
     /// ```
     function packSci(uint256 x) internal pure returns (uint256 packed) {
         (x, packed) = sci(x); // Reuse for `mantissa` and `exponent`.

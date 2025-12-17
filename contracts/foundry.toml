@@ -3,9 +3,11 @@ src = "src"
 out = "out"
 libs = ["lib"]
 optimizer = true
-optimizer_runs = 200
+optimizer_runs = 800
 via_ir = true
 solc_version = "0.8.28"
+# Allow tests to write CSV output files
+fs_permissions = [{ access = "read-write", path = "./"}]
 
 remappings = [
     "forge-std/=lib/forge-std/src/",
@@ -26,3 +28,7 @@ fail_on_revert = false
 line_length = 100
 tab_width = 4
 bracket_spacing = false
+
+[rpc_endpoints]
+mainnet = "${ETH_RPC_URL}"
+anvil = "http://localhost:8545"
