@@ -1,5 +1,5 @@
 /**
- * Transaction flows for interacting with BAMM pools
+ * Transaction flows for interacting with AIMM pools
  * @module @btr/dex-sdk/flows
  */
 

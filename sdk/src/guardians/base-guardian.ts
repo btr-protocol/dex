@@ -1,5 +1,5 @@
 /**
- * Base Guardian for monitoring BAMM pools
+ * Base Guardian for monitoring AIMM pools
  * @module @btr/dex-sdk/guardians
  */
 

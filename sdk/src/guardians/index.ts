@@ -1,5 +1,5 @@
 /**
- * Guardian implementations for monitoring and protecting BAMM pools
+ * Guardian implementations for monitoring and protecting AIMM pools
  * @module @btr/dex-sdk/guardians
  */
 

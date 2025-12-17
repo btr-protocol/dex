@@ -1,5 +1,5 @@
 /**
- * Withdraw flow for BAMM pools
+ * Withdraw flow for AIMM pools
  * @module @btr/dex-sdk/flows
  */
 
@@ -21,7 +21,7 @@ export interface WithdrawResult {
 }
 
 /**
- * Execute a withdrawal from a BAMM pool
+ * Execute a withdrawal from a AIMM pool
  */
 export async function withdraw(
   publicClient: PublicClient,

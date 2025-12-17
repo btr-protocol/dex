@@ -42,6 +42,7 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "test": "bun test",
+    "test:aliases": "bun run src/eth/test-aliases.ts",
     "typecheck": "tsc --noEmit",
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
     "generate-zeros": "bun run src/circuits/scripts/generate-zeros.ts",

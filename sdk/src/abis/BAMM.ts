@@ -1,11 +1,11 @@
 /**
- * BAMM Contract ABI
+ * AIMM Contract ABI
  * @module @btr/dex-sdk/abis
  *
  * To regenerate: run `forge build` in contracts/ then `bun run generate-abis`
  */
 
-export const BAMM_ABI = [
+export const AIMM_ABI = [
   // Core functions
   {
     type: 'function',
@@ -92,7 +92,7 @@ export const BAMM_ABI = [
   },
   {
     type: 'function',
-    name: 'updateOracle',
+    name: 'push',
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'token', type: 'address' },
