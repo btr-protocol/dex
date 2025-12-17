@@ -28,27 +28,38 @@ const loadPrism = async () => {
     Prism = PrismModule.default;
 
     // Lazy load language components in proper dependency order
+    // @ts-ignore - prismjs components don't have type declarations
     await import('prismjs/components/prism-javascript');
+    // @ts-ignore - prismjs components don't have type declarations
     await import('prismjs/components/prism-typescript');
+    // @ts-ignore - prismjs components don't have type declarations
     await import('prismjs/components/prism-jsx');
 
     // Load TSX after JSX and TypeScript are loaded
     try {
+      // @ts-ignore - prismjs components don't have type declarations
       await import('prismjs/components/prism-tsx');
     } catch (err) {
       console.warn('TSX syntax highlighting not available:', err);
     }
 
     // Load Solidity
+    // @ts-ignore - prismjs components don't have type declarations
     await import('prismjs/components/prism-solidity');
 
     // Load remaining languages in parallel
     await Promise.all([
+      // @ts-ignore - prismjs components don't have type declarations
       import('prismjs/components/prism-json'),
+      // @ts-ignore - prismjs components don't have type declarations
       import('prismjs/components/prism-bash'),
+      // @ts-ignore - prismjs components don't have type declarations
       import('prismjs/components/prism-sql'),
+      // @ts-ignore - prismjs components don't have type declarations
       import('prismjs/components/prism-markdown'),
+      // @ts-ignore - prismjs components don't have type declarations
       import('prismjs/components/prism-yaml'),
+      // @ts-ignore - prismjs components don't have type declarations
       import('prismjs/components/prism-docker'),
     ]);
   }

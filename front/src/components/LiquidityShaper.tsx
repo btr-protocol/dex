@@ -63,7 +63,7 @@ export default function LiquidityShaper() {
       },
       {
         label: 'Knots',
-        data: knots.map((k, i) => ({
+        data: knots.map((k, _i) => ({
           x: k.x,
           y: k.y,
         })),
@@ -98,7 +98,7 @@ export default function LiquidityShaper() {
               const knot = knots[context.dataIndex];
               return `Knot: x=${knot.x.toFixed(1)}%, y=${knot.y.toFixed(1)}`;
             }
-            return `y=${context.parsed.y.toFixed(2)}`;
+            return `y=${context.parsed.y?.toFixed(2) ?? '--'}`;
           },
         },
       },
@@ -139,6 +139,7 @@ export default function LiquidityShaper() {
     onClick: (event, elements, chart) => {
       // Add knot on click if not clicking an existing point
       if (elements.length === 0 && knots.length < MAX_KNOTS) {
+        // @ts-ignore - ChartJS.helpers types are incomplete
         const canvasPosition = ChartJS.helpers.getRelativePosition(event, chart);
         const dataX = chart.scales.x.getValueForPixel(canvasPosition.x);
         const dataY = chart.scales.y.getValueForPixel(canvasPosition.y);
@@ -164,6 +165,7 @@ export default function LiquidityShaper() {
     const handleMouseMove = (event: MouseEvent) => {
       if (!isDragging || selectedKnot === null) return;
 
+      // @ts-ignore - ChartJS.helpers types are incomplete
       const canvasPosition = ChartJS.helpers.getRelativePosition(event, chart);
       const dataX = chart.scales.x.getValueForPixel(canvasPosition.x);
       const dataY = chart.scales.y.getValueForPixel(canvasPosition.y);
