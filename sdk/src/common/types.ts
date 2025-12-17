@@ -2,7 +2,7 @@
  * Common types used across the SDK
  */
 
-import type { Address, Hash, Hex } from 'viem';
+import type { Address } from 'viem';
 
 export type TokenAddress = Address;
 export type PoolAddress = Address;
