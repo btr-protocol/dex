@@ -15,9 +15,9 @@ interface IERC3156FlashBorrower {
      * @param amount Amount of tokens being borrowed
      * @param fee Fee charged for the flash loan
      * @param data Parameters for the function call
-     * @return The operation signature (keccak256("ERC3156FlashBorrower.onFlashLoan"))
+     * @return The operation signature (keccak256("ERC3156FlashBorrower.postFlashLoan"))
      */
-    function onFlashLoan(
+    function postFlashLoan(
         address initiator,
         address token,
         uint256 amount,

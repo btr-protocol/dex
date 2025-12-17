@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 /// @title IPool
 /// @notice Interface for Aave V3 Pool
 /// @dev Minimal interface for supply and withdraw operations
-interface IPool {
+interface IAAVEV3Pool {
     /// @notice Supplies an amount of underlying asset to the pool
     /// @param asset The address of the underlying asset to supply
     /// @param amount The amount to be supplied
