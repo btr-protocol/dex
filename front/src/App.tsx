@@ -11,14 +11,16 @@ import DisclaimerModal, { useDisclaimer } from '@/components/DisclaimerModal'
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 
+type PageType = 'dashboard' | 'shaper' | 'docs';
+
 export default function App() {
   const { accepted: disclaimerAccepted, accept: acceptDisclaimer } = useDisclaimer()
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'shaper' | 'docs'>('dashboard')
-  const { address, isConnected } = useAccount()
+  const [currentPage, setCurrentPage] = useState<PageType>('dashboard')
+  const { isConnected } = useAccount()
   const { connect, connectors, isPending } = useConnect()
-  const { disconnect } = useDisconnect()
+  useDisconnect()
 
   // Show disclaimer if not accepted
   if (!disclaimerAccepted) {
@@ -33,7 +35,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Header onNavigate={setCurrentPage} currentPage={currentPage} />
+      <Header onNavigate={(page: string) => setCurrentPage(page as PageType)} currentPage={currentPage} />
 
       {/* Main Content */}
       <main className="pt-14 pb-10 min-h-screen">
