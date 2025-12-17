@@ -10,11 +10,20 @@ interface AssetRowProps {
   address: Address;
 }
 
+interface AssetData {
+  reserves: bigint;
+  liabilities: bigint;
+  minFeeBps: number;
+  maxFeeBps: number;
+}
+
 function AssetRow({ address }: AssetRowProps) {
-  const { data: asset } = useAssetState(address);
+  const { data: assetRaw } = useAssetState(address);
   const { data: price } = useOraclePrice(address);
   const { data: coverageRatio } = useCoverageRatio(address);
   const { symbol, decimals } = useTokenInfo(address);
+
+  const asset = assetRaw as AssetData | undefined;
 
   if (!asset || !price || decimals === undefined) {
     return (
@@ -28,7 +37,7 @@ function AssetRow({ address }: AssetRowProps) {
 
   const formattedReserves = formatUnits(asset.reserves, decimals);
   const formattedLiabilities = formatUnits(asset.liabilities, decimals);
-  const formattedPrice = formatUnits(price, 18); // Prices are in 18 decimals
+  const formattedPrice = formatUnits(price as bigint, 18); // Prices are in 18 decimals
   const formattedCoverage = coverageRatio ? Number(coverageRatio) / 10000 : 0; // BPS to percentage
 
   return (
@@ -93,7 +102,8 @@ export default function PoolDashboard() {
     );
   }
 
-  if (!registeredAssets || registeredAssets.length === 0) {
+  const assets = registeredAssets as Address[] | undefined;
+  if (!assets || assets.length === 0) {
     return (
       <div className="bg-gray-900 rounded-lg p-8 border border-gray-700">
         <div className="text-center">
@@ -111,7 +121,7 @@ export default function PoolDashboard() {
       <div className="px-6 py-4 border-b border-gray-700">
         <h2 className="text-xl font-bold">Pool Overview</h2>
         <p className="text-sm text-gray-400 mt-1">
-          {registeredAssets.length} asset{registeredAssets.length !== 1 ? 's' : ''} registered
+          {assets.length} asset{assets.length !== 1 ? 's' : ''} registered
         </p>
       </div>
 
@@ -140,8 +150,8 @@ export default function PoolDashboard() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700">
-            {registeredAssets.map((asset) => (
-              <AssetRow key={asset} address={asset} />
+            {assets.map((assetAddr: Address) => (
+              <AssetRow key={assetAddr} address={assetAddr} />
             ))}
           </tbody>
         </table>

@@ -1,5 +1,5 @@
 import { Bell, Settings } from 'lucide-react';
-import { useAccount, useConnect, useDisconnect } from 'wagmi';
+import { useAccount, useDisconnect } from 'wagmi';
 import { Button } from '@components/ui/Button';
 
 interface HeaderProps {
