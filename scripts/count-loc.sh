@@ -33,7 +33,7 @@ echo "────────────────────────�
 total_contracts_total=0
 total_contracts_code=0
 
-for dir in contracts/src/bamm contracts/src/darkpool contracts/src/oracles; do
+for dir in contracts/src/aimm contracts/src/darkpool contracts/src/oracles; do
     if [ -d "$dir" ]; then
         for file in "$dir"/*.sol; do
             if [ -f "$file" ]; then

@@ -28,8 +28,8 @@ Adaptive multi-asset AMM with zkSNARK-based privacy layer.
 The `./dump` script exports code to timestamped text files for LLM consumption.
 
 ```bash
-# Export BAMM contracts only
-./dump --bamm
+# Export AIMM contracts only
+./dump --aimm
 
 # Export dark pool contracts (excludes generated files)
 ./dump --darkpool
@@ -38,7 +38,7 @@ The `./dump` script exports code to timestamped text files for LLM consumption.
 ./dump --circuits
 
 # Export multiple components
-./dump --bamm --darkpool --circuits
+./dump --aimm --darkpool --circuits
 ```
 
 See [README_DUMP.md](README_DUMP.md) for details.
