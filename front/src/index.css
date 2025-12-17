@@ -1,0 +1,131 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Mozilla+Text:wght@200..700&family=JetBrains+Mono:wght@100..800&display=swap');
+@import "./styles/constants.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    html,
+    body,
+    #root {
+        height: 100%;
+        width: 100%;
+        font-family: var(--font-body);
+        color: var(--fg-0);
+        font-weight: 400;
+        background-color: var(--bg-0);
+        overflow-x: hidden;
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+        width: 0.4rem;
+        height: 0.4rem;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: var(--bg-2);
+        border-radius: 0.2rem;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--bg-5);
+        border-radius: 0.2rem;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--primary);
+    }
+
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--bg-5) var(--bg-2);
+    }
+
+    /* Search highlight */
+    mark {
+        background-color: var(--primary);
+        color: var(--bg-0);
+        padding: 0.1em 0.2em;
+        border-radius: 0.2em;
+        font-weight: 600;
+    }
+
+    .search-excerpt mark {
+        background-color: var(--bg-primary);
+        color: var(--primary);
+    }
+
+    /* Numbers, inputs, labels use Mozilla Text */
+    input,
+    textarea,
+    select,
+    .font-numbers,
+    [type="number"],
+    .label-numeric {
+        font-family: var(--font-numbers);
+        font-optical-sizing: auto;
+    }
+
+    /* Title fonts: Inter Black, no italic */
+    h1, h2, h3, h4, h5, h6 {
+        font-family: var(--font-title);
+        font-weight: 900;
+        font-style: normal;
+    }
+
+    /* Monospace for code */
+    code, pre {
+        font-family: var(--font-mono);
+    }
+
+    /* Placeholder colors use theme */
+    input::placeholder,
+    textarea::placeholder {
+        color: var(--fg-2);
+        opacity: 1;
+    }
+
+    /* Custom number input arrows */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    input[type="number"] {
+        -moz-appearance: textfield;
+    }
+}
+
+/* Reusable primary hover effect for buttons, tabs, cards */
+.hover-primary {
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.hover-primary:hover:not(:disabled) {
+    background-color: var(--bg-primary) !important;
+    border-color: var(--border-color-primary) !important;
+    color: var(--primary);
+}
+
+.hover-primary:active:not(:disabled) {
+    background-color: var(--bg-4) !important;
+}
+
+/* BorderedThemedIcon - uses CSS custom properties for theming */
+.bordered-icon .icon-bg {
+    fill: var(--icon-bg);
+    transition: fill 0.15s;
+}
+
+.bordered-icon .icon-fg {
+    fill: var(--icon-fg);
+    transition: fill 0.15s;
+}
+
+/* Add token button - icon above should be part of hover area */
+.add-token-btn:hover .icon-fg {
+    fill: var(--primary);
+}
