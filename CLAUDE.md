@@ -70,6 +70,24 @@ For detailed agent instructions and workflows, see [`AGENTS.md`](AGENTS.md).
 
 ---
 
+## Package Manager - BUN ONLY
+
+**⚠️ CRITICAL: Use `bun` EXCLUSIVELY for all package management tasks.**
+
+- ❌ **NEVER** use `npm` (not installed, not configured, DO NOT USE)
+- ❌ **NEVER** use `yarn` (deprecated)
+- ✅ **ALWAYS** use `bun install`, `bun add`, `bun run`
+
+Examples:
+```bash
+bun install          # Install dependencies
+bun add package      # Add a package
+bun run dev          # Run dev server
+bun run build        # Build project
+```
+
+---
+
 ## Communication Style
 
 **CRITICAL: Keep responses SHORT and CONCISE.**
