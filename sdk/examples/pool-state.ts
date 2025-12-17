@@ -9,8 +9,8 @@
 
 import { Contract, Provider } from 'ethers';
 
-// BAMM ABI fragment (only what we need)
-const BAMM_ABI = [
+// AIMM ABI fragment (only what we need)
+const AIMM_ABI = [
   'function registeredAssets() view returns (address[])',
   'function getOracleData(address token) view returns (uint64 fastTWAP, uint64 slowTWAP, uint32 fastVolatility, uint32 slowVolatility, uint32 lastUpdate)',
   'function getAssetState(address token) view returns (uint64 fastTWAP, uint64 slowTWAP, uint128 reserves, uint128 liabilities, uint256 reservesValue, uint256 liabilitiesValue)',
@@ -38,17 +38,17 @@ interface PoolState {
  * Fetch pool state using a single multicall
  */
 async function getPoolState(
-  bammAddress: string,
+  aimmAddress: string,
   provider: Provider
 ): Promise<PoolState> {
-  const bamm = new Contract(bammAddress, BAMM_ABI, provider);
+  const aimm = new Contract(aimmAddress, AIMM_ABI, provider);
 
   // Step 1: Get list of all pool assets
-  const tokens: string[] = await bamm.registeredAssets();
+  const tokens: string[] = await aimm.registeredAssets();
 
   // Step 2: Batch fetch all asset states (single RPC call with multicall)
   const assetStates = await Promise.all(
-    tokens.map(token => bamm.getAssetState(token))
+    tokens.map(token => aimm.getAssetState(token))
   );
 
   // Step 3: Compute metrics
@@ -124,10 +124,10 @@ function formatValue(value: bigint): string {
  */
 async function main() {
   const provider = new Provider('https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY');
-  const bammAddress = '0x...';  // Your BAMM address
+  const aimmAddress = '0x...';  // Your AIMM address
 
   // Fetch entire pool state in ONE multicall
-  const state = await getPoolState(bammAddress, provider);
+  const state = await getPoolState(aimmAddress, provider);
 
   console.log('=== POOL STATE ===\n');
   console.log(`Total Reserves Value:    ${formatValue(state.totalReservesValue)}`);
@@ -168,20 +168,20 @@ function isPoolHealthy(state: PoolState, minCoverage: bigint = 9n * 10n**17n): b
 }
 
 /**
- * Example: External contract reading BAMM oracles
+ * Example: External contract reading AIMM oracles
  *
- * Any external contract can read real-time oracle data from BAMM pools
+ * Any external contract can read real-time oracle data from AIMM pools
  */
 async function getOracleDataExample(
-  bammAddress: string,
+  aimmAddress: string,
   tokenAddress: string,
   provider: Provider
 ): Promise<void> {
-  const bamm = new Contract(bammAddress, BAMM_ABI, provider);
+  const aimm = new Contract(aimmAddress, AIMM_ABI, provider);
 
   // Single call to get all oracle data (works for both internal and external oracles)
   const [fastTWAP, slowTWAP, fastVolatility, slowVolatility, lastUpdate] =
-    await bamm.getOracleData(tokenAddress);
+    await aimm.getOracleData(tokenAddress);
 
   console.log('=== ORACLE DATA ===');
   console.log(`Fast TWAP:        $${decodeTWAP(fastTWAP)}`);

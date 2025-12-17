@@ -4,7 +4,7 @@ Modular TypeScript SDK for interacting with BTR DEX. Supports AMM flows, oracle 
 
 ## Features
 
-- 🔄 **AMM Flows**: Deposit, swap, and withdraw from BAMM pools
+- 🔄 **AMM Flows**: Deposit, swap, and withdraw from AIMM pools
 - 📡 **Oracles**: Real-time price feeds (Binance WebSocket, extensible)
 - 🛡️ **Guardians**: Circuit breaker monitoring and protection
 - 🔐 **Privacy**: zkSNARK-based private transactions (DarkPool)
@@ -32,7 +32,7 @@ Only import what you need - tree-shaking ensures you don't bundle oracle/guardia
 
 ```typescript
 import { deposit, swap, withdraw } from '@btr/dex-sdk/flows';
-import { BAMM_ABI } from '@btr/dex-sdk/abis';
+import { AIMM_ABI } from '@btr/dex-sdk/abis';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 
@@ -48,7 +48,7 @@ const walletClient = createWalletClient({
 });
 
 // Execute a swap
-const result = await swap(publicClient, walletClient, BAMM_ABI, {
+const result = await swap(publicClient, walletClient, AIMM_ABI, {
   poolAddress: '0x...',
   tokenIn: '0x...', // USDC
   tokenOut: '0x...', // ETH
@@ -65,7 +65,7 @@ Run a price oracle keeper that monitors Binance and updates on-chain prices:
 
 ```typescript
 import { BinanceOracle } from '@btr/dex-sdk/oracles';
-import { BAMM_ABI } from '@btr/dex-sdk/abis';
+import { AIMM_ABI } from '@btr/dex-sdk/abis';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 
@@ -84,7 +84,7 @@ const oracle = new BinanceOracle(
   publicClient,
   walletClient,
   {
-    poolAddress: '0x...', // Your BAMM pool
+    poolAddress: '0x...', // Your AIMM pool
     assets: [
       { address: '0x...', symbol: 'ETH', decimals: 18 },
       { address: '0x...', symbol: 'BTC', decimals: 8 },
@@ -93,7 +93,7 @@ const oracle = new BinanceOracle(
     updateInterval: 60000, // Check every minute
     divergenceThreshold: 50, // Update if price diverges by 0.5%
   },
-  BAMM_ABI
+  AIMM_ABI
 );
 
 // Start monitoring (runs indefinitely)
@@ -106,7 +106,7 @@ Monitor for de-pegging events and trigger circuit breakers:
 
 ```typescript
 import { CircuitBreakerGuardian } from '@btr/dex-sdk/guardians';
-import { BAMM_ABI } from '@btr/dex-sdk/abis';
+import { AIMM_ABI } from '@btr/dex-sdk/abis';
 
 const guardian = new CircuitBreakerGuardian(
   publicClient,
@@ -130,7 +130,7 @@ const guardian = new CircuitBreakerGuardian(
     checkInterval: 300000, // Check every 5 minutes
     cooldownPeriod: 3600, // 1 hour cooldown
   },
-  BAMM_ABI,
+  AIMM_ABI,
   oracleProvider // Implement OracleProvider interface
 );
 
@@ -194,7 +194,7 @@ The SDK is organized into tree-shakeable modules:
 
 ```
 @btr/dex-sdk/
-├── /abis        - Contract ABIs (BAMM, DarkPool)
+├── /abis        - Contract ABIs (AIMM, DarkPool)
 ├── /common      - Shared types, constants, utilities
 ├── /flows       - Transaction builders (deposit, swap, withdraw)
 ├── /oracles     - Price oracle implementations (Binance, extensible)
@@ -208,7 +208,7 @@ The SDK is organized into tree-shakeable modules:
 Frontend (light bundle):
 ```typescript
 import { swap } from '@btr/dex-sdk/flows';
-import { BAMM_ABI } from '@btr/dex-sdk/abis';
+import { AIMM_ABI } from '@btr/dex-sdk/abis';
 ```
 
 Backend keeper:
@@ -228,12 +228,12 @@ import { Note, MerkleTree, ProofBuilder } from '@btr/dex-sdk/darkpool';
 
 #### `deposit(publicClient, walletClient, poolAbi, params)`
 
-Deposit tokens into a BAMM pool and receive LP tokens.
+Deposit tokens into a AIMM pool and receive LP tokens.
 
 **Parameters:**
 - `publicClient`: viem PublicClient
 - `walletClient`: viem WalletClient
-- `poolAbi`: BAMM contract ABI
+- `poolAbi`: AIMM contract ABI
 - `params`:
   - `poolAddress`: Pool contract address
   - `token`: Token to deposit
@@ -245,7 +245,7 @@ Deposit tokens into a BAMM pool and receive LP tokens.
 
 #### `swap(publicClient, walletClient, poolAbi, params)`
 
-Swap one token for another in a BAMM pool.
+Swap one token for another in a AIMM pool.
 
 **Parameters:**
 - `params`:
@@ -260,7 +260,7 @@ Swap one token for another in a BAMM pool.
 
 #### `withdraw(publicClient, walletClient, poolAbi, params)`
 
-Withdraw tokens from a BAMM pool by burning LP tokens.
+Withdraw tokens from a AIMM pool by burning LP tokens.
 
 **Parameters:**
 - `params`:
@@ -284,7 +284,7 @@ await oracle.start();
 ```
 
 **Config:**
-- `poolAddress`: BAMM pool to update
+- `poolAddress`: AIMM pool to update
 - `assets`: Array of assets to monitor
 - `updateInterval`: How often to check prices (ms)
 - `divergenceThreshold`: Trigger update if price diverges by this many bps
@@ -309,7 +309,7 @@ await guardian.start();
 ```
 
 **Config:**
-- `poolAddress`: BAMM pool to monitor
+- `poolAddress`: AIMM pool to monitor
 - `assets`: Array of assets with circuit breaker configs
 - `checkInterval`: How often to check (ms)
 - `cooldownPeriod`: Cooldown after triggering (seconds)

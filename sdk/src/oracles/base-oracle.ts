@@ -67,29 +67,29 @@ export abstract class BaseOracle {
    */
   protected async checkAssetPrice(asset: AssetOracleConfig): Promise<void> {
     // Fetch current market price
-    const currentPrice = await this.fetchPrice(asset);
+    const lastPrice = await this.fetchPrice(asset);
 
     // Get last on-chain price
     const lastPrice = this.lastPrices.get(asset.address);
 
     if (!lastPrice) {
       // First time - just store it
-      this.lastPrices.set(asset.address, currentPrice.price);
-      console.log(`${asset.symbol}: Initial price ${currentPrice.price}`);
+      this.lastPrices.set(asset.address, lastPrice.price);
+      console.log(`${asset.symbol}: Initial price ${lastPrice.price}`);
       return;
     }
 
     // Calculate divergence
-    const divergenceBps = calculateDivergenceBps(currentPrice.price, lastPrice);
+    const divergenceBps = calculateDivergenceBps(lastPrice.price, lastPrice);
 
     console.log(
-      `${asset.symbol}: price ${currentPrice.price}, divergence ${divergenceBps}bps, threshold ${this.config.divergenceThreshold}bps`
+      `${asset.symbol}: price ${lastPrice.price}, divergence ${divergenceBps}bps, threshold ${this.config.divergenceThreshold}bps`
     );
 
     // Update if divergence exceeds threshold
     if (divergenceBps >= this.config.divergenceThreshold) {
-      await this.updateOnChainPrice(asset, currentPrice);
-      this.lastPrices.set(asset.address, currentPrice.price);
+      await this.updateOnChainPrice(asset, lastPrice);
+      this.lastPrices.set(asset.address, lastPrice.price);
     }
   }
 
@@ -116,7 +116,7 @@ export abstract class BaseOracle {
         account,
         address: this.config.poolAddress,
         abi: this.poolAbi,
-        functionName: 'updateOracle',
+        functionName: 'push',
         args: [asset.address, encodedPrice, 0], // volatility = 0 for now
       });
 

@@ -4,7 +4,7 @@
  */
 
 import { CircuitBreakerGuardian, type OracleProvider, type PricePoint } from '../src/guardians/circuit-breaker.js';
-import { BAMM_ABI } from '../src/abis/BAMM.js';
+import { AIMM_ABI } from '../src/abis/AIMM.js';
 import { createPublicClient, createWalletClient, http, type Address } from 'viem';
 import { mainnet } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -107,7 +107,7 @@ async function main() {
       cooldownPeriod: 3600, // 1 hour cooldown
       maxDivergence: 0, // Not used here, per-asset configs are used
     },
-    BAMM_ABI,
+    AIMM_ABI,
     oracleProvider
   );
 

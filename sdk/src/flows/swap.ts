@@ -1,5 +1,5 @@
 /**
- * Swap flow for BAMM pools
+ * Swap flow for AIMM pools
  * @module @btr/dex-sdk/flows
  */
 
@@ -25,7 +25,7 @@ export interface SwapResult {
 }
 
 /**
- * Execute a swap in a BAMM pool
+ * Execute a swap in a AIMM pool
  */
 export async function swap(
   publicClient: PublicClient,
@@ -134,7 +134,7 @@ export async function getSwapQuote(
     }) as Promise<any>,
   ]);
 
-  // Simple constant product calculation (adjust based on actual BAMM mechanics)
+  // Simple constant product calculation (adjust based on actual AIMM mechanics)
   // In production, call a view function on the contract for accurate quotes
   const reserveIn: bigint = assetIn.reserves;
   const reserveOut: bigint = assetOut.reserves;

@@ -1,5 +1,5 @@
 /**
- * Deposit flow for BAMM pools
+ * Deposit flow for AIMM pools
  * @module @btr/dex-sdk/flows
  */
 
@@ -22,7 +22,7 @@ export interface DepositResult {
 }
 
 /**
- * Execute a deposit into a BAMM pool
+ * Execute a deposit into a AIMM pool
  */
 export async function deposit(
   publicClient: PublicClient,

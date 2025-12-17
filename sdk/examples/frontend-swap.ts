@@ -4,7 +4,7 @@
  */
 
 import { swap, getSwapQuote } from '../src/flows/swap.js';
-import { BAMM_ABI } from '../src/abis/BAMM.js';
+import { AIMM_ABI } from '../src/abis/AIMM.js';
 import { formatTokenAmount, parseTokenAmount } from '../src/common/utils.js';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
@@ -25,7 +25,7 @@ async function main() {
   });
 
   // Pool and token addresses
-  const poolAddress = '0x...'; // Your BAMM pool
+  const poolAddress = '0x...'; // Your AIMM pool
   const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
   const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
@@ -36,7 +36,7 @@ async function main() {
   const quote = await getSwapQuote(
     publicClient,
     poolAddress,
-    BAMM_ABI,
+    AIMM_ABI,
     USDC,
     WETH,
     amountIn
@@ -50,7 +50,7 @@ async function main() {
 
   // Execute swap with 0.5% slippage tolerance
   console.log('\nExecuting swap...');
-  const result = await swap(publicClient, walletClient, BAMM_ABI, {
+  const result = await swap(publicClient, walletClient, AIMM_ABI, {
     poolAddress,
     tokenIn: USDC,
     tokenOut: WETH,

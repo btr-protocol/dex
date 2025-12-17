@@ -5,14 +5,14 @@
  * @example Basic usage (frontend - light bundle)
  * ```ts
  * import { deposit, swap, withdraw } from '@btr/dex-sdk/flows';
- * import { BAMM_ABI } from '@btr/dex-sdk/abis';
+ * import { AIMM_ABI } from '@btr/dex-sdk/abis';
  * import { createPublicClient, createWalletClient } from 'viem';
  *
  * const publicClient = createPublicClient({...});
  * const walletClient = createWalletClient({...});
  *
  * // Execute a swap
- * await swap(publicClient, walletClient, BAMM_ABI, {
+ * await swap(publicClient, walletClient, AIMM_ABI, {
  *   poolAddress: '0x...',
  *   tokenIn: '0x...',
  *   tokenOut: '0x...',
@@ -24,7 +24,7 @@
  * @example Oracle keeper
  * ```ts
  * import { BinanceOracle } from '@btr/dex-sdk/oracles';
- * import { BAMM_ABI } from '@btr/dex-sdk/abis';
+ * import { AIMM_ABI } from '@btr/dex-sdk/abis';
  *
  * const oracle = new BinanceOracle(publicClient, walletClient, {
  *   poolAddress: '0x...',
@@ -34,7 +34,7 @@
  *   ],
  *   updateInterval: 60000, // 1 minute
  *   divergenceThreshold: 50, // 0.5%
- * }, BAMM_ABI);
+ * }, AIMM_ABI);
  *
  * await oracle.start();
  * ```
@@ -42,7 +42,7 @@
  * @example Circuit breaker guardian
  * ```ts
  * import { CircuitBreakerGuardian } from '@btr/dex-sdk/guardians';
- * import { BAMM_ABI } from '@btr/dex-sdk/abis';
+ * import { AIMM_ABI } from '@btr/dex-sdk/abis';
  *
  * const guardian = new CircuitBreakerGuardian(publicClient, walletClient, {
  *   poolAddress: '0x...',
@@ -55,7 +55,7 @@
  *     },
  *   ],
  *   checkInterval: 300000, // 5 minutes
- * }, BAMM_ABI, oracleProvider);
+ * }, AIMM_ABI, oracleProvider);
  *
  * await guardian.start();
  * ```
