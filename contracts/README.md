@@ -50,10 +50,10 @@ forge snapshot
 
 ```
 src/
-├── BAMM.sol                    Main pool contract with EIP-7201 storage
-├── BAMMEvents.sol              Error and event definitions
+├── AIMM.sol                    Main pool contract with EIP-7201 storage
+├── AIMMEvents.sol              Error and event definitions
 ├── interfaces/
-│   ├── IBAMM.sol              Main pool interface
+│   ├── IAIMM.sol              Main pool interface
 │   └── IOracle.sol            External oracle interface
 └── libraries/
     ├── LibAccessControl.sol   Role-based access control
