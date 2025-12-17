@@ -1,4 +1,4 @@
-# Contributing to BAMM
+# Contributing to AIMM
 
 ## Atomic Commits
 
@@ -55,6 +55,7 @@ Optional detailed explanation.
 2. Imperative mood: "Add" not "Added"
 3. First line ≤ 72 characters
 4. Optional body after blank line
+5. **NEVER mention AI tools** (Claude, GPT, Copilot, etc.) in commit messages
 
 **Examples**:
 
@@ -72,6 +73,7 @@ Update stuff
 Fixed things
 feat: Add feature (wrong format)
 [FEAT] Add (uppercase)
+Co-Authored / Generated with Claude (never mention AI)
 ```
 
 ---
@@ -93,6 +95,7 @@ feat: Add feature (wrong format)
 - [ ] Correct category prefix used
 - [ ] Commit message in imperative mood
 - [ ] First line ≤ 72 characters
+- [ ] No AI tool mentions in message
 - [ ] Code compiles without errors
 - [ ] Only related files included
 
