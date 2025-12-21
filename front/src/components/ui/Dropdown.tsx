@@ -4,7 +4,7 @@ import { ChevronDown, Check, LucideProps } from 'lucide-react';
 import { cn } from '@utils/cn';
 import { Button, ButtonProps } from './Button';
 import { Tooltip } from './Tooltip';
-import { type Size, DROPDOWN_ITEM_SIZES } from './sizes';
+import { type Size, DROPDOWN_ITEM_SIZES, SIZE_CHECK } from './sizes';
 
 // Icon can be: string path, ReactNode, or Lucide component
 type IconType = string | ReactNode | ComponentType<LucideProps>;
@@ -194,7 +194,7 @@ export function Dropdown<T = string>({
       size={size}
       styleVariant={styleVariant}
       className={cn('justify-between text-left', className)}
-      rightIcon={<ChevronDown className={cn('shrink-0 transition-transform ml-auto', isOpen && 'rotate-180')} />}
+      rightIcon={<ChevronDown className={cn(SIZE_CHECK[size], 'transition-transform', isOpen && 'rotate-180')} />}
     >
       <span className="truncate text-left">{getDisplayLabel()}</span>
     </Button>
@@ -214,7 +214,7 @@ export function Dropdown<T = string>({
       {isOpen && position && createPortal(
         <div
           ref={panelRef}
-          className="fixed z-dropdown bg-bg-1 border border-border rounded-sm shadow-lg overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100 pointer-events-auto"
+          className="fixed z-dropdown bg-bg-1 border border-border rounded-sm shadow-lg overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100 pointer-events-auto font-title"
           style={{
             top: position.openUp ? 'auto' : position.top,
             bottom: position.openUp ? `calc(100vh - ${position.top}px + 4px)` : 'auto',
@@ -239,7 +239,7 @@ export function Dropdown<T = string>({
                   }}
                   disabled={disabled}
                   className={cn(
-                    'w-full flex items-center transition-colors',
+                    'w-full flex items-center transition-colors font-title font-medium',
                     itemSizeClasses.item,
                     !disabled && 'hover:bg-bg-2',
                     selected && !disabled && 'bg-bg-primary',
@@ -318,7 +318,7 @@ export function ToolbarDropdown<T = string>({
       items={items}
       size="sm"
       trigger={
-        <div className="h-8 px-2 flex items-center gap-1.5 text-xs font-medium text-fg-1 hover:bg-bg-3 transition-colors">
+        <div className="toolbar-item hover:bg-bg-3">
           {Icon && <Icon className={cn('w-4 h-4', activeColor && hasSelection && 'text-primary')} />}
           {label && <span className={cn(activeColor && hasSelection && 'text-primary')}>{label}</span>}
           {showChevron && <ChevronDown className="w-4 h-4" />}

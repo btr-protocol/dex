@@ -1,5 +1,5 @@
-import * as React from 'preact/hooks';
 import { useCallback, useMemo, useRef, useState } from 'preact/hooks';
+import { forwardRef } from 'react';
 import { cn } from '@utils/cn';
 
 interface SliderProps {
@@ -18,7 +18,7 @@ interface SliderProps {
   readOnly?: boolean;
 }
 
-const Slider = React.forwardRef<HTMLDivElement, SliderProps>(
+const Slider = forwardRef<HTMLDivElement, SliderProps>(
   (
     {
       value,

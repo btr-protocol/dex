@@ -4,7 +4,7 @@
  */
 import { FlexBetween } from './Flex';
 import { PercentageChange } from './PercentageChange';
-import type { ReactNode } from 'preact/hooks';
+import type { ReactNode } from 'react';
 
 interface TableCellWithChangeProps {
   value: string | ReactNode;
