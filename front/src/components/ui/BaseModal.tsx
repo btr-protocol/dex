@@ -125,19 +125,19 @@ export function BaseModal({
               <>
                 {/* Navigation shortcuts - same bg as body */}
                 {footerNav && (
-                  <div className={`bg-bg-1 ${MODAL_PX} py-1.5`}>
+                  <div className={`bg-bg-1 ${MODAL_PX} py-1.5 ${!footerContent && !footerControls ? 'rounded-b-lg' : ''}`}>
                     {footerNav}
                   </div>
                 )}
                 {/* Custom content */}
                 {footerContent && (
-                  <div className={`${footerBg} ${MODAL_PX} py-2.5 ${footerNav ? 'border-t border-border' : ''}`}>
+                  <div className={`${footerBg} ${MODAL_PX} py-2.5 ${footerNav ? 'border-t border-border' : ''} ${!footerControls ? 'rounded-b-lg' : ''}`}>
                     {footerContent}
                   </div>
                 )}
                 {/* Control buttons - aligned right */}
                 {footerControls && (
-                  <div className={`${footerBg} ${MODAL_PX} py-2.5 flex justify-end gap-2 ${footerNav || footerContent ? 'border-t border-border' : ''}`}>
+                  <div className={`${footerBg} ${MODAL_PX} py-2.5 flex justify-end gap-2 ${footerNav || footerContent ? 'border-t border-border' : ''} rounded-b-lg`}>
                     {footerControls}
                   </div>
                 )}
