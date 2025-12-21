@@ -304,7 +304,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }}>
       {children}
     </ThemeCtx.Provider>
-  );
+  ) as JSX.Element;
 }
 
 export const useTheme = (): ThemeContextType => {

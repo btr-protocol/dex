@@ -1,4 +1,4 @@
-import { navRoutes, externalLinks, type NavRoute } from '@/constants/navigation';
+import { navRoutes, socialLinks, type NavRoute } from '@/constants/navigation';
 
 interface ExtendedNavRoute extends NavRoute {
   description?: string;
@@ -32,13 +32,12 @@ export async function initializeSearch() {
 
     // Bulk Add Static Data
     const extendedNavRoutes = navRoutes as ExtendedNavRoute[];
-    const extendedExternalLinks = externalLinks as ExtendedNavRoute[];
     eng.addAll([
       ...extendedNavRoutes.filter(r => r.path !== '/').map((r, i) => ({
         id: `feat-${i}`, title: r.title, desc: r.description || '', path: r.path, cat: 'Features', aliases: r.aliases || []
       })),
-      ...extendedExternalLinks.map((l, i) => ({
-        id: `link-${i}`, title: l.title, desc: l.description || '', path: l.path, cat: 'Links', aliases: l.aliases || []
+      ...socialLinks.map((l, i) => ({
+        id: `link-${i}`, title: l.title, desc: `Visit ${l.title}`, path: l.url, cat: 'Links', aliases: []
       })),
       // Settings: One entry per category (groups all nested settings)
       ...SETTINGS_SCHEMA.map(category => {
