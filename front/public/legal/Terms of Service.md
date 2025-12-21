@@ -4,9 +4,9 @@
 
 Please read these Terms of Service carefully as they form a legally binding contract between you and us.
 
-These terms of service (the "Terms") govern your ("you" or "your") use of the services provided by BTR ("BTR", "the DAO", "we", "us" or "our"), including the web interface at [https://btr.supply](https://btr.supply) (the "Interface") and the underlying BAMM protocol smart contracts (collectively, the "Services"), and creates a binding contract between you and us.
+These terms of service (the "Terms") govern your ("you" or "your") use of the services provided by BTR ("BTR", "the DAO", "we", "us" or "our"), including the web interface at [https://btr.supply](https://btr.supply) (the "Interface") and the underlying AIMM protocol smart contracts (collectively, the "Services"), and creates a binding contract between you and us.
 
-BTR operates a front-end interface that allows interaction with the BAMM (Balanced Automated Market Maker) protocol—a decentralized exchange protocol deployed on Ethereum and compatible EVM chains. BTR does not operate, control, or have custody over the underlying blockchains or user assets. The smart contracts are decentralized infrastructure; BTR's role is limited to:
+BTR operates a front-end interface that allows interaction with the AIMM (Balanced Automated Market Maker) protocol—a decentralized exchange protocol deployed on Ethereum and compatible EVM chains. BTR does not operate, control, or have custody over the underlying blockchains or user assets. The smart contracts are decentralized infrastructure; BTR's role is limited to:
 - Maintaining the web interface for protocol interaction
 - Operating optional keeper bots for protocol health (oracle updates, circuit breaker checks)
 - Providing documentation and specifications
@@ -48,7 +48,7 @@ You warrant and represent that you satisfy the following eligibility requirement
 
 - **Technical Competence**: You possess sufficient technical expertise to:
   - Understand blockchain technology, smart contracts, and DeFi protocols
-  - Evaluate the security, integrity, and operation of the BAMM protocol
+  - Evaluate the security, integrity, and operation of the AIMM protocol
   - Review and verify smart contract addresses before interacting
   - Manage private keys and wallet security
   - Understand the risks of token swaps, liquidity provision, flash loans, staking, and governance participation
