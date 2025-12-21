@@ -1,16 +1,37 @@
-import { BaseModal } from '@/components/ui/BaseModal';
-import { Input } from '@/components/ui/Input';
-import { Search } from 'lucide-react';
-import { useState, useMemo, type ReactNode } from 'react';
-import { SelectableListItem } from '@/components/ui/SelectableListItem';
+import { useState, useEffect, useMemo, ReactNode, ComponentType } from 'react';
+import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
+import { Button } from '@components/ui/Button';
+import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
+import { Check, LucideProps } from 'lucide-react';
+import { addNotification } from '@lib/notifications';
+import { useKeyboardNav } from '@hooks/useKeyboardNav';
+
+// Icon can be: string path, ReactNode, or Lucide component
+type IconType = string | ReactNode | ComponentType<LucideProps>;
 
 export interface SelectionItem {
   id: string;
   label: string;
   caption?: string;
-  icon?: ReactNode;
+  icon?: IconType;
   badge?: ReactNode;
   data?: any;
+}
+
+// Helper to render icons consistently
+function renderIcon(icon: IconType, className: string): ReactNode {
+  if (typeof icon === 'string') {
+    return null; // handled separately with img
+  }
+  if (typeof icon === 'function') {
+    const IconComponent = icon as ComponentType<LucideProps>;
+    return <IconComponent className={className} />;
+  }
+  return icon;
+}
+
+function isStringIcon(icon: IconType): icon is string {
+  return typeof icon === 'string';
 }
 
 interface SelectionModalProps {
@@ -21,11 +42,13 @@ interface SelectionModalProps {
   items: SelectionItem[];
   selectedIds: string[];
   onSelect: (id: string | string[]) => void;
-  multiSelect?: boolean;
+  minSelect?: number; // Min selections (default: 1 for multi, 0 for single)
+  maxSelect?: number; // Max selections (default: 1 for single, unlimited for multi)
   filterFn?: (item: SelectionItem, search: string) => boolean;
   filterSection?: ReactNode;
   emptyMessage?: string;
   maxWidth?: string;
+  multiSelect?: boolean; // Backward compat - will derive from min/max
 }
 
 export function SelectionModal({
@@ -36,13 +59,28 @@ export function SelectionModal({
   items,
   selectedIds,
   onSelect,
-  multiSelect = false,
+  minSelect,
+  maxSelect,
   filterFn,
   filterSection,
   emptyMessage = 'No items found',
   maxWidth = 'max-w-lg',
+  multiSelect = false,
 }: SelectionModalProps) {
   const [search, setSearch] = useState('');
+  const [tempSelected, setTempSelected] = useState<string[]>(selectedIds);
+
+  // Derive selection constraints
+  const isMulti = multiSelect || (maxSelect !== undefined && maxSelect !== 1);
+  const minSelections = minSelect ?? (isMulti ? 1 : 0);
+  const maxSelections = maxSelect ?? (isMulti ? Infinity : 1);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTempSelected(selectedIds);
+      setSearch('');
+    }
+  }, [isOpen, selectedIds]);
 
   // Default filter function
   const defaultFilterFn = (item: SelectionItem, searchQuery: string): boolean => {
@@ -62,55 +100,143 @@ export function SelectionModal({
     return items.filter((item) => filterFunction(item, search));
   }, [items, search, filterFunction]);
 
-  const handleSelect = (id: string) => {
-    onSelect(id);
-    if (!multiSelect) {
+  // Keyboard navigation
+  const { selectedIndex, handleKeyDown } = useKeyboardNav({
+    items: filteredItems,
+    onSelect: (item) => handleToggle(item.id),
+    isEnabled: isOpen,
+  });
+
+  const handleToggle = (id: string) => {
+    if (isMulti) {
+      setTempSelected((prev) => {
+        // Don't allow deselecting below minimum
+        if (prev.includes(id) && prev.length <= minSelections) {
+          addNotification('warning', `At least ${minSelections} must remain selected`);
+          return prev;
+        }
+        // Don't allow selecting above maximum
+        if (!prev.includes(id) && prev.length >= maxSelections) {
+          addNotification('warning', `Maximum ${maxSelections} selections allowed`);
+          return prev;
+        }
+        return prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      });
+    } else {
+      // Single select - close immediately
+      onSelect(id);
       onClose();
     }
   };
 
+  const handleSelectAll = () => {
+    setTempSelected(items.map((item) => item.id));
+  };
+
+  const handleDeselectAll = () => {
+    // Keep minimum selected
+    if (tempSelected.length > minSelections) {
+      setTempSelected(tempSelected.slice(0, minSelections));
+    }
+  };
+
+  const allSelected = tempSelected.length === items.length && items.length > 0;
+
+  const handleApply = () => {
+    // Check minimum selections
+    if (tempSelected.length < minSelections) {
+      addNotification('error', `Select at least ${minSelections}`);
+      return;
+    }
+    onSelect(tempSelected);
+    onClose();
+  };
+
   return (
-    <BaseModal isOpen={isOpen} onClose={onClose} title={title} maxWidth={maxWidth}>
-      <div className="flex flex-col h-full">
-        {/* Search bar */}
-        <div className="p-4 border-b border-border">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder={searchPlaceholder}
-              className="pl-9"
-              variant="search"
-              value={search}
-              onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
-              autoFocus
-            />
-          </div>
-        </div>
-
-        {/* Filter section */}
-        {filterSection}
-
-        {/* Items list */}
-        <div className="flex-1 overflow-y-auto max-h-96">
-          {filteredItems.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground">{emptyMessage}</div>
-          ) : (
-            <div className="divide-y divide-border">
-              {filteredItems.map((item) => (
-                <SelectableListItem
-                  key={item.id}
-                  label={item.label}
-                  caption={item.caption}
-                  icon={item.icon}
-                  badge={item.badge}
-                  selected={selectedIds.includes(item.id)}
-                  onClick={() => handleSelect(item.id)}
-                />
-              ))}
+    <BaseModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={title}
+      headerType="input"
+      placeholder={searchPlaceholder}
+      searchValue={search}
+      onSearchChange={setSearch}
+      onSearchKeyDown={handleKeyDown}
+      maxWidth={maxWidth}
+      footerNav={
+        <KeyboardShortcutGroup
+          shortcuts={[
+            { keys: '↑↓', label: 'Navigate' },
+            { keys: 'Enter', label: isMulti ? 'Toggle' : 'Select' },
+            { keys: 'Esc', label: 'Close' },
+          ]}
+        />
+      }
+      footerContent={
+        isMulti ? (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm text-muted-foreground">
+              {tempSelected.length} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                styleVariant="outlined"
+                size="default"
+                onClick={allSelected ? handleDeselectAll : handleSelectAll}
+                disabled={allSelected && tempSelected.length === minSelections}
+              >
+                {allSelected ? (minSelections > 1 ? 'Keep First' : 'Unselect All') : 'Select All'}
+              </Button>
+              <Button variant="primary" size="default" onClick={handleApply}>
+                Ok
+              </Button>
             </div>
-          )}
-        </div>
+          </div>
+        ) : undefined
+      }
+    >
+      <div className="divide-y divide-border">
+        {filteredItems.map((item, idx) => {
+          const isSelected = tempSelected.includes(item.id);
+          const isHighlighted = idx === selectedIndex;
+          return (
+            <button
+              key={item.id}
+              onClick={() => handleToggle(item.id)}
+              className={`w-full flex items-center gap-3 ${MODAL_PADDING} py-2 transition-colors ${
+                isHighlighted ? 'bg-bg-2' : 'hover:bg-bg-2'
+              }`}
+              style={isSelected ? { backgroundColor: 'var(--bg-primary)' } : undefined}
+            >
+              {item.icon && (
+                isStringIcon(item.icon) ? (
+                  <img src={item.icon} alt={item.label} className="w-8 h-8 rounded-xs" />
+                ) : (
+                  <div className={`w-8 h-8 flex items-center justify-center ${isSelected ? 'text-primary' : 'text-muted-foreground'}`}>
+                    {renderIcon(item.icon, 'w-5 h-5')}
+                  </div>
+                )
+              )}
+              <div className="flex-1 text-left min-w-0">
+                <div className={`font-title text-sm truncate mt-0.5 ${isSelected ? 'text-primary font-medium' : ''}`}>
+                  {item.label}
+                </div>
+                {item.caption && (
+                  <div className="text-xs text-fg-3 truncate -mt-1">
+                    {item.caption}
+                  </div>
+                )}
+              </div>
+              {item.badge}
+              {isSelected && <Check className="w-5 h-5 text-primary shrink-0" />}
+            </button>
+          );
+        })}
+        {filteredItems.length === 0 && (
+          <div className={`${MODAL_PADDING} py-8 text-center text-sm text-muted-foreground`}>
+            {emptyMessage}
+          </div>
+        )}
       </div>
     </BaseModal>
   );
