@@ -13,6 +13,9 @@
 
 export type Size = 'xs' | 'sm' | 'default' | 'lg' | 'xl' | 'compact-xl';
 
+// Border radius (shared across all components)
+export const BORDER_RADIUS = 'rounded-sm' as const;
+
 // Height classes for each size
 export const SIZE_HEIGHTS = {
   xs: 'h-6',      // 24px
@@ -61,6 +64,16 @@ export const SIZE_ICONS = {
   lg: 'w-5 h-5',
   xl: 'w-6 h-6',
   'compact-xl': 'w-6 h-6',
+} as const;
+
+// Icon negative margins for icon-only buttons (reduces excess padding)
+export const SIZE_ICON_MARGINS = {
+  xs: '-mx-0.5',
+  sm: '-mx-0.5',
+  default: '-mx-1',
+  lg: '-mx-1',
+  xl: '-mx-1.5',
+  'compact-xl': '-mx-1',
 } as const;
 
 // Gap between icon and text

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cn } from '@utils/cn';
-import { type Size, SIZE_HEIGHTS, SIZE_PADDINGS, SIZE_TEXT } from './sizes';
+import { type Size, BORDER_RADIUS, SIZE_HEIGHTS, SIZE_PADDINGS, SIZE_TEXT } from './sizes';
 
 type InputVariant = 'default' | 'amount' | 'address' | 'number' | 'search';
 
@@ -15,7 +15,7 @@ const sizeText: Record<Size, string> = SIZE_TEXT;
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, variant = 'default', size = 'default', type, style, ...props }, ref) => {
-    const baseStyles = 'bg-bg-2 rounded-sm focus:outline-none transition-colors font-medium';
+    const baseStyles = `bg-bg-2 ${BORDER_RADIUS} focus:outline-none transition-colors font-medium font-title`;
     const borderStyle = { border: 'var(--border)' };
     const focusBorderStyle = 'focus:border-primary';
 
@@ -24,9 +24,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
 
     const variantStyles: Record<InputVariant, string> = {
       default: `w-full ${baseStyles} ${focusBorderStyle} ${sizeClass}`,
-      amount: 'outline-none w-full text-right placeholder:text-fg-2 text-fg-0 font-numeric font-medium',
+      amount: 'outline-none w-full text-right placeholder:text-fg-2 text-fg-0 font-numeric font-medium font-title',
       address: `w-full ${baseStyles} ${focusBorderStyle} ${sizeClass} font-mono`,
-      number: `w-20 ${baseStyles} ${focusBorderStyle} h-8 px-3 text-sm text-right font-numeric`,
+      number: `w-20 ${baseStyles} ${focusBorderStyle} h-8 px-3 text-sm text-right font-numeric font-title`,
       search: `${baseStyles} ${focusBorderStyle} ${sizeClass} pl-9 pr-4`,
     };
 

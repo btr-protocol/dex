@@ -75,7 +75,7 @@ export function Accordion({ children, autoClose = true, defaultOpen = '', classN
     <AccordionContext.Provider value={contextValue}>
       <div className={`w-full flex flex-col ${className}`}>{children}</div>
     </AccordionContext.Provider>
-  );
+  ) as JSX.Element;
 }
 
 export function useAccordion() {

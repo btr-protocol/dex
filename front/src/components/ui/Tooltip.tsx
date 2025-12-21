@@ -152,7 +152,7 @@ export function Tooltip({ content, children, position, side, asChild, delay = 0,
       {children}
       {visible && content && createPortal(
         <div
-          className="fixed z-tooltip px-3 py-2 text-xs font-medium text-fg-1 bg-bg-1 border border-border rounded-xs shadow-lg whitespace-nowrap pointer-events-none"
+          className="floating-panel rounded-xs whitespace-nowrap pointer-events-none font-medium"
           style={{
             left: coords.x,
             top: coords.y,

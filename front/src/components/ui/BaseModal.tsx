@@ -18,8 +18,6 @@ export interface BaseModalProps {
   headerIcon?: ReactNode;
   headerRight?: ReactNode;
   children: ReactNode;
-  /** @deprecated Use footerNav, footerContent, footerControls instead */
-  footer?: ReactNode;
   /** Navigation shortcuts (top of footer, same bg as body) */
   footerNav?: ReactNode;
   /** Custom content (middle of footer) */
@@ -72,14 +70,14 @@ export function BaseModal({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       {/* @ts-ignore - variant prop is custom extension */}
-      <DialogContent variant="flush" closable={false} className={cn(maxWidth, 'flex flex-col max-h-[80vh]')}>
+      <DialogContent variant="flush" closable={false} className={cn(maxWidth, 'flex flex-col max-h-[80vh] font-title')}>
         {/* Visually hidden title for accessibility */}
         <VisuallyHidden>
           <DialogTitle>{title}</DialogTitle>
         </VisuallyHidden>
 
         {/* Fixed Header - matches h-8 (sm button size) + borders */}
-        <div className={`shrink-0 ${headerBg} border-b border-border`}>
+        <div className={`shrink-0 ${headerBg} border-b border-border rounded-t-lg`}>
           <div className="flex items-center gap-3 pl-4 pr-3 h-12">
             {headerType === 'input' ? (
               <>
@@ -91,7 +89,7 @@ export function BaseModal({
                   value={searchValue || ''}
                   onChange={(e) => onSearchChange?.(e.target.value)}
                   onKeyDown={onSearchKeyDown}
-                  className="flex-1 bg-transparent border-0 focus:outline-none text-sm min-w-0 h-8"
+                  className="flex-1 bg-transparent border-0 focus:outline-none text-sm min-w-0 h-8 font-title font-medium"
                 />
               </>
             ) : (

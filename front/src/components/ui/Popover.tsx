@@ -153,7 +153,7 @@ export function Popover({
       {children}
       {visible && content && coords && createPortal(
         <div
-          className="fixed z-tooltip px-3 py-2 text-xs text-fg-1 bg-bg-1 border border-border rounded-lg shadow-lg pointer-events-auto"
+          className="floating-panel pointer-events-auto"
           style={{
             left: coords.x,
             top: coords.y,

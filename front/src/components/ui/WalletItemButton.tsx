@@ -2,7 +2,7 @@
  * WalletItemButton - Consolidated wallet item button (detected, discover, or generic)
  * Consolidates WalletButton and DiscoverWalletButton patterns from WalletModal
  */
-import { ReactNode } from 'preact/hooks';
+import type { ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Badge } from './Badge';
 import { ImageWithFallback } from './ImageWithFallback';
@@ -35,7 +35,7 @@ export function WalletItemButton({
 }: WalletItemButtonProps) {
   const button = (
     <button
-      className={`w-full flex items-center gap-3 h-12 px-3 rounded-xs border border-border disabled:opacity-50 disabled:cursor-not-allowed font-title transition-colors ${
+      className={`w-full flex items-center gap-3 h-12 px-3 border-bottom border-border disabled:opacity-50 disabled:cursor-not-allowed font-title transition-colors ${
         isHighlighted ? 'bg-bg-3 hover-primary' : 'bg-bg-2 hover-primary'
       }`}
       onClick={onClick}

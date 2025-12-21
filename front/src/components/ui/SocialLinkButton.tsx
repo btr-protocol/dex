@@ -13,6 +13,7 @@ interface SocialLinkButtonProps {
   tooltip?: boolean;
   variant?: 'default' | 'disclaimer';
   className?: string;
+  color?: string;
 }
 
 export function SocialLinkButton({
@@ -23,12 +24,13 @@ export function SocialLinkButton({
   tooltip = true,
   variant = 'default',
   className = '',
+  color = 'var(--fg-2)',
 }: SocialLinkButtonProps) {
   const handleClick = () => {
     onClick?.(url);
   };
 
-  const baseClasses = 'text-muted-foreground hover:text-foreground transition-colors';
+  const baseClasses = 'hover:text-foreground transition-colors';
   const variantClasses = variant === 'disclaimer'
     ? 'w-10 h-10'
     : 'flex items-center justify-center';
@@ -47,7 +49,7 @@ export function SocialLinkButton({
           style={{ filter: 'invert(0.6)' }}
         />
       ) : (
-        <MaskIcon src={icon} size="md" color="var(--fg-2)" />
+        <MaskIcon src={icon} size="md" color={color} />
       )}
     </button>
   );

@@ -3,7 +3,7 @@
  * Consolidates common text patterns
  */
 import { cn } from '@utils/cn';
-import type { ReactNode } from 'preact/hooks';
+import type { ReactNode } from 'react';
 
 interface TextProps {
   children: ReactNode;
@@ -32,7 +32,7 @@ export function Label({ children, className, as: Tag = 'span' }: TextProps) {
 // text-xs text-fg-2 (common for section headers)
 export function SectionHeader({ children, className }: TextProps) {
   return (
-    <h2 className={cn('font-semibold text-xs text-fg-2 uppercase tracking-wide', className)}>
+    <h2 className={cn('font-semibold text-xs text-fg-2 uppercase tracking-wide font-title', className)}>
       {children}
     </h2>
   );
