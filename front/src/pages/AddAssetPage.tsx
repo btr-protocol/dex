@@ -6,6 +6,7 @@ import { Stepper, type Step } from '@components/ui/Stepper';
 import { useRouter } from '@lib/router';
 import LiquidityShaper from '@components/LiquidityShaper';
 import ParameterShaper from '@components/ParameterShaper';
+import { ROUTES } from '@/constants/navigation';
 
 const STEPS: Step[] = [
     { label: 'General Info', description: 'Token details' },
@@ -41,7 +42,7 @@ export default function AddAssetPage() {
     return (
         <div className="container mx-auto mt-8 px-6 max-w-4xl pb-20">
             <div className="flex items-center gap-4 mb-8">
-                <Button variant="ghost" size="sm" onClick={() => navigate('/pool')} className="w-10 h-10 p-0">
+                <Button variant="ghost" size="sm" onClick={() => navigate(ROUTES.EARN)} className="w-10 h-10 p-0">
                     <ArrowLeft className="w-5 h-5" />
                 </Button>
                 <div>
@@ -70,7 +71,7 @@ export default function AddAssetPage() {
                                             type="text"
                                             placeholder="0x..."
                                             value={tokenAddress}
-                                            onChange={(e) => setTokenAddress(e.target.value)}
+                                            onChange={(e: Event) => setTokenAddress((e.target as HTMLInputElement).value)}
                                             variant="address"
                                         />
                                     </div>
@@ -79,7 +80,7 @@ export default function AddAssetPage() {
                                         <Input
                                             type="number"
                                             value={decimals}
-                                            onChange={(e) => setDecimals(e.target.value)}
+                                            onChange={(e: Event) => setDecimals((e.target as HTMLInputElement).value)}
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -87,7 +88,7 @@ export default function AddAssetPage() {
                                         <Input
                                             type="number"
                                             value={minFee}
-                                            onChange={(e) => setMinFee(e.target.value)}
+                                            onChange={(e: Event) => setMinFee((e.target as HTMLInputElement).value)}
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -96,7 +97,7 @@ export default function AddAssetPage() {
                                             type="number"
                                             placeholder="0.00"
                                             value={initialPrice}
-                                            onChange={(e) => setInitialPrice(e.target.value)}
+                                            onChange={(e: Event) => setInitialPrice((e.target as HTMLInputElement).value)}
                                         />
                                     </div>
                                 </div>
@@ -114,7 +115,7 @@ export default function AddAssetPage() {
                                             type="text"
                                             placeholder="0x..."
                                             value={oraclePrimary}
-                                            onChange={(e) => setOraclePrimary(e.target.value)}
+                                            onChange={(e: Event) => setOraclePrimary((e.target as HTMLInputElement).value)}
                                             variant="address"
                                         />
                                     </div>
@@ -124,7 +125,7 @@ export default function AddAssetPage() {
                                             type="text"
                                             placeholder="0x..."
                                             value={oracleSecondary}
-                                            onChange={(e) => setOracleSecondary(e.target.value)}
+                                            onChange={(e: Event) => setOracleSecondary((e.target as HTMLInputElement).value)}
                                             variant="address"
                                         />
                                     </div>
@@ -134,7 +135,7 @@ export default function AddAssetPage() {
                                             type="text"
                                             placeholder="0x..."
                                             value={feedId}
-                                            onChange={(e) => setFeedId(e.target.value)}
+                                            onChange={(e: Event) => setFeedId((e.target as HTMLInputElement).value)}
                                             variant="address"
                                         />
                                     </div>
@@ -153,7 +154,7 @@ export default function AddAssetPage() {
                                         <Input
                                             type="number"
                                             value={coverageFloor}
-                                            onChange={(e) => setCoverageFloor(e.target.value)}
+                                            onChange={(e: Event) => setCoverageFloor((e.target as HTMLInputElement).value)}
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -161,7 +162,7 @@ export default function AddAssetPage() {
                                         <Input
                                             type="number"
                                             value={decayStart}
-                                            onChange={(e) => setDecayStart(e.target.value)}
+                                            onChange={(e: Event) => setDecayStart((e.target as HTMLInputElement).value)}
                                         />
                                     </div>
                                 </div>
@@ -224,14 +225,13 @@ export default function AddAssetPage() {
                                 )}
                             </div>
                             <div className="flex gap-2">
-                                <Button styleVariant="outlined" onClick={() => navigate('/pool')}>Cancel</Button>
+                                <Button styleVariant="outlined" onClick={() => navigate(ROUTES.EARN)}>Cancel</Button>
                                 {activeTab < STEPS.length - 1 ? (
                                     <Button variant="primary" onClick={() => setActiveTab(activeTab + 1)}>
                                         Next
                                     </Button>
                                 ) : (
-                                    <Button variant="primary" onClick={handleSubmit} className="gap-2">
-                                        <Check className="w-4 h-4" />
+                                    <Button variant="primary" onClick={handleSubmit} leftIcon={<Check className="w-4 h-4" />}>
                                         Submit Proposal
                                     </Button>
                                 )}

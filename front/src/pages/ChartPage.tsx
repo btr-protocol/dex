@@ -50,6 +50,11 @@ export default function ChartPage() {
   const [ready, setReady] = useState(false);
   const [pairSelectorOpen, setPairSelectorOpen] = useState(false);
 
+  // Track current chart state to preserve on pair inversion
+  const [currentTimeframe, setCurrentTimeframe] = useState<number | null>(null);
+  const [currentChartType, setCurrentChartType] = useState<string | null>(null);
+  const [currentIndicators, setCurrentIndicators] = useState<InitialIndicator[] | null>(null);
+
   // Parse URL params - priority: URL > saved settings > defaults
   const urlPair = queryParams.get('pair');
   const savedPair = settings.chartBase && settings.chartQuote
@@ -66,6 +71,13 @@ export default function ChartPage() {
     const parsed = parseIndicator(ta);
     if (parsed) indicators.push(parsed);
   });
+
+  // Initialize current state from URL on first load
+  useEffect(() => {
+    if (currentTimeframe === null) setCurrentTimeframe(tf);
+    if (currentChartType === null) setCurrentChartType(type);
+    if (currentIndicators === null) setCurrentIndicators(indicators);
+  }, [tf, type, indicators, currentTimeframe, currentChartType, currentIndicators]);
 
   // Extract base/quote from pair (assume last 3-4 chars are quote)
   let base = pair;
@@ -86,23 +98,24 @@ export default function ChartPage() {
     // Persist to settings
     updateSettings({ chartBase: newBase, chartQuote: newQuote });
 
-    // Preserve other params while updating pair (use clean URL)
-    const params = new URLSearchParams(window.location.search);
+    // Use current state (from chart component) instead of URL params to preserve user changes
     const parts: string[] = [`pair=${newBase}${newQuote}`];
 
-    // Keep existing tf, type, and ta params
-    const tfParam = params.get('tf');
-    const typeParam = params.get('type');
-    const taParams = params.getAll('ta');
+    // Use current chart state (which may have been changed by user)
+    const timeframeToUse = currentTimeframe ?? tf;
+    const chartTypeToUse = currentChartType ?? type;
+    const indicatorsToUse = currentIndicators ?? indicators;
 
-    if (tfParam) parts.push(`tf=${tfParam}`);
-    if (typeParam) parts.push(`type=${typeParam}`);
-    taParams.forEach(ta => parts.push(`ta=${ta}`));
+    parts.push(`tf=${timeframeToUse}`);
+    parts.push(`type=${chartTypeToUse}`);
+    indicatorsToUse.forEach(({ preset, params: p }) => {
+      parts.push(`ta=${preset}(${p.fast},${p.slow},${p.signal})`);
+    });
 
     navigate(`/chart?${parts.join('&')}`, { replace: true });
   };
 
-  // Handle pair inversion (swap base/quote)
+  // Handle pair inversion (swap base/quote) - preserve all chart state
   const handleInvertPair = () => {
     handleChangePair(quote, base);
   };
@@ -149,6 +162,9 @@ export default function ChartPage() {
         standalone
         onChangePair={handleChangePair}
         onInvertPair={handleInvertPair}
+        onTimeframeChange={setCurrentTimeframe}
+        onChartTypeChange={setCurrentChartType}
+        onIndicatorsChange={setCurrentIndicators}
       />
       <PairSelector
         isOpen={pairSelectorOpen}

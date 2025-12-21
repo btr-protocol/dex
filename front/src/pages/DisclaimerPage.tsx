@@ -5,17 +5,11 @@ import { SocialLinkButton } from '@components/ui/SocialLinkButton';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { MarkdownRenderer } from '@/components/MarkdownRenderer';
 import { useExternalLink } from '@lib/external-links';
+import { socialLinks } from '@/constants/navigation';
 
 const DISCLAIMER_KEY = 'btr-disclaimer-accepted';
 const DISCLAIMER_EXPIRY_KEY = 'btr-disclaimer-expiry';
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
-const SOCIAL_LINKS = [
-  { icon: '/icons/x.svg', url: 'https://x.com/btr_supply', title: 'X (Twitter)' },
-  { icon: '/icons/telegram.svg', url: 'https://t.me/btrsupply', title: 'Telegram' },
-  { icon: '/icons/github.svg', url: 'https://github.com/btr-supply', title: 'GitHub' },
-  { icon: '/icons/docs.svg', url: 'https://btr.supply/docs', title: 'Documentation' },
-];
 
 interface DisclaimerPageProps {
   onAccept: () => void;
@@ -73,7 +67,7 @@ export default function DisclaimerPage({ onAccept }: DisclaimerPageProps) {
       <div style={{ width: '100%', maxWidth: '56rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1.5rem', marginBottom: '1rem' }}>
         {/* Social Icons - Left aligned */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          {SOCIAL_LINKS.map((link) => (
+          {socialLinks.map((link) => (
             <SocialLinkButton
               key={link.title}
               icon={link.icon}
