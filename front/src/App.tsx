@@ -1,125 +1,130 @@
-import { useState } from 'react'
-import { Wallet } from 'lucide-react'
-import { useAccount, useConnect, useDisconnect } from 'wagmi'
-import { Button } from '@components/ui/Button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@components/ui/Dialog'
-import { Checkbox } from '@components/ui/Checkbox'
-import PoolDashboard from '@/components/PoolDashboard'
-import ShaperPage from '@/pages/ShaperPage'
-import DocsPage from '@/pages/DocsPage'
-import DisclaimerModal, { useDisclaimer } from '@/components/DisclaimerModal'
-import Header from '@/components/layout/Header'
-import Footer from '@/components/layout/Footer'
+import { WalletProvider } from '@lib/wallet';
+import { RouterProvider, useRouter } from '@lib/router';
+import { ThemeProvider } from '@lib/theme';
+import { SettingsProvider } from '@lib/settings';
+import { ExternalLinkProvider } from '@lib/external-links';
+import { enableConsoleIntegration, addNotification } from '@lib/notifications';
+import { Notifications } from '@components/Notifications';
+import { BgRenderer } from '@components/BgRenderer';
+import Header from '@/components/layout/Header';
+import Footer from '@/components/layout/Footer';
+import DisclaimerPage, { useDisclaimer } from '@/pages/DisclaimerPage';
+import { useEffect, lazy, Suspense, useState } from 'react';
+import { ROUTES } from '@/constants/navigation';
 
-type PageType = 'dashboard' | 'shaper' | 'docs';
+// Lazy load all route pages
+const SwapPage = lazy(() => import('@/pages/SwapPage'));
+const EarnPage = lazy(() => import('@/pages/EarnPage'));
+const VotePage = lazy(() => import('@/pages/VotePage'));
+const MetricsPage = lazy(() => import('@/pages/MetricsPage'));
+const AddAssetPage = lazy(() => import('@/pages/AddAssetPage'));
+const DocsPage = lazy(() => import('@/pages/DocsPage'));
+const ChartPage = lazy(() => import('@/pages/ChartPage'));
 
-export default function App() {
-  const { accepted: disclaimerAccepted, accept: acceptDisclaimer } = useDisclaimer()
-  const [showWalletModal, setShowWalletModal] = useState(false)
-  const [agreedToTerms, setAgreedToTerms] = useState(false)
-  const [currentPage, setCurrentPage] = useState<PageType>('dashboard')
-  const { isConnected } = useAccount()
-  const { connect, connectors, isPending } = useConnect()
-  useDisconnect()
+// Detect if user agent is a bot/crawler
+function isBot(): boolean {
+  if (typeof navigator === 'undefined') return true;
+  const botPattern = /(bot|crawler|spider|crawling|googlebot|bingbot|slurp|duckduckbot|baiduspider|yandexbot|facebookexternalhit|twitterbot|rogerbot|linkedinbot|embedly|quora|showyoubot|outbrain|pinterest|slackbot|vkshare|w3c_validator|whatsapp)/i;
+  return botPattern.test(navigator.userAgent);
+}
 
-  // Show disclaimer if not accepted
-  if (!disclaimerAccepted) {
-    return <DisclaimerModal onAccept={acceptDisclaimer} />;
-  }
+function AppContent() {
+  const { accepted: disclaimerAccepted, accept: acceptDisclaimer } = useDisclaimer();
+  const { path } = useRouter();
+  const [shouldRenderBackground, setShouldRenderBackground] = useState(true);
 
-  const handleConnect = (connector: any) => {
-    if (!agreedToTerms) return
-    connect({ connector })
-    setShowWalletModal(false)
+  useEffect(() => {
+    // Check if user is a bot - skip background rendering for bots
+    if (isBot()) {
+      setShouldRenderBackground(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Enable console integration
+    enableConsoleIntegration();
+
+    // Show welcome notification
+    if (disclaimerAccepted) {
+      addNotification('info', 'This app stores no cookies nor tracks your data. Stay safe, anon.');
+    }
+  }, [disclaimerAccepted]);
+
+  const renderPage = () => {
+    // Chart page is standalone - no header/footer/disclaimer
+    if (path === ROUTES.CHART) {
+      return <ChartPage />;
+    }
+
+    if (path === ROUTES.DOCS || path.startsWith(ROUTES.DOCS + '/')) {
+      return <DocsPage />;
+    }
+
+    switch (path) {
+      case ROUTES.HOME:
+      case ROUTES.SWAP:
+        return <SwapPage />;
+      case ROUTES.EARN:
+        return <EarnPage />;
+      case ROUTES.VOTE:
+        return <VotePage />;
+      case ROUTES.METRICS:
+        return <MetricsPage />;
+      case ROUTES.ADD_ASSET:
+        return <AddAssetPage />;
+      default:
+        return <SwapPage />;
+    }
+  };
+
+  // Chart route renders standalone without shell
+  if (path === ROUTES.CHART) {
+    return (
+      <Suspense fallback={null}>
+        <ChartPage />
+      </Suspense>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <Header onNavigate={(page: string) => setCurrentPage(page as PageType)} currentPage={currentPage} />
+    <div className="min-h-screen bg-background text-foreground flex flex-col relative">
+      {shouldRenderBackground && <BgRenderer />}
 
-      {/* Main Content */}
-      <main className="pt-14 pb-10 min-h-screen">
-        <div className="container mx-auto px-4 py-8">
-          {currentPage === 'dashboard' && (
-            <div className="max-w-4xl mx-auto space-y-6">
-              <div>
-                <h2 className="text-3xl font-bold mb-2">Pool Dashboard</h2>
-                <p className="text-muted-foreground">Monitor pool metrics in real-time</p>
+      {!disclaimerAccepted ? (
+        <DisclaimerPage onAccept={acceptDisclaimer} />
+      ) : (
+        <>
+          <Header />
+          <main className="flex-1 relative z-10 pt-12 pb-10">
+            <Suspense fallback={
+              <div className="flex items-center justify-center min-h-[60vh]">
+                <div className="animate-pulse text-muted-foreground">Loading...</div>
               </div>
+            }>
+              {renderPage()}
+            </Suspense>
+          </main>
+          <Footer />
+        </>
+      )}
 
-              {!isConnected && (
-                <div className="bg-warning/10 border border-warning/20 rounded-lg p-4">
-                  <p className="text-warning">Connect your wallet to interact with the pool</p>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {['Total Value Locked', '24h Volume', 'Total Liabilities', 'Protocol Fees'].map((label) => (
-                  <div key={label} className="bg-card border border-border rounded-lg p-4">
-                    <div className="text-sm text-muted-foreground mb-1">{label}</div>
-                    <div className="text-2xl font-bold numeric">$0.00</div>
-                    <div className="text-xs text-muted-foreground mt-1">Across all assets</div>
-                  </div>
-                ))}
-              </div>
-
-              <PoolDashboard />
-            </div>
-          )}
-
-          {currentPage === 'shaper' && (
-            <div className="max-w-6xl mx-auto">
-              <ShaperPage />
-            </div>
-          )}
-
-          {currentPage === 'docs' && <DocsPage />}
-        </div>
-      </main>
-
-      <Footer />
-
-      {/* Wallet Modal */}
-      <Dialog open={showWalletModal} onOpenChange={setShowWalletModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Connect Wallet</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="flex items-start space-x-3">
-              <Checkbox
-                id="terms"
-                checked={agreedToTerms}
-                onCheckedChange={(checked) => setAgreedToTerms(checked === true)}
-                className="mt-0.5"
-              />
-              <label htmlFor="terms" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
-                I agree to the Terms of Service and Privacy Policy
-              </label>
-            </div>
-
-            <div className="space-y-2">
-              {connectors.map((connector) => (
-                <Button
-                  key={connector.id}
-                  variant="outline"
-                  className="w-full justify-start h-12"
-                  onClick={() => handleConnect(connector)}
-                  disabled={!agreedToTerms || isPending}
-                >
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 rounded-sm bg-primary/10 flex items-center justify-center">
-                      <Wallet className="w-5 h-5 text-primary" />
-                    </div>
-                    <span>{connector.name}</span>
-                  </div>
-                </Button>
-              ))}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <Notifications />
     </div>
-  )
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <SettingsProvider>
+        <ExternalLinkProvider>
+          <WalletProvider>
+            <RouterProvider>
+              <AppContent />
+            </RouterProvider>
+          </WalletProvider>
+        </ExternalLinkProvider>
+      </SettingsProvider>
+    </ThemeProvider>
+  );
 }
