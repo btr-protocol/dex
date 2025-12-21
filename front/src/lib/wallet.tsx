@@ -226,8 +226,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-    </WalletContext.Provider as any>
-  );
+    </WalletContext.Provider>
+  ) as JSX.Element;
 }
 
 

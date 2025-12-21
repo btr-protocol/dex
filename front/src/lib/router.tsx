@@ -43,7 +43,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
         <RouterCtx.Provider value={{ path: route.path, queryParams: route.query, navigate }}>
             {children}
         </RouterCtx.Provider>
-    );
+    ) as JSX.Element;
 }
 
 export const useRouter = () => useContext(RouterCtx);

@@ -31,7 +31,7 @@ export function ExternalLinkProvider({ children }: { children: ReactNode }) {
         onConfirm={() => { window.open(url!, '_blank', 'noopener,noreferrer'); setUrl(null); }}
       />
     </ExternalLinkCtx.Provider>
-  );
+  ) as JSX.Element;
 }
 
 export const useExternalLink = () => useContext(ExternalLinkCtx);

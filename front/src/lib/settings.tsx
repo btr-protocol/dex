@@ -108,7 +108,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     <SettingsContext.Provider value={{ settings, updateSettings, updateSetting }}>
       {children}
     </SettingsContext.Provider>
-  );
+  ) as JSX.Element;
 }
 
 export function useSettings() {

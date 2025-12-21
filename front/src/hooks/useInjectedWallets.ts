@@ -1,4 +1,5 @@
-import { useState, useEffect, useSyncExternalStore } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
+import { useSyncExternalStore } from 'preact/compat';
 import {
   eip6963Store,
   detectLegacy,
