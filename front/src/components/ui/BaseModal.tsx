@@ -125,7 +125,7 @@ export function BaseModal({
               <>
                 {/* Navigation shortcuts - same bg as body */}
                 {footerNav && (
-                  <div className={`bg-bg-1 ${MODAL_PX} py-1.5 ${!footerContent && !footerControls ? 'rounded-b-lg' : ''}`}>
+                  <div className={`bg-bg-1 ${MODAL_PX} py-1.5 flex justify-center ${!footerContent && !footerControls ? 'rounded-b-lg' : ''}`}>
                     {footerNav}
                   </div>
                 )}
