@@ -1,4 +1,5 @@
-import { useMemo, useEffect, useState, type ReactNode } from 'preact/hooks';
+import { useMemo, useEffect, useState } from 'preact/hooks';
+import type { ReactNode } from 'react';
 import { BaseModal } from '@components/ui/BaseModal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Divider } from '@components/ui/Divider';
@@ -298,7 +299,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                         </div>
 
                         {/* Scrollable wallet sections */}
-                        <div className="space-y-3 px-4 py-4">
+                        <div className="space-y-3">
                                 {/* Detected wallets */}
                                 {filteredDetected.length > 0 && (
                                     <WalletSection title="Installed">
@@ -414,9 +415,9 @@ function WalletSection({ title, children }: { title: string; children: ReactNode
     const [isChildHovered, setIsChildHovered] = useState(false);
 
     return (
-        <div className="space-y-2">
+        <div className="">
             <div
-                className={`text-xs uppercase tracking-wider px-1 transition-colors ${
+                className={`text-xs uppercase tracking-wider px-3 transition-colors ${
                     isChildHovered ? 'text-primary' : 'text-muted-foreground'
                 }`}
             >
@@ -425,7 +426,6 @@ function WalletSection({ title, children }: { title: string; children: ReactNode
             <div
                 onMouseEnter={() => setIsChildHovered(true)}
                 onMouseLeave={() => setIsChildHovered(false)}
-                className="space-y-2"
             >
                 {children}
             </div>
@@ -443,14 +443,14 @@ interface WalletConnectButtonProps {
 function WalletConnectButton({ disabled, isLoading, onClick, isHighlighted = false }: WalletConnectButtonProps) {
     return (
         <button
-            className={`group w-full relative overflow-hidden rounded-xs border border-border disabled:opacity-50 disabled:cursor-not-allowed hover-primary transition-colors h-[140px] ${
+            className={`group w-full relative overflow-hidden border border-border disabled:opacity-50 disabled:cursor-not-allowed hover-primary transition-all duration-500 ease-in-out h-[130px] hover:h-[260px] ${
                 isHighlighted ? 'bg-bg-3' : 'bg-bg-2'
             }`}
             onClick={onClick}
             disabled={disabled || isLoading}
         >
             {/* Icons grid background - 6 cols x 4 rows */}
-            <div className={`p-3 transition-all duration-200 ${
+            <div className={`p-3 transition-all duration-500 ease-in-out ${
                 isLoading
                     ? 'opacity-20 blur-[2px]'
                     : 'opacity-40 blur-[1.5px] group-hover:blur-0 group-hover:opacity-100'
@@ -471,12 +471,12 @@ function WalletConnectButton({ disabled, isLoading, onClick, isHighlighted = fal
             </div>
 
             {/* Overlay - fades out on hover to show button bg */}
-            <div className={`absolute inset-0 bg-bg-2 pointer-events-none transition-opacity duration-150 ${
+            <div className={`absolute inset-0 bg-bg-2 pointer-events-none transition-opacity duration-500 ease-in-out ${
                 isLoading ? 'opacity-70' : 'opacity-50 group-hover:opacity-0'
             }`} />
 
             {/* WalletConnect logo or loading spinner */}
-            <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 pointer-events-none ${
+            <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-500 ease-in-out pointer-events-none ${
                 isLoading ? '' : 'group-hover:opacity-0'
             }`}>
                 {isLoading ? (
