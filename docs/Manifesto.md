@@ -449,8 +449,6 @@ AIMM is designed to be **gas-competitive with Uniswap v4**:
 | Price computation | Direct | Tick iteration | Newton iteration (~35k gas) |
 | Storage pattern | EIP-1153 transient | EIP-1153 transient | Traditional SSTORE |
 
-*[Placeholder: Exact gas benchmarks pending mainnet deployment]*
-
 ---
 
 ## 8. Governance & Curator Trust
@@ -462,7 +460,7 @@ Customizable liquidity profiles are powerful but create a trust question: who se
 **AIMM's Approach:**
 
 1. **Time-locked parameter changes** — Profile updates have mandatory delay (hours), giving LPs time to exit if needed
-2. **Algorithmic profile fitting** (future) — Keeper-driven updates based on on-chain trade density analysis
+2. **Algorithmic profile fitting** — Keeper-driven updates based on on-chain trade density analysis
 3. **Transparent on-chain state** — All profile parameters publicly readable and auditable
 4. **Per-pool curator model** — Pool deployers set initial profiles; ongoing management per pool governance
 
@@ -524,8 +522,6 @@ We're exploring dedicating ~20% of token emissions to traders who contribute to 
 
 Launch pools: **USDC / USDT / USDS / USDe / USD1 / PYUSD / RLUSD / ...**
 
-*[Placeholder: Expected spread benchmarks vs Curve/Uniswap pending backtests]*
-
 Once we own stables, expansion to ETH, BTC, and blue-chip pairs. Trying to be everything at launch dilutes the story.
 
 ### 10.3. Target Users
@@ -533,8 +529,6 @@ Once we own stables, expansion to ETH, BTC, and blue-chip pairs. Trying to be ev
 **Primary:** Sophisticated DeFi-native LPs (the "prosumer" market that experiments with new protocols)
 
 **Secondary:** Protocols seeking white-label liquidity infrastructure
-
-**Future:** Institutional capital as track record develops
 
 ---
 
@@ -548,11 +542,9 @@ Most active and liquid EVMs:
 - **Arbitrum** — established DeFi hub
 - **BNB Chain** — high retail volume
 
-Governance token (BTR) chain TBD based on community input.
-
 ### 11.2. Security
 
-- **Multiple third-party audits** — *[Placeholder: Audit firms and contest platforms TBD]*
+- **Multiple third-party audits** — Pre-launch security review by professional auditors
 - **Bug bounty program** — Immunefi or equivalent
 - **Gradual TVL caps** — Staged rollout with limits
 
@@ -620,17 +612,6 @@ Traditional AMMs treat every trade identically. AIMM treats every trade based on
 | **Intelligence** | Passive price taker | Dynamic fees (volatility + momentum) |
 
 We're not building a better Uniswap. We're building what comes after the invariant era.
-
----
-
-## 15. Roadmap Placeholders
-
-*[To be completed with backtests and benchmarks]*
-
-- [ ] Historical LP returns: AIMM vs Uniswap v3/v4 on ETH/USDC (Jan-Nov 2025)
-- [ ] Gas benchmarks: AIMM vs Uniswap v4 vs Curve v2
-- [ ] Stablecoin spread comparison: AIMM vs Curve on USDC/USDT
-- [ ] Audit reports and bug bounty details
 
 ---
 

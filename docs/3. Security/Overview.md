@@ -110,9 +110,7 @@ FLASH_ENABLED_BIT     = 1 << 4   // Flash loans
 - Invariant testing for properties
 
 **External Review:**
-- Third-party audits (TBD)
-- Bug bounty program (planned)
-- Formal verification (planned)
+- Third-party audits — Pre-launch security review by professional auditors
 
 ---
 
@@ -262,8 +260,7 @@ See: [Deployment & Upgrades](/docs/3.2-Deployment-&-Upgrades)
 ### 8.2. Contact Information
 
 For security disclosures:
-- Bug bounty: (TBD)
-- Security email: (TBD)
+- Security email: sec@btr.supply
 - Response SLA: 24 hours
 
 ---
