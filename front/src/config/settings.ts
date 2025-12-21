@@ -91,6 +91,13 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
         keywords: ['tokens', 'unsupported']
       },
       {
+        id: 'showTestNetworks',
+        label: 'Show Test Networks',
+        description: 'Display test and local networks in chain filters',
+        config: { type: 'toggle' },
+        keywords: ['testnet', 'test', 'networks', 'local', 'anvil', 'sepolia', 'development']
+      },
+      {
         id: 'animateBackground',
         label: 'Animate Background',
         description: 'Enable background animations',
