@@ -61,7 +61,7 @@ Multi-chain RPC endpoints with automatic fallbacks are configured in `src/lib/rp
 BTR-inspired dark theme in `src/styles/theme.ts`:
 
 - Primary: Blue (#3d7eff)
-- Secondary: Orange (#f68f11)
+- Secondary: Orange (#E99339)
 - Background: Near-black (#0c0c0c)
 - Fonts: Inter (UI), JetBrains Mono (code)
 

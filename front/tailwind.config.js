@@ -175,6 +175,7 @@ export default {
   plugins: [
     function ({ addUtilities }) {
       const customUtilities = {
+        // Flex layouts
         '.flex-v': {
           display: 'flex',
           'flex-direction': 'column',
@@ -207,17 +208,108 @@ export default {
           'align-items': 'center',
           'justify-content': 'center',
         },
+
+        // Flex with gaps
+        '.flex-center-gap-1': {
+          display: 'flex',
+          'align-items': 'center',
+          'gap': '0.25rem',
+        },
+        '.flex-center-gap-1\\.5': {
+          display: 'flex',
+          'align-items': 'center',
+          'gap': '0.375rem',
+        },
+        '.flex-center-gap-2': {
+          display: 'flex',
+          'align-items': 'center',
+          'gap': '0.5rem',
+        },
+
+        // Toolbar items
+        '.toolbar-btn': {
+          height: '2rem',
+          'padding-left': '0.5rem',
+          'padding-right': '0.5rem',
+          display: 'flex',
+          'align-items': 'center',
+          cursor: 'pointer',
+          color: 'var(--fg-2)',
+          'font-family': 'var(--font-title)',
+          'font-weight': '500',
+          'transition-property': 'color, background-color',
+          'transition-duration': '150ms',
+        },
+        '.toolbar-btn:hover': {
+          color: 'var(--fg-1)',
+          'background-color': 'var(--bg-2)',
+        },
+        '.toolbar-btn-active': {
+          'background-color': 'var(--bg-primary)',
+          color: 'var(--primary)',
+        },
+        '.toolbar-item': {
+          height: '2rem',
+          'padding-left': '0.5rem',
+          'padding-right': '0.5rem',
+          display: 'flex',
+          'align-items': 'center',
+          'gap': '0.375rem',
+          'font-size': '0.75rem',
+          'font-family': 'var(--font-title)',
+          'font-weight': '500',
+          color: 'var(--fg-1)',
+          'border-right': '1px solid var(--border-color)',
+          'transition-property': 'background-color',
+          'transition-duration': '150ms',
+        },
+        '.toolbar-item:hover': {
+          'background-color': 'var(--bg-2)',
+        },
+
+        // Floating panels (tooltips, popovers, dropdowns)
+        '.floating-panel': {
+          position: 'fixed',
+          'z-index': 'var(--z-index-tooltip)',
+          'padding-left': '0.75rem',
+          'padding-right': '0.75rem',
+          'padding-top': '0.5rem',
+          'padding-bottom': '0.5rem',
+          'font-size': '0.75rem',
+          'font-family': 'var(--font-title)',
+          'font-weight': '500',
+          color: 'var(--fg-1)',
+          'background-color': 'var(--bg-1)',
+          border: '1px solid var(--border-color)',
+          'border-radius': 'var(--radius-sm)',
+          'box-shadow': '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+        },
+
+        // Typography
         '.font-numeric': {
           'font-family': 'var(--font-numbers)',
           'font-variant-numeric': 'tabular-nums',
         },
+
+        // Badges
         '.badge-chain': {
           'border-radius': 'var(--radius-xs)',
           'background-color': 'var(--bg-1)',
-          'border': '1px solid var(--border-color)',
+          border: '1px solid var(--border-color)',
         },
+
+        // Button states
+        '.btn-selected': {
+          'background-color': 'var(--bg-primary)',
+          color: 'var(--primary)',
+        },
+        '.btn-unselected': {
+          color: 'var(--fg-2)',
+        },
+
+        // Note: btn-group styles are in index.css (need nested selectors)
       };
-      addUtilities(customUtilities, ['responsive']);
+      addUtilities(customUtilities, ['responsive', 'hover']);
     }
   ]
 }
