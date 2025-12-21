@@ -45,37 +45,27 @@ export async function getDocBySlug(slug: string): Promise<DocFile | null> {
   }
 
   try {
-    // Attempt to load the document from the public docs folder
-    const response = await fetch(`/docs/${slug}.md`);
+    // Load from compiled docs.json
+    const response = await fetch('/compiled-docs/docs.json');
     if (!response.ok) {
+      console.error('Failed to load compiled docs');
       return null;
     }
 
-    const content = await response.text();
+    const allDocs = await response.json();
+    const doc = allDocs[slug];
 
-    // Extract category from slug
-    const pathParts = slug.split("/");
-    const category = pathParts.length > 1 ? pathParts[0] : null;
-
-    // Generate title from slug (last part of path) - handle proper file names with spaces
-    const lastPart = pathParts[pathParts.length - 1];
-
-    // Decode URI components first to handle %20 and other encoded characters
-    const decodedPart = decodeURIComponent(lastPart);
-
-    const title = decodedPart.includes(" ")
-      ? decodedPart // If already contains spaces, use as-is
-      : decodedPart
-          .split("-")
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ");
+    if (!doc) {
+      console.error(`Doc not found: ${slug}`);
+      return null;
+    }
 
     const docFile: DocFile = {
-      slug,
-      title,
-      content,
+      slug: doc.slug,
+      title: doc.title,
+      content: doc.html, // Using HTML from compiled docs
       frontMatter: {},
-      category,
+      category: doc.category,
     };
 
     // Cache the result
