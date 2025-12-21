@@ -49,6 +49,7 @@ interface SelectionModalProps {
   emptyMessage?: string;
   maxWidth?: string;
   multiSelect?: boolean; // Backward compat - will derive from min/max
+  applyLabel?: string; // Label for apply button (default: "Ok")
 }
 
 export function SelectionModal({
@@ -66,6 +67,7 @@ export function SelectionModal({
   emptyMessage = 'No items found',
   maxWidth = 'max-w-lg',
   multiSelect = false,
+  applyLabel = 'Ok',
 }: SelectionModalProps) {
   const [search, setSearch] = useState('');
   const [tempSelected, setTempSelected] = useState<string[]>(selectedIds);
@@ -188,7 +190,7 @@ export function SelectionModal({
                 {allSelected ? (minSelections > 1 ? 'Keep First' : 'Unselect All') : 'Select All'}
               </Button>
               <Button variant="primary" size="default" onClick={handleApply}>
-                Ok
+                {applyLabel}
               </Button>
             </div>
           </div>
@@ -212,7 +214,7 @@ export function SelectionModal({
                 isStringIcon(item.icon) ? (
                   <img src={item.icon} alt={item.label} className="w-8 h-8 rounded-xs" />
                 ) : (
-                  <div className={`w-8 h-8 flex items-center justify-center ${isSelected ? 'text-primary' : 'text-muted-foreground'}`}>
+                  <div className={`w-10 h-8 flex items-center justify-center ${isSelected ? 'text-primary' : 'text-muted-foreground'}`}>
                     {renderIcon(item.icon, 'w-5 h-5')}
                   </div>
                 )
