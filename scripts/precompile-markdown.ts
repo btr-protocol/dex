@@ -47,12 +47,12 @@ const MERMAID_THEMES = {
       tertiaryBorderColor: '#2e2e2e', // bg-3 (dark)
 
       // Node colors
-      nodeBorder: '#f68f11',         // primary (orange)
+      nodeBorder: '#E99339',         // primary (orange)
       nodeTextColor: '#fafafa',      // fg-0 (white)
 
       // Edge/arrow colors
       lineColor: '#7f7f7c',          // fg-2 (muted)
-      arrowheadColor: '#f68f11',     // primary (orange)
+      arrowheadColor: '#E99339',     // primary (orange)
 
       // Background
       background: '#1B1B1B',         // bg-0 (black)
@@ -69,7 +69,7 @@ const MERMAID_THEMES = {
       infoTextColor: '#1B1B1B',
 
       // Additional semantic colors
-      activationBkgColor: '#f68f11', // primary (orange)
+      activationBkgColor: '#E99339', // primary (orange)
       activationBorderColor: '#c47310',
 
       // Class diagram colors
@@ -80,7 +80,7 @@ const MERMAID_THEMES = {
 
       // Sequence diagram colors
       actorBkg: '#2a2a2a',
-      actorBorder: '#f68f11',
+      actorBorder: '#E99339',
       actorTextColor: '#fafafa',
       actorLineColor: '#7f7f7c',
       signalColor: '#cbcac3',
@@ -89,7 +89,7 @@ const MERMAID_THEMES = {
       // Git diagram colors
       git0: '#3d7eff',               // blue
       git1: '#10B981',               // green
-      git2: '#f68f11',               // orange
+      git2: '#E99339',               // orange
       git3: '#DB4E5C',               // red
       git4: '#ffd61e',               // yellow
       git5: '#2ee7e7',               // cyan
@@ -98,12 +98,12 @@ const MERMAID_THEMES = {
 
       // Gantt chart colors
       gridColor: '#3d3d3d',
-      todayLineColor: '#f68f11',
+      todayLineColor: '#E99339',
 
       // Pie chart colors
       pie1: '#3d7eff',               // blue
       pie2: '#10B981',               // green
-      pie3: '#f68f11',               // orange
+      pie3: '#E99339',               // orange
       pie4: '#DB4E5C',               // red
       pie5: '#ffd61e',               // yellow
       pie6: '#2ee7e7',               // cyan
@@ -138,12 +138,12 @@ const MERMAID_THEMES = {
       tertiaryBorderColor: '#d3d3d3', // bg-3 (light)
 
       // Node colors
-      nodeBorder: '#f68f11',         // primary (orange)
+      nodeBorder: '#E99339',         // primary (orange)
       nodeTextColor: '#1B1B1B',      // fg-0 (black)
 
       // Edge/arrow colors
       lineColor: '#7f7f7f',          // fg-2 (muted)
-      arrowheadColor: '#f68f11',     // primary (orange)
+      arrowheadColor: '#E99339',     // primary (orange)
 
       // Background
       background: '#f2f2f2',         // bg-0 (light)
@@ -160,7 +160,7 @@ const MERMAID_THEMES = {
       infoTextColor: '#1B1B1B',
 
       // Additional semantic colors
-      activationBkgColor: '#f68f11', // primary (orange)
+      activationBkgColor: '#E99339', // primary (orange)
       activationBorderColor: '#c47310',
 
       // Class diagram colors
@@ -171,7 +171,7 @@ const MERMAID_THEMES = {
 
       // Sequence diagram colors
       actorBkg: '#d9d8d4',
-      actorBorder: '#f68f11',
+      actorBorder: '#E99339',
       actorTextColor: '#1B1B1B',
       actorLineColor: '#7f7f7f',
       signalColor: '#363636',
@@ -180,7 +180,7 @@ const MERMAID_THEMES = {
       // Git diagram colors
       git0: '#3d7eff',               // blue
       git1: '#10B981',               // green
-      git2: '#f68f11',               // orange
+      git2: '#E99339',               // orange
       git3: '#DB4E5C',               // red
       git4: '#ffd61e',               // yellow
       git5: '#2ee7e7',               // cyan
@@ -189,12 +189,12 @@ const MERMAID_THEMES = {
 
       // Gantt chart colors
       gridColor: '#bfbfbf',
-      todayLineColor: '#f68f11',
+      todayLineColor: '#E99339',
 
       // Pie chart colors
       pie1: '#3d7eff',               // blue
       pie2: '#10B981',               // green
-      pie3: '#f68f11',               // orange
+      pie3: '#E99339',               // orange
       pie4: '#DB4E5C',               // red
       pie5: '#ffd61e',               // yellow
       pie6: '#2ee7e7',               // cyan
