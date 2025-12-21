@@ -197,6 +197,9 @@ export function SelectionModal({
         ) : undefined
       }
     >
+      {/* Filter section (e.g., chain/token filters) */}
+      {filterSection}
+
       <div className="divide-y divide-border">
         {filteredItems.map((item, idx) => {
           const isSelected = tempSelected.includes(item.id);
