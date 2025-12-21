@@ -1,10 +1,12 @@
+/// <reference path="./types/react-compat.d.ts" />
+
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { WagmiProvider } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { config } from '@lib/web3'
 import '@fontsource-variable/inter'
-import '@styles/globals.css'
+import './index.css'
 import App from './App'
 
 const queryClient = new QueryClient({
