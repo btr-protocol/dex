@@ -1,4 +1,5 @@
-import { useState, lazy, Suspense, useMemo } from 'preact/hooks';
+import { useState, useMemo } from 'preact/hooks';
+import { lazy, Suspense } from 'preact/compat';
 import { Button } from '@components/ui/Button';
 import { useWallet } from '@lib/wallet';
 import { LogOut, Copy } from 'lucide-react';
@@ -64,8 +65,8 @@ export function WalletButton({ className }: WalletButtonProps) {
                 size="sm"
                 className={className}
                 onClick={() => setShowAccountModal(true)}
+                leftIcon={<img src={currentChain.icon.replace('.svg', '-mono.svg')} alt={currentChain.name} className="w-4 h-4" />}
             >
-                <img src={currentChain.icon.replace('.svg', '-mono.svg')} alt={currentChain.name} className="w-4 h-4" />
                 {formatAddress(address)}
             </Button>
 
