@@ -32,5 +32,6 @@
       "@sdk/*": ["../sdk/src/*"]
     }
   },
-  "include": ["src", "../sdk/src"]
+  "include": ["src", "../sdk/src"],
+  "typeRoots": ["./node_modules/@types", "./src/types"]
 }
