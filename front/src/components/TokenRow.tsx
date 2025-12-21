@@ -153,7 +153,7 @@ export function TokenRow({
                 type="text"
                 placeholder="0.00"
                 value={amount}
-                onChange={(e) => onAmountChange(e.target.value)}
+                onChange={(e: Event) => onAmountChange((e.target as HTMLInputElement).value)}
                 readOnly={readOnly}
                 className="text-3xl font-medium px-0 bg-transparent border-0 focus:ring-0 h-7 -mr-0.5"
               />

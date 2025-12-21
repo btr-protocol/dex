@@ -1,11 +1,10 @@
-import { useState, useMemo, useEffect } from 'preact/hooks';
-import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
+import { useState, useMemo } from 'preact/hooks';
+import { SelectionModal, SelectionItem } from '@components/ui/SelectionModal';
 import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
 import { Badge } from '@components/ui/Badge';
-import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
 import { TOKENS, tokenMatchesSearch, getTokenIcon } from '@sdk/eth';
 import { SUPPORTED_TOKENS_CONFIG } from '@config/tokens';
-import { useKeyboardNav } from '@hooks/useKeyboardNav';
+import { useModalState } from '@hooks/useModalState';
 
 interface PairSelectorProps {
   isOpen: boolean;
@@ -25,7 +24,6 @@ function generateAllPairs(): Array<{ base: string; quote: string }> {
   for (const base of SUPPORTED_TOKENS) {
     for (const quote of SUPPORTED_TOKENS) {
       if (base === quote) continue;
-      // Add both directions: ETH/USDC and USDC/ETH
       pairs.push({ base, quote });
     }
   }
@@ -52,6 +50,11 @@ const tokenFilterOptions: FilterOption[] = SUPPORTED_TOKENS
     icon: getTokenIcon(symbol),
   }));
 
+// Helper to normalize pair strings for flexible matching
+const normalizePairString = (pair: string): string => {
+  return pair.toLowerCase().replace(/[\/-_.]/g, '');
+};
+
 export default function PairSelector({
   isOpen,
   onClose,
@@ -59,81 +62,25 @@ export default function PairSelector({
   currentBase,
   currentQuote,
 }: PairSelectorProps) {
-  const [search, setSearch] = useState('');
-  const [selectedTokens, setSelectedTokens] = useState<string[]>([...SUPPORTED_TOKENS]);
+  const [selectedTokens, setSelectedTokens] = useModalState<string[]>(
+    [...SUPPORTED_TOKENS],
+    isOpen
+  );
   const [isTokenFilterOpen, setIsTokenFilterOpen] = useState(false);
-
-  // Reset state when dialog opens
-  useEffect(() => {
-    if (isOpen) {
-      setSelectedTokens([...SUPPORTED_TOKENS]);
-      setSearch('');
-    }
-  }, [isOpen]);
 
   // Generate all pairs
   const allPairs = useMemo(() => generateAllPairs(), []);
 
-  // Helper to normalize pair strings for flexible matching
-  const normalizePairString = (pair: string): string => {
-    // Remove all delimiters (/, -, _, .) and convert to lowercase
-    return pair.toLowerCase().replace(/[\/-_.]/g, '');
-  };
-
-  // Filter pairs by selected tokens and search
-  const filteredPairs = useMemo(() => {
+  // Filter pairs by selected tokens
+  const availablePairs = useMemo(() => {
     return allPairs.filter(({ base, quote }) => {
-      // Must include at least one selected token
-      if (!selectedTokens.includes(base) && !selectedTokens.includes(quote)) {
-        return false;
-      }
-
-      // Search filter with flexible delimiter matching
-      if (search) {
-        const searchLower = search.toLowerCase();
-        const searchNormalized = normalizePairString(search);
-
-        // Check if search includes alias (e.g., "WETH" should find "ETH" pairs)
-        const baseMatchesAlias = tokenMatchesSearch(base, search);
-        const quoteMatchesAlias = tokenMatchesSearch(quote, search);
-
-        // Generate all possible pair formats (including alias-resolved versions)
-        const pairFormats = [
-          `${base}${quote}`,           // ETHUSDC
-          `${base}/${quote}`,          // ETH/USDC
-          `${base}-${quote}`,          // ETH-USDC
-          `${base}_${quote}`,          // ETH_USDC
-          `${base}.${quote}`,          // ETH.USDC
-          `${quote}${base}`,           // USDCETH (reverse)
-          `${quote}/${base}`,          // USDC/ETH
-          `${quote}-${base}`,          // USDC-ETH
-          `${quote}_${base}`,          // USDC_ETH
-          `${quote}.${base}`,          // USDC.ETH
-        ];
-
-        const baseName = TOKENS[base]?.name.toLowerCase() || '';
-        const quoteName = TOKENS[quote]?.name.toLowerCase() || '';
-
-        // Check exact format matches and normalized matches
-        const formatMatch = pairFormats.some(fmt =>
-          fmt.includes(searchLower) || normalizePairString(fmt).includes(searchNormalized)
-        );
-
-        const nameMatch = baseName.includes(searchLower) || quoteName.includes(searchLower);
-
-        // Check alias matches
-        const aliasMatch = baseMatchesAlias || quoteMatchesAlias;
-
-        return formatMatch || nameMatch || aliasMatch;
-      }
-
-      return true;
+      return selectedTokens.includes(base) || selectedTokens.includes(quote);
     });
-  }, [allPairs, selectedTokens, search]);
+  }, [allPairs, selectedTokens]);
 
   // Sort pairs: current pair first, then by token priority
   const sortedPairs = useMemo(() => {
-    return [...filteredPairs].sort((a, b) => {
+    return [...availablePairs].sort((a, b) => {
       // Prioritize current pair
       if (a.base === currentBase && a.quote === currentQuote) return -1;
       if (b.base === currentBase && b.quote === currentQuote) return 1;
@@ -153,113 +100,125 @@ export default function PairSelector({
 
       return 0;
     });
-  }, [filteredPairs, currentBase, currentQuote]);
+  }, [availablePairs, currentBase, currentQuote]);
 
-  // Keyboard navigation
-  const { selectedIndex, handleKeyDown } = useKeyboardNav({
-    items: sortedPairs,
-    onSelect: (pair) => handleSelect(pair.base, pair.quote),
-    isEnabled: isOpen,
-  });
+  // Convert pairs to SelectionItem format
+  const items: SelectionItem[] = useMemo(() => {
+    return sortedPairs.map(({ base, quote }) => {
+      const pairId = `${base}-${quote}`;
+      const isSelected = base === currentBase && quote === currentQuote;
 
-  const handleSelect = (base: string, quote: string) => {
-    onSelect(base, quote);
-    onClose();
-    setSearch('');
+      const baseIcon = getTokenIcon(base);
+      const quoteIcon = getTokenIcon(quote);
+      const baseToken = TOKENS[base];
+      const quoteToken = TOKENS[quote];
+      const baseName = baseToken?.name || base;
+      const quoteName = quoteToken?.name || quote;
+      const baseWraps = baseToken?.wrapperOf;
+      const quoteWraps = quoteToken?.wrapperOf;
+
+      // Custom icon with overlapping tokens
+      const icon = (
+        <div className="relative w-10 h-8 flex items-center -mt-2">
+          <img
+            src={baseIcon}
+            alt={base}
+            className="absolute left-0 w-8 h-8 rounded-full"
+          />
+          <img
+            src={quoteIcon}
+            alt={quote}
+            className="absolute left-5 -bottom-2.5 w-6 h-6 rounded-full"
+          />
+        </div>
+      );
+
+      return {
+        id: pairId,
+        label: `${base}/${quote}`,
+        caption: `${baseWraps ? `Wrapped ${baseWraps}` : baseName} / ${quoteWraps ? `Wrapped ${quoteWraps}` : quoteName}`,
+        icon,
+        badge: isSelected ? <Badge variant="primary">Current</Badge> : undefined,
+        data: { base, quote },
+      };
+    });
+  }, [sortedPairs, currentBase, currentQuote]);
+
+  // Handle selection
+  const handleSelect = (pairId: string | string[]) => {
+    const id = Array.isArray(pairId) ? pairId[0] : pairId;
+    const item = items.find((i) => i.id === id);
+    if (item?.data) {
+      onSelect(item.data.base, item.data.quote);
+    }
   };
+
+  // Custom filter function with flexible pair matching
+  const filterFn = (item: SelectionItem, search: string) => {
+    const { base, quote } = item.data;
+    const searchLower = search.toLowerCase();
+    const searchNormalized = normalizePairString(search);
+
+    // Check if search includes alias (e.g., "WETH" should find "ETH" pairs)
+    const baseMatchesAlias = tokenMatchesSearch(base, search);
+    const quoteMatchesAlias = tokenMatchesSearch(quote, search);
+
+    // Generate all possible pair formats
+    const pairFormats = [
+      `${base}${quote}`,
+      `${base}/${quote}`,
+      `${base}-${quote}`,
+      `${base}_${quote}`,
+      `${base}.${quote}`,
+      `${quote}${base}`,
+      `${quote}/${base}`,
+      `${quote}-${base}`,
+      `${quote}_${base}`,
+      `${quote}.${base}`,
+    ];
+
+    const baseName = TOKENS[base]?.name.toLowerCase() || '';
+    const quoteName = TOKENS[quote]?.name.toLowerCase() || '';
+
+    // Check matches
+    const formatMatch = pairFormats.some(fmt =>
+      fmt.includes(searchLower) || normalizePairString(fmt).includes(searchNormalized)
+    );
+    const nameMatch = baseName.includes(searchLower) || quoteName.includes(searchLower);
+    const aliasMatch = baseMatchesAlias || quoteMatchesAlias;
+
+    return formatMatch || nameMatch || aliasMatch;
+  };
+
+  // Filter section with token selector button
+  const filterSection = (
+    <div className="p-3 border-b border-border">
+      <FilterButton
+        label="Tokens"
+        options={tokenFilterOptions}
+        selected={selectedTokens}
+        onClick={() => setIsTokenFilterOpen(true)}
+        partialFilter={true}
+      />
+    </div>
+  );
 
   return (
     <>
-      <BaseModal
+      <SelectionModal
         isOpen={isOpen}
-        onClose={(open) => !open && onClose()}
+        onClose={onClose}
         title="Select trading pair"
-        headerType="input"
-        placeholder="Search pairs..."
-        searchValue={search}
-        onSearchChange={setSearch}
-        onSearchKeyDown={handleKeyDown}
+        searchPlaceholder="Search pairs..."
+        items={items}
+        selectedIds={[`${currentBase}-${currentQuote}`]}
+        onSelect={handleSelect}
+        multiSelect={false}
+        filterFn={filterFn}
+        filterSection={filterSection}
+        emptyMessage="No pairs found"
         maxWidth="max-w-md"
-        headerRight={
-          <FilterButton
-            label="Tokens"
-            options={tokenFilterOptions}
-            selected={selectedTokens}
-            onClick={() => setIsTokenFilterOpen(true)}
-            partialFilter={true}
-          />
-        }
-        footerNav={
-          <KeyboardShortcutGroup
-            shortcuts={[
-              { keys: '↑↓', label: 'Navigate' },
-              { keys: 'Enter', label: 'Select' },
-              { keys: 'Esc', label: 'Close' },
-            ]}
-          />
-        }
-      >
-        <div className="divide-y divide-border">
-          {sortedPairs.map(({ base, quote }, idx) => {
-            const isSelected = base === currentBase && quote === currentQuote;
-            const isHighlighted = idx === selectedIndex;
-            const baseIcon = getTokenIcon(base);
-            const quoteIcon = getTokenIcon(quote);
-            const baseToken = TOKENS[base];
-            const quoteToken = TOKENS[quote];
-            const baseName = baseToken?.name || base;
-            const quoteName = quoteToken?.name || quote;
-            const baseWraps = baseToken?.wrapperOf;
-            const quoteWraps = quoteToken?.wrapperOf;
-
-            return (
-              <button
-                key={`${base}-${quote}`}
-                className={`w-full flex items-center justify-between ${MODAL_PADDING} py-2 transition-colors ${
-                  isHighlighted ? 'bg-bg-2' : 'hover:bg-bg-2'
-                } cursor-pointer`}
-                style={isSelected ? { backgroundColor: 'var(--bg-primary)' } : undefined}
-                onClick={() => handleSelect(base, quote)}
-              >
-                <div className="flex items-center gap-4">
-                  {/* Overlapping token icons */}
-                  <div className="relative w-10 h-8 flex items-center -mt-2">
-                    <img
-                      src={baseIcon}
-                      alt={base}
-                      className="absolute left-0 w-8 h-8 rounded-full"
-                    />
-                    <img
-                      src={quoteIcon}
-                      alt={quote}
-                      className="absolute left-5 -bottom-2.5 w-6 h-6 rounded-full"
-                    />
-                  </div>
-
-                  <div className="text-left">
-                    <div className={`mt-1 font-title font-medium ${isSelected ? 'text-primary' : ''}`}>
-                      {base}/{quote}
-                    </div>
-                    <div className="text-xs text-fg-3 -mt-1">
-                      {baseWraps ? `Wrapped ${baseWraps}` : baseName} / {quoteWraps ? `Wrapped ${quoteWraps}` : quoteName}
-                    </div>
-                  </div>
-                </div>
-
-                {isSelected && (
-                  <Badge variant="primary">Current</Badge>
-                )}
-              </button>
-            );
-          })}
-
-          {sortedPairs.length === 0 && (
-            <div className={`${MODAL_PADDING} py-8 text-center text-muted-foreground text-sm`}>
-              No pairs found
-            </div>
-          )}
-        </div>
-      </BaseModal>
+      />
 
       <MultiSelectModal
         isOpen={isTokenFilterOpen}

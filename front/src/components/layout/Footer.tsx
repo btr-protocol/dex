@@ -1,59 +1,131 @@
-import { Activity } from 'lucide-react';
+import { useState } from 'preact/hooks';
+import { useRouter } from '@lib/router';
+import { useExternalLink } from '@lib/external-links';
+import { useHealthMonitor } from '@hooks/useHealthMonitor';
+import { useWallet } from '@lib/wallet';
+import { getChain } from '@sdk/eth';
+import { HealthPopover } from '@components/HealthPopover';
+import { SocialLinkButton } from '@components/ui/SocialLinkButton';
+import { MaskIcon } from '@components/ui/MaskIcon';
+import { Tooltip } from '@components/ui/Tooltip';
+import { footerNavigation } from '@/constants/navigation';
 
-const routes = [
-  { title: 'ToS', path: '/legal/Terms of Service' },
-  { title: 'Disclaimer', path: '/legal/Risk Disclaimer' },
-  { title: 'Privacy', path: '/legal/Privacy Policy' },
-];
+function StatusBeacon({ status }: { status: 'healthy' | 'degraded' | 'down' }) {
+  const color = status === 'healthy' ? 'var(--green)' : status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
+
+  return (
+    <div className="relative w-3 h-3 shrink-0">
+      {/* Pulsing animation */}
+      <div
+        className="absolute inset-0 rounded-full animate-ping opacity-75"
+        style={{ backgroundColor: color }}
+      />
+      {/* Static dot */}
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{ backgroundColor: color }}
+      />
+    </div>
+  );
+}
+
+function getStatusColor(status: 'healthy' | 'degraded' | 'down'): string {
+  return status === 'healthy' ? 'var(--green)' : status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
+}
 
 export default function Footer() {
+  const { navigate } = useRouter();
+  const { openExternalLink } = useExternalLink();
+  const { chainId } = useWallet();
+  const health = useHealthMonitor();
   const currentYear = new Date().getFullYear();
+  const [logoHover, setLogoHover] = useState(false);
+
+  const chainName = chainId ? getChain(chainId)?.name || 'Ethereum' : 'Ethereum';
 
   const handleScrollTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleSocialClick = (link: typeof footerNavigation.social[0]) => {
+    if (link.isExternal) {
+      openExternalLink(link.path);
+    } else {
+      navigate(link.path);
+    }
+  };
+
   return (
-    <footer className="fixed bottom-0 w-full h-10 flex items-center z-50 italic font-light text-sm">
-      <nav className="px-4 max-w-7xl h-full mx-auto flex items-center justify-between border border-b-0 rounded-t-lg backdrop-blur-md bg-background/80 border-border w-full">
-        {/* Status */}
-        <div className="flex items-center gap-2 text-xs text-gray-400">
-          <Activity className="w-3 h-3 text-green-500" />
-          <span>API 13ms</span>
+    <footer className="fixed bottom-0 w-full h-10 flex items-center z-50 font-light text-sm">
+      <nav className="px-3 max-w-7xl h-full mx-auto flex items-center justify-between border border-b-0 rounded-t-lg backdrop-blur-md bg-background/80 border-border w-full">
+        {/* Left: Social Links + Health Status */}
+        <div className="flex items-center gap-3">
+          {/* Social Links */}
+          <div className="flex items-center gap-2">
+            {footerNavigation.social.map((link) => (
+              <Tooltip key={link.title} content={link.description || link.title} side="top">
+                <SocialLinkButton
+                  icon={link.icon!}
+                  url={link.path}
+                  title={link.title}
+                  onClick={() => handleSocialClick(link)}
+                  tooltip={false}
+                  variant="default"
+                  color="var(--fg-3)"
+                />
+              </Tooltip>
+            ))}
+          </div>
+
+          {/* Health Status Popover */}
+          <HealthPopover api={health.api} static={health.static} rpc={health.rpc} chainName={chainName}>
+            <button className="flex items-center gap-1.5 text-xs transition-colors font-mono">
+              <StatusBeacon status={health.api.status} />
+              <span style={{ color: getStatusColor(health.api.status) }}>
+                {health.api.latency !== null ? `${health.api.latency}ms` : '—'}
+              </span>
+            </button>
+          </HealthPopover>
         </div>
 
-        {/* Links */}
-        <ul className="flex items-center gap-4">
-          {routes.map((route) => (
-            <li key={route.title}>
-              <a
-                href={route.path}
-                className="text-gray-400 hover:text-white transition-all hover:before:content-['⇨_']"
-                style={{ paddingLeft: '0.9rem' }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.paddingLeft = '0';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.paddingLeft = '0.9rem';
-                }}
-              >
-                {route.title}
-              </a>
-            </li>
+        {/* Right: Legal Links + Copyright + Logo */}
+        <div className="flex items-center gap-4">
+          {/* Legal Links - ToS and Disclaimer only */}
+          {footerNavigation.legal.map((route) => (
+            <button
+              key={route.title}
+              onClick={() => navigate(route.path)}
+              className="text-fg-2 pt-0.5 hover:text-foreground transition-colors"
+            >
+              {route.title}
+            </button>
           ))}
-          <li
-            className="text-gray-400 cursor-pointer pl-2 hover:text-white"
+
+          {/* Copyright */}
+          <button
+            className="text-fg-2 pt-0.5 cursor-pointer hover:text-foreground font-title"
             onClick={handleScrollTop}
           >
             © {currentYear}
-          </li>
-          <li
-            className="text-xl font-black cursor-pointer hover:text-primary"
+          </button>
+
+          {/* Logo */}
+          <button
+            className="cursor-pointer"
             onClick={handleScrollTop}
+            onMouseEnter={() => setLogoHover(true)}
+            onMouseLeave={() => setLogoHover(false)}
           >
-            BTR
-          </li>
-        </ul>
+            <MaskIcon
+              src="/brand/logo.svg"
+              width="5rem"
+              height="1.8rem"
+              color={logoHover ? 'var(--fg-1)' : 'var(--fg-3)'}
+              aria-label="Logo"
+              className="transition-all duration-200"
+            />
+          </button>
+        </div>
       </nav>
     </footer>
   );

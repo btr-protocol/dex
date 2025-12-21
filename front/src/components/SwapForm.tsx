@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
 import { Button } from '@components/ui/Button';
+import { ButtonGroup } from '@components/ui/ButtonGroup';
 import { TokenRow } from '@components/TokenRow';
 import { InfoRow, InfoSection } from '@components/ui/InfoRow';
 import { BorderedThemedIcon, plusIcon, doubleDownIcon } from '@/components/ui/BorderedThemedIcon';
@@ -292,35 +293,27 @@ export function SwapForm({
     );
   };
 
-  // Direction toggle component - selected action always on left
+  // Direction toggle component - glassy segmented control
   const DirectionToggle = () => {
-    const selectedButton = (
-      <Button
-        onClick={handleDirectionSwitch}
-        size="compact-xl"
-        styleVariant="bg-primary"
-        className="font-title"
-      >
-        {direction === 'buy' ? 'Buy' : 'Sell'}
-      </Button>
-    );
-
-    const unselectedButton = (
-      <Button
-        onClick={handleDirectionSwitch}
-        size="compact-xl"
-        styleVariant="nav"
-        className="font-title text-fg-3 hover:text-fg-0"
-      >
-        {direction === 'buy' ? 'Sell' : 'Buy'}
-      </Button>
-    );
-
     return (
-      <div className="flex items-center gap-1">
-        {selectedButton}
-        {unselectedButton}
-      </div>
+      <ButtonGroup direction="horizontal" variant="outlined" className="bg-white/5">
+        <Button
+          onClick={() => setDirection('sell')}
+          size="compact-xl"
+          variant="ghost"
+          className={cn("font-title min-w-[4rem]", direction === 'sell' ? 'btn-selected' : 'btn-unselected')}
+        >
+          Sell
+        </Button>
+        <Button
+          onClick={() => setDirection('buy')}
+          size="compact-xl"
+          variant="ghost"
+          className={cn("font-title min-w-[4rem]", direction === 'buy' ? 'btn-selected' : 'btn-unselected')}
+        >
+          Buy
+        </Button>
+      </ButtonGroup>
     );
   };
 
@@ -336,7 +329,7 @@ export function SwapForm({
             onChange={(v) => setOrderType(v as OrderType)}
             size="compact-xl"
             styleVariant="glass"
-            className="min-w-[100px]"
+            className="min-w-[120px] bg-white/5 border border-white/10"
           />
         </div>
 
@@ -356,7 +349,7 @@ export function SwapForm({
               <button
                 onClick={handleDirectionSwitch}
                 className={cn(
-                  'cursor-pointer transition-transform duration-200 hover:scale-110',
+                  'group cursor-pointer transition-transform duration-200 hover:scale-110',
                   direction === 'buy' && 'rotate-180'
                 )}
               >
