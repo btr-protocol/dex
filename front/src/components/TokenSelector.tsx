@@ -2,9 +2,10 @@ import { useState, useMemo } from 'preact/hooks';
 import { SelectionModal, SelectionItem } from '@components/ui/SelectionModal';
 import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
 import { Badge } from '@components/ui/Badge';
-import { TOKENS, CHAINS, getAllTokensForChain, getSupportedChainIds, tokenMatchesSearch, getTokenIcon, getChainIcon } from '@sdk/eth';
+import { TOKENS, CHAINS, getAllTokensForChain, getSupportedChainIds, tokenMatchesSearch, getTokenIcon, getChainIcon, isTestOrLocalChain } from '@sdk/eth';
 import { SUPPORTED_CHAINS_CONFIG, SUPPORTED_TOKENS_CONFIG, isTokenSupported } from '@config/tokens';
 import { useModalState } from '@hooks/useModalState';
+import { useSettings } from '@/lib/settings';
 
 interface TokenSelectorProps {
   isOpen: boolean;
@@ -18,20 +19,9 @@ interface TokenSelectorProps {
 
 // Get supported chain IDs from SDK filtered by config (maintain config order)
 const ALL_SDK_CHAINS = getSupportedChainIds();
-const SUPPORTED_CHAIN_IDS = SUPPORTED_CHAINS_CONFIG.filter(id =>
+const ALL_SUPPORTED_CHAIN_IDS = SUPPORTED_CHAINS_CONFIG.filter(id =>
   ALL_SDK_CHAINS.includes(id as number)
 ) as number[];
-
-// Build chain filter options from filtered SDK chains (in config order)
-const chainFilterOptions: FilterOption[] = SUPPORTED_CHAIN_IDS.map((id) => {
-  const icon = getChainIcon(id);
-  return {
-    id: String(id),
-    name: CHAINS[id].name,
-    icon,
-    miniIcon: icon.replace('.svg', '-mono.svg'),
-  };
-});
 
 // Helper to get token symbols for a chain (filtered by config)
 function getTokensForChain(chainId: number): string[] {
@@ -48,11 +38,34 @@ export default function TokenSelector({
   multiSelect = true,
   disabledTokens = [],
 }: TokenSelectorProps) {
+  const { settings } = useSettings();
+  const [isChainFilterOpen, setIsChainFilterOpen] = useState(false);
+
+  // Filter chains based on showTestNetworks setting
+  const supportedChainIds = useMemo(() => {
+    if (settings.showTestNetworks) {
+      return ALL_SUPPORTED_CHAIN_IDS;
+    }
+    return ALL_SUPPORTED_CHAIN_IDS.filter(id => !isTestOrLocalChain(id));
+  }, [settings.showTestNetworks]);
+
+  // Build chain filter options from filtered SDK chains (in config order)
+  const chainFilterOptions: FilterOption[] = useMemo(() => {
+    return supportedChainIds.map((id) => {
+      const icon = getChainIcon(id);
+      return {
+        id: String(id),
+        name: CHAINS[id].name,
+        icon,
+        miniIcon: icon.replace('.svg', '-mono.svg'),
+      };
+    });
+  }, [supportedChainIds]);
+
   const [selectedChains, setSelectedChains] = useModalState<string[]>(
-    SUPPORTED_CHAIN_IDS.map(String),
+    supportedChainIds.map(String),
     isOpen
   );
-  const [isChainFilterOpen, setIsChainFilterOpen] = useState(false);
 
   // Get available tokens for selected chains
   const availableTokens = useMemo(() => {

@@ -377,6 +377,103 @@ export const CHAINS: Record<number, ChainConfig> = {
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     testnet: true,
   },
+
+  11155111: {
+    id: 11155111,
+    name: 'Ethereum Sepolia Testnet',
+    rpcUrls: [
+      'https://sepolia.gateway.tenderly.co',
+      'https://rpc.ankr.com/eth_sepolia',
+      'https://ethereum-sepolia.publicnode.com',
+    ],
+    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+    blockExplorerUrls: ['https://sepolia.etherscan.io'],
+    wrappedNative: '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9',
+    multicall3: MULTICALL3_ADDRESS,
+    testnet: true,
+  },
+
+  97: {
+    id: 97,
+    name: 'BNB Chain Testnet',
+    rpcUrls: [
+      'https://data-seed-prebsc-1-s1.binance.org:8545',
+      'https://rpc.ankr.com/bsc_testnet_chapel',
+    ],
+    nativeCurrency: { name: 'Test BNB', symbol: 'tBNB', decimals: 18 },
+    blockExplorerUrls: ['https://testnet.bscscan.com'],
+    wrappedNative: '0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd',
+    multicall3: MULTICALL3_ADDRESS,
+    testnet: true,
+  },
+
+  84532: {
+    id: 84532,
+    name: 'Base Sepolia Testnet',
+    rpcUrls: [
+      'https://sepolia.base.org',
+      'https://base-sepolia.public.blastapi.io',
+    ],
+    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+    blockExplorerUrls: ['https://sepolia.basescan.org'],
+    wrappedNative: '0x4200000000000000000000000000000000000006',
+    multicall3: MULTICALL3_ADDRESS,
+    testnet: true,
+  },
+
+  421614: {
+    id: 421614,
+    name: 'Arbitrum Sepolia Testnet',
+    rpcUrls: [
+      'https://sepolia-rollup.arbitrum.io/rpc',
+      'https://arbitrum-sepolia.public.blastapi.io',
+    ],
+    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+    blockExplorerUrls: ['https://sepolia.arbiscan.io'],
+    wrappedNative: '0x980B62Da83eFf3D4576C647993b0c1D7faf17c73',
+    multicall3: MULTICALL3_ADDRESS,
+    testnet: true,
+  },
+
+  998: {
+    id: 998,
+    name: 'HyperEVM Testnet',
+    rpcUrls: ['https://rpc.hyperliquid-testnet.xyz/evm'],
+    nativeCurrency: { name: 'Test Hyperliquid', symbol: 'HYPE', decimals: 18 },
+    blockExplorerUrls: ['https://testnet.hyperevmscan.io'],
+    wrappedNative: '0x5555555555555555555555555555555555555555',
+    multicall3: MULTICALL3_ADDRESS,
+    testnet: true,
+  },
+
+  80002: {
+    id: 80002,
+    name: 'Polygon Amoy Testnet',
+    rpcUrls: [
+      'https://rpc-amoy.polygon.technology',
+      'https://polygon-amoy.public.blastapi.io',
+    ],
+    nativeCurrency: { name: 'Test POL', symbol: 'POL', decimals: 18 },
+    blockExplorerUrls: ['https://amoy.polygonscan.com'],
+    wrappedNative: '0x9c3C9283D3e44854697Cd22D3Faa240Cfb032889',
+    multicall3: MULTICALL3_ADDRESS,
+    testnet: true,
+  },
+
+  43113: {
+    id: 43113,
+    name: 'Avalanche Fuji Testnet',
+    icon: '/networks/avalanche.svg',
+    rpcUrls: [
+      'https://api.avax-test.network/ext/bc/C/rpc',
+      'https://rpc.ankr.com/avalanche_fuji',
+    ],
+    nativeCurrency: { name: 'Test Avalanche', symbol: 'AVAX', decimals: 18 },
+    blockExplorerUrls: ['https://testnet.snowtrace.io'],
+    wrappedNative: '0xd00ae08403B9bbb9124bB305C09058E32C39A48c',
+    multicall3: MULTICALL3_ADDRESS,
+    testnet: true,
+  },
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -469,6 +566,98 @@ export function getMainnetChainIds(): number[] {
   return Object.entries(CHAINS)
     .filter(([, c]) => !c.testnet)
     .map(([id]) => Number(id));
+}
+
+/**
+ * Check if a chain is a testnet or local development network
+ */
+export function isTestOrLocalChain(chainId: number): boolean {
+  const chain = CHAINS[chainId];
+  if (!chain) return false;
+
+  // Check testnet flag
+  if (chain.testnet) return true;
+
+  // Check name patterns for local dev networks
+  const nameLower = chain.name.toLowerCase();
+  const localPatterns = ['local', 'anvil', 'ganache', 'hardhat', 'truffle'];
+  if (localPatterns.some(pattern => nameLower.includes(pattern))) return true;
+
+  // Check for testnet in name
+  if (chain.name.includes('Testnet')) return true;
+
+  return false;
+}
+
+/**
+ * Detect forked chain ID from Anvil RPC
+ * Anvil can be queried for the forked chain ID via eth_chainId on the fork
+ */
+export async function detectAnvilFork(rpcUrl: string = 'http://localhost:8545'): Promise<number | null> {
+  try {
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'anvil_metadata',
+        params: [],
+        id: 1,
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      // Anvil metadata returns fork info
+      return data.result?.forkChainId ? Number(data.result.forkChainId) : null;
+    }
+
+    // Fallback: try to get chain ID directly
+    const chainIdResponse = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_chainId',
+        params: [],
+        id: 1,
+      }),
+    });
+
+    if (chainIdResponse.ok) {
+      const chainIdData = await chainIdResponse.json();
+      const chainId = parseInt(chainIdData.result, 16);
+      // If it's not 31337, it might be a fork
+      return chainId !== 31337 ? chainId : null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get chain config for Anvil, with fork detection
+ * If Anvil is forking a chain, returns the forked chain's metadata
+ */
+export async function getAnvilChainConfig(rpcUrl: string = 'http://localhost:8545'): Promise<ChainConfig> {
+  const forkedChainId = await detectAnvilFork(rpcUrl);
+
+  if (forkedChainId && CHAINS[forkedChainId]) {
+    // Return forked chain config but with Anvil's RPC URL and ID
+    const forkedChain = CHAINS[forkedChainId];
+    return {
+      ...forkedChain,
+      id: 31337,
+      name: `Anvil (${forkedChain.name} Fork)`,
+      rpcUrls: [rpcUrl],
+      testnet: true,
+    };
+  }
+
+  // Return default Anvil config
+  return CHAINS[31337];
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -4,14 +4,24 @@
  */
 
 // Supported chains (ordered by preference)
+// Includes both mainnet and testnet chains
 export const SUPPORTED_CHAINS_CONFIG = [
-  31337,  // Anvil (local dev)
-  1,      // Ethereum (L1)
-  56,     // BNB Chain
-  // 999,    // HyperEVM
-  8453,   // Base
-  42161,  // Arbitrum
-  // 17000, // HyperEVM (uncomment when available)
+  // Local / Dev
+  31337,     // Anvil (local dev)
+
+  // Mainnets
+  1,         // Ethereum (L1)
+  56,        // BNB Chain
+  8453,      // Base
+  42161,     // Arbitrum
+  // 999,    // HyperEVM (uncomment when live)
+
+  // Testnets
+  11155111,  // Ethereum Sepolia
+  97,        // BNB Chain Testnet
+  84532,     // Base Sepolia
+  421614,    // Arbitrum Sepolia
+  // 998,       // HyperEVM Testnet
 ] as const;
 
 // Supported tokens (ordered by preference)

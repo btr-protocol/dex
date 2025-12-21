@@ -10,6 +10,7 @@ export interface AppSettings {
   // Interface
   hideSmallBalances: boolean;
   hideUnsupportedTokens: boolean;
+  showTestNetworks: boolean;
   animateBackground: boolean;
   ringCount: number;
   rotationSpeed: number;
@@ -33,6 +34,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Interface
   hideSmallBalances: false,
   hideUnsupportedTokens: false,
+  showTestNetworks: false,
   animateBackground: true,
   ringCount: 12,
   rotationSpeed: 30,
