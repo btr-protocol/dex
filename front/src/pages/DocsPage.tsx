@@ -6,7 +6,7 @@ interface DocsPageProps {
   slug?: string;
 }
 
-export default function DocsPage({ slug = 'ARCHITECTURE' }: DocsPageProps) {
+export default function DocsPage({ slug = 'overview' }: DocsPageProps) {
   const [doc, setDoc] = useState<DocFile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
