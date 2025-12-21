@@ -1,6 +1,6 @@
-# BAMM DEX Frontend
+# AIMM DEX Frontend
 
-Lightweight frontend for the Balanced Automated Market Maker (BAMM) DEX built with Preact, Viem, and Chakra UI.
+Lightweight frontend for the Balanced Automated Market Maker (AIMM) DEX built with Preact, Viem, and Chakra UI.
 
 ## Stack
 
@@ -60,8 +60,8 @@ Multi-chain RPC endpoints with automatic fallbacks are configured in `src/lib/rp
 
 BTR-inspired dark theme in `src/styles/theme.ts`:
 
-- Primary: Blue (#477bff)
-- Secondary: Orange (#f8b024)
+- Primary: Blue (#3d7eff)
+- Secondary: Orange (#f68f11)
 - Background: Near-black (#0c0c0c)
 - Fonts: Inter (UI), JetBrains Mono (code)
 

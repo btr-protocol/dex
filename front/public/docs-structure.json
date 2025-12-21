@@ -1,142 +1,276 @@
 [
   {
-    "name": "ALLOCATION_AND_VESTING",
-    "path": "ALLOCATION_AND_VESTING",
+    "name": "Overview",
+    "path": "overview",
     "type": "file"
   },
   {
-    "name": "ALM_AND_COVERAGE",
-    "path": "ALM_AND_COVERAGE",
+    "name": "1. AIMM",
+    "path": "1. AIMM",
+    "type": "directory",
+    "children": [
+      {
+        "name": "Overview",
+        "path": "1-overview",
+        "type": "file"
+      },
+      {
+        "name": "1.1. Pricing",
+        "path": "1. AIMM/1.1. Pricing",
+        "type": "directory",
+        "children": [
+          {
+            "name": "1.1.1. Inventory Management",
+            "path": "1.1.1-inventory-management",
+            "type": "file"
+          },
+          {
+            "name": "1.1.2. Liquidity Shaping",
+            "path": "1.1.2-liquidity-shaping",
+            "type": "file"
+          },
+          {
+            "name": "1.1.3. Anchor Path Pricing",
+            "path": "1.1.3-anchor-path-pricing",
+            "type": "file"
+          },
+          {
+            "name": "1.1.4. Spread & Fees",
+            "path": "1.1.4-spread-fees",
+            "type": "file"
+          },
+          {
+            "name": "1.1.5. Slippage & Price Impact",
+            "path": "1.1.5-slippage-price-impact",
+            "type": "file"
+          },
+          {
+            "name": "1.1.6. Toxic Flow Mitigation",
+            "path": "1.1.6-toxic-flow-mitigation",
+            "type": "file"
+          },
+          {
+            "name": "1.1.7. Parametrization",
+            "path": "1.1.7-parametrization",
+            "type": "file"
+          },
+          {
+            "name": "1.1.8. Invariants",
+            "path": "1.1.8-invariants",
+            "type": "file"
+          }
+        ]
+      },
+      {
+        "name": "1.2. Modules",
+        "path": "1. AIMM/1.2. Modules",
+        "type": "directory",
+        "children": [
+          {
+            "name": "1.2.1. Core",
+            "path": "1.2.1-core",
+            "type": "file"
+          },
+          {
+            "name": "1.2.2. Internal Oracle",
+            "path": "1.2.2-internal-oracle",
+            "type": "file"
+          },
+          {
+            "name": "1.2.3. Admin",
+            "path": "1.2.3-admin",
+            "type": "file"
+          },
+          {
+            "name": "1.2.4. Staking",
+            "path": "1.2.4-staking",
+            "type": "file"
+          },
+          {
+            "name": "1.2.5. Distributor",
+            "path": "1.2.5-distributor",
+            "type": "file"
+          },
+          {
+            "name": "1.2.6. Flash",
+            "path": "1.2.6-flash",
+            "type": "file"
+          },
+          {
+            "name": "1.2.7. Rescue",
+            "path": "1.2.7-rescue",
+            "type": "file"
+          }
+        ]
+      },
+      {
+        "name": "1.3. Integration",
+        "path": "1. AIMM/1.3. Integration",
+        "type": "directory",
+        "children": [
+          {
+            "name": "1.3.1. Composability",
+            "path": "1.3.1-composability",
+            "type": "file"
+          },
+          {
+            "name": "1.3.2. Hooks",
+            "path": "1.3.2-hooks",
+            "type": "file"
+          },
+          {
+            "name": "1.3.3. Curation & White Labelling",
+            "path": "1.3.3-curation-white-labelling",
+            "type": "file"
+          },
+          {
+            "name": "1.3.4. Bridging",
+            "path": "1.3.4-bridging",
+            "type": "file"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "2. Governance",
+    "path": "2. Governance",
+    "type": "directory",
+    "children": [
+      {
+        "name": "Overview",
+        "path": "2-overview",
+        "type": "file"
+      },
+      {
+        "name": "2.1. BTR Token",
+        "path": "2.1-btr-token",
+        "type": "file"
+      },
+      {
+        "name": "2.2. DAO Voting",
+        "path": "2.2-dao-voting",
+        "type": "file"
+      },
+      {
+        "name": "2.3. DAO Treasury",
+        "path": "2.3-dao-treasury",
+        "type": "file"
+      },
+      {
+        "name": "2.4. Liquid Staking",
+        "path": "2.4-liquid-staking",
+        "type": "file"
+      },
+      {
+        "name": "2.5. Emission Control",
+        "path": "2.5-emission-control",
+        "type": "file"
+      }
+    ]
+  },
+  {
+    "name": "3. Security",
+    "path": "3. Security",
+    "type": "directory",
+    "children": [
+      {
+        "name": "Overview",
+        "path": "3-overview",
+        "type": "file"
+      },
+      {
+        "name": "3.1. Audits",
+        "path": "3.1-audits",
+        "type": "file"
+      },
+      {
+        "name": "3.2. Deployment & Upgrades",
+        "path": "3.2-deployment-upgrades",
+        "type": "file"
+      },
+      {
+        "name": "3.3. Access Control",
+        "path": "3.3-access-control",
+        "type": "file"
+      },
+      {
+        "name": "3.4. Flow Guards",
+        "path": "3.4-flow-guards",
+        "type": "file"
+      },
+      {
+        "name": "3.5. Oracles",
+        "path": "3.5-oracles",
+        "type": "file"
+      }
+    ]
+  },
+  {
+    "name": "4. User Guides",
+    "path": "4. User Guides",
+    "type": "directory",
+    "children": [
+      {
+        "name": "Overview",
+        "path": "4-overview",
+        "type": "file"
+      },
+      {
+        "name": "4.1. Navigate",
+        "path": "4.1-navigate",
+        "type": "file"
+      },
+      {
+        "name": "4.2. Swap",
+        "path": "4.2-swap",
+        "type": "file"
+      },
+      {
+        "name": "4.3. Provide Liquidity",
+        "path": "4.3-provide-liquidity",
+        "type": "file"
+      },
+      {
+        "name": "4.4. Stake",
+        "path": "4.4-stake",
+        "type": "file"
+      },
+      {
+        "name": "4.5. Vote",
+        "path": "4.5-vote",
+        "type": "file"
+      },
+      {
+        "name": "4.6. Claim Rewards",
+        "path": "4.6-claim-rewards",
+        "type": "file"
+      },
+      {
+        "name": "4.7. Bridge",
+        "path": "4.7-bridge",
+        "type": "file"
+      },
+      {
+        "name": "4.8. Price Charts",
+        "path": "4.8-price-charts",
+        "type": "file"
+      }
+    ]
+  },
+  {
+    "name": "Foundations",
+    "path": "foundations",
     "type": "file"
   },
   {
-    "name": "ARCHITECTURE",
-    "path": "ARCHITECTURE",
+    "name": "Glossary",
+    "path": "glossary",
     "type": "file"
   },
   {
-    "name": "B64_FLOAT",
-    "path": "B64_FLOAT",
-    "type": "file"
-  },
-  {
-    "name": "BAMM_HOOKS",
-    "path": "BAMM_HOOKS",
-    "type": "file"
-  },
-  {
-    "name": "BATCH_SWAP",
-    "path": "BATCH_SWAP",
-    "type": "file"
-  },
-  {
-    "name": "BAYESIAN_UPDATE",
-    "path": "BAYESIAN_UPDATE",
-    "type": "file"
-  },
-  {
-    "name": "CIRCUIT_BREAKERS",
-    "path": "CIRCUIT_BREAKERS",
-    "type": "file"
-  },
-  {
-    "name": "DARK_POOL",
-    "path": "DARK_POOL",
-    "type": "file"
-  },
-  {
-    "name": "ERC1155_LP_TOKENS",
-    "path": "ERC1155_LP_TOKENS",
-    "type": "file"
-  },
-  {
-    "name": "FEES",
-    "path": "FEES",
-    "type": "file"
-  },
-  {
-    "name": "FLASH_LOANS",
-    "path": "FLASH_LOANS",
-    "type": "file"
-  },
-  {
-    "name": "INTERNALS",
-    "path": "INTERNALS",
-    "type": "file"
-  },
-  {
-    "name": "LEVERAGE_TRADING",
-    "path": "LEVERAGE_TRADING",
-    "type": "file"
-  },
-  {
-    "name": "LIABILITY_SWAP",
-    "path": "LIABILITY_SWAP",
-    "type": "file"
-  },
-  {
-    "name": "LIABILITY_TIME_DECAY",
-    "path": "LIABILITY_TIME_DECAY",
-    "type": "file"
-  },
-  {
-    "name": "LIQUIDITY_SHAPING",
-    "path": "LIQUIDITY_SHAPING",
-    "type": "file"
-  },
-  {
-    "name": "NATIVE_TOKEN_SUPPORT",
-    "path": "NATIVE_TOKEN_SUPPORT",
-    "type": "file"
-  },
-  {
-    "name": "ORACLE",
-    "path": "ORACLE",
-    "type": "file"
-  },
-  {
-    "name": "ORACLE_ARCHITECTURE",
-    "path": "ORACLE_ARCHITECTURE",
-    "type": "file"
-  },
-  {
-    "name": "ORBITAL_VS_BAMM",
-    "path": "ORBITAL_VS_BAMM",
-    "type": "file"
-  },
-  {
-    "name": "PARAMETERS",
-    "path": "PARAMETERS",
-    "type": "file"
-  },
-  {
-    "name": "README",
-    "path": "README",
-    "type": "file"
-  },
-  {
-    "name": "RESERVES_HYPOTHECATION",
-    "path": "RESERVES_HYPOTHECATION",
-    "type": "file"
-  },
-  {
-    "name": "STRUCT_OPTIMIZATION_AUDIT_FIXES",
-    "path": "STRUCT_OPTIMIZATION_AUDIT_FIXES",
-    "type": "file"
-  },
-  {
-    "name": "SWAP",
-    "path": "SWAP",
-    "type": "file"
-  },
-  {
-    "name": "TOKENOMICS",
-    "path": "TOKENOMICS",
-    "type": "file"
-  },
-  {
-    "name": "UPGRADEABILITY",
-    "path": "UPGRADEABILITY",
+    "name": "Manifesto",
+    "path": "manifesto",
     "type": "file"
   }
 ]
