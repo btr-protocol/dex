@@ -1,13 +1,35 @@
 /* BTR DEX Font Configuration */
 
-/* Inter Variable - Body & Headings */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+/* Local Font Faces */
+@font-face {
+  font-family: "Inter Variable";
+  src: url('/fonts/InterVariable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mozilla Text";
+  src: url('/fonts/MozillaText-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mozilla Text";
+  src: url('/fonts/MozillaTextItalic-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
 
 /* Font Families */
 :root {
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "Mozilla Text", "SF Mono", "Monaco", "Cascadia Code", "Roboto Mono", "Courier New", monospace;
-  --font-numeric: "Mozilla Text", "SF Mono", "Monaco", monospace;
+  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
+  --font-numeric: "Mozilla Text", ui-monospace, "SF Mono", "Monaco", monospace;
+  --font-title: "Mozilla Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 /* Apply fonts */

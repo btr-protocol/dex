@@ -1,4 +1,9 @@
+
 :root {
+
+    /* Force dark mode */
+    /* color-scheme: dark; */
+
     /* Unit sizing */
     --unit-o: 0.075rem;
     --unit-h: 0.1rem;
@@ -43,7 +48,7 @@
     /* Extended palette */
     --blue: #3d7eff;
     --green: #10B981;
-    --orange: #f68f11;
+    --orange: #E99339;
     --red: #DB4E5C;
     --yellow: #ffd61e;
     --cyan: #2ee7e7;
@@ -64,6 +69,13 @@
     --warning: var(--yellow);
     --info: var(--cyan);
 
+    /* Scrollbar */
+    --scrollbar-track: var(--bg-2);
+    --scrollbar-thumb: var(--bg-5);
+    --scrollbar-thumb-hover: var(--primary);
+    --scrollbar-thumb-active: var(--primary);
+    --scrollbar-width: 8px;
+    
     /* Fonts */
     --font-title: 'Mozilla Text', sans-serif;
     --font-body: 'Inter', sans-serif;
@@ -101,7 +113,7 @@
     --cyan-washed: color-mix(in srgb, var(--cyan) 60%, var(--fg-0)); /* Subtle cyan accents */
     --pink-washed: color-mix(in srgb, var(--pink) 60%, var(--fg-0)); /* Subtle pink accents */
     --violet-washed: color-mix(in srgb, var(--violet) 60%, var(--fg-0)); /* Subtle violet accents */
-    --sand: var(var(--yellow-washed));
+    --sand: var(--yellow-washed);
 
     /* Sentiment backgrounds */
     --bg-green: color-mix(in srgb, var(--green) 17%, var(--bg-1));
