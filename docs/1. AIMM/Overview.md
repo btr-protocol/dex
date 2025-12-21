@@ -85,7 +85,7 @@ graph TB
 - **Spline Traversal**: Price impact via liquidity profile integration
 
 See:
-- [Inventory Management](/docs/1.1.1-Inventory-Management) — Coverage, skew, haircuts
+- [Inventory Management](/docs/1.1.1-Inventory-Management) — Coverage, skew, withdrawal haircuts
 - [Spread & Fees](/docs/1.1.4-Spread-&-Fees) — Fee calculation
 - [Liquidity Shaping](/docs/1.1.2-Liquidity-Shaping) — Spline profiles
 
