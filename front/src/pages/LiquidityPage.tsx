@@ -12,6 +12,7 @@ import { CoverageGauge } from '@components/CoverageGauge';
 import { useSparklineData } from '@/hooks/useSparklineData';
 import { BorderedThemedIcon, plusIcon } from '@/components/ui/BorderedThemedIcon';
 import { useLiquidityData, formatUsd, formatPercent, type AssetData } from '@/hooks/useLiquidityData';
+import { ROUTES } from '@/constants/navigation';
 
 // Format price for display
 function formatPrice(price: number): string {
@@ -264,7 +265,7 @@ export default function LiquidityPage() {
                         items={TIMEFRAME_OPTIONS}
                         value={timeframe}
                         onChange={(v) => setTimeframe(v as Timeframe)}
-                        size="compact-md"
+                        size="sm"
                         styleVariant="glass"
                         className="min-w-[70px]"
                     />
@@ -367,7 +368,7 @@ export default function LiquidityPage() {
                                             />
                                         ))
                                     )}
-                                    {isOwner && <AddAssetRow onClick={() => navigate('/add-asset')} />}
+                                    {isOwner && <AddAssetRow onClick={() => navigate(ROUTES.ADD_ASSET)} />}
                                 </div>
                             </div>
                         )}
