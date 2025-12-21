@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Mozilla+Text:wght@200..700&family=JetBrains+Mono:wght@100..800&display=swap');
+@import './styles/fonts.css';
 @import "./styles/constants.css";
 
 @tailwind base;
@@ -16,31 +16,48 @@
         font-weight: 400;
         background-color: var(--bg-0);
         overflow-x: hidden;
+        /* Firefox scrollbar styling */
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
     }
 
-    /* Scrollbar styling */
+    /* Scrollbar styling for WebKit */
     ::-webkit-scrollbar {
-        width: 0.4rem;
-        height: 0.4rem;
+        width: var(--scrollbar-width);
+        height: var(--scrollbar-width);
     }
 
     ::-webkit-scrollbar-track {
-        background: var(--bg-2);
-        border-radius: 0.2rem;
+        background: var(--scrollbar-track);
+        border-radius: 4px;
     }
 
     ::-webkit-scrollbar-thumb {
-        background: var(--bg-5);
-        border-radius: 0.2rem;
+        background: var(--scrollbar-thumb);
+        border-radius: 4px;
+        border: 1px solid var(--scrollbar-track);
+        transition: background-color 0.2s ease;
     }
 
     ::-webkit-scrollbar-thumb:hover {
-        background: var(--primary);
+        background: var(--scrollbar-thumb-hover);
     }
 
-    * {
-        scrollbar-width: thin;
-        scrollbar-color: var(--bg-5) var(--bg-2);
+    ::-webkit-scrollbar-thumb:active {
+        background: var(--scrollbar-thumb-active);
+    }
+
+    /* Hide browser native increment/decrement controls on number inputs */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        appearance: none;
+        margin: 0;
+    }
+
+    input[type="number"] {
+        -moz-appearance: textfield;
+        appearance: textfield;
     }
 
     /* Search highlight */
@@ -87,16 +104,6 @@
         opacity: 1;
     }
 
-    /* Custom number input arrows */
-    input[type="number"]::-webkit-inner-spin-button,
-    input[type="number"]::-webkit-outer-spin-button {
-        -webkit-appearance: none;
-        margin: 0;
-    }
-
-    input[type="number"] {
-        -moz-appearance: textfield;
-    }
 }
 
 /* Reusable primary hover effect for buttons, tabs, cards */
@@ -128,4 +135,72 @@
 /* Add token button - icon above should be part of hover area */
 .add-token-btn:hover .icon-fg {
     fill: var(--primary);
+}
+
+/* Enforce font-title on all interactive UI elements */
+.toolbar-btn,
+.toolbar-btn span,
+.toolbar-item,
+.toolbar-item span,
+button,
+button span,
+select,
+[role="button"],
+[role="menuitem"],
+[role="option"],
+.dropdown-item {
+    font-family: var(--font-title) !important;
+}
+
+/* Button groups - auto-handle rounded corners for first/last children */
+div.btn-group,
+div.btn-group-outlined {
+    display: flex !important;
+    align-items: center !important;
+    overflow: hidden !important;
+    border-radius: var(--radius-sm) !important;
+}
+
+div.btn-group {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+div.btn-group-outlined {
+    background-color: var(--bg-1) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+/* Remove border-radius from all children - high specificity */
+div.btn-group > *,
+div.btn-group-outlined > *,
+div.btn-group button,
+div.btn-group-outlined button,
+div.btn-group button.rounded-sm,
+div.btn-group-outlined button.rounded-sm,
+div.btn-group [class*="rounded"],
+div.btn-group-outlined [class*="rounded"] {
+    border-radius: 0 !important;
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+}
+
+/* First child: rounded left only */
+div.btn-group > *:first-child,
+div.btn-group-outlined > *:first-child,
+div.btn-group > *:first-child button,
+div.btn-group-outlined > *:first-child button {
+    border-top-left-radius: var(--radius-sm) !important;
+    border-bottom-left-radius: var(--radius-sm) !important;
+}
+
+/* Last child: rounded right only */
+div.btn-group > *:last-child,
+div.btn-group-outlined > *:last-child,
+div.btn-group > *:last-child button,
+div.btn-group-outlined > *:last-child button {
+    border-top-right-radius: var(--radius-sm) !important;
+    border-bottom-right-radius: var(--radius-sm) !important;
 }

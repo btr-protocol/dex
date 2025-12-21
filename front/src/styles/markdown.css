@@ -566,7 +566,7 @@
 
 /* Dark theme (default) */
 :root .mermaid-diagram svg {
-  --mermaid-primary: #f68f11;
+  --mermaid-primary: #E99339;
   --mermaid-secondary: #3d7eff;
   --mermaid-success: #10B981;
   --mermaid-error: #DB4E5C;
@@ -580,7 +580,7 @@
 :root .mermaid-dark .node ellipse,
 :root .mermaid-dark .node polygon {
   fill: #2a2a2a !important;
-  stroke: #f68f11 !important;
+  stroke: #E99339 !important;
   stroke-width: 2px !important;
 }
 
@@ -600,8 +600,8 @@
 
 :root .mermaid-dark .arrowheadPath,
 :root .mermaid-dark marker path {
-  fill: #f68f11 !important;
-  stroke: #f68f11 !important;
+  fill: #E99339 !important;
+  stroke: #E99339 !important;
 }
 
 /* Edge labels - dark theme */
@@ -620,7 +620,7 @@
 /* Sequence diagram - dark theme */
 :root .mermaid-dark .actor {
   fill: #2a2a2a !important;
-  stroke: #f68f11 !important;
+  stroke: #E99339 !important;
 }
 
 :root .mermaid-dark .actor-line {
@@ -639,7 +639,7 @@
 
 :root .mermaid-dark .note {
   fill: #3d3d3d !important;
-  stroke: #f68f11 !important;
+  stroke: #E99339 !important;
 }
 
 :root .mermaid-dark .noteText {
@@ -652,7 +652,7 @@
 .light .mermaid-light .node ellipse,
 .light .mermaid-light .node polygon {
   fill: #e8e7e3 !important;
-  stroke: #f68f11 !important;
+  stroke: #E99339 !important;
   stroke-width: 2px !important;
 }
 
@@ -672,8 +672,8 @@
 
 .light .mermaid-light .arrowheadPath,
 .light .mermaid-light marker path {
-  fill: #f68f11 !important;
-  stroke: #f68f11 !important;
+  fill: #E99339 !important;
+  stroke: #E99339 !important;
 }
 
 /* Edge labels - light theme */
@@ -692,7 +692,7 @@
 /* Sequence diagram - light theme */
 .light .mermaid-light .actor {
   fill: #e8e7e3 !important;
-  stroke: #f68f11 !important;
+  stroke: #E99339 !important;
 }
 
 .light .mermaid-light .actor-line {
@@ -711,7 +711,7 @@
 
 .light .mermaid-light .note {
   fill: #d9d8d4 !important;
-  stroke: #f68f11 !important;
+  stroke: #E99339 !important;
 }
 
 .light .mermaid-light .noteText {
@@ -735,7 +735,7 @@
 .diagram-modal-content .node ellipse,
 .diagram-modal-content .node polygon {
   fill: #2a2a2a !important;
-  stroke: #f68f11 !important;
+  stroke: #E99339 !important;
   stroke-width: 2px !important;
 }
 
@@ -754,8 +754,8 @@
 
 .diagram-modal-content .arrowheadPath,
 .diagram-modal-content marker path {
-  fill: #f68f11 !important;
-  stroke: #f68f11 !important;
+  fill: #E99339 !important;
+  stroke: #E99339 !important;
 }
 
 .diagram-modal-content .edgeLabel,
@@ -776,7 +776,7 @@
 
 .diagram-modal-content .actor {
   fill: #2a2a2a !important;
-  stroke: #f68f11 !important;
+  stroke: #E99339 !important;
 }
 
 .diagram-modal-content .messageLine0,
@@ -786,7 +786,7 @@
 
 .diagram-modal-content .note {
   fill: #3a3a3a !important;
-  stroke: #f68f11 !important;
+  stroke: #E99339 !important;
 }
 
 .diagram-modal-content .noteText {
