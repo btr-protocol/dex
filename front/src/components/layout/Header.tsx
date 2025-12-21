@@ -1,78 +1,156 @@
-import { Bell, Settings } from 'lucide-react';
-import { useAccount, useDisconnect } from 'wagmi';
-import { Button } from '@components/ui/Button';
+import { Search, Bell, Settings } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useRouter } from '@lib/router';
+import { MaskIcon } from '@components/ui/MaskIcon';
+import { WalletButton } from '@components/wallet/WalletButton';
+import { SearchModal } from '@components/SearchModal';
+import { SettingsModal } from '@components/SettingsModal';
+import { NotificationsModal } from '@components/NotificationsModal';
+import { Badge } from '@components/ui/Badge';
+import { Tooltip } from '@components/ui/Tooltip';
+import { useNotifications, removeNotification } from '@lib/notifications';
+import { LogLevel, type INotification } from '@/types/notification';
+import { headerNavigation, ROUTES } from '@/constants/navigation';
 
-interface HeaderProps {
-  onNavigate: (page: string) => void;
-  currentPage: string;
-}
+export default function Header() {
+  const { path, navigate } = useRouter();
+  const [showSearch, setShowSearch] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notifications = useNotifications();
 
-export default function Header({ onNavigate, currentPage }: HeaderProps) {
-  const { address, isConnected } = useAccount();
-  const { disconnect } = useDisconnect();
+  // Cmd+K / Ctrl+K to open search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Map simple notifications to INotification format
+  const mappedNotifications: INotification[] = notifications.map(n => ({
+    id: n.id,
+    message: n.message || n.title,
+    level: n.type === 'error' ? LogLevel.ERROR
+         : n.type === 'warning' ? LogLevel.WARNING
+         : n.type === 'success' ? LogLevel.INFO
+         : LogLevel.INFO,
+    timestamp: n.timestamp,
+  }));
+
+  const isActive = (itemPath: string) => {
+    if (itemPath === ROUTES.HOME) return path === ROUTES.HOME;
+    return path.startsWith(itemPath);
+  };
 
   return (
-    <header className="fixed top-0 w-full h-14 flex items-center z-50">
-      <nav className="max-w-7xl h-full mx-auto flex items-center justify-between px-4 border border-t-0 rounded-b-lg backdrop-blur-md bg-background/80 border-border">
-        {/* Logo & Nav */}
-        <div className="flex items-center h-full gap-6">
+    <>
+      <header className="fixed top-0 w-full h-12 flex items-center z-50">
+        <nav className="max-w-7xl h-full mx-auto w-full flex items-center justify-between gap-6 px-3 border border-t-0 rounded-b-lg backdrop-blur-md bg-background/80 border-border">
+          {/* Logo */}
           <div
-            className="text-2xl font-black tracking-tight cursor-pointer"
-            onClick={() => onNavigate('dashboard')}
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => navigate(ROUTES.HOME)}
           >
-            <span className="text-white">BTR</span>
+            <MaskIcon
+              src="/brand/logo.svg"
+              width="6rem"
+              height="2rem"
+              color="var(--fg-0)"
+              aria-label="Logo"
+            />
           </div>
 
-          <nav className="flex gap-4">
-            <button
-              onClick={() => onNavigate('dashboard')}
-              className={`text-sm font-medium transition-colors ${
-                currentPage === 'dashboard' ? 'text-primary' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={() => onNavigate('shaper')}
-              className={`text-sm font-medium transition-colors ${
-                currentPage === 'shaper' ? 'text-primary' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Shaper
-            </button>
-            <button
-              onClick={() => onNavigate('docs')}
-              className={`text-sm font-medium transition-colors ${
-                currentPage === 'docs' ? 'text-primary' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Docs
-            </button>
+          {/* Nav */}
+          <nav className="hidden md:flex items-center gap-1">
+            {headerNavigation.map((item) => (
+              <Tooltip key={item.path} content={item.description || item.title} side="bottom">
+                <button
+                  onClick={() => navigate(item.path)}
+                  className={`px-3 py-1.5 text-base font-medium font-title rounded-md transition-colors ${
+                    isActive(item.path)
+                      ? 'text-primary bg-primary/10'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  }`}
+                >
+                  {item.title}
+                </button>
+              </Tooltip>
+            ))}
           </nav>
-        </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2">
-          <div className="flex border border-border rounded-lg">
-            <Button variant="ghost" size="sm" className="rounded-r-none border-r border-border">
-              <Bell className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="rounded-l-none">
-              <Settings className="w-4 h-4" />
-            </Button>
+          {/* Actions - Single button group */}
+          <div className="flex items-center border border-border rounded-sm overflow-hidden bg-bg-1">
+            {/* Search button (fake input) */}
+            <Tooltip content="Search (⌘K)" side="bottom">
+              <button
+                onClick={() => setShowSearch(true)}
+                className="hidden md:flex toolbar-btn flex-center-gap-2 px-3 min-w-[200px] justify-start text-muted-foreground border-r border-border rounded-l-sm"
+              >
+                <Search className="w-4 h-4" />
+                <span className="text-sm">Search</span>
+                <Badge variant="code" className="ml-auto">⌘K</Badge>
+              </button>
+            </Tooltip>
+
+            {/* Notifications */}
+            <Tooltip content="Notifications" side="bottom">
+              <button
+                onClick={() => setShowNotifications(true)}
+                className="toolbar-btn border-r border-border relative"
+              >
+                <Bell className="w-4 h-4" />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-black text-[10px] font-bold rounded-full flex items-center justify-center">
+                    {notifications.length > 9 ? '9+' : notifications.length}
+                  </span>
+                )}
+              </button>
+            </Tooltip>
+
+            {/* Settings */}
+            <Tooltip content="Settings" side="bottom">
+              <button
+                onClick={() => setShowSettings(true)}
+                className="toolbar-btn border-r border-border"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            </Tooltip>
+
+            {/* Connect */}
+            <WalletButton className="!rounded-none !rounded-r-sm" />
           </div>
+        </nav>
+      </header>
 
-          {isConnected ? (
-            <Button onClick={() => disconnect()} variant="outline" size="sm">
-              {address?.slice(0, 6)}...{address?.slice(-4)}
-            </Button>
-          ) : (
-            <Button variant="primary" size="sm">
-              Connect
-            </Button>
-          )}
-        </div>
-      </nav>
-    </header>
+      <SearchModal
+        isOpen={showSearch}
+        onClose={() => setShowSearch(false)}
+        onOpenSettings={() => {
+          setShowSearch(false);
+          setShowSettings(true);
+        }}
+      />
+      <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+      <NotificationsModal
+        isOpen={showNotifications}
+        onClose={() => setShowNotifications(false)}
+        notifications={mappedNotifications}
+        onDeleteNotification={removeNotification}
+        onDeleteGroup={(message) => {
+          mappedNotifications
+            .filter(n => n.message === message)
+            .forEach(n => removeNotification(n.id));
+        }}
+        onClearAll={() => {
+          notifications.forEach(n => removeNotification(n.id));
+        }}
+      />
+    </>
   );
 }

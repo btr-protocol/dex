@@ -62,8 +62,8 @@ export function HealthPopover({ api, static: staticHealth, rpc, chainName, child
           </div>
           <div className="space-y-1">
             <HealthRow label="API" status={api} />
-            <HealthRow label="Static" status={staticHealth} />
-            <HealthRow label={chainName || 'RPC'} status={rpc} />
+            <HealthRow label="CDN" status={staticHealth} />
+            <HealthRow label={`RPC${chainName ? ` (${chainName})` : ''}`} status={rpc} />
           </div>
         </div>
       }

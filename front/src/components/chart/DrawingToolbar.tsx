@@ -353,9 +353,7 @@ export function DrawingToolbar({
   // Reusable toolbar trigger style
   const toolbarTrigger = (icon: React.ReactNode, isActive: boolean, tooltip: string) => (
     <Tooltip content={tooltip} side="bottom">
-      <div className={`h-8 px-2 flex items-center cursor-pointer transition-colors border-r border-border ${
-        isActive ? 'bg-bg-primary text-primary' : 'text-fg-2 hover:text-fg-1 hover:bg-bg-2'
-      }`}>
+      <div className={`toolbar-btn border-r border-border ${isActive ? 'toolbar-btn-active' : ''}`}>
         {icon}
       </div>
     </Tooltip>
@@ -369,7 +367,7 @@ export function DrawingToolbar({
           <Tooltip content="Select pair" side="bottom">
             <button
               onClick={() => setIsPairSelectorOpen(true)}
-              className="h-8 px-2 flex items-center gap-1.5 text-xs font-medium text-fg-1 hover:bg-bg-2 transition-colors border-r border-border"
+              className="toolbar-item"
             >
               <img src={getTokenIcon(base)} alt={base} className="w-5 h-5 rounded-full z-10 -mr-3" />
               <img src={getTokenIcon(quote)} alt={quote} className="w-5 h-5 rounded-full" />
@@ -391,7 +389,7 @@ export function DrawingToolbar({
           <Tooltip content="Invert pair" side="bottom">
             <button
               onClick={onInvertPair}
-              className="h-8 px-2 flex items-center text-fg-2 hover:text-fg-1 hover:bg-bg-2 transition-colors border-r border-border"
+              className="toolbar-btn border-r border-border"
             >
               <ArrowLeftRight className="w-4 h-4" />
             </button>
@@ -411,7 +409,7 @@ export function DrawingToolbar({
           side="bottom"
           trigger={
             <Tooltip content="Chart type" side="bottom">
-              <div className="h-8 px-2 flex items-center text-fg-2 hover:text-fg-1 hover:bg-bg-2 cursor-pointer transition-colors border-r border-border">
+              <div className="toolbar-btn border-r border-border">
                 <ChartIcon className="w-4 h-4" />
               </div>
             </Tooltip>
@@ -430,7 +428,7 @@ export function DrawingToolbar({
           side="bottom"
           trigger={
             <Tooltip content="Timeframe" side="bottom">
-              <div className="h-8 px-2 flex items-center text-xs text-fg-2 hover:text-fg-1 hover:bg-bg-2 cursor-pointer transition-colors border-r border-border">
+              <div className="toolbar-btn border-r border-border text-xs">
                 {selectedTimeframe.label}
               </div>
             </Tooltip>
@@ -450,7 +448,7 @@ export function DrawingToolbar({
             side="bottom"
             trigger={
               <Tooltip content="Price scale" side="bottom">
-                <div className="h-8 px-2 flex items-center text-xs text-fg-2 hover:text-fg-1 hover:bg-bg-2 cursor-pointer transition-colors border-r border-border">
+                <div className="toolbar-btn border-r border-border text-xs">
                   {PRICE_SCALE_OPTIONS.find(o => o.value === priceScaleMode)?.label || 'Linear'}
                 </div>
               </Tooltip>
@@ -480,8 +478,8 @@ export function DrawingToolbar({
           ) : undefined}
           trigger={
             <Tooltip content="Presets" side="bottom">
-              <div className={`h-8 px-2 flex items-center gap-1.5 text-xs hover:bg-bg-2 cursor-pointer transition-colors border-r border-border ${
-                activeIndicators.length > 0 ? 'text-primary' : 'text-fg-2 hover:text-fg-1'
+              <div className={`toolbar-btn flex-center-gap-1.5 border-r border-border text-xs ${
+                activeIndicators.length > 0 ? 'toolbar-btn-active' : ''
               }`}>
                 <FunctionSquare className="w-4 h-4" />
                 <span>Presets{activeIndicators.length > 0 ? ` (${activeIndicators.length})` : ''}</span>
@@ -554,7 +552,7 @@ export function DrawingToolbar({
           <Tooltip content={`Delete${selectedCount > 1 ? ` (${selectedCount})` : ''} (Del)`} side="bottom">
             <button
               onClick={onDelete}
-              className="h-8 px-2 flex items-center text-fg-2 hover:text-red hover:bg-bg-2 transition-colors border-r border-border"
+              className="toolbar-btn border-r border-border hover:text-red"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -581,7 +579,7 @@ export function DrawingToolbar({
           side="bottom"
           trigger={
             <Tooltip content="Export" side="bottom">
-              <div className="h-8 px-2 flex items-center text-fg-2 hover:text-fg-1 hover:bg-bg-2 cursor-pointer transition-colors border-r border-border">
+              <div className="toolbar-btn border-r border-border">
                 <Download className="w-4 h-4" />
               </div>
             </Tooltip>
@@ -593,7 +591,7 @@ export function DrawingToolbar({
           <Tooltip content="Open in window" side="bottom">
             <button
               onClick={onOpenWindow}
-              className="h-8 px-2 flex items-center text-fg-2 hover:text-fg-1 hover:bg-bg-2 transition-colors"
+              className="toolbar-btn"
             >
               <Maximize2 className="w-4 h-4" />
             </button>
@@ -605,7 +603,7 @@ export function DrawingToolbar({
           <Tooltip content={theme === 'dark' ? 'Light mode' : 'Dark mode'} side="bottom">
             <button
               onClick={toggleTheme}
-              className="h-8 px-2 flex items-center text-fg-2 hover:text-fg-1 hover:bg-bg-2 transition-colors"
+              className="toolbar-btn"
             >
               {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>

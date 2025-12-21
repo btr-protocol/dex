@@ -47,6 +47,9 @@ interface PriceChartProps {
   standalone?: boolean;
   onChangePair?: (base: string, quote: string) => void;
   onInvertPair?: () => void;
+  onTimeframeChange?: (timeframe: number) => void;
+  onChartTypeChange?: (chartType: ChartType) => void;
+  onIndicatorsChange?: (indicators: InitialIndicator[]) => void;
 }
 
 export function PriceChart({
@@ -60,6 +63,9 @@ export function PriceChart({
   standalone = false,
   onChangePair,
   onInvertPair,
+  onTimeframeChange,
+  onChartTypeChange,
+  onIndicatorsChange,
 }: PriceChartProps) {
   // Canonical pair - fetch data using canonical direction
   const canonical = getCanonicalPair(base, quote);
@@ -80,6 +86,23 @@ export function PriceChart({
   const [activeIndicators, setActiveIndicators] = useState<IndicatorKey[]>(() =>
     initialIndicators.map(i => i.preset)
   );
+
+  // Notify parent when chart state changes
+  useEffect(() => {
+    onTimeframeChange?.(timeframe);
+  }, [timeframe, onTimeframeChange]);
+
+  useEffect(() => {
+    onChartTypeChange?.(chartType);
+  }, [chartType, onChartTypeChange]);
+
+  useEffect(() => {
+    const indicators: InitialIndicator[] = activeIndicators.map(preset => ({
+      preset,
+      params: getParams(preset),
+    }));
+    onIndicatorsChange?.(indicators);
+  }, [activeIndicators, getParams, onIndicatorsChange]);
   const [pairInfoLoading, setPairInfoLoading] = useState(true);
   const [pairInfo, setPairInfo] = useState<ReturnType<typeof getPairFeedInfo>>({
     isSynthetic: false,

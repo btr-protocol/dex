@@ -5,6 +5,8 @@ import { ArrowRight, ExternalLink, Settings, Zap, Link2, FileText, Repeat2, Tren
 import { searchGrouped, initializeSearch } from '@lib/search';
 import { useRouter } from '@lib/router';
 import { MaskIcon } from '@components/ui/MaskIcon';
+import { useModalState } from '@hooks/useModalState';
+import { ROUTES } from '@/constants/navigation';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -75,8 +77,8 @@ const getLinkIcon = (title: string): string | null => {
 };
 
 export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProps) {
-  const [query, setQuery] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [query, setQuery] = useModalState('', isOpen);
+  const [selectedIndex, setSelectedIndex] = useModalState(0, isOpen);
   const [isReady, setIsReady] = useState(false);
   const router = useRouter();
   const navigate = router?.navigate ?? (() => {});
@@ -87,14 +89,6 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
       initializeSearch().then(() => setIsReady(true));
     }
   }, [isOpen, isReady]);
-
-  // Reset state when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setQuery('');
-      setSelectedIndex(0);
-    }
-  }, [isOpen]);
 
   const results = searchGrouped(query);
   const filteredFeatures = results.Features.filter(r => r.title !== 'Documentation');
@@ -116,7 +110,7 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
   };
 
   const handleSelect = (path: string, settingsSection?: string) => {
-    if (path === '/settings' && onOpenSettings) {
+    if (path === ROUTES.SETTINGS && onOpenSettings) {
       onOpenSettings(settingsSection);
       onClose(false);
     } else if (path.startsWith('http')) {

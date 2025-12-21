@@ -31,7 +31,7 @@ export function PriceChart(props: PriceChartProps) {
     >
       <PriceChartComponent {...props} />
     </Suspense>
-  );
+  ) as JSX.Element;
 }
 
 // Re-export PriceDisplay from PriceChart (it doesn't use lightweight-charts at runtime,

@@ -4,6 +4,7 @@ import { formatUnits } from 'viem';
 import { loadAddresses } from '@/contracts/addresses';
 import { useRegisteredAssets, useAssetState, useOraclePrice, useCoverageRatio } from '@/hooks/usePoolState';
 import { useTokenInfo } from '@/hooks/useTokenInfo';
+import { Badge } from '@components/ui/Badge';
 import type { Address } from 'viem';
 
 interface AssetRowProps {
@@ -59,9 +60,9 @@ function AssetRow({ address }: AssetRowProps) {
       </td>
       <td className="px-4 py-3">
         <div className="flex gap-2">
-          <span className="text-xs px-2 py-1 bg-teal-500/20 text-teal-400 rounded">
+          <Badge variant="default" className="bg-cyan/20 text-cyan border-cyan">
             {asset.minFeeBps / 100}% - {asset.maxFeeBps / 100}%
-          </span>
+          </Badge>
         </div>
       </td>
     </tr>

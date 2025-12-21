@@ -36,7 +36,7 @@ function renderSetting(setting: SettingDef, value: any, onChange: (val: any) => 
           variant="number"
           type="number"
           value={value}
-          onInput={(e) => onChange(parseFloat((e.target as HTMLInputElement).value) || cfg.min)}
+          onInput={(e: Event) => onChange(parseFloat(((e.target as HTMLInputElement).value) || cfg.min.toString()))}
           step={cfg.step}
           min={cfg.min}
           max={cfg.max}
@@ -51,7 +51,7 @@ function renderSetting(setting: SettingDef, value: any, onChange: (val: any) => 
         <span className="text-sm text-muted-foreground font-normal">{setting.label}</span>
         <Slider
           value={[value]}
-          onValueChange={(v) => onChange(v[0])}
+          onValueChange={(v: number[]) => onChange(v[0])}
           min={cfg.min}
           max={cfg.max}
           step={cfg.step}
