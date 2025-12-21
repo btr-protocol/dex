@@ -96,13 +96,6 @@ export function PriceChart({
     onChartTypeChange?.(chartType);
   }, [chartType, onChartTypeChange]);
 
-  useEffect(() => {
-    const indicators: InitialIndicator[] = activeIndicators.map(preset => ({
-      preset,
-      params: getParams(preset),
-    }));
-    onIndicatorsChange?.(indicators);
-  }, [activeIndicators, getParams, onIndicatorsChange]);
   const [pairInfoLoading, setPairInfoLoading] = useState(true);
   const [pairInfo, setPairInfo] = useState<ReturnType<typeof getPairFeedInfo>>({
     isSynthetic: false,
@@ -112,6 +105,14 @@ export function PriceChart({
 
   // Params hook
   const { getParams, setParams } = useIndicatorParams(initialIndicators);
+
+  useEffect(() => {
+    const indicators: InitialIndicator[] = activeIndicators.map(preset => ({
+      preset,
+      params: getParams(preset),
+    }));
+    onIndicatorsChange?.(indicators);
+  }, [activeIndicators, getParams, onIndicatorsChange]);
 
   // Modal state
   const [editingKey, setEditingKey] = useState<IndicatorKey | null>(null);
