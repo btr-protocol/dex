@@ -45,32 +45,12 @@ export const WALLETS: WalletDef[] = [
   // Major wallets
   { id: 'metamask', name: 'MetaMask', url: 'https://metamask.io', rdns: 'io.metamask', flag: 'isMetaMask', mobile: true, wc: true, discoverMobile: true, discoverDesktop: true },
   { id: 'rabby', name: 'Rabby', url: 'https://rabby.io', rdns: 'io.rabby', path: 'rabby', flag: 'isRabby', discoverDesktop: true },
-  { id: 'phantom', name: 'Phantom', url: 'https://phantom.com', rdns: 'app.phantom', path: 'phantom.ethereum', flag: 'isPhantom', mobile: true, wc: true, discoverMobile: true, discoverDesktop: true },
-  { id: 'base', name: 'Base', url: 'https://wallet.coinbase.com', rdns: 'com.coinbase.wallet', path: 'coinbaseWalletExtension', flag: 'isCoinbaseWallet', mobile: true, wc: true, discoverMobile: true, discoverDesktop: true },
-  { id: 'trust', name: 'Trust', url: 'https://trustwallet.com', rdns: 'com.trustwallet.app', path: 'trustwallet', flag: 'isTrust', mobile: true, wc: true, discoverMobile: true, discoverDesktop: true },
   { id: 'rainbow', name: 'Rainbow', url: 'https://rainbow.me', rdns: 'me.rainbow', path: 'rainbow', flag: 'isRainbow', mobile: true, wc: true, discoverMobile: true, discoverDesktop: true },
+  { id: 'phantom', name: 'Phantom', url: 'https://phantom.com', rdns: 'app.phantom', path: 'phantom.ethereum', flag: 'isPhantom', mobile: true, wc: true, discoverMobile: true, discoverDesktop: true },
+  { id: 'trust', name: 'Trust', url: 'https://trustwallet.com', rdns: 'com.trustwallet.app', path: 'trustwallet', flag: 'isTrust', mobile: true, wc: true, discoverMobile: true, discoverDesktop: true },
+  { id: 'base', name: 'Base', url: 'https://wallet.coinbase.com', rdns: 'com.coinbase.wallet', path: 'coinbaseWalletExtension', flag: 'isCoinbaseWallet', mobile: true, wc: true, discoverMobile: true, discoverDesktop: true },
   { id: 'safe', name: 'Safe', url: 'https://safe.global', rdns: 'global.safe.wallet', wc: true },
   { id: 'backpack', name: 'Backpack', url: 'https://backpack.app', rdns: 'app.backpack', path: 'backpack.ethereum', flag: 'isBackpack' },
-
-  // Exchange wallets
-  { id: 'okx', name: 'OKX', url: 'https://web3.okx.com', rdns: 'com.okex.wallet', path: 'okxwallet', flag: 'isOkxWallet', wc: true, discoverMobile: true, discoverDesktop: true },
-  { id: 'bitget', name: 'Bitget', url: 'https://web3.bitget.com', rdns: 'com.bitget.wallet', path: 'bitkeep.ethereum', flag: 'isBitKeep', wc: true },
-  { id: 'bybit', name: 'Bybit', url: 'https://www.bybit.com/en/web3', wc: true },
-  { id: 'binance', name: 'Binance', url: 'https://www.binance.com', path: 'BinanceChain', flag: 'isBinance', wc: true },
-  { id: 'gate', name: 'Gate', url: 'https://web3.gate.io', rdns: 'io.gate.wallet', path: 'gatewallet', flag: 'isGateWallet', wc: true },
-  { id: 'kucoin', name: 'KuCoin', url: 'https://kucoin.com', wc: true },
-
-  // DeFi wallets
-  { id: 'zerion', name: 'Zerion', url: 'https://zerion.io', rdns: 'io.zerion.wallet', path: 'zerionWallet', flag: 'isZerion' },
-  { id: 'tokenpocket', name: 'TokenPocket', url: 'https://tokenpocket.pro', rdns: 'pro.tokenpocket', path: 'tokenpocket.ethereum', flag: 'isTokenPocket' },
-  { id: 'coin98', name: 'Coin98', url: 'https://coin98.com', rdns: 'com.coin98', path: 'coin98.provider', flag: 'isCoin98' },
-  { id: 'onekey', name: 'OneKey', url: 'https://onekey.so', rdns: 'so.onekey.wallet', path: '$onekey.ethereum', flag: 'isOneKey' },
-  { id: 'safepal', name: 'SafePal', url: 'https://safepal.com', rdns: 'com.safepal', path: 'safepalProvider', flag: 'isSafePal', wc: true },
-  { id: 'argent', name: 'Argent', url: 'https://argent.xyz', rdns: 'xyz.argent', wc: true },
-  { id: 'uniswap', name: 'Uniswap', url: 'https://wallet.uniswap.org', rdns: 'org.uniswap', wc: true, discoverMobile: true },
-  { id: '1inch', name: '1inch', url: 'https://1inch.io/wallet', rdns: 'io.1inch.wallet', wc: true, discoverMobile: true },
-  { id: 'imtoken', name: 'imToken', url: 'https://token.im', rdns: 'im.token', wc: true },
-  { id: 'family', name: 'Family', url: 'https://family.co', rdns: 'co.family.wallet', wc: true, discoverMobile: true },
 
   // Hardware wallets
   { id: 'ledger', name: 'Ledger', url: 'https://ledger.com', wc: true },
@@ -78,9 +58,29 @@ export const WALLETS: WalletDef[] = [
   { id: 'tangem', name: 'Tangem', url: 'https://tangem.com', wc: true },
 
   // Institutional
-  { id: 'fireblocks', name: 'Fireblocks', url: 'https://fireblocks.com', wc: true },
-  { id: 'bitgo', name: 'BitGo', url: 'https://bitgo.com', wc: true },
   { id: 'copper', name: 'Copper', url: 'https://copper.co', wc: true },
+  { id: 'bitgo', name: 'BitGo', url: 'https://bitgo.com', wc: true },
+  { id: 'fireblocks', name: 'Fireblocks', url: 'https://fireblocks.com', wc: true },
+
+  // Exchange wallets
+  { id: 'binance', name: 'Binance', url: 'https://www.binance.com', path: 'BinanceChain', flag: 'isBinance', wc: true },
+  { id: 'okx', name: 'OKX', url: 'https://web3.okx.com', rdns: 'com.okex.wallet', path: 'okxwallet', flag: 'isOkxWallet', wc: true, discoverMobile: true, discoverDesktop: true },
+  { id: 'bitget', name: 'Bitget', url: 'https://web3.bitget.com', rdns: 'com.bitget.wallet', path: 'bitkeep.ethereum', flag: 'isBitKeep', wc: true },
+  { id: 'gate', name: 'Gate', url: 'https://web3.gate.io', rdns: 'io.gate.wallet', path: 'gatewallet', flag: 'isGateWallet', wc: true },
+  { id: 'bybit', name: 'Bybit', url: 'https://www.bybit.com/en/web3', wc: true },
+  { id: 'kucoin', name: 'KuCoin', url: 'https://kucoin.com', wc: true },
+
+  // DeFi wallets
+  { id: 'zerion', name: 'Zerion', url: 'https://zerion.io', rdns: 'io.zerion.wallet', path: 'zerionWallet', flag: 'isZerion' },
+  { id: 'tokenpocket', name: 'TokenPocket', url: 'https://tokenpocket.pro', rdns: 'pro.tokenpocket', path: 'tokenpocket.ethereum', flag: 'isTokenPocket' },
+  { id: 'coin98', name: 'Coin98', url: 'https://coin98.com', rdns: 'com.coin98', path: 'coin98.provider', flag: 'isCoin98' },
+  { id: 'onekey', name: 'OneKey', url: 'https://onekey.so', rdns: 'so.onekey.wallet', path: '$onekey.ethereum', flag: 'isOneKey' },
+  { id: 'family', name: 'Family', url: 'https://family.co', rdns: 'co.family.wallet', wc: true, discoverMobile: true },
+  { id: '1inch', name: '1inch', url: 'https://1inch.io/wallet', rdns: 'io.1inch.wallet', wc: true, discoverMobile: true },
+  { id: 'uniswap', name: 'Uniswap', url: 'https://wallet.uniswap.org', rdns: 'org.uniswap', wc: true, discoverMobile: true },
+  { id: 'imtoken', name: 'imToken', url: 'https://token.im', rdns: 'im.token', wc: true },
+  { id: 'safepal', name: 'SafePal', url: 'https://safepal.com', rdns: 'com.safepal', path: 'safepalProvider', flag: 'isSafePal', wc: true },
+  { id: 'argent', name: 'Argent', url: 'https://argent.xyz', rdns: 'xyz.argent', wc: true },
 
   // Browser & other
   { id: 'brave', name: 'Brave', url: 'https://brave.com/wallet', rdns: 'com.brave.wallet', flag: 'isBraveWallet' },
