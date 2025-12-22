@@ -1,4 +1,5 @@
 import PageContainer from '@/components/layout/PageContainer';
+import { MaskIcon } from '@/components/ui/MaskIcon';
 
 interface ViewEmptyStateProps {
     title: string;
@@ -9,14 +10,15 @@ export function ViewEmptyState({ title, description }: ViewEmptyStateProps) {
     return (
         <PageContainer title={title}>
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
-                <img
-                    src="/build.svg"
-                    alt="Under construction"
-                    className="w-32 h-32 opacity-50"
+                <MaskIcon
+                    src="/icons/build.svg"
+                    width="8rem"
+                    height="8rem"
+                    color="var(--primary)"
+                    aria-label="Under construction"
                 />
                 <div className="text-center max-w-md">
-                    <h2 className="text-2xl font-bold text-foreground mb-2">{title}</h2>
-                    <p className="text-muted-foreground">{description}</p>
+                    <p className="text-fg-1 max-w-[300px]">{description}</p>
                 </div>
             </div>
         </PageContainer>

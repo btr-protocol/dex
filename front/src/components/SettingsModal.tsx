@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'preact/hooks';
-import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
+import { BaseModal } from '@components/ui/BaseModal';
 import { Accordion } from '@components/ui/Accordion';
 import { Expandable } from '@components/ui/Expandable';
 import { Switch } from '@components/ui/Switch';
 import { Slider } from '@components/ui/Slider';
 import { Input } from '@components/ui/Input';
 import { Dropdown } from '@components/ui/Dropdown';
+import { SearchEmptyState } from '@components/ui/SearchEmptyState';
 import { useTheme } from '@lib/theme';
 import { useSettings } from '@lib/settings';
 import { SETTINGS_SCHEMA, type SettingDef } from '@/config/settings';
@@ -119,8 +120,14 @@ export function SettingsModal({ isOpen, onClose, initialSection }: SettingsModal
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
     >
-      <div className={`${MODAL_PADDING} py-4`}>
-        <Accordion defaultOpen={initialSection || "execution"} autoClose={!searchQuery} className="border border-border rounded-md overflow-hidden">
+      {filteredSchema.length === 0 ? (
+        <SearchEmptyState
+          query={searchQuery}
+          message="No settings found"
+          onReset={() => setSearchQuery('')}
+        />
+      ) : (
+        <Accordion defaultOpen={initialSection || "execution"} autoClose={!searchQuery} className="rounded-md overflow-hidden">
           {filteredSchema.map(category => {
             const Icon = category.icon;
             return (
@@ -150,7 +157,7 @@ export function SettingsModal({ isOpen, onClose, initialSection }: SettingsModal
             );
           })}
         </Accordion>
-      </div>
+      )}
     </BaseModal>
   );
 }

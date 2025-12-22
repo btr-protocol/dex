@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { BaseModal } from '@components/ui/BaseModal';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
+import { SearchEmptyState } from '@components/ui/SearchEmptyState';
 import { ArrowRight, ExternalLink, Settings, Zap, Link2, FileText, Repeat2, TrendingUp, Plus } from 'lucide-react';
 import { searchGrouped, initializeSearch } from '@lib/search';
 import { useRouter } from '@lib/router';
@@ -147,9 +148,11 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
               Type to search features, settings, links, and documentation
             </div>
           ) : allResults.length === 0 ? (
-            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-              No results found for "{query}"
-            </div>
+            <SearchEmptyState
+              query={query}
+              message="No results found"
+              onReset={() => setQuery('')}
+            />
           ) : (
             <div className="flex flex-col">
               {filteredFeatures.length > 0 && (
