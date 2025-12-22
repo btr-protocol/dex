@@ -123,12 +123,12 @@ export default function PairSelector({
           <img
             src={baseIcon}
             alt={base}
-            className="absolute left-0 w-8 h-8 rounded-full"
+            className="absolute -left-1 w-8 h-8 rounded-full"
           />
           <img
             src={quoteIcon}
             alt={quote}
-            className="absolute left-5 -bottom-2.5 w-6 h-6 rounded-full"
+            className="absolute left-4 -bottom-2 w-6 h-6 rounded-full"
           />
         </div>
       );
@@ -203,6 +203,13 @@ export default function PairSelector({
     </div>
   );
 
+  // Reset all filters (token filter + search)
+  const handleResetFilters = () => {
+    setSelectedTokens([...SUPPORTED_TOKENS]);
+  };
+
+  const hasActiveFilters = selectedTokens.length < SUPPORTED_TOKENS.length;
+
   return (
     <>
       <SelectionModal
@@ -217,6 +224,8 @@ export default function PairSelector({
         filterFn={filterFn}
         filterSection={filterSection}
         emptyMessage="No pairs found"
+        onResetFilters={handleResetFilters}
+        hasActiveFilters={hasActiveFilters}
         maxWidth="max-w-md"
       />
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, ReactNode, ComponentType } from 'react';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { Button } from '@components/ui/Button';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
+import { SearchEmptyState } from '@components/ui/SearchEmptyState';
 import { Check, LucideProps } from 'lucide-react';
 import { addNotification } from '@lib/notifications';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
@@ -47,6 +48,8 @@ interface SelectionModalProps {
   filterFn?: (item: SelectionItem, search: string) => boolean;
   filterSection?: ReactNode;
   emptyMessage?: string;
+  onResetFilters?: () => void; // Optional: called when reset button is clicked
+  hasActiveFilters?: boolean; // Optional: show reset button if true
   maxWidth?: string;
   multiSelect?: boolean; // Backward compat - will derive from min/max
   applyLabel?: string; // Label for apply button (default: "Ok")
@@ -65,6 +68,8 @@ export function SelectionModal({
   filterFn,
   filterSection,
   emptyMessage = 'No items found',
+  onResetFilters,
+  hasActiveFilters = false,
   maxWidth = 'max-w-lg',
   multiSelect = false,
   applyLabel = 'Ok',
@@ -238,9 +243,12 @@ export function SelectionModal({
           );
         })}
         {filteredItems.length === 0 && (
-          <div className={`${MODAL_PADDING} py-8 text-center text-sm text-muted-foreground`}>
-            {emptyMessage}
-          </div>
+          <SearchEmptyState
+            query={search}
+            message={emptyMessage}
+            onReset={onResetFilters || (() => setSearch(''))}
+            hasFilters={hasActiveFilters || !!search}
+          />
         )}
       </div>
     </BaseModal>

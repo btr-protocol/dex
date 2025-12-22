@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, ReactNode, ComponentType } from 'react';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { Button } from '@components/ui/Button';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
+import { SearchEmptyState } from '@components/ui/SearchEmptyState';
 import { Check, LucideProps } from 'lucide-react';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { addNotification } from '@lib/notifications';
@@ -194,9 +195,12 @@ export function MultiSelectModal({
           );
         })}
         {filteredOptions.length === 0 && (
-          <div className={`${MODAL_PADDING} py-8 text-center text-sm text-muted-foreground`}>
-            No results found
-          </div>
+          <SearchEmptyState
+            query={search}
+            message="No options found"
+            onReset={() => setSearch('')}
+            hasFilters={false}
+          />
         )}
       </div>
     </BaseModal>

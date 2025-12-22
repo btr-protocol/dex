@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from 'preact/hooks';
-import { Download, Trash2, FilterX, Bug, Info, AlertTriangle, XCircle } from 'lucide-react';
+import { Download, Trash2, Bug, Info, AlertTriangle, XCircle } from 'lucide-react';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
+import { SearchEmptyState } from '@components/ui/SearchEmptyState';
 import { DownloadModal } from '@components/DownloadModal';
-import { Tooltip, Button, ButtonGroup } from '@components/ui';
+import { Tooltip, ButtonGroup } from '@components/ui';
 import { Notification } from '@components/Notification';
 import { INotification, LogLevel } from '@/types/notification';
 
@@ -151,7 +152,7 @@ export function NotificationsModal({
   };
 
   const allLevelsSelected = selectedLevels.length === logLevelFilterOptions.length;
-  const hasActiveFilters = searchQuery || !allLevelsSelected;
+  const hasActiveFilters = !!searchQuery || !allLevelsSelected;
 
   return (
     <>
@@ -213,19 +214,12 @@ export function NotificationsModal({
               </div>
             ))
           ) : (
-            <div className={`${MODAL_PADDING} py-12 text-center`}>
-              <p className="text-muted-foreground mb-4">No notifications found</p>
-              {hasActiveFilters && (
-                <Button
-                  onClick={resetFilters}
-                  variant="default"
-                  size="sm"
-                  leftIcon={<FilterX className="w-4 h-4" />}
-                >
-                  Reset filters
-                </Button>
-              )}
-            </div>
+            <SearchEmptyState
+              query={searchQuery}
+              message="No notifications found"
+              onReset={resetFilters}
+              hasFilters={hasActiveFilters}
+            />
           )}
         </div>
       </BaseModal>
