@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
-import { cn } from '@utils/cn';
+import { cva } from '@utils/cva';
 import { Button } from './Button';
 
 export interface ErrorStateProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -9,6 +9,19 @@ export interface ErrorStateProps extends React.HTMLAttributes<HTMLDivElement> {
   onRetry?: () => void;
   variant?: 'default' | 'fullscreen' | 'inline';
 }
+
+const errorStateVariants = cva('', {
+  variants: {
+    variant: {
+      fullscreen: 'min-h-screen bg-background flex items-center justify-center',
+      default: 'bg-bg-1 rounded-lg p-8 border border-red/50',
+      inline: 'p-4',
+    },
+  },
+  defaultVariants: {
+    variant: 'default',
+  },
+});
 
 const ErrorState = React.forwardRef<HTMLDivElement, ErrorStateProps>(
   (
@@ -22,14 +35,8 @@ const ErrorState = React.forwardRef<HTMLDivElement, ErrorStateProps>(
     },
     ref
   ) => {
-    const variantStyles = {
-      fullscreen: 'min-h-screen bg-background flex items-center justify-center',
-      default: 'bg-bg-1 rounded-lg p-8 border border-red/50',
-      inline: 'p-4',
-    };
-
     return (
-      <div ref={ref} className={cn(variantStyles[variant], className)} {...props}>
+      <div ref={ref} className={errorStateVariants({ variant, className })} {...props}>
         <div className="text-center max-w-md mx-auto">
           <div className="flex justify-center mb-4">
             <div className="w-12 h-12 rounded-full bg-red/10 flex items-center justify-center">

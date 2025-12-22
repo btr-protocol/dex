@@ -1,5 +1,5 @@
 import type { ReactNode } from 'preact/compat';
-import { cn } from '@utils/cn';
+import { cva } from '@utils/cva';
 
 export interface BadgeProps {
   children: ReactNode;
@@ -27,28 +27,33 @@ export interface BadgeProps {
  * - negative: bg-red text-white (error/negative states)
  * - code: bg-bg-2 text-fg-1 font-mono (keyboard shortcuts, code snippets)
  */
+
+const badgeVariants = cva(
+  'inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-xs',
+  {
+    variants: {
+      variant: {
+        default: 'bg-bg-2 text-fg-1 border border-border font-medium',
+        primary: 'bg-bg-primary text-primary border border-primary font-medium',
+        positive: 'bg-bg-green text-green font-medium',
+        negative: 'bg-bg-red text-red font-medium',
+        code: 'bg-bg-2 text-fg-1 border border-border font-mono',
+        secondary: 'bg-bg-2 text-fg-2 border border-border font-medium',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+    },
+  }
+);
+
 export function Badge({
   children,
   variant = 'default',
   className,
 }: BadgeProps) {
-  const variantStyles: Record<string, string> = {
-    default: 'bg-bg-2 text-fg-1 border border-border font-medium',
-    primary: 'bg-bg-primary text-primary border border-primary font-medium',
-    positive: 'bg-bg-green text-green font-medium',
-    negative: 'bg-bg-red text-red font-medium',
-    code: 'bg-bg-2 text-fg-1 border border-border font-mono',
-    secondary: 'bg-bg-2 text-fg-2 border border-border font-medium',
-  };
-
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-xs',
-        variantStyles[variant],
-        className
-      )}
-    >
+    <span className={badgeVariants({ variant, className })}>
       {children}
     </span>
   );

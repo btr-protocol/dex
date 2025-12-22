@@ -1,11 +1,33 @@
 import * as React from "react"
 import { cn } from "@utils/cn"
+import { cva } from "@utils/cva"
 import { BORDER_RADIUS } from "./sizes"
 
 export interface ButtonGroupProps extends React.HTMLAttributes<HTMLDivElement> {
   direction?: "horizontal" | "vertical"
   variant?: "default" | "compact" | "outlined"
 }
+
+const buttonGroupVariants = cva(
+  `flex overflow-hidden ${BORDER_RADIUS}`,
+  {
+    variants: {
+      direction: {
+        horizontal: "items-center",
+        vertical: "flex-col",
+      },
+      variant: {
+        default: "",
+        compact: "bg-bg-2",
+        outlined: "border border-border",
+      },
+    },
+    defaultVariants: {
+      direction: "horizontal",
+      variant: "default",
+    },
+  }
+);
 
 const ButtonGroup = React.forwardRef<HTMLDivElement, ButtonGroupProps>(
   ({ className, direction = "horizontal", variant = "default", children, ...props }, ref) => {
@@ -17,14 +39,7 @@ const ButtonGroup = React.forwardRef<HTMLDivElement, ButtonGroupProps>(
     return (
       <div
         ref={ref}
-        className={cn(
-          "flex overflow-hidden",
-          BORDER_RADIUS,
-          direction === "vertical" ? "flex-col" : "items-center",
-          variant === "outlined" ? "border border-border" : "",
-          variant === "compact" ? "bg-bg-2" : "",
-          className
-        )}
+        className={buttonGroupVariants({ direction, variant, className })}
         {...props}
       >
         {React.Children.map(childrenArray, (child, index) => {
