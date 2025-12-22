@@ -49,6 +49,10 @@ function watchDocsPlugin() {
     },
     // Build search index and compiled markdown on server start
     buildStart() {
+      if (process.env.SKIP_PREBUILD === '1') {
+        console.log('Skipping docs assets build (SKIP_PREBUILD=1)')
+        return
+      }
       try {
         execSync('bun run build:search-index && bun run build:markdown', { cwd: __dirname, stdio: 'inherit' })
       } catch (err) {
