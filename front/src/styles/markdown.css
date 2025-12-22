@@ -412,6 +412,16 @@
   display: none !important;
 }
 
+/* Hide empty table headers */
+.markdown-content table thead:has(th:empty, th:not(:has(*)):not([class])) {
+  display: none !important;
+}
+
+/* Also hide if all header cells are empty */
+.markdown-content table thead tr:has(th):not(:has(th:not(:empty))) {
+  display: none !important;
+}
+
 /* Math Formulas */
 .markdown-content .math-block {
   background-color: var(--bg-2);

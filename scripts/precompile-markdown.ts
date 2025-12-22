@@ -24,6 +24,8 @@ interface CompiledDoc {
   title: string;
   html: string;
   category: string | null;
+  prev?: { path: string; label: string } | null;
+  next?: { path: string; label: string } | null;
 }
 
 // Mermaid theme configuration matching our app theme
@@ -996,6 +998,48 @@ async function main() {
   }
 
   console.log(`✓ Compiled ${Object.keys(compiledDocs).length} documents`);
+
+  // Add prev/next navigation to each doc
+  const sortKey = (slug: string) => {
+    // Special ordering for top-level docs
+    const order: Record<string, number> = {
+      'overview': 0,
+      'manifesto': 1,
+      'foundations': 2,
+      'glossary': 999,
+    };
+
+    if (order[slug] !== undefined) {
+      return `0-${order[slug].toString().padStart(3, '0')}`;
+    }
+
+    // Extract numeric prefix for sorting (e.g., "1.1.6" from "1.1.6-toxic-flow-mitigation")
+    const match = slug.match(/^([\d.]+)/);
+    if (match) {
+      const parts = match[1].split('.').map(n => n.padStart(3, '0'));
+      return `1-${parts.join('.')}`;
+    }
+
+    return `2-${slug}`;
+  };
+
+  const orderedSlugs = Object.keys(compiledDocs).sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+
+  // Add prev/next to each doc
+  for (let i = 0; i < orderedSlugs.length; i++) {
+    const slug = orderedSlugs[i];
+    const doc = compiledDocs[slug];
+
+    doc.prev = i > 0 ? {
+      path: `/docs/${orderedSlugs[i - 1]}`,
+      label: compiledDocs[orderedSlugs[i - 1]].title
+    } : null;
+
+    doc.next = i < orderedSlugs.length - 1 ? {
+      path: `/docs/${orderedSlugs[i + 1]}`,
+      label: compiledDocs[orderedSlugs[i + 1]].title
+    } : null;
+  }
 
   // Write compiled docs as a single JSON file
   const outputPath = join(outputDir, 'docs.json');
