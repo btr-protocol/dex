@@ -41,6 +41,9 @@ export {
   getHealthyRpc,
   getSupportedChainIds,
   getMainnetChainIds,
+  isTestOrLocalChain,
+  detectAnvilFork,
+  getAnvilChainConfig,
 } from './chains';
 
 // Tokens
