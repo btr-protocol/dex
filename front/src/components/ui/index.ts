@@ -38,6 +38,7 @@ export { ModalActions } from './ModalActions';
 export { Badge } from './Badge';
 export { ErrorState } from './ErrorState';
 export { LoadingState } from './LoadingState';
+export { SearchEmptyState } from './SearchEmptyState';
 export { MaskIcon } from './MaskIcon';
 export { IconLabel } from './IconLabel';
 export { PercentageChange } from './PercentageChange';
