@@ -57,7 +57,11 @@ function AppContent() {
     }
 
     if (path === ROUTES.DOCS || path.startsWith(ROUTES.DOCS + '/')) {
-      return <DocsPage />;
+      // Extract slug from path like /docs/1.1.6-Toxic-Flow-Mitigation
+      const slug = path === ROUTES.DOCS
+        ? 'overview'
+        : path.replace(ROUTES.DOCS + '/', '').toLowerCase();
+      return <DocsPage slug={slug} />;
     }
 
     switch (path) {

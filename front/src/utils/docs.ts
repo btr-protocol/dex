@@ -5,6 +5,8 @@ export interface DocFile {
   content: string;
   frontMatter: Record<string, any>;
   category?: string | null;
+  prev?: { path: string; label: string } | null;
+  next?: { path: string; label: string } | null;
 }
 
 export interface DocStructure {
@@ -66,6 +68,8 @@ export async function getDocBySlug(slug: string): Promise<DocFile | null> {
       content: doc.html, // Using HTML from compiled docs
       frontMatter: {},
       category: doc.category,
+      prev: doc.prev || null,
+      next: doc.next || null,
     };
 
     // Cache the result
@@ -84,9 +88,24 @@ export async function getDocCategories(): Promise<string[]> {
 }
 
 export async function getAllDocs(): Promise<DocFile[]> {
-  const docs: DocFile[] = [];
+  try {
+    const response = await fetch('/compiled-docs/docs.json');
+    if (!response.ok) {
+      return [];
+    }
 
-  // This is a simplified version that would need to be expanded
-  // For now, return empty array as this function isn't used by the current UI
-  return docs;
+    const allDocs = await response.json();
+    return Object.values(allDocs).map((doc: any) => ({
+      slug: doc.slug,
+      title: doc.title,
+      content: doc.html,
+      frontMatter: {},
+      category: doc.category,
+      prev: doc.prev || null,
+      next: doc.next || null,
+    }));
+  } catch (error) {
+    console.error("Error loading all docs:", error);
+    return [];
+  }
 }

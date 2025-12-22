@@ -43,7 +43,7 @@ export const pageRoutes: NavRoute[] = [
   {
     title: 'Metrics',
     path: '/metrics',
-    description: 'View protocol metrics and analytics',
+    description: 'View protocol metrics',
     icon: '/icons/metrics.svg',
   },
   {
@@ -144,7 +144,7 @@ export const headerNavigation: NavRoute[] = [
   {
     title: 'Metrics',
     path: '/metrics',
-    description: 'View protocol metrics and analytics',
+    description: 'View protocol metrics',
     icon: '/icons/metrics.svg',
   },
   {
