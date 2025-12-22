@@ -15,12 +15,12 @@ const float DEF_EYE      = 0.15;
 const float TAU          = 6.2831853;
 const float MARGIN       = 0.1;
 const float SCALE        = 1.0 / (1.0 - MARGIN);
-const float STROKE_WIDTH = 0.003;
+const float STROKE_WIDTH = 0.0;
 
 // Theme colors
-const lowp vec3 DARK_BASE    = vec3(0.15);
+const lowp vec3 DARK_BASE    = vec3(0.16);
 const lowp vec3 LIGHT_BASE   = vec3(0.90);
-const lowp vec3 DARK_CENTER  = vec3(0.10);
+const lowp vec3 DARK_CENTER  = vec3(0.08);
 const lowp vec3 LIGHT_CENTER = vec3(0.75);
 const lowp vec3 DARK_BORDER  = vec3(0.16);
 const lowp vec3 LIGHT_BORDER = vec3(0.87);
@@ -47,7 +47,7 @@ void main() {
     float ringCount = clamp(uRingCount, DEF_RINGS, float(MAX_RINGS));
     // Allow slowing below default: if <= 0, fall back to DEF_VEL
     float velFactor = ((uVelocityFactor > 0.0) ? uVelocityFactor : DEF_VEL) / 20.0;
-    float eyeSize   = max(uEyeSize, DEF_EYE);
+    float eyeSize   = uEyeSize > 0.0 ? uEyeSize : DEF_EYE;
 
     // Theme precompute
     lowp float isDark      = step(0.5, uIsDark);
