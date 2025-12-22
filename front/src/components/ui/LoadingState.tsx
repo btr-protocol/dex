@@ -1,24 +1,31 @@
 import * as React from 'react';
 import { Loader2 } from 'lucide-react';
-import { cn } from '@utils/cn';
+import { cva } from '@utils/cva';
 
 export interface LoadingStateProps extends React.HTMLAttributes<HTMLDivElement> {
   message?: string;
   variant?: 'default' | 'fullscreen' | 'inline';
 }
 
-const LoadingState = React.forwardRef<HTMLDivElement, LoadingStateProps>(
-  ({ className, message = 'Loading...', variant = 'default', ...props }, ref) => {
-    const variantStyles = {
-      fullscreen: 'min-h-screen bg-background flex items-center justify-center',
+const loadingStateVariants = cva('flex items-center justify-center', {
+  variants: {
+    variant: {
+      fullscreen: 'min-h-screen bg-background',
       default: 'bg-bg-1 rounded-lg p-8 border border-border',
       inline: 'p-4',
-    };
+    },
+  },
+  defaultVariants: {
+    variant: 'default',
+  },
+});
 
+const LoadingState = React.forwardRef<HTMLDivElement, LoadingStateProps>(
+  ({ className, message = 'Loading...', variant = 'default', ...props }, ref) => {
     return (
       <div
         ref={ref}
-        className={cn(variantStyles[variant], 'flex items-center justify-center', className)}
+        className={loadingStateVariants({ variant, className })}
         {...props}
       >
         <div className="flex items-center gap-3">

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '@utils/cn';
+import { cva } from '@utils/cva';
 
 type CardVariant = 'default' | 'nested' | 'inset';
 
@@ -7,18 +8,25 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: CardVariant;
 }
 
-const variantStyles: Record<CardVariant, string> = {
-  default: 'bg-bg-1 border border-border rounded-2xl shadow-sm',
-  nested: 'bg-bg-2 border border-border rounded-xl',
-  inset: 'bg-bg-3 rounded-lg',
-};
+const cardVariants = cva('', {
+  variants: {
+    variant: {
+      default: 'bg-bg-1 border border-border rounded-2xl shadow-sm',
+      nested: 'bg-bg-2 border border-border rounded-xl',
+      inset: 'bg-bg-3 rounded-lg',
+    },
+  },
+  defaultVariants: {
+    variant: 'default',
+  },
+});
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
   ({ className, variant = 'default', ...props }, ref) => {
     return (
       <div
         ref={ref}
-        className={cn(variantStyles[variant], className)}
+        className={cardVariants({ variant, className })}
         {...props}
       />
     );
