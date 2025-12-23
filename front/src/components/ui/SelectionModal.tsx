@@ -1,39 +1,15 @@
-import { useState, useEffect, useMemo, ReactNode, ComponentType } from 'react';
+import { useState, useEffect, useMemo, ReactNode } from 'react';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { Button } from '@components/ui/Button';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
 import { EmptyState } from '@components/ui/EmptyState';
-import { Check, LucideProps } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { addNotification } from '@lib/notifications';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
+import { renderIcon, isStringIcon } from '@utils/iconHelpers';
+import { SelectionItem } from '@/types/ui';
 
-// Icon can be: string path, ReactNode, or Lucide component
-type IconType = string | ReactNode | ComponentType<LucideProps>;
-
-export interface SelectionItem {
-  id: string;
-  label: string;
-  caption?: string;
-  icon?: IconType;
-  badge?: ReactNode;
-  data?: any;
-}
-
-// Helper to render icons consistently
-function renderIcon(icon: IconType, className: string): ReactNode {
-  if (typeof icon === 'string') {
-    return null; // handled separately with img
-  }
-  if (typeof icon === 'function') {
-    const IconComponent = icon as ComponentType<LucideProps>;
-    return <IconComponent className={className} />;
-  }
-  return icon;
-}
-
-function isStringIcon(icon: IconType): icon is string {
-  return typeof icon === 'string';
-}
+export type { SelectionItem } from '@/types/ui';
 
 interface SelectionModalProps {
   isOpen: boolean;
