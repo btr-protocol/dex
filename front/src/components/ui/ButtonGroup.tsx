@@ -1,7 +1,7 @@
 import * as React from "react"
 import { cn } from "@utils/cn"
 import { cva } from "@utils/cva"
-import { BORDER_RADIUS } from "./sizes"
+import { BORDER_RADIUS } from '@/constants/design'
 
 export interface ButtonGroupProps extends React.HTMLAttributes<HTMLDivElement> {
   direction?: "horizontal" | "vertical"

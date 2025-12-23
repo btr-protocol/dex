@@ -9,7 +9,7 @@ import {
   SIZE_TEXT,
   SIZE_ICON_WIDTHS,
   SIZE_GAPS
-} from "./sizes"
+} from '@/constants/design'
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "default" | "primary" | "outlined" | "ghost" | "glass"
