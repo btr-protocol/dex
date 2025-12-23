@@ -37,7 +37,7 @@ export async function initializeSearch() {
         id: `feat-${i}`, title: r.title, desc: r.description || '', path: r.path, cat: 'Features', aliases: r.aliases || []
       })),
       ...socialLinks.map((l, i) => ({
-        id: `link-${i}`, title: l.title, desc: `Visit ${l.title}`, path: l.url, cat: 'Links', aliases: []
+        id: `link-${i}`, title: l.title, desc: `Visit ${l.title}`, path: l.path, cat: 'Links', aliases: []
       })),
       // Settings: One entry per category (groups all nested settings)
       ...SETTINGS_SCHEMA.map(category => {
