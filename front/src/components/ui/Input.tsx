@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { cn } from '@utils/cn';
 import { cva } from '@utils/cva';
-import { type Size, BORDER_RADIUS, SIZE_HEIGHTS, SIZE_PADDINGS, SIZE_TEXT } from './sizes';
+import { type Size, BORDER_RADIUS, SIZE_HEIGHTS, SIZE_PADDINGS, SIZE_TEXT } from '@/constants/design';
 
 type InputVariant = 'default' | 'amount' | 'address' | 'number' | 'search';
 

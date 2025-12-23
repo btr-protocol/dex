@@ -4,7 +4,7 @@
  */
 
 // Shared size configuration
-export type { Size } from './sizes';
+export type { Size } from '@/constants/design';
 
 // Micro-components for reducing Tailwind duplication
 export { FlexRow, FlexBetween, FlexCenter, FlexCol } from './Flex';
