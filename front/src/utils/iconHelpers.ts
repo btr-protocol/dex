@@ -2,13 +2,11 @@
  * Icon Helper Utilities
  * Centralized icon rendering logic for modals and dropdowns
  */
-import { ReactNode, ComponentType, createElement } from 'preact/compat';
+import { ComponentType, createElement } from 'preact/compat';
 import type { LucideProps } from 'lucide-react';
+import type { IconType } from '@/types/ui';
 
-/**
- * Icon can be: string path, ReactNode, or Lucide component
- */
-export type IconType = string | ReactNode | ComponentType<LucideProps>;
+export type { IconType } from '@/types/ui';
 
 /**
  * Render icon with proper className
