@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { BaseModal } from '@components/ui/BaseModal';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
-import { SearchEmptyState } from '@components/ui/SearchEmptyState';
+import { EmptyState } from '@components/ui/EmptyState';
 import { ArrowRight, ExternalLink, Settings, Zap, Link2, FileText, Repeat2 } from 'lucide-react';
 import { searchGrouped, initializeSearch } from '@lib/search';
 import { useRouter } from '@lib/router';
@@ -106,10 +106,12 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
               Type to search features, settings, links, and documentation
             </div>
           ) : allResults.length === 0 ? (
-            <SearchEmptyState
+            <EmptyState
+              variant="search"
               query={query}
               message="No results found"
-              onReset={() => setQuery('')}
+              onAction={() => setQuery('')}
+              hasFilters={false}
             />
           ) : (
             <div className="flex flex-col">
