@@ -4,7 +4,7 @@ import { BaseModal } from '@components/ui/BaseModal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Divider } from '@components/ui/Divider';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
-import { SearchEmptyState } from '@components/ui/SearchEmptyState';
+import { EmptyState } from '@components/ui/EmptyState';
 import { WalletItemButton } from '@components/ui/WalletItemButton';
 import { useWallet } from '@lib/wallet';
 import { useWalletConnection } from '@hooks/useWalletConnection';
@@ -362,11 +362,11 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
 
                                 {/* No results */}
                                 {searchQuery && filteredDetected.length === 0 && filteredDiscover.length === 0 && !'walletconnect'.includes(searchQuery.toLowerCase()) && (
-                                    <SearchEmptyState
+                                    <EmptyState
                                         query={searchQuery}
                                         message="No wallets found"
                                         onReset={resetSearch}
-                                        hasFilters={false}
+                                        showResetButton={false}
                                     />
                                 )}
                         </div>

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, ReactNode, ComponentType } from 'react';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { Button } from '@components/ui/Button';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
-import { SearchEmptyState } from '@components/ui/SearchEmptyState';
+import { EmptyState } from '@components/ui/EmptyState';
 import { Check, LucideProps } from 'lucide-react';
 import { addNotification } from '@lib/notifications';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
@@ -243,11 +243,11 @@ export function SelectionModal({
           );
         })}
         {filteredItems.length === 0 && (
-          <SearchEmptyState
+          <EmptyState
             query={search}
             message={emptyMessage}
             onReset={onResetFilters || (() => setSearch(''))}
-            hasFilters={hasActiveFilters || !!search}
+            showResetButton={hasActiveFilters || !!search}
           />
         )}
       </div>
