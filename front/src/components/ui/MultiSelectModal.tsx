@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, ReactNode, ComponentType } from 'react';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { Button } from '@components/ui/Button';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
-import { SearchEmptyState } from '@components/ui/SearchEmptyState';
+import { EmptyState } from '@components/ui/EmptyState';
 import { Check, LucideProps } from 'lucide-react';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { addNotification } from '@lib/notifications';
@@ -195,11 +195,11 @@ export function MultiSelectModal({
           );
         })}
         {filteredOptions.length === 0 && (
-          <SearchEmptyState
+          <EmptyState
             query={search}
             message="No options found"
             onReset={() => setSearch('')}
-            hasFilters={false}
+            showResetButton={false}
           />
         )}
       </div>

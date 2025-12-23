@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'preact/hooks';
 import { Download, Trash2, Bug, Info, AlertTriangle, XCircle } from 'lucide-react';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
-import { SearchEmptyState } from '@components/ui/SearchEmptyState';
+import { EmptyState } from '@components/ui/EmptyState';
 import { DownloadModal } from '@components/DownloadModal';
 import { Tooltip, ButtonGroup } from '@components/ui';
 import { Notification } from '@components/Notification';
@@ -214,11 +214,11 @@ export function NotificationsModal({
               </div>
             ))
           ) : (
-            <SearchEmptyState
+            <EmptyState
               query={searchQuery}
               message="No notifications found"
               onReset={resetFilters}
-              hasFilters={hasActiveFilters}
+              showResetButton={hasActiveFilters}
             />
           )}
         </div>

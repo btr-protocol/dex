@@ -37,10 +37,9 @@ export { BaseModal, MODAL_PADDING } from './BaseModal';
 export { ModalActions } from './ModalActions';
 export { Badge } from './Badge';
 export { EmptyState } from './EmptyState';
-// Deprecated - use EmptyState with variant prop instead
+// Keep for backward compatibility with DataView
 export { ErrorState } from './ErrorState';
 export { LoadingState } from './LoadingState';
-export { SearchEmptyState } from './SearchEmptyState';
 export { MaskIcon } from './MaskIcon';
 export { IconLabel } from './IconLabel';
 export { PercentageChange } from './PercentageChange';
