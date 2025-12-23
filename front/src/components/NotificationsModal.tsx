@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect } from 'preact/hooks';
-import { Download, Trash2, Bug, Info, AlertTriangle, XCircle } from 'lucide-react';
+import { Download, Trash2 } from 'lucide-react';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
 import { EmptyState } from '@components/ui/EmptyState';
 import { DownloadModal } from '@components/DownloadModal';
 import { Tooltip, ButtonGroup } from '@components/ui';
 import { Notification } from '@components/Notification';
-import { INotification, LogLevel } from '@/types/notification';
+import { INotification, LogLevel, ICON_BY_LOG_LEVEL } from '@/types/notification';
 
 interface NotificationsModalProps {
   isOpen: boolean;
@@ -17,12 +17,12 @@ interface NotificationsModalProps {
   onClearAll: () => void;
 }
 
-// Build log level filter options
+// Build log level filter options from centralized icon mapping
 const logLevelFilterOptions: FilterOption[] = [
-  { id: LogLevel.DEBUG, name: 'Debug', icon: Bug },
-  { id: LogLevel.INFO, name: 'Info', icon: Info },
-  { id: LogLevel.WARNING, name: 'Warning', icon: AlertTriangle },
-  { id: LogLevel.ERROR, name: 'Error', icon: XCircle },
+  { id: LogLevel.DEBUG, name: 'Debug', icon: ICON_BY_LOG_LEVEL[LogLevel.DEBUG] },
+  { id: LogLevel.INFO, name: 'Info', icon: ICON_BY_LOG_LEVEL[LogLevel.INFO] },
+  { id: LogLevel.WARNING, name: 'Warning', icon: ICON_BY_LOG_LEVEL[LogLevel.WARNING] },
+  { id: LogLevel.ERROR, name: 'Error', icon: ICON_BY_LOG_LEVEL[LogLevel.ERROR] },
 ];
 
 export function NotificationsModal({
