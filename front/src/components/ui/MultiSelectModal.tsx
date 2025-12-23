@@ -1,43 +1,16 @@
-import { useState, useEffect, useMemo, ReactNode, ComponentType } from 'react';
+import { useState, useEffect, useMemo, ReactNode } from 'react';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { Button } from '@components/ui/Button';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
 import { EmptyState } from '@components/ui/EmptyState';
-import { Check, LucideProps } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { addNotification } from '@lib/notifications';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
+import { renderIcon, isStringIcon } from '@utils/iconHelpers';
+import { FilterOption } from '@/types/ui';
 
-// Icon can be: string path, ReactNode, or Lucide component
-type IconType = string | ReactNode | ComponentType<LucideProps>;
-
-export interface FilterOption {
-  id: string;
-  name: string;
-  caption?: string;      // Optional subtitle below name (e.g., full token name)
-  icon: IconType;        // Main icon for modal list
-  miniIcon?: IconType;   // Mini icon for filter button (defaults to icon)
-}
-
-// Helper to render icons consistently
-function renderIcon(icon: IconType, className: string): ReactNode {
-  if (typeof icon === 'string') {
-    return null; // handled separately with mask
-  }
-  if (typeof icon === 'function') {
-    const IconComponent = icon as ComponentType<LucideProps>;
-    return <IconComponent className={className} />;
-  }
-  return icon;
-}
-
-function isStringIcon(icon: IconType): icon is string {
-  return typeof icon === 'string';
-}
-
-// function isComponentIcon(icon: IconType): icon is ComponentType<LucideProps> {
-//   return typeof icon === 'function';
-// }
+export type { FilterOption } from '@/types/ui';
 
 interface MultiSelectModalProps {
   isOpen: boolean;

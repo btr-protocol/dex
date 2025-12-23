@@ -1,21 +1,15 @@
-import { useState, useRef, useEffect, ReactNode, ComponentType, cloneElement } from 'react';
+import { useState, useRef, useEffect, ReactNode, cloneElement, ComponentType } from 'react';
 import { createPortal } from 'preact/compat';
-import { ChevronDown, Check, LucideProps } from 'lucide-react';
+import { ChevronDown, Check } from 'lucide-react';
+import type { LucideProps } from 'lucide-react';
 import { cn } from '@utils/cn';
 import { Button, ButtonProps } from './Button';
 import { Tooltip } from './Tooltip';
-import { type Size, DROPDOWN_ITEM_SIZES, SIZE_CHECK } from './sizes';
+import { type Size, DROPDOWN_ITEM_SIZES, SIZE_CHECK } from '@/constants/design';
+import { renderIcon, isStringIcon } from '@utils/iconHelpers';
+import { DropdownItem } from '@/types/ui';
 
-// Icon can be: string path, ReactNode, or Lucide component
-type IconType = string | ReactNode | ComponentType<LucideProps>;
-
-export interface DropdownItem<T = string> {
-  value: T;
-  label: string;
-  icon?: IconType;
-  disabled?: boolean;
-  tooltip?: string;
-}
+export type { DropdownItem } from '@/types/ui';
 
 interface DropdownProps<T = string> {
   items: DropdownItem<T>[];
@@ -41,26 +35,6 @@ interface DropdownProps<T = string> {
   footer?: ReactNode;
   /** Min width of dropdown panel */
   minWidth?: number;
-}
-
-// Helper to render icons consistently
-function renderIcon(icon: IconType, className: string, isSelected?: boolean): ReactNode {
-  if (typeof icon === 'string') {
-    return <img src={icon} alt="" className={cn(className, 'rounded-xs')} />;
-  }
-  if (typeof icon === 'function') {
-    const IconComponent = icon as ComponentType<LucideProps>;
-    return <IconComponent className={className} />;
-  }
-  // For ReactNode icons (custom components like MaskIcon), clone to update color based on selection
-  if (icon && typeof icon === 'object' && 'type' in icon && isSelected !== undefined) {
-    const element = icon as React.ReactElement;
-    // For any custom icon component (not Lucide), apply color theming
-    // Lucide icons are functions, so they're handled above. Custom components are ReactElements.
-    const color = isSelected ? 'var(--primary)' : 'var(--fg-2)';
-    return cloneElement(element, { color } as any);
-  }
-  return icon;
 }
 
 export function Dropdown<T = string>({
@@ -247,9 +221,13 @@ export function Dropdown<T = string>({
                   )}
                 >
                   {item.icon && (
-                    <span className={cn('shrink-0', selected && !disabled ? 'text-primary' : 'text-muted-foreground')}>
-                      {renderIcon(item.icon, itemSizeClasses.icon, selected && !disabled)}
-                    </span>
+                    isStringIcon(item.icon) ? (
+                      <img src={item.icon} alt="" className={cn(itemSizeClasses.icon, 'rounded-xs shrink-0')} />
+                    ) : (
+                      <span className={cn('shrink-0', selected && !disabled ? 'text-primary' : 'text-muted-foreground')}>
+                        {renderIcon(item.icon, itemSizeClasses.icon)}
+                      </span>
+                    )
                   )}
                   <span className={cn('flex-1 text-left', selected && !disabled && 'text-primary font-medium')}>
                     {item.label}
