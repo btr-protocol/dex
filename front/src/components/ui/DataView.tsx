@@ -2,7 +2,8 @@
  * DataView - Consolidated loading/error/empty state handling
  * Replaces 16+ instances of conditional state rendering
  */
-import { EmptyState } from './EmptyState';
+import { LoadingState } from './LoadingState';
+import { ErrorState } from './ErrorState';
 import type { ReactNode } from 'react';
 
 interface DataViewProps {
@@ -22,12 +23,12 @@ export function DataView({
   children,
 }: DataViewProps) {
   if (isLoading) {
-    return <EmptyState variant="loading" message="Loading..." />;
+    return <LoadingState message="Loading..." />;
   }
 
   if (error) {
     const errorMessage = typeof error === 'string' ? error : error?.message || 'An error occurred';
-    return <EmptyState variant="error" title="Error" message={errorMessage} />;
+    return <ErrorState title="Error" message={errorMessage} />;
   }
 
   if (isEmpty) {
