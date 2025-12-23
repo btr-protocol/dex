@@ -14,9 +14,14 @@ export interface INotification {
   stack?: string;
 }
 
-export const ICON_BY_LOG_LEVEL: Record<LogLevel, string> = {
-  [LogLevel.DEBUG]: 'bug',
-  [LogLevel.INFO]: 'info-circle',
-  [LogLevel.WARNING]: 'alert-triangle',
-  [LogLevel.ERROR]: 'x-circle',
+import { Bug, Info, AlertTriangle, XCircle } from 'lucide-react';
+import type { ComponentType } from 'preact';
+import type { LucideProps } from 'lucide-react';
+
+/** Lucide component icons for log levels (used in NotificationsModal) */
+export const ICON_BY_LOG_LEVEL: Record<LogLevel, ComponentType<LucideProps>> = {
+  [LogLevel.DEBUG]: Bug,
+  [LogLevel.INFO]: Info,
+  [LogLevel.WARNING]: AlertTriangle,
+  [LogLevel.ERROR]: XCircle,
 };
