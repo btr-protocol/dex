@@ -1,7 +1,7 @@
 import { createConfig, http } from 'wagmi'
 import { mainnet, localhost } from 'wagmi/chains'
 import { injected } from 'wagmi/connectors'
-import { getRpcUrl } from './rpcs'
+import { getRpcUrl } from '@sdk/eth/chains'
 
 // Default to local Anvil for development
 const isDev = import.meta.env.DEV
