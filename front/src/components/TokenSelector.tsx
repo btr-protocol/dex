@@ -3,7 +3,7 @@ import { SelectionModal, SelectionItem } from '@components/ui/SelectionModal';
 import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
 import { Badge } from '@components/ui/Badge';
 import { TOKENS, CHAINS, getAllTokensForChain, getSupportedChainIds, tokenMatchesSearch, getTokenIcon, getChainIcon, isTestOrLocalChain } from '@sdk/eth';
-import { SUPPORTED_CHAINS_CONFIG, SUPPORTED_TOKENS_CONFIG, isTokenSupported } from '@config/tokens';
+import { SUPPORTED_CHAINS_CONFIG, SUPPORTED_TOKENS_CONFIG, isTokenSupported } from '@/constants/tokens';
 import { useModalState } from '@hooks/useModalState';
 import { useSettings } from '@/lib/settings';
 
