@@ -110,7 +110,6 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
               query={query}
               message="No results found"
               onReset={() => setQuery('')}
-              showResetButton={false}
             />
           ) : (
             <div className="flex flex-col">
