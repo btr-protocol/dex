@@ -36,6 +36,8 @@ export { MultiSelectModal } from './MultiSelectModal';
 export { BaseModal, MODAL_PADDING } from './BaseModal';
 export { ModalActions } from './ModalActions';
 export { Badge } from './Badge';
+export { EmptyState } from './EmptyState';
+// Deprecated - use EmptyState with variant prop instead
 export { ErrorState } from './ErrorState';
 export { LoadingState } from './LoadingState';
 export { SearchEmptyState } from './SearchEmptyState';
