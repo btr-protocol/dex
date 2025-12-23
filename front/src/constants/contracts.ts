@@ -22,7 +22,7 @@ export const CONTRACTS = {
   }
 } as const
 
-export type SupportedChainId = keyof typeof CONTRACTS
+export type ContractChainId = keyof typeof CONTRACTS
 
 /**
  * Get contract address for current chain
@@ -31,36 +31,8 @@ export type SupportedChainId = keyof typeof CONTRACTS
  */
 export function getContractAddress(
   chainId: number,
-  contractName: keyof typeof CONTRACTS[SupportedChainId]
+  contractName: keyof typeof CONTRACTS[ContractChainId]
 ): `0x${string}` | undefined {
-  const chain = chainId as SupportedChainId
+  const chain = chainId as ContractChainId
   return CONTRACTS[chain]?.[contractName]
 }
-
-/**
- * Common token addresses
- */
-export const TOKENS = {
-  WETH: {
-    symbol: 'WETH',
-    name: 'Wrapped Ether',
-    decimals: 18
-  },
-  USDC: {
-    symbol: 'USDC',
-    name: 'USD Coin',
-    decimals: 6
-  },
-  USDT: {
-    symbol: 'USDT',
-    name: 'Tether USD',
-    decimals: 6
-  },
-  DAI: {
-    symbol: 'DAI',
-    name: 'Dai Stablecoin',
-    decimals: 18
-  }
-} as const
-
-export type TokenSymbol = keyof typeof TOKENS
