@@ -3,7 +3,7 @@ import { SelectionModal, SelectionItem } from '@components/ui/SelectionModal';
 import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
 import { Badge } from '@components/ui/Badge';
 import { TOKENS, tokenMatchesSearch, getTokenIcon } from '@sdk/eth';
-import { SUPPORTED_TOKENS_CONFIG } from '@config/tokens';
+import { SUPPORTED_TOKENS_CONFIG } from '@/constants/tokens';
 import { useModalState } from '@hooks/useModalState';
 
 interface PairSelectorProps {

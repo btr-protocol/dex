@@ -5,7 +5,7 @@ interface ExtendedNavRoute extends NavRoute {
   aliases?: string[];
 }
 import { SETTINGS_SCHEMA } from '@/config/settings';
-import { SUPPORTED_TOKENS_CONFIG } from '@/config/tokens';
+import { SUPPORTED_TOKENS_CONFIG } from '@/constants/tokens';
 
 export interface SearchDoc {
   id: string;
