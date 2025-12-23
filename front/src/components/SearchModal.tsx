@@ -2,12 +2,13 @@ import { useState, useEffect } from 'preact/hooks';
 import { BaseModal } from '@components/ui/BaseModal';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
 import { SearchEmptyState } from '@components/ui/SearchEmptyState';
-import { ArrowRight, ExternalLink, Settings, Zap, Link2, FileText, Repeat2, TrendingUp, Plus } from 'lucide-react';
+import { ArrowRight, ExternalLink, Settings, Zap, Link2, FileText, Repeat2 } from 'lucide-react';
 import { searchGrouped, initializeSearch } from '@lib/search';
 import { useRouter } from '@lib/router';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { useModalState } from '@hooks/useModalState';
 import { ROUTES } from '@/constants/navigation';
+import { getFeatureIcon as getFeatureIconFromConst, getSettingsFieldIcon, getSocialIcon } from '@/constants/icons';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -16,26 +17,11 @@ interface SearchModalProps {
 }
 
 const getFeatureIcon = (title: string) => {
-  switch (title) {
-    case 'Swap':
-      return Repeat2;
-    case 'Liquidity':
-      return Zap;
-    case 'Stake':
-      return TrendingUp;
-    case 'Metrics':
-      return FileText;
-    case 'Add Asset':
-      return Plus;
-    case 'Documentation':
-      return FileText;
-    default:
-      // Check if it's a token swap (e.g., "Swap ETH")
-      if (title.startsWith('Swap ')) {
-        return Repeat2;
-      }
-      return null;
+  // Check if it's a token swap (e.g., "Swap ETH")
+  if (title.startsWith('Swap ')) {
+    return Repeat2;
   }
+  return getFeatureIconFromConst(title);
 };
 
 // Extract token symbol from "Swap TOKEN" title
@@ -46,36 +32,8 @@ const getTokenFromTitle = (title: string): string | null => {
   return null;
 };
 
-const getSettingsIcon = (title: string) => {
-  switch (title) {
-    case 'Max Slippage':
-    case 'Detail Route':
-      return 'slippage'; // Execution icon
-    case 'Theme':
-      return 'theme'; // Theme icon
-    case 'Hide Small Balances':
-    case 'Hide Unsupported Tokens':
-    case 'Animate Background':
-      return 'interface'; // Interface icon
-    default:
-      return 'settings'; // Default icon
-  }
-};
-
-const getLinkIcon = (title: string): string | null => {
-  switch (title) {
-    case 'Telegram':
-      return '/icons/telegram.svg';
-    case 'Github':
-      return '/icons/github.svg';
-    case 'X':
-      return '/icons/x.svg';
-    case 'Docs':
-      return '/icons/docs.svg';
-    default:
-      return null;
-  }
-};
+const getSettingsIcon = getSettingsFieldIcon;
+const getLinkIcon = getSocialIcon;
 
 export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProps) {
   const [query, setQuery] = useModalState('', isOpen);
