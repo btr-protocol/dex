@@ -6,7 +6,7 @@ import { Switch } from '@components/ui/Switch';
 import { Slider } from '@components/ui/Slider';
 import { Input } from '@components/ui/Input';
 import { Dropdown } from '@components/ui/Dropdown';
-import { SearchEmptyState } from '@components/ui/SearchEmptyState';
+import { EmptyState } from '@components/ui/EmptyState';
 import { useTheme } from '@lib/theme';
 import { useSettings } from '@lib/settings';
 import { SETTINGS_SCHEMA, type SettingDef } from '@/config/settings';
@@ -121,7 +121,7 @@ export function SettingsModal({ isOpen, onClose, initialSection }: SettingsModal
       onSearchChange={setSearchQuery}
     >
       {filteredSchema.length === 0 ? (
-        <SearchEmptyState
+        <EmptyState
           query={searchQuery}
           message="No settings found"
           onReset={() => setSearchQuery('')}

@@ -107,11 +107,10 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
             </div>
           ) : allResults.length === 0 ? (
             <EmptyState
-              variant="search"
               query={query}
               message="No results found"
-              onAction={() => setQuery('')}
-              hasFilters={false}
+              onReset={() => setQuery('')}
+              showResetButton={false}
             />
           ) : (
             <div className="flex flex-col">
