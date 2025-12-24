@@ -21,7 +21,6 @@ export { Button } from './Button';
 export { ButtonGroup } from './ButtonGroup';
 export { Input } from './Input';
 export { Card } from './Card';
-export { Dialog } from './Dialog';
 export { Tooltip } from './Tooltip';
 export { Popover } from './Popover';
 export { Dropdown, ToolbarDropdown } from './Dropdown';
