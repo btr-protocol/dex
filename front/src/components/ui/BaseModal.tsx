@@ -2,8 +2,8 @@ import { useRef, useEffect } from 'preact/hooks';
 import type { ReactNode } from 'preact/compat';
 import { Dialog, DialogContent, DialogTitle } from '@components/ui/Dialog';
 import { VisuallyHidden } from '@components/ui/VisuallyHidden';
-import { CloseButton } from '@components/ui/CloseButton';
-import { Search } from 'lucide-react';
+import { Button } from '@components/ui/Button';
+import { Search, X } from 'lucide-react';
 import { cn } from '@utils/cn';
 
 // Standard modal padding
@@ -104,7 +104,15 @@ export function BaseModal({
             )}
 
             {/* Close button */}
-            <CloseButton onClick={() => onClose(false)} size="sm" />
+            <Button
+              styleVariant="ghost"
+              size="sm"
+              onClick={() => onClose(false)}
+              className="p-1.5"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </Button>
           </div>
         </div>
 
