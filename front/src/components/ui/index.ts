@@ -12,7 +12,6 @@ export { Caption, Label, SectionHeader } from './Text';
 export { HoverBg2, HoverBg3, IconButton, ListItem } from './Clickable';
 export { InfoRow, InfoRowCompact, InfoSection } from './InfoRow';
 export { TableCellWithChange } from './TableCell';
-export { CloseButton } from './CloseButton';
 export { Divider } from './Divider';
 export { DataView } from './DataView';
 
@@ -44,7 +43,6 @@ export { IconLabel } from './IconLabel';
 export { PercentageChange } from './PercentageChange';
 export { SimpleSparkline } from './SimpleSparkline';
 export { VisuallyHidden } from './VisuallyHidden';
-export { SocialLinkButton } from './SocialLinkButton';
 export { ImageWithFallback } from './ImageWithFallback';
 export { WalletItemButton } from './WalletItemButton';
 export { NumberInput } from './NumberInput';
