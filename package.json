@@ -1,0 +1,25 @@
+{
+  "name": "@btr/dex-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "bun run install:all",
+    "dev": "(cd front && bun run dev) & (cd back/collector && bun run dev)",
+    "install:all": "bun install && cd front && bun install && cd ../back/collector && bun install && cd ../../sdk && bun install",
+    "build": "cd front && bun run build"
+  },
+  "workspaces": [
+    "front",
+    "back/collector",
+    "sdk"
+  ],
+  "devDependencies": {
+    "asciimath2ml": "^1.0.8",
+    "happy-dom": "^20.0.11",
+    "marked": "^17.0.1",
+    "minisearch": "^7.2.0",
+    "playwright": "^1.57.0",
+    "prismjs": "^1.30.0"
+  }
+}
