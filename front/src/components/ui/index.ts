@@ -35,9 +35,6 @@ export { BaseModal, MODAL_PADDING } from './BaseModal';
 export { ModalActions } from './ModalActions';
 export { Badge } from './Badge';
 export { EmptyState } from './EmptyState';
-// Keep for backward compatibility with DataView
-export { ErrorState } from './ErrorState';
-export { LoadingState } from './LoadingState';
 export { MaskIcon } from './MaskIcon';
 export { IconLabel } from './IconLabel';
 export { PercentageChange } from './PercentageChange';
