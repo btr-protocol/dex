@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
-import { SocialLinkButton } from '@components/ui/SocialLinkButton';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { MarkdownRenderer } from '@/components/MarkdownRenderer';
 import { useExternalLink } from '@lib/external-links';
@@ -68,14 +67,16 @@ export default function DisclaimerPage({ onAccept }: DisclaimerPageProps) {
         {/* Social Icons - Left aligned */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           {socialLinks.map((link) => (
-            <SocialLinkButton
+            <Button
               key={link.title}
-              icon={link.icon}
-              url={link.url}
-              title={link.title}
-              onClick={openExternalLink}
-              variant="disclaimer"
-            />
+              styleVariant="ghost"
+              size="sm"
+              onClick={() => openExternalLink(link.path)}
+              className="p-2"
+              aria-label={link.title}
+            >
+              <MaskIcon src={link.icon!} size={20} color="var(--fg-2)" />
+            </Button>
           ))}
         </div>
 

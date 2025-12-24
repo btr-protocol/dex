@@ -5,7 +5,7 @@ import { useHealthMonitor } from '@hooks/useHealthMonitor';
 import { useWallet } from '@lib/wallet';
 import { getChain } from '@sdk/eth';
 import { HealthPopover } from '@components/HealthPopover';
-import { SocialLinkButton } from '@components/ui/SocialLinkButton';
+import { Button } from '@components/ui/Button';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { Tooltip } from '@components/ui/Tooltip';
 import { footerNavigation } from '@/constants/navigation';
@@ -64,15 +64,15 @@ export default function Footer() {
           <div className="flex items-center gap-2">
             {footerNavigation.social.map((link) => (
               <Tooltip key={link.title} content={link.description || link.title} side="top">
-                <SocialLinkButton
-                  icon={link.icon!}
-                  url={link.path}
-                  title={link.title}
+                <Button
+                  styleVariant="ghost"
+                  size="sm"
                   onClick={() => handleSocialClick(link)}
-                  tooltip={false}
-                  variant="default"
-                  color="var(--fg-3)"
-                />
+                  className="p-1.5"
+                  aria-label={link.title}
+                >
+                  <MaskIcon src={link.icon!} size={16} color="var(--fg-3)" />
+                </Button>
               </Tooltip>
             ))}
           </div>
