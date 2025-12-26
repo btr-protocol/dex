@@ -1,5 +1,5 @@
 import { ReactNode } from 'preact/compat';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 
 interface PopoverProps {

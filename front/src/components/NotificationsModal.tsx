@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'preact/hooks';
-import { Download, Trash2 } from 'lucide-react';
+import { Icon } from '@components/ui/Icon';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
 import { EmptyState } from '@components/ui/EmptyState';
@@ -179,7 +179,7 @@ export function NotificationsModal({
                   onClick={() => setIsDownloadModalOpen(true)}
                   className="p-1.5 hover:bg-bg-3 transition-colors text-muted-foreground hover:text-foreground"
                 >
-                  <Download className="w-4 h-4" />
+                  <Icon name="download" className="w-4 h-4" />
                 </button>
               </Tooltip>
               <Tooltip content="Clear all notifications" side="bottom">
@@ -187,7 +187,7 @@ export function NotificationsModal({
                   onClick={onClearAll}
                   className="p-1.5 hover:bg-red/10 transition-colors text-muted-foreground hover:text-red"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Icon name="trash" className="w-4 h-4" />
                 </button>
               </Tooltip>
             </ButtonGroup>

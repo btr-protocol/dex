@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import { Dialog, DialogPortal, DialogOverlay } from '@components/ui/Dialog';
-import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { Icon } from '@components/ui/Icon';
 import { cn } from '@utils/cn';
 
 interface DiagramModalProps {
@@ -16,6 +15,7 @@ const ZOOM_STEP = 0.25;
 
 export function DiagramModal({ isOpen, onClose, svgHtml }: DiagramModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -28,6 +28,20 @@ export function DiagramModal({ isOpen, onClose, svgHtml }: DiagramModalProps) {
       setPosition({ x: 0, y: 0 });
     }
   }, [isOpen]);
+
+  // Handle click outside to close
+  useEffect(() => {
+    if (!isOpen || !contentRef.current) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (contentRef.current && e.target === contentRef.current) {
+        onClose();
+      }
+    };
+
+    contentRef.current.addEventListener('pointerdown', handlePointerDown);
+    return () => contentRef.current?.removeEventListener('pointerdown', handlePointerDown);
+  }, [isOpen, onClose]);
 
   // Native wheel listener (passive: false required for preventDefault)
   useEffect(() => {
@@ -89,23 +103,23 @@ export function DiagramModal({ isOpen, onClose, svgHtml }: DiagramModalProps) {
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogPortal>
         <DialogOverlay className="bg-black/80" />
-        <DialogPrimitive.Content
+        <div
+          ref={contentRef}
           className="fixed inset-0 z-modal flex items-center justify-center outline-none"
-          onPointerDownOutside={onClose}
         >
           {/* Controls */}
           <div className="absolute top-4 right-4 flex gap-2 z-10">
             <ControlButton onClick={zoomOut} title="Zoom out">
-              <ZoomOut className="w-4 h-4" />
+              <Icon name="magnifying-glass-minus" className="w-4 h-4" />
             </ControlButton>
             <ControlButton onClick={zoomIn} title="Zoom in">
-              <ZoomIn className="w-4 h-4" />
+              <Icon name="magnifying-glass-plus" className="w-4 h-4" />
             </ControlButton>
             <ControlButton onClick={reset} title="Reset">
-              <RotateCcw className="w-4 h-4" />
+              <Icon name="arrows-counter-clockwise" className="w-4 h-4" />
             </ControlButton>
             <ControlButton onClick={onClose} title="Close (Esc)">
-              <X className="w-4 h-4" />
+              <Icon name="x" className="w-4 h-4" />
             </ControlButton>
           </div>
 
@@ -140,7 +154,7 @@ export function DiagramModal({ isOpen, onClose, svgHtml }: DiagramModalProps) {
               />
             </div>
           </div>
-        </DialogPrimitive.Content>
+        </div>
       </DialogPortal>
     </Dialog>
   );

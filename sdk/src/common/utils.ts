@@ -2,7 +2,7 @@
  * Common utility functions
  */
 
-import { type Address, type PublicClient, formatUnits, parseUnits } from 'viem';
+import { type Address, type Eip1193Provider, formatUnits, parseUnits } from '../eth/index.js';
 import { BPS_PRECISION, PRECISION_1E18 } from './constants.js';
 
 /**
@@ -80,10 +80,13 @@ export async function retryWithBackoff<T>(
  * Check if address has code (is contract)
  */
 export async function isContract(
-  client: PublicClient,
+  provider: Eip1193Provider,
   address: Address,
 ): Promise<boolean> {
-  const code = await client.getCode({ address });
+  const code = await provider.request({
+    method: 'eth_getCode',
+    params: [address, 'latest'],
+  }) as string;
   return code !== undefined && code !== '0x';
 }
 

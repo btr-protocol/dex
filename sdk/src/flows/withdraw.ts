@@ -3,7 +3,8 @@
  * @module @btr/dex-sdk/flows
  */
 
-import type { Address, PublicClient, WalletClient, Hash } from 'viem';
+import type { Address, Hex, Eip1193Provider, Abi } from '../eth/index.js';
+import { Contract, waitForTransaction } from '../eth/index.js';
 import { applySlippage } from '../common/utils.js';
 
 export interface WithdrawParams {
@@ -16,7 +17,7 @@ export interface WithdrawParams {
 }
 
 export interface WithdrawResult {
-  hash: Hash;
+  hash: Hex;
   amountReceived?: bigint;
 }
 
@@ -24,19 +25,24 @@ export interface WithdrawResult {
  * Execute a withdrawal from a AIMM pool
  */
 export async function withdraw(
-  publicClient: PublicClient,
-  walletClient: WalletClient,
-  poolAbi: any,
+  provider: Eip1193Provider,
+  account: Address,
+  poolAbi: Abi,
   params: WithdrawParams,
 ): Promise<WithdrawResult> {
-  const account = walletClient.account;
   if (!account) {
-    throw new Error('No account configured on wallet client');
+    throw new Error('No account provided');
   }
+
+  const poolContract = new Contract({
+    address: params.poolAddress,
+    abi: poolAbi,
+    provider,
+  });
 
   // 1. Get quote for withdrawal
   const expectedAmount = await getWithdrawQuote(
-    publicClient,
+    provider,
     params.poolAddress,
     poolAbi,
     params.token,
@@ -54,31 +60,18 @@ export async function withdraw(
   }
 
   // 3. Check LP token balance
-  const lpBalance = await publicClient.readContract({
-    address: params.poolAddress,
-    abi: poolAbi,
-    functionName: 'balanceOf',
-    args: [account.address],
-  }) as bigint;
+  const lpBalance = await poolContract.read('balanceOf', [account]) as bigint;
 
   if (lpBalance < params.lpTokens) {
     throw new Error(`Insufficient LP tokens. Have ${lpBalance}, need ${params.lpTokens}`);
   }
 
   // 4. Execute withdrawal
-  const { request } = await publicClient.simulateContract({
-    account,
-    address: params.poolAddress,
-    abi: poolAbi,
-    functionName: 'withdraw',
-    args: [params.token, params.lpTokens, minAmount],
-  });
-
-  const hash = await walletClient.writeContract(request);
+  const hash = await poolContract.write('withdraw', [params.token, params.lpTokens, minAmount], { from: account });
   console.log(`Withdraw transaction: ${hash}`);
 
   // Wait for confirmation
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await waitForTransaction(provider, hash);
   console.log(`Withdraw confirmed. Gas used: ${receipt.gasUsed}`);
 
   // TODO: Parse logs to extract actual amount received
@@ -89,26 +82,22 @@ export async function withdraw(
  * Get quote for a withdrawal (how many tokens will be received)
  */
 export async function getWithdrawQuote(
-  publicClient: PublicClient,
+  provider: Eip1193Provider,
   poolAddress: Address,
-  poolAbi: any,
+  poolAbi: Abi,
   token: Address,
   lpTokens: bigint,
 ): Promise<bigint> {
+  const poolContract = new Contract({
+    address: poolAddress,
+    abi: poolAbi,
+    provider,
+  });
+
   // Read current state
   const [assetData, totalSupply] = await Promise.all([
-    publicClient.readContract({
-      address: poolAddress,
-      abi: poolAbi,
-      functionName: 'assets',
-      args: [token],
-    }) as Promise<any>,
-    publicClient.readContract({
-      address: poolAddress,
-      abi: poolAbi,
-      functionName: 'totalSupply',
-      args: [],
-    }) as Promise<bigint>,
+    poolContract.read('assets', [token]) as Promise<any>,
+    poolContract.read('totalSupply', []) as Promise<bigint>,
   ]);
 
   // Calculate expected amount: (lpTokens / totalSupply) * reserves
@@ -119,15 +108,16 @@ export async function getWithdrawQuote(
  * Get user's LP token balance for a specific pool
  */
 export async function getLpBalance(
-  publicClient: PublicClient,
+  provider: Eip1193Provider,
   poolAddress: Address,
-  poolAbi: any,
+  poolAbi: Abi,
   userAddress: Address,
 ): Promise<bigint> {
-  return await publicClient.readContract({
+  const poolContract = new Contract({
     address: poolAddress,
     abi: poolAbi,
-    functionName: 'balanceOf',
-    args: [userAddress],
-  }) as bigint;
+    provider,
+  });
+
+  return await poolContract.read('balanceOf', [userAddress]) as bigint;
 }

@@ -9,7 +9,7 @@ import { BgRenderer } from '@components/BgRenderer';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import DisclaimerPage, { useDisclaimer } from '@/pages/DisclaimerPage';
-import { useEffect, lazy, Suspense, useState } from 'react';
+import { useEffect, lazy, Suspense, useState } from 'preact/compat';
 import { ROUTES } from '@/constants/navigation';
 
 // Lazy load all route pages

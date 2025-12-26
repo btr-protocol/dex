@@ -1,12 +1,12 @@
-import { ReactNode } from 'react';
+import { ComponentChildren } from 'preact';
 import { cn } from '@utils/cn';
 
 interface CollapsibleSectionProps {
   id: string;
-  title: string | ReactNode;
+  title: string | ComponentChildren;
   isOpen: boolean;
   onToggle: () => void;
-  children: ReactNode;
+  children: ComponentChildren;
   hasChildren?: boolean;
   showIcon?: boolean;
   indent?: string | number;

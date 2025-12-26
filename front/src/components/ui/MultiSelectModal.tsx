@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo, ReactNode } from 'react';
+import { useState, useEffect, useMemo } from 'preact/hooks';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { Button } from '@components/ui/Button';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
 import { EmptyState } from '@components/ui/EmptyState';
-import { Check } from 'lucide-react';
+import { Icon } from './Icon';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { addNotification } from '@lib/notifications';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
@@ -119,7 +119,7 @@ export function MultiSelectModal({
           </span>
           <div className="flex items-center gap-2">
             <Button
-              styleVariant="outlined"
+              variant="outlined"
               size="default"
               onClick={allSelected ? handleDeselectAll : handleSelectAll}
               disabled={allSelected && tempSelected.length === 1}
@@ -163,7 +163,7 @@ export function MultiSelectModal({
                   </div>
                 )}
               </div>
-              {isSelected && <Check className="w-5 h-5 text-primary shrink-0" />}
+              {isSelected && <Icon name="check" className="w-5 h-5 text-primary shrink-0" />}
             </button>
           );
         })}

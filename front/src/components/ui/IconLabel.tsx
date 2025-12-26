@@ -1,9 +1,9 @@
-import { ReactNode } from 'react';
+import { ComponentChildren } from 'preact';
 import { cn } from '@utils/cn';
 
 interface IconLabelProps {
-  icon: ReactNode;
-  label: ReactNode;
+  icon: ComponentChildren;
+  label: ComponentChildren;
   iconSize?: 'xs' | 'sm' | 'md' | 'lg';
   gap?: 1 | 1.5 | 2 | 3 | 4;
   className?: string;

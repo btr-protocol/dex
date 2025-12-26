@@ -3,7 +3,7 @@
  * Aggregates stake from all chains and computes boosted LP allocation
  */
 
-import type { Address } from 'viem';
+import type { Address } from '../eth/index.js';
 
 /**
  * Earning power suppression constants (quadratic damping)

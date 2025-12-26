@@ -3,7 +3,7 @@
  * Matches on-chain getScalarVotingPower formula
  */
 
-import type { Address } from 'viem';
+import type { Address } from '../eth/index.js';
 
 /**
  * User's voting position (aggregated across all chains)

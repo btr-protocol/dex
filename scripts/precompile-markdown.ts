@@ -12,7 +12,6 @@ import { marked } from 'marked';
 import Prism from 'prismjs';
 import loadLanguages from 'prismjs/components/index.js';
 import { asciiToMathML } from 'asciimath2ml';
-import { Window } from 'happy-dom';
 import { slugifyDoc, generateAnchorId } from '../sdk/src/common/format.js';
 import { chromium, type Browser } from 'playwright';
 
@@ -320,9 +319,12 @@ function extractTitleFromSlug(slug: string): string {
 }
 
 function escapeHtml(text: string): string {
-  const div = new Window().document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 /**
@@ -758,114 +760,56 @@ async function renderMarkdown(content: string): Promise<string> {
   // Parse markdown with marked
   let html = marked.parse(processedContent) as string;
 
-  // Post-process: Apply syntax highlighting with Prism
-  const window = new Window();
-  const doc = window.document;
-  doc.body.innerHTML = html;
-  const codeBlocks = doc.querySelectorAll('pre code');
+  // Post-process: Apply syntax highlighting with Prism using string manipulation
+  const codeBlockRegex = /<pre><code class="language-([^"]*)">([\s\S]*?)<\/code><\/pre>/g;
+  html = html.replace(codeBlockRegex, (match, lang, code) => {
+    const rawCode = code
+      .replace(/<[^>]+>/g, '') // Strip any HTML tags
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'");
 
-  codeBlocks.forEach((block) => {
-    const classList = Array.from(block.classList);
-    const langClass = classList.find((cls: string) => cls.startsWith('language-'));
-    const pre = block.parentElement;
-
-    if (!pre) return;
-
-    // Get raw code for copy button
-    const rawCode = block.textContent || '';
-
-    if (langClass) {
-      const lang = langClass.replace('language-', '');
-
-      // Add data-language attribute to <pre> for CSS language label
-      pre.setAttribute('data-language', lang);
-
-      if (Prism.languages[lang]) {
-        try {
-          const highlighted = Prism.highlight(rawCode, Prism.languages[lang], lang);
-
-          // Wrap each line in .line element for line numbers
-          // Remove trailing empty lines
-          let lines = highlighted.split('\n');
-          while (lines.length > 0 && !lines[lines.length - 1].trim()) {
-            lines.pop();
-          }
-          const wrappedLines = lines.map(line => `<span class="line">${line || ' '}</span>`).join('\n');
-          block.innerHTML = wrappedLines;
-        } catch (err) {
-          // Fallback: still wrap lines even if highlighting fails
-          let lines = rawCode.split('\n');
-          while (lines.length > 0 && !lines[lines.length - 1].trim()) {
-            lines.pop();
-          }
-          const wrappedLines = lines.map(line => `<span class="line">${escapeHtml(line) || ' '}</span>`).join('\n');
-          block.innerHTML = wrappedLines;
-        }
-      } else {
-        // No syntax highlighting available, but still wrap lines
-        let lines = rawCode.split('\n');
-        while (lines.length > 0 && !lines[lines.length - 1].trim()) {
-          lines.pop();
-        }
-        const wrappedLines = lines.map(line => `<span class="line">${escapeHtml(line) || ' '}</span>`).join('\n');
-        block.innerHTML = wrappedLines;
+    let highlighted = rawCode;
+    if (lang && Prism.languages[lang]) {
+      try {
+        highlighted = Prism.highlight(rawCode, Prism.languages[lang], lang);
+      } catch (err) {
+        highlighted = escapeHtml(rawCode);
       }
     } else {
-      // No language specified - treat as plain text (e.g., WHERE blocks)
-      // Check if it's a WHERE block or similar
-      const isWhereBlock = rawCode.trim().startsWith('WHERE');
-
-      if (isWhereBlock) {
-        pre.setAttribute('data-language', '');  // No language label for WHERE blocks
-      }
-
-      // Still wrap lines for line numbers
-      // Remove trailing empty lines
-      let lines = rawCode.split('\n');
-      while (lines.length > 0 && !lines[lines.length - 1].trim()) {
-        lines.pop();
-      }
-      const wrappedLines = lines.map(line => `<span class="line">${escapeHtml(line) || ' '}</span>`).join('\n');
-      block.innerHTML = wrappedLines;
+      highlighted = escapeHtml(rawCode);
     }
 
-    // Add copy button to all code blocks
-    const copyButton = doc.createElement('button');
-    copyButton.className = 'copy-button';
-    copyButton.setAttribute('data-code', rawCode);
-    copyButton.setAttribute('aria-label', 'Copy code');
-
-    // Mark as short if 3 lines or fewer (hide until hover to avoid overlap with language label)
-    const lineCount = rawCode.split('\n').filter(line => line.trim()).length;
-    if (lineCount <= 3) {
-      copyButton.setAttribute('data-short', 'true');
+    // Wrap each line in .line element
+    let lines = highlighted.split('\n');
+    while (lines.length > 0 && !lines[lines.length - 1].trim()) {
+      lines.pop();
     }
+    const wrappedLines = lines.map(line => `<span class="line">${line || ' '}</span>`).join('\n');
 
-    copyButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>`;
-    pre.appendChild(copyButton);
+    // Add copy button
+    const lineCount = rawCode.split('\n').filter(l => l.trim()).length;
+    const shortAttr = lineCount <= 3 ? ' data-short="true"' : '';
+    const copyBtn = `<button class="copy-button" data-code="${escapeHtml(rawCode)}" aria-label="Copy code"${shortAttr}><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>`;
+
+    return `<pre data-language="${escapeHtml(lang)}"><code class="language-${lang}">${wrappedLines}</code>${copyBtn}</pre>`;
   });
 
-  // Add IDs to headings for TOC navigation
-  const headings = doc.querySelectorAll('h1, h2, h3, h4, h5, h6');
-  headings.forEach((heading) => {
-    const text = heading.textContent?.trim() || '';
+  // Add IDs to headings
+  const headingRegex = /<(h[1-6])([^>]*)>([\s\S]*?)<\/\1>/g;
+  html = html.replace(headingRegex, (match, tag, attrs, content) => {
+    const text = content.replace(/<[^>]+>/g, '').trim();
     const id = generateAnchorId(text);
-    heading.id = id;
-    heading.classList.add('scroll-mt-24');
+    return `<${tag}${attrs} id="${id}" class="scroll-mt-24">${content}</${tag}>`;
   });
 
-  // Make tables sortable
-  const tables = doc.querySelectorAll('table');
-  tables.forEach((table) => {
-    const headers = table.querySelectorAll('th');
-    headers.forEach((th) => {
-      th.classList.add('sortable');
-    });
-  });
+  // Make table headers sortable
+  html = html.replace(/<th([^>]*)>/g, '<th$1 class="sortable">');
 
   // Fix Unicode character encoding issues
-  let fixedHtml = doc.body.innerHTML;
-  fixedHtml = fixedHtml
+  let fixedHtml = html
     .replace(/�/g, '→')
     .replace(/◆/g, '→')
     .replace(/\u25C6/g, '→')

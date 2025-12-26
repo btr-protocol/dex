@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, ReactNode, cloneElement, ComponentType } from 'react';
+import { type ComponentChildren } from 'preact';
+import { useState, useRef, useEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
-import { ChevronDown, Check } from 'lucide-react';
-import type { LucideProps } from 'lucide-react';
+import { Icon } from './Icon';
 import { cn } from '@utils/cn';
 import { Button, ButtonProps } from './Button';
 import { Tooltip } from './Tooltip';
@@ -17,13 +17,13 @@ interface DropdownProps<T = string> {
   onChange: (value: T | T[]) => void;
   mode?: 'single' | 'multi';
   /** Render custom trigger, or use default button */
-  trigger?: ReactNode;
+  trigger?: ComponentChildren;
   /** Label shown in default trigger */
   placeholder?: string;
   /** Size variant */
   size?: Size;
-  /** Style variant - maps to Button styleVariant */
-  styleVariant?: ButtonProps['styleVariant'];
+  /** Style variant - maps to Button variant */
+  variant?: ButtonProps['variant'];
   /** Direction to open */
   side?: 'top' | 'bottom' | 'auto';
   /** Additional className for trigger */
@@ -32,7 +32,7 @@ interface DropdownProps<T = string> {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   /** Footer content (e.g., "Clear all" button) */
-  footer?: ReactNode;
+  footer?: ComponentChildren;
   /** Min width of dropdown panel */
   minWidth?: number;
 }
@@ -45,7 +45,7 @@ export function Dropdown<T = string>({
   trigger,
   placeholder = 'Select...',
   size = 'default',
-  styleVariant = 'glass',
+  variant = 'glass',
   side = 'auto',
   className,
   open: controlledOpen,
@@ -166,9 +166,9 @@ export function Dropdown<T = string>({
       ref={triggerRef}
       onClick={() => setOpen(!isOpen)}
       size={size}
-      styleVariant={styleVariant}
+      variant={variant}
       className={cn('justify-between text-left', className)}
-      rightIcon={<ChevronDown className={cn(SIZE_CHECK[size], 'transition-transform', isOpen && 'rotate-180')} />}
+      rightIcon={<Icon name="caret-down" className={cn(SIZE_CHECK[size], 'transition-transform', isOpen && 'rotate-180')} />}
     >
       <span className="truncate text-left">{getDisplayLabel()}</span>
     </Button>
@@ -177,7 +177,7 @@ export function Dropdown<T = string>({
   // Custom trigger with ref forwarding
   const triggerElement = trigger ? (
     <div ref={triggerRef as any} onClick={() => setOpen(!isOpen)} className={cn('cursor-pointer', className)}>
-      {trigger}
+      {trigger as any}
     </div>
   ) : defaultTrigger;
 
@@ -220,19 +220,19 @@ export function Dropdown<T = string>({
                     disabled && 'opacity-50 cursor-not-allowed'
                   )}
                 >
-                  {item.icon && (
+                  {!!item.icon && (
                     isStringIcon(item.icon) ? (
                       <img src={item.icon} alt="" className={cn(itemSizeClasses.icon, 'rounded-xs shrink-0')} />
                     ) : (
                       <span className={cn('shrink-0', selected && !disabled ? 'text-primary' : 'text-muted-foreground')}>
-                        {renderIcon(item.icon, itemSizeClasses.icon)}
+                        {renderIcon(item.icon, itemSizeClasses.icon) as any}
                       </span>
                     )
                   )}
                   <span className={cn('flex-1 text-left', selected && !disabled && 'text-primary font-medium')}>
                     {item.label}
                   </span>
-                  {selected && !disabled && <Check className={cn('shrink-0 text-primary', itemSizeClasses.check)} />}
+                  {selected && !disabled && <Icon name="check" className={cn('shrink-0 text-primary', itemSizeClasses.check)} />}
                 </button>
               );
 
@@ -259,7 +259,7 @@ export function Dropdown<T = string>({
           {footer && (
             <>
               <div className="border-t border-border" />
-              {footer}
+              {footer as any}
             </>
           )}
         </div>,
@@ -271,14 +271,14 @@ export function Dropdown<T = string>({
 
 // Convenience wrapper for toolbar-style dropdowns (like ChartToolbar)
 interface ToolbarDropdownProps<T = string> extends Omit<DropdownProps<T>, 'trigger' | 'size'> {
-  icon?: ComponentType<LucideProps>;
+  icon?: string;
   label?: string;
   showChevron?: boolean;
   activeColor?: boolean;
 }
 
 export function ToolbarDropdown<T = string>({
-  icon: Icon,
+  icon: iconName,
   label,
   showChevron = true,
   activeColor = false,
@@ -297,9 +297,9 @@ export function ToolbarDropdown<T = string>({
       size="sm"
       trigger={
         <div className="toolbar-item hover:bg-bg-3">
-          {Icon && <Icon className={cn('w-4 h-4', activeColor && hasSelection && 'text-primary')} />}
+          {iconName && <Icon name={iconName} className={cn('w-4 h-4', activeColor && hasSelection && 'text-primary')} />}
           {label && <span className={cn(activeColor && hasSelection && 'text-primary')}>{label}</span>}
-          {showChevron && <ChevronDown className="w-4 h-4" />}
+          {showChevron && <Icon name="caret-down" className="w-4 h-4" />}
         </div>
       }
     />

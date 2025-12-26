@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'preact/hooks';
-import { useSyncExternalStore } from 'preact/compat';
+import { useState, useEffect } from 'preact/hooks'
+import { useSignal } from '@preact/signals'
 import {
-  eip6963Store,
+  eip6963Providers,
   detectLegacy,
   mergeWallets,
   isMobile,
@@ -12,19 +12,19 @@ import {
   DISCOVER_MOBILE,
   DISCOVER_DESKTOP,
   type WalletInfo,
-} from '@sdk/eth/wallets';
+} from '@sdk/eth/wallets'
 
 // Re-export for convenience
-export { isMobile, getIcon as getWalletIcon, getDownloadUrl as getWalletDownloadUrl, getTooltip as getWalletTooltipName, WC_ICONS, DISCOVER_MOBILE, DISCOVER_DESKTOP };
-export type { WalletInfo as Wallet };
+export { isMobile, getIcon as getWalletIcon, getDownloadUrl as getWalletDownloadUrl, getTooltip as getWalletTooltipName, WC_ICONS, DISCOVER_MOBILE, DISCOVER_DESKTOP }
+export type { WalletInfo as Wallet }
 
 export function useInjectedWallets(): WalletInfo[] {
-  const eip6963 = useSyncExternalStore(eip6963Store.subscribe, eip6963Store.getSnapshot, eip6963Store.getServerSnapshot);
-  const [legacy, setLegacy] = useState<WalletInfo[]>([]);
+  const eip6963 = useSignal(eip6963Providers)
+  const [legacy, setLegacy] = useState<WalletInfo[]>([])
 
   useEffect(() => {
-    setLegacy(detectLegacy());
-  }, []);
+    setLegacy(detectLegacy())
+  }, [])
 
-  return mergeWallets(eip6963, legacy);
+  return mergeWallets(eip6963.value, legacy)
 }

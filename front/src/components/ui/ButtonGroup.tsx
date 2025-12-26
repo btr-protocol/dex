@@ -1,11 +1,12 @@
-import * as React from "react"
+import { JSX, Ref, cloneElement, isValidElement, ComponentChildren } from "preact"
 import { cn } from "@utils/cn"
 import { cva } from "@utils/cva"
 import { BORDER_RADIUS } from '@/constants/design'
 
-export interface ButtonGroupProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface ButtonGroupProps extends JSX.HTMLAttributes<HTMLDivElement> {
   direction?: "horizontal" | "vertical"
   variant?: "default" | "compact" | "outlined"
+  ref?: Ref<HTMLDivElement>
 }
 
 const buttonGroupVariants = cva(
@@ -29,47 +30,41 @@ const buttonGroupVariants = cva(
   }
 );
 
-const ButtonGroup = React.forwardRef<HTMLDivElement, ButtonGroupProps>(
-  ({ className, direction = "horizontal", variant = "default", children, ...props }, ref) => {
-    const childrenArray = React.Children.toArray(children)
+export function ButtonGroup({ className, direction = "horizontal", variant = "default", children, ...props }: ButtonGroupProps) {
+  const childrenArray: ComponentChildren[] = Array.isArray(children) ? children : [children]
 
-    // Get border radius class without "rounded-" prefix for child elements
-    const radiusSize = BORDER_RADIUS.replace('rounded-', '')
+  // Get border radius class without "rounded-" prefix for child elements
+  const radiusSize = BORDER_RADIUS.replace('rounded-', '')
 
-    return (
-      <div
-        ref={ref}
-        className={buttonGroupVariants({ direction, variant, className })}
-        {...props}
-      >
-        {React.Children.map(childrenArray, (child, index) => {
-          if (!React.isValidElement(child)) return child
+  return (
+    <div
+      className={buttonGroupVariants({ direction, variant, className })}
+      {...props}
+    >
+      {childrenArray.map((child: any, index: number) => {
+        if (!isValidElement(child)) return child
 
-          const isFirst = index === 0
-          const isLast = index === childrenArray.length - 1
+        const isFirst = index === 0
+        const isLast = index === childrenArray.length - 1
 
-          // Build border classes for dividers
-          const borderClass = direction === "vertical"
-            ? !isLast ? "border-b border-border" : ""
-            : !isLast ? "border-r border-border" : ""
+        // Build border classes for dividers
+        const borderClass = direction === "vertical"
+          ? !isLast ? "border-b border-border" : ""
+          : !isLast ? "border-r border-border" : ""
 
-          // Build rounding classes using the shared radius size
-          const roundingClass = direction === "vertical"
-            ? isFirst ? `rounded-t-${radiusSize} rounded-b-none` : isLast ? `rounded-b-${radiusSize} rounded-t-none` : "rounded-none"
-            : isFirst ? `rounded-l-${radiusSize} rounded-r-none` : isLast ? `rounded-r-${radiusSize} rounded-l-none` : "rounded-none"
+        // Build rounding classes using the shared radius size
+        const roundingClass = direction === "vertical"
+          ? isFirst ? `rounded-t-${radiusSize} rounded-b-none` : isLast ? `rounded-b-${radiusSize} rounded-t-none` : "rounded-none"
+          : isFirst ? `rounded-l-${radiusSize} rounded-r-none` : isLast ? `rounded-r-${radiusSize} rounded-l-none` : "rounded-none"
 
-          return React.cloneElement(child as React.ReactElement<any>, {
-            className: cn(
-              (child as React.ReactElement<any>).props.className,
-              borderClass,
-              roundingClass
-            )
-          })
-        })}
-      </div>
-    )
-  }
-)
-ButtonGroup.displayName = "ButtonGroup"
-
-export { ButtonGroup }
+        return cloneElement(child, {
+          className: cn(
+            child.props?.className,
+            borderClass,
+            roundingClass
+          )
+        } as any)
+      })}
+    </div>
+  )
+}

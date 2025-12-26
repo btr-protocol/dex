@@ -1,4 +1,4 @@
-import { BookOpen, Users, Link2, Settings } from 'lucide-react';
+import { Icon } from './ui/Icon';
 
 interface QuickLink {
   title: string;
@@ -16,25 +16,25 @@ export function DocsQuickLinks({ onNavigate }: DocsQuickLinksProps) {
     {
       title: 'Traders',
       description: 'Understand swap costs and price impact',
-      icon: <BookOpen className="w-8 h-8" />,
+      icon: <Icon name="book-open" className="w-8 h-8" />,
       onClick: () => onNavigate('/docs/1-AIMM/1.2-Pricing/1.2.5-Fees'),
     },
     {
       title: 'LPs',
       description: 'Learn deposit, withdrawal, and reward mechanics',
-      icon: <Users className="w-8 h-8" />,
+      icon: <Icon name="users" className="w-8 h-8" />,
       onClick: () => onNavigate('/docs/1-AIMM/1.2-Pricing/1.2.1-Inventory'),
     },
     {
       title: 'Integrators',
       description: 'Integrate with oracles and flash lending',
-      icon: <Link2 className="w-8 h-8" />,
+      icon: <Icon name="link" className="w-8 h-8" />,
       onClick: () => onNavigate('/docs/1-AIMM/1.3-Modules/1.3.1-Internal-Oracle'),
     },
     {
       title: 'Curators',
       description: 'Configure pools and liquidity profiles',
-      icon: <Settings className="w-8 h-8" />,
+      icon: <Icon name="gear" className="w-8 h-8" />,
       onClick: () => onNavigate('/docs/1-AIMM/1.2-Pricing/Parameters'),
     },
   ];

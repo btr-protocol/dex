@@ -1,44 +1,33 @@
 /**
  * Icon mappings - single source of truth
  * Centralizes all icon lookups used across the application
+ * Uses UnoCSS Phosphor icons (i-ph-*)
  */
 
-import {
-  Repeat2,
-  Zap,
-  TrendingUp,
-  FileText,
-  Plus,
-  Target,
-  Palette,
-  Globe,
-  Package,
-} from 'lucide-react';
-
 // ============================================================================
-// Feature Icons
+// Feature Icons (Phosphor icon classes)
 // ============================================================================
 
 export const FEATURE_ICONS = {
-  'Swap': Repeat2,
-  'Liquidity': Zap,
-  'Stake': TrendingUp,
-  'Metrics': FileText,
-  'Add Asset': Plus,
-  'Documentation': FileText,
+  'Swap': 'ph-arrow-left-right',
+  'Liquidity': 'ph-lightning-bold',
+  'Stake': 'ph-trend-up',
+  'Metrics': 'ph-text-outline',
+  'Add Asset': 'ph-plus',
+  'Documentation': 'ph-text-outline',
 } as const;
 
 export type FeatureName = keyof typeof FEATURE_ICONS;
 
 // ============================================================================
-// Settings Category Icons
+// Settings Category Icons (Phosphor icon classes)
 // ============================================================================
 
 export const SETTINGS_CATEGORY_ICONS = {
-  'execution': Target,
-  'interface': Palette,
-  'region': Globe,
-  'other': Package,
+  'execution': 'ph-target',
+  'interface': 'ph-palette',
+  'region': 'ph-globe',
+  'other': 'ph-package',
 } as const;
 
 export type SettingsCategoryId = keyof typeof SETTINGS_CATEGORY_ICONS;
@@ -97,7 +86,7 @@ export function getFeatureIcon(title: string) {
  * Get settings category icon by category ID
  */
 export function getSettingsCategoryIcon(categoryId: string) {
-  return SETTINGS_CATEGORY_ICONS[categoryId as SettingsCategoryId] ?? Package;
+  return SETTINGS_CATEGORY_ICONS[categoryId as SettingsCategoryId] ?? 'ph-package';
 }
 
 /**

@@ -6,27 +6,14 @@ import { useSettings } from '@lib/settings';
 import PageContainer from '@components/layout/PageContainer';
 import { CHAINS, getAllTokensForChain } from '@sdk/eth';
 import { PriceChart } from '@components/PriceChartLazy';
+import { SwapStore } from '@/lib/swap/SwapStore';
 
-// Helper to get token symbols for a chain
-function getTokensForChain(chainId: number): string[] {
-  return Object.keys(getAllTokensForChain(chainId));
-}
-
-// Stablecoins that should be quoted against (never base unless both are stables)
-const STABLECOINS = ['USDC', 'USDT', 'USDE', 'DAI', 'FRAX', 'TUSD', 'BUSD', 'GUSD', 'USDP'];
-
-// Determine which token should be base (more expensive) and which should be quote
-// Rule: Non-stablecoin is always base, stablecoin is always quote
-function getCanonicalPairOrder(tokenA: string, tokenB: string): { base: string; quote: string } {
-  const aIsStable = STABLECOINS.includes(tokenA.toUpperCase());
-  const bIsStable = STABLECOINS.includes(tokenB.toUpperCase());
-
-  // If only one is a stablecoin, the other is base
-  if (aIsStable && !bIsStable) return { base: tokenB, quote: tokenA };
-  if (bIsStable && !aIsStable) return { base: tokenA, quote: tokenB };
-
-  // Both stablecoins or neither - alphabetical order (arbitrary but consistent)
-  return tokenA < tokenB ? { base: tokenA, quote: tokenB } : { base: tokenB, quote: tokenA };
+// Helper to get canonical pair ordering
+function getCanonicalPairOrder(token1: string, token2: string): { base: string; quote: string } {
+  const priority: Record<string, number> = { USDC: 0, USDT: 1, ETH: 2, WETH: 3 };
+  const t1Priority = priority[token1] ?? 100;
+  const t2Priority = priority[token2] ?? 100;
+  return t1Priority < t2Priority ? { base: token1, quote: token2 } : { base: token2, quote: token1 };
 }
 
 export default function SwapPage() {
@@ -45,51 +32,57 @@ export default function SwapPage() {
   }, [walletChainId]);
 
   // Get available tokens for current chain
-  const availableTokens = getTokensForChain(chainId);
+  const availableTokens = Object.keys(getAllTokensForChain(chainId));
 
   // Read token from URL params (e.g., /swap?token=ETH)
   const urlToken = queryParams?.get('token')?.toUpperCase();
 
   // Default tokens - priority: URL param > saved settings > defaults
-  const [tokenIn, setTokenIn] = useState(() => {
+  const initialTokenIn = useMemo(() => {
     if (urlToken && availableTokens.includes(urlToken)) return urlToken;
     if (settings.swapTokenIn && availableTokens.includes(settings.swapTokenIn)) return settings.swapTokenIn;
     return availableTokens.includes('USDC') ? 'USDC' : availableTokens[0];
-  });
-  const [tokenOut, setTokenOut] = useState<string | undefined>(() => {
+  }, [urlToken, availableTokens, settings.swapTokenIn]);
+
+  const initialTokenOut = useMemo(() => {
     if (urlToken && availableTokens.includes(urlToken)) {
       if (urlToken === 'USDC' || urlToken === 'USDT') {
-        const eth = availableTokens.find(t => t === 'ETH' || t === 'WETH');
-        return eth || availableTokens.find(t => t !== urlToken);
+        const eth = availableTokens.find((t: string) => t === 'ETH' || t === 'WETH');
+        return eth || availableTokens.find((t: string) => t !== urlToken);
       }
-      return availableTokens.includes('USDC') ? 'USDC' : availableTokens.find(t => t !== urlToken);
+      return availableTokens.includes('USDC') ? 'USDC' : availableTokens.find((t: string) => t !== urlToken);
     }
     if (settings.swapTokenOut && availableTokens.includes(settings.swapTokenOut)) return settings.swapTokenOut;
-    const eth = availableTokens.find(t => t === 'ETH' || t === 'WETH');
-    return eth || availableTokens.find(t => t !== tokenIn);
-  });
+    const eth = availableTokens.find((t: string) => t === 'ETH' || t === 'WETH');
+    return eth || availableTokens.find((t: string) => t !== initialTokenIn);
+  }, [urlToken, availableTokens, settings.swapTokenOut, initialTokenIn]);
+
+  // Use SwapStore - it will be shared or passed down
+  const store = useMemo(() => new SwapStore(initialTokenIn, initialTokenOut || 'USDC'), [initialTokenIn, initialTokenOut]);
 
   // Track explicit chart pair when user selects from PairSelector (null = use canonical)
   const [explicitChartPair, setExplicitChartPair] = useState<{ base: string; quote: string } | null>(null);
 
   // Compute chart base/quote - use explicit selection or derive from tokens
   const chartPair = useMemo(() => {
+    const tokenIn = store.primaryTokens.value[0]?.symbol;
+    const tokenOut = store.secondaryTokens.value[0]?.symbol;
     // If user explicitly selected a pair, use it as-is
     if (explicitChartPair) return explicitChartPair;
     // Otherwise derive from swap tokens using canonical ordering
     if (!tokenIn || !tokenOut) return { base: tokenIn || 'ETH', quote: tokenOut || 'USDC' };
     return getCanonicalPairOrder(tokenIn, tokenOut);
-  }, [tokenIn, tokenOut, explicitChartPair]);
+  }, [store.primaryTokens, store.secondaryTokens, explicitChartPair]);
 
   // Handle pair change from chart PairSelector (user explicitly picks pair)
   const handlePairChange = useCallback((base: string, quote: string) => {
     // User explicitly selected this pair - use exact order, don't canonicalize
     setExplicitChartPair({ base, quote });
     // Also update swap tokens to match
-    setTokenIn(base);
-    setTokenOut(quote);
+    store.setTokenSymbol('1', base, 'primary');
+    store.setTokenSymbol('1', quote, 'secondary');
     updateSettings({ swapTokenIn: base, swapTokenOut: quote });
-  }, [updateSettings]);
+  }, [updateSettings, store]);
 
   // Handle pair inversion (flip base/quote)
   const handleInvertPair = useCallback(() => {
@@ -101,9 +94,6 @@ export default function SwapPage() {
   const handleTokenChange = useCallback((primary: string, secondary: string) => {
     // Clear explicit pair - let canonical ordering take over
     setExplicitChartPair(null);
-    // SwapForm: primary = what user has (tokenIn), secondary = what user wants (tokenOut)
-    setTokenIn(primary);
-    setTokenOut(secondary);
     // Persist to settings
     updateSettings({ swapTokenIn: primary, swapTokenOut: secondary });
   }, [updateSettings]);
@@ -120,7 +110,7 @@ export default function SwapPage() {
       <div className="flex flex-col lg:flex-row gap-4 w-full">
         {/* Price Chart - 2/3 width on desktop, full width on mobile, shown first on mobile */}
         <div className="w-full lg:w-2/3 order-2 lg:order-1 h-[520px]">
-          {tokenOut ? (
+          {store.secondaryTokens.value[0]?.symbol ? (
             <PriceChart
               key={`${chartPair.base}-${chartPair.quote}`}
               base={chartPair.base}
@@ -146,9 +136,10 @@ export default function SwapPage() {
             isConnected={isConnected}
             onConnect={connect}
             onSwap={handleSwap}
-            initialPrimaryToken={tokenIn}
-            initialSecondaryToken={tokenOut}
+            initialPrimaryToken={store.primaryTokens.value[0]?.symbol}
+            initialSecondaryToken={store.secondaryTokens.value[0]?.symbol}
             onTokenChange={handleTokenChange}
+            store={store}
           />
         </div>
       </div>

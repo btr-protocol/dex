@@ -1,23 +1,15 @@
-import React from "react"
-import { Slot } from "@radix-ui/react-slot"
+import { JSX, Ref } from "preact"
 
-interface VisuallyHiddenProps extends React.HTMLAttributes<HTMLSpanElement> {
-  asChild?: boolean
+interface VisuallyHiddenProps extends JSX.HTMLAttributes<HTMLSpanElement> {
+  ref?: Ref<HTMLSpanElement>
 }
 
-const VisuallyHidden = React.forwardRef<
-  HTMLSpanElement,
-  VisuallyHiddenProps
->(({ asChild, className, ...props }, ref) => {
-  const Comp = asChild ? Slot : "span"
+export function VisuallyHidden({ className, ref, ...props }: VisuallyHiddenProps) {
   return (
-    <Comp
+    <span
       ref={ref}
       className={className || "sr-only"}
       {...props}
     />
   )
-})
-VisuallyHidden.displayName = "VisuallyHidden"
-
-export { VisuallyHidden }
+}

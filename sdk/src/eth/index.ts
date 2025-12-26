@@ -80,6 +80,15 @@ export {
   decodeFn,
 } from './abi';
 
+// Token Standards
+export { ERC20_ABI } from './erc20';
+export { ERC721_ABI } from './erc721';
+export { ERC1155_ABI } from './erc1155';
+export { ERC777_ABI } from './erc777';
+export { ERC4626_ABI } from './erc4626';
+export { ERC7540_ABI } from './erc7540';
+export { LAYERZERO_OFT_ABI } from './layerzero-oft';
+
 // RPC
 export {
   requestAccounts,
@@ -178,4 +187,122 @@ export function hexToBigInt(hex: string): bigint {
 
 export function bigIntToHex(num: bigint): `0x${string}` {
   return `0x${num.toString(16)}`;
+}
+
+/**
+ * Convert various types to hex string
+ */
+export function toHex(
+  value: string | number | bigint | boolean | Uint8Array,
+): `0x${string}` {
+  if (typeof value === 'string') {
+    // Already hex
+    if (value.startsWith('0x')) return value as `0x${string}`;
+    // UTF-8 string to hex
+    return `0x${Array.from(new TextEncoder().encode(value))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')}`;
+  }
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    return numberToHex(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? '0x1' : '0x0';
+  }
+  if (value instanceof Uint8Array) {
+    return `0x${Array.from(value)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')}`;
+  }
+  throw new Error(`Cannot convert ${typeof value} to hex`);
+}
+
+/**
+ * Concatenate hex strings or byte arrays
+ */
+export function concat(values: (`0x${string}` | Uint8Array)[]): `0x${string}` {
+  let result = '';
+  for (const val of values) {
+    if (typeof val === 'string') {
+      result += val.slice(2); // Remove 0x prefix
+    } else {
+      result += Array.from(val)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+  }
+  return `0x${result}`;
+}
+
+/**
+ * Pad hex string to specified byte length
+ * @param hex - Hex string to pad
+ * @param size - Target byte length (default: 32)
+ * @param dir - Padding direction: 'left' (default) or 'right'
+ */
+export function pad(
+  hex: `0x${string}`,
+  size = 32,
+  dir: 'left' | 'right' = 'left',
+): `0x${string}` {
+  const stripped = hex.slice(2);
+  const targetLength = size * 2; // 2 hex chars per byte
+
+  if (stripped.length >= targetLength) {
+    return hex;
+  }
+
+  const padding = '0'.repeat(targetLength - stripped.length);
+  return dir === 'left'
+    ? `0x${padding}${stripped}`
+    : `0x${stripped}${padding}`;
+}
+
+/**
+ * Keccak-256 hash function (Ethereum's hash)
+ * Uses native crypto.subtle when available, falls back to noble-hashes
+ */
+export async function keccak256(data: `0x${string}` | Uint8Array): Promise<`0x${string}`> {
+  const bytes = typeof data === 'string'
+    ? new Uint8Array(data.slice(2).match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)))
+    : data;
+
+  // Try native crypto first (fastest)
+  if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.subtle) {
+    try {
+      // Use SHA3-256 if available (not all browsers support it)
+      const hash = await globalThis.crypto.subtle.digest('SHA3-256', bytes);
+      return `0x${Array.from(new Uint8Array(hash))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')}`;
+    } catch {
+      // SHA3 not supported, fall through to noble-hashes
+    }
+  }
+
+  // Fallback: use noble-hashes (lightweight, well-tested)
+  const hashes = await import('@noble/hashes');
+  const { keccak_256 } = hashes.sha3 || hashes;
+  const hash = keccak_256(bytes);
+  return `0x${Array.from(hash)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+/**
+ * Synchronous keccak256 (requires noble-hashes)
+ */
+export function keccak256Sync(data: `0x${string}` | Uint8Array): `0x${string}` {
+  const bytes = typeof data === 'string'
+    ? new Uint8Array(data.slice(2).match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)))
+    : data;
+
+  // Requires @noble/hashes to be installed
+  // @ts-ignore - dynamic import
+  const hashes = require('@noble/hashes');
+  const { keccak_256 } = hashes.sha3 || hashes;
+  const hash = keccak_256(bytes);
+  return `0x${Array.from(hash)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')}`;
 }

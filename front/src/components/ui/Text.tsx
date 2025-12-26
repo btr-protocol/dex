@@ -3,10 +3,10 @@
  * Consolidates common text patterns
  */
 import { cn } from '@utils/cn';
-import type { ReactNode } from 'react';
+import type { ComponentChildren } from 'preact';
 
 interface TextProps {
-  children: ReactNode;
+  children: ComponentChildren;
   className?: string;
   as?: 'span' | 'p' | 'div' | 'label';
 }

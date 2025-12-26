@@ -2,7 +2,7 @@ import { cn } from '@utils/cn';
 
 interface MaskIconProps {
   src: string;
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | number;
   /** Custom width (e.g., 'w-16', '6rem', 'auto') - overrides size */
   width?: string;
   /** Custom height (e.g., 'h-7', '1.75rem', 'auto') - overrides size */
@@ -29,15 +29,16 @@ export function MaskIcon({
   className,
   'aria-label': ariaLabel
 }: MaskIconProps) {
-  // Build custom size styles if width or height is provided
-  const customSize = (width || height) ? {
-    width: width || 'auto',
-    height: height || 'auto',
+  // Build custom size styles if width, height or numeric size is provided
+  const isNumericSize = typeof size === 'number';
+  const customSize = (width || height || isNumericSize) ? {
+    width: width || (isNumericSize ? `${size}px` : 'auto'),
+    height: height || (isNumericSize ? `${size}px` : 'auto'),
   } : undefined;
 
   return (
     <div
-      className={cn(!customSize && SIZE_MAP[size], className)}
+      className={cn(!customSize && typeof size === 'string' && SIZE_MAP[size as keyof typeof SIZE_MAP], className)}
       style={{
         ...customSize,
         backgroundColor: color,

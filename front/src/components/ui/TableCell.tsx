@@ -4,10 +4,10 @@
  */
 import { FlexBetween } from './Flex';
 import { PercentageChange } from './PercentageChange';
-import type { ReactNode } from 'react';
+import type { ComponentChildren } from 'preact';
 
 interface TableCellWithChangeProps {
-  value: string | ReactNode;
+  value: string | ComponentChildren;
   changeValue?: number;
   changeLabel?: string;
   className?: string;

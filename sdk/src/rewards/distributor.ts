@@ -3,7 +3,7 @@
  * Combines earning power calculation with Merkle tree generation
  */
 
-import type { Address, Hex } from 'viem';
+import type { Address, Hex } from '../eth/index.js';
 import { buildDistribution, type MerkleLeaf, type DistributionData } from './merkle.js';
 import { computeDistribution, type UserStake, type PoolWeight } from './earning-power.js';
 

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { ArrowLeft, Check } from 'lucide-react';
+import { Icon } from '@components/ui/Icon';
 import { Button } from '@components/ui/Button';
 import { Input } from '@components/ui/Input';
 import { Stepper, type Step } from '@components/ui/Stepper';
@@ -43,7 +43,7 @@ export default function AddAssetPage() {
         <div className="container mx-auto mt-8 px-6 max-w-4xl pb-20">
             <div className="flex items-center gap-4 mb-8">
                 <Button variant="ghost" size="sm" onClick={() => navigate(ROUTES.EARN)} className="w-10 h-10 p-0">
-                    <ArrowLeft className="w-5 h-5" />
+                    <Icon name="arrow-left" className="w-5 h-5" />
                 </Button>
                 <div>
                     <h1 className="text-3xl font-bold text-foreground">Add New Asset</h1>
@@ -219,19 +219,19 @@ export default function AddAssetPage() {
                         <div className="mt-8 pt-6 border-t border-border flex justify-between gap-4">
                             <div className="flex gap-2">
                                 {activeTab > 0 && (
-                                    <Button styleVariant="outlined" onClick={() => setActiveTab(activeTab - 1)}>
+                                    <Button variant="outlined" onClick={() => setActiveTab(activeTab - 1)}>
                                         Previous
                                     </Button>
                                 )}
                             </div>
                             <div className="flex gap-2">
-                                <Button styleVariant="outlined" onClick={() => navigate(ROUTES.EARN)}>Cancel</Button>
+                                <Button variant="outlined" onClick={() => navigate(ROUTES.EARN)}>Cancel</Button>
                                 {activeTab < STEPS.length - 1 ? (
                                     <Button variant="primary" onClick={() => setActiveTab(activeTab + 1)}>
                                         Next
                                     </Button>
                                 ) : (
-                                    <Button variant="primary" onClick={handleSubmit} leftIcon={<Check className="w-4 h-4" />}>
+                                    <Button variant="primary" onClick={handleSubmit} leftIcon={<Icon name="check" className="w-4 h-4" />}>
                                         Submit Proposal
                                     </Button>
                                 )}

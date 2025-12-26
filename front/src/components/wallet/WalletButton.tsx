@@ -2,7 +2,7 @@ import { useState, useMemo } from 'preact/hooks';
 import { lazy, Suspense } from 'preact/compat';
 import { Button } from '@components/ui/Button';
 import { useWallet } from '@lib/wallet';
-import { LogOut, Copy } from 'lucide-react';
+import { Icon } from '@components/ui/Icon';
 import { cn } from '@utils/cn';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@components/ui/Dialog';
 import { CHAINS, getChainIcon } from '@sdk/eth';
@@ -108,7 +108,7 @@ export function WalletButton({ className }: WalletButtonProps) {
                             onClick={() => {
                                 navigator.clipboard.writeText(address);
                             }}
-                            leftIcon={<Copy className="w-4 h-4 text-primary" />}
+                            leftIcon={<Icon name="copy" className="w-4 h-4 text-primary" />}
                         >
                             Copy Address
                         </Button>
@@ -121,7 +121,7 @@ export function WalletButton({ className }: WalletButtonProps) {
                                 disconnect();
                                 setShowAccountModal(false);
                             }}
-                            leftIcon={<LogOut className="w-4 h-4" />}
+                            leftIcon={<Icon name="sign-out" className="w-4 h-4" />}
                         >
                             Disconnect
                         </Button>

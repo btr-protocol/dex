@@ -3,7 +3,7 @@
  * Replaces 16+ instances of conditional state rendering
  */
 import { EmptyState } from './EmptyState';
-import type { ReactNode } from 'react';
+import type { ComponentChildren } from 'preact';
 
 interface DataViewProps {
   isLoading?: boolean;
@@ -11,7 +11,7 @@ interface DataViewProps {
   isEmpty?: boolean;
   emptyMessage?: string;
   emptyIcon?: 'inbox' | 'database' | 'search' | 'alert';
-  children: ReactNode;
+  children: ComponentChildren;
 }
 
 export function DataView({

@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useState } from 'preact/hooks';
-import type { ReactNode } from 'react';
+import type { ComponentChildren } from 'preact';
 import { BaseModal } from '@components/ui/BaseModal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Divider } from '@components/ui/Divider';
@@ -21,7 +21,7 @@ import {
 } from '@hooks/useInjectedWallets';
 import { getName as getWalletName } from '@sdk/eth/wallets';
 import { addNotification } from '@lib/notifications';
-import { ArrowLeft, Copy, CheckCircle } from 'lucide-react';
+import { Icon } from '@components/ui/Icon';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Button } from '@components/ui/Button';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
@@ -237,7 +237,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                     onClick={handleBack}
                     className="p-1 hover:bg-bg-3 rounded transition-colors"
                 >
-                    <ArrowLeft className="w-4 h-4" />
+                    <Icon name="arrow-left" className="w-4 h-4" />
                 </button>
             ) : undefined}
             footerNav={view === 'list' ? (
@@ -394,10 +394,10 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                                         Scan this QR code with your mobile wallet to connect
                                     </p>
                                     <Button
-                                        styleVariant="outlined"
+                                        variant="outlined"
                                         size="sm"
                                         onClick={handleCopyUri}
-                                        leftIcon={copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                                        leftIcon={copied ? <Icon name="check-circle" className="w-4 h-4" /> : <Icon name="copy" className="w-4 h-4" />}
                                     >
                                         {copied ? 'Copied!' : 'Copy URI'}
                                     </Button>
@@ -415,7 +415,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
 }
 
 // Section with title that highlights when children are hovered
-function WalletSection({ title, children }: { title: string; children: ReactNode }) {
+function WalletSection({ title, children }: { title: string; children: ComponentChildren }) {
     const [isChildHovered, setIsChildHovered] = useState(false);
 
     return (

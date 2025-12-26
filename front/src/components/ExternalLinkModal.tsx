@@ -1,6 +1,6 @@
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { ModalActions } from '@components/ui/ModalActions';
-import { AlertTriangle } from 'lucide-react';
+import { Icon } from '@components/ui/Icon';
 
 interface ExternalLinkModalProps {
   isOpen: boolean;
@@ -18,7 +18,7 @@ export function ExternalLinkModal({ isOpen, onClose, url, onConfirm }: ExternalL
       onClose={(open) => !open && onClose(false)}
       title="External link"
       headerType="title"
-      headerIcon={<AlertTriangle className="w-4 h-4 text-fg-2" />}
+      headerIcon={<Icon name="warning" className="w-4 h-4 text-fg-2" />}
       maxWidth="max-w-sm"
       contrastHeader={false}
       footerControls={

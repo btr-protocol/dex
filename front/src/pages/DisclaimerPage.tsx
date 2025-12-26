@@ -69,7 +69,7 @@ export default function DisclaimerPage({ onAccept }: DisclaimerPageProps) {
           {socialLinks.map((link) => (
             <Button
               key={link.title}
-              styleVariant="ghost"
+              variant="ghost"
               size="sm"
               onClick={() => openExternalLink(link.path)}
               className="p-2"

@@ -1,13 +1,15 @@
-import * as React from 'react';
+import { JSX, Ref } from 'preact';
 import { cn } from '@utils/cn';
 import { cva } from '@utils/cva';
 import { type Size, BORDER_RADIUS, SIZE_HEIGHTS, SIZE_PADDINGS, SIZE_TEXT } from '@/constants/design';
 
 type InputVariant = 'default' | 'amount' | 'address' | 'number' | 'search';
 
-export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
-  variant?: InputVariant;
-  size?: Size;
+export interface InputProps extends Omit<JSX.HTMLAttributes<HTMLInputElement>, 'size'> {
+  variant?: InputVariant
+  size?: Size
+  type?: string
+  ref?: Ref<HTMLInputElement>
 }
 
 const inputVariants = cva(
@@ -43,25 +45,20 @@ const inputVariants = cva(
   }
 );
 
-const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, variant = 'default', size = 'default', type, style, ...props }, ref) => {
-    const borderStyle = { border: 'var(--border)' };
-    const shouldHaveBorder = variant !== 'amount';
-    const combinedStyle = shouldHaveBorder ? { ...borderStyle, ...style } : style;
+export function Input({ className, variant = 'default', size = 'default', type, style, ref, ...props }: InputProps) {
+  const borderStyle = { border: 'var(--border)' };
+  const shouldHaveBorder = variant !== 'amount';
+  const combinedStyle = shouldHaveBorder ? { ...borderStyle, ...style } : style;
 
-    return (
-      <input
-        type={type}
-        className={inputVariants({ variant, size, className })}
-        style={combinedStyle}
-        lang="en-US"
-        inputMode={type === 'number' ? 'decimal' : undefined}
-        ref={ref}
-        {...props}
-      />
-    );
-  }
-);
-Input.displayName = 'Input';
-
-export { Input };
+  return (
+    <input
+      type={type}
+      className={inputVariants({ variant, size, className })}
+      style={combinedStyle}
+      lang="en-US"
+      inputMode={type === 'number' ? 'decimal' : undefined}
+      ref={ref}
+      {...props}
+    />
+  );
+}

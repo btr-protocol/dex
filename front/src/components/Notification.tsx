@@ -1,13 +1,13 @@
-import { Copy, Save, Bug, X, Trash2, AlertTriangle, Info, XCircle } from 'lucide-react';
+import { Icon, ICON_NAMES } from '@components/ui/Icon';
 import { Button } from '@components/ui/Button';
 import { Badge } from '@components/ui/Badge';
 import { INotification, LogLevel } from '@/types/notification';
 
 const ICON_MAP = {
-  [LogLevel.DEBUG]: Bug,
-  [LogLevel.INFO]: Info,
-  [LogLevel.WARNING]: AlertTriangle,
-  [LogLevel.ERROR]: XCircle,
+  [LogLevel.DEBUG]: ICON_NAMES.bug,
+  [LogLevel.INFO]: ICON_NAMES.info,
+  [LogLevel.WARNING]: ICON_NAMES.warning,
+  [LogLevel.ERROR]: ICON_NAMES.xCircle,
 };
 
 interface NotificationProps {
@@ -17,7 +17,7 @@ interface NotificationProps {
 }
 
 export function Notification({ notification, onDelete, onDeleteGroup }: NotificationProps) {
-  const Icon = ICON_MAP[notification.level];
+  const iconName = ICON_MAP[notification.level];
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -53,7 +53,10 @@ export function Notification({ notification, onDelete, onDeleteGroup }: Notifica
 
   return (
     <div className="group relative flex items-start gap-3 px-4 py-3 border-b border-border hover:bg-bg-2 transition-colors">
-      <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${levelColors[notification.level]}`} />
+      <Icon
+        name={iconName}
+        className={`w-5 h-5 shrink-0 mt-0.5 ${levelColors[notification.level]}`}
+      />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
@@ -73,7 +76,7 @@ export function Notification({ notification, onDelete, onDeleteGroup }: Notifica
           size="xs"
           className="h-auto w-auto p-1.5"
           title="Copy"
-          leftIcon={<Copy className="w-3.5 h-3.5" />}
+          leftIcon={<Icon name="copy" className="w-3.5 h-3.5" />}
         />
         <Button
           onClick={save}
@@ -81,7 +84,7 @@ export function Notification({ notification, onDelete, onDeleteGroup }: Notifica
           size="xs"
           className="h-auto w-auto p-1.5"
           title="Save"
-          leftIcon={<Save className="w-3.5 h-3.5" />}
+          leftIcon={<Icon name="floppy-disk" className="w-3.5 h-3.5" />}
         />
         <Button
           onClick={report}
@@ -89,7 +92,7 @@ export function Notification({ notification, onDelete, onDeleteGroup }: Notifica
           size="xs"
           className="h-auto w-auto p-1.5"
           title="Report"
-          leftIcon={<Bug className="w-3.5 h-3.5" />}
+          leftIcon={<Icon name="bug" className="w-3.5 h-3.5" />}
         />
         <Button
           onClick={() => onDelete(notification.id)}
@@ -97,7 +100,7 @@ export function Notification({ notification, onDelete, onDeleteGroup }: Notifica
           size="xs"
           className="h-auto w-auto p-1.5"
           title="Delete"
-          leftIcon={<X className="w-3.5 h-3.5" />}
+          leftIcon={<Icon name="x" className="w-3.5 h-3.5" />}
         />
         <Button
           onClick={() => onDeleteGroup(notification.message)}
@@ -105,7 +108,7 @@ export function Notification({ notification, onDelete, onDeleteGroup }: Notifica
           size="xs"
           className="h-auto w-auto p-1.5 hover:bg-red/10 text-red"
           title="Delete all"
-          leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+          leftIcon={<Icon name="trash" className="w-3.5 h-3.5" />}
         />
       </div>
     </div>

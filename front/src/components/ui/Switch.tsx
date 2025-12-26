@@ -1,27 +1,63 @@
-import * as SwitchPrimitives from '@radix-ui/react-switch';
-import { forwardRef } from 'react';
-import type { ElementRef, ComponentPropsWithoutRef } from 'react';
-import { cn } from '@utils/cn';
+import { FunctionalComponent, JSX } from 'preact'
+import { useRef } from 'preact/hooks'
+import { cn } from '@utils/cn'
 
-const Switch = forwardRef<
-  ElementRef<typeof SwitchPrimitives.Root>,
-  ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>
->(({ className, ...props }, ref) => (
-  <SwitchPrimitives.Root
-    className={cn(
-      'peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-bg-primary data-[state=unchecked]:bg-bg-3',
-      className
-    )}
-    {...props}
-    ref={ref}
-  >
-    <SwitchPrimitives.Thumb
-      className={cn(
-        'pointer-events-none block h-4 w-4 rounded-full shadow-sm ring-0 transition-all data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0 data-[state=checked]:bg-primary data-[state=unchecked]:bg-fg-2'
-      )}
-    />
-  </SwitchPrimitives.Root>
-));
-Switch.displayName = SwitchPrimitives.Root.displayName;
+export interface SwitchProps extends JSX.HTMLAttributes<HTMLInputElement> {
+  checked?: boolean
+  onCheckedChange?: (checked: boolean) => void
+  disabled?: boolean
+}
 
-export { Switch };
+const Switch: FunctionalComponent<SwitchProps> = ({
+  className,
+  checked,
+  onCheckedChange,
+  disabled,
+  ...props
+}) => {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleChange = (e: Event) => {
+    const target = e.target as HTMLInputElement
+    onCheckedChange?.(target.checked)
+  }
+
+  return (
+    <div className="relative inline-flex items-center">
+      <input
+        ref={inputRef}
+        type="checkbox"
+        role="switch"
+        aria-checked={checked}
+        checked={checked}
+        onChange={handleChange}
+        disabled={disabled}
+        className={cn(
+          'peer h-5 w-9 shrink-0 cursor-pointer rounded-full',
+          'border-2 border-transparent transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2',
+          'focus-visible:ring-primary focus-visible:ring-offset-2',
+          'focus-visible:ring-offset-background',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          'appearance-none',
+          'checked:bg-bg-primary unchecked:bg-bg-3',
+          className
+        )}
+        {...props}
+      />
+      <div
+        className={cn(
+          'pointer-events-none absolute left-0 block h-4 w-4 rounded-full',
+          'shadow-sm ring-0 transition-all',
+          'checked:translate-x-4 unchecked:translate-x-0',
+          'checked:bg-primary unchecked:bg-fg-2',
+          disabled && 'opacity-50'
+        )}
+      />
+    </div>
+  )
+}
+
+Switch.displayName = 'Switch'
+
+export { Switch }

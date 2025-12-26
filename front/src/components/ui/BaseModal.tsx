@@ -1,9 +1,9 @@
 import { useRef, useEffect } from 'preact/hooks';
-import type { ReactNode } from 'preact/compat';
+import { type ComponentChildren } from 'preact';
 import { Dialog, DialogContent, DialogTitle } from '@components/ui/Dialog';
 import { VisuallyHidden } from '@components/ui/VisuallyHidden';
 import { Button } from '@components/ui/Button';
-import { Search, X } from 'lucide-react';
+import { Icon } from '@components/ui/Icon';
 import { cn } from '@utils/cn';
 
 // Standard modal padding
@@ -15,15 +15,17 @@ export interface BaseModalProps {
   title: string;
   headerType: 'input' | 'title';
   /** Icon to display left of title (headerType='title' only) */
-  headerIcon?: ReactNode;
-  headerRight?: ReactNode;
-  children: ReactNode;
+  headerIcon?: ComponentChildren;
+  headerRight?: ComponentChildren;
+  children: ComponentChildren;
+  /** Legacy footer support */
+  footer?: ComponentChildren;
   /** Navigation shortcuts (top of footer, same bg as body) */
-  footerNav?: ReactNode;
+  footerNav?: ComponentChildren;
   /** Custom content (middle of footer) */
-  footerContent?: ReactNode;
+  footerContent?: ComponentChildren;
   /** Control buttons (bottom of footer, aligned right) */
-  footerControls?: ReactNode;
+  footerControls?: ComponentChildren;
   maxWidth?: string;
   /** For headerType='input': placeholder text */
   placeholder?: string;
@@ -32,7 +34,7 @@ export interface BaseModalProps {
   /** For headerType='input': onChange handler */
   onSearchChange?: (value: string) => void;
   /** For headerType='input': onKeyDown handler */
-  onSearchKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onSearchKeyDown?: (e: any) => void;
   /** Use lighter bg for header/footer vs body (default: true) */
   contrastHeader?: boolean;
 }
@@ -81,13 +83,13 @@ export function BaseModal({
           <div className="flex items-center gap-3 pl-4 pr-3 h-12">
             {headerType === 'input' ? (
               <>
-                <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                <Icon name="magnifying-glass" className="w-4 h-4 text-muted-foreground shrink-0" />
                 <input
                   ref={inputRef}
                   type="text"
                   placeholder={placeholder || 'Search...'}
                   value={searchValue || ''}
-                  onChange={(e) => onSearchChange?.(e.target.value)}
+                  onChange={(e) => onSearchChange?.((e.target as HTMLInputElement).value)}
                   onKeyDown={onSearchKeyDown}
                   className="flex-1 bg-transparent border-0 focus:outline-none text-sm min-w-0 h-8 font-title font-medium"
                 />
@@ -100,24 +102,24 @@ export function BaseModal({
             )}
 
             {headerRight && (
-              <div className="flex items-center gap-2 shrink-0">{headerRight}</div>
+              <div className="flex items-center gap-2 shrink-0">{headerRight as any}</div>
             )}
 
             {/* Close button */}
             <Button
-              styleVariant="ghost"
+              variant="ghost"
               size="sm"
               onClick={() => onClose(false)}
               className="p-1.5"
               aria-label="Close"
             >
-              <X className="w-4 h-4" />
+              <Icon name="x" className="w-4 h-4" />
             </Button>
           </div>
         </div>
 
         {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto min-h-0">{children}</div>
+        <div className="flex-1 overflow-y-auto min-h-0">{children as any}</div>
 
         {/* Fixed Footer - stacked vertical layout */}
         {(footer || footerNav || footerContent || footerControls) && (
@@ -125,7 +127,7 @@ export function BaseModal({
             {/* Legacy footer support */}
             {footer && !footerNav && !footerContent && !footerControls && (
               <div className={`${footerBg} ${MODAL_PX} py-3 flex items-center gap-2`}>
-                {footer}
+                {footer as any}
               </div>
             )}
             {/* New stacked footer */}
@@ -134,19 +136,19 @@ export function BaseModal({
                 {/* Navigation shortcuts - same bg as body */}
                 {footerNav && (
                   <div className={`bg-bg-1 ${MODAL_PX} py-1.5 flex justify-center ${!footerContent && !footerControls ? 'rounded-b-lg' : ''}`}>
-                    {footerNav}
+                    {footerNav as any}
                   </div>
                 )}
                 {/* Custom content */}
                 {footerContent && (
                   <div className={`${footerBg} ${MODAL_PX} py-2.5 ${footerNav ? 'border-t border-border' : ''} ${!footerControls ? 'rounded-b-lg' : ''}`}>
-                    {footerContent}
+                    {footerContent as any}
                   </div>
                 )}
                 {/* Control buttons - aligned right */}
                 {footerControls && (
                   <div className={`${footerBg} ${MODAL_PX} py-2.5 flex justify-end gap-2 ${footerNav || footerContent ? 'border-t border-border' : ''} rounded-b-lg`}>
-                    {footerControls}
+                    {footerControls as any}
                   </div>
                 )}
               </>

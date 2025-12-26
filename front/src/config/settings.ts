@@ -3,8 +3,6 @@
  * Single source of truth for settings structure, validation, and rendering
  */
 
-import { Target, Palette, Globe, Package } from 'lucide-react';
-
 // ─────────────────────────────────────────────────────────────
 // Setting Types
 // ─────────────────────────────────────────────────────────────
@@ -28,7 +26,7 @@ export interface SettingDef {
 export interface SettingCategory {
   id: string;
   label: string;
-  icon: any;
+  icon: string;
   settings: SettingDef[];
 }
 
@@ -40,7 +38,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
   {
     id: 'execution',
     label: 'Execution',
-    icon: Target,
+    icon: 'target',
     settings: [
       {
         id: 'maxSlippage',
@@ -61,7 +59,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
   {
     id: 'interface',
     label: 'Interface',
-    icon: Palette,
+    icon: 'palette',
     settings: [
       {
         id: 'theme',
@@ -130,7 +128,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
   {
     id: 'region',
     label: 'Region',
-    icon: Globe,
+    icon: 'globe',
     settings: [
       {
         id: 'currency',
@@ -169,7 +167,7 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
   {
     id: 'other',
     label: 'Other',
-    icon: Package,
+    icon: 'package',
     settings: [
       {
         id: 'exportFormat',

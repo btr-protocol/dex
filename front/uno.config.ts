@@ -1,6 +1,19 @@
-/** @type {import('tailwindcss').Config} */
-export default {
-  content: ['./index.html', './src/**/*.{vue,js,ts,jsx,tsx}'],
+import { defineConfig, presetWind } from 'unocss'
+import presetIcons from '@unocss/preset-icons'
+
+export default defineConfig({
+  presets: [
+    presetWind(), // Tailwind CSS compatibility preset
+    presetIcons({
+      extraProperties: {
+        display: 'inline-block',
+        'vertical-align': 'middle',
+      },
+    }),
+  ],
+  content: {
+    filesystem: ['./index.html', './src/**/*.{vue,js,ts,jsx,tsx}'],
+  },
   darkMode: 'class',
   theme: {
     extend: {
@@ -85,11 +98,10 @@ export default {
         'mono': 'var(--font-mono)',
         'numbers': 'var(--font-numbers)',
       },
-      borderColor: theme => ({
-        ...theme('colors'),
+      borderColor: {
         DEFAULT: 'var(--border-color)',
         'primary': 'var(--border-color-primary)',
-      }),
+      },
       colors: {
         // Brand Colors (from constants.css)
         'primary': {
@@ -172,144 +184,36 @@ export default {
       },
     },
   },
-  plugins: [
-    function ({ addUtilities }) {
-      const customUtilities = {
-        // Flex layouts
-        '.flex-v': {
-          display: 'flex',
-          'flex-direction': 'column',
-        },
-        '.flex-h': {
-          display: 'flex',
-          'flex-direction': 'row',
-        },
-        '.h-start': {
-          display: 'flex',
-          'flex-direction': 'row',
-          'justify-content': 'flex-start',
-          'align-items': 'center',
-        },
-        '.h-center': {
-          display: 'flex',
-          'flex-direction': 'row',
-          'justify-content': 'center',
-          'align-items': 'center',
-        },
-        '.v-start': {
-          display: 'flex',
-          'flex-direction': 'column',
-          'align-items': 'center',
-          'justify-content': 'flex-start',
-        },
-        '.v-center': {
-          display: 'flex',
-          'flex-direction': 'column',
-          'align-items': 'center',
-          'justify-content': 'center',
-        },
+  shortcuts: {
+    // Flex layouts
+    'flex-v': 'flex flex-col',
+    'flex-h': 'flex flex-row',
+    'h-start': 'flex flex-row justify-start items-center',
+    'h-center': 'flex flex-row justify-center items-center',
+    'v-start': 'flex flex-col items-center justify-start',
+    'v-center': 'flex flex-col items-center justify-center',
 
-        // Flex with gaps
-        '.flex-center-gap-1': {
-          display: 'flex',
-          'align-items': 'center',
-          'gap': '0.25rem',
-        },
-        '.flex-center-gap-1\\.5': {
-          display: 'flex',
-          'align-items': 'center',
-          'gap': '0.375rem',
-        },
-        '.flex-center-gap-2': {
-          display: 'flex',
-          'align-items': 'center',
-          'gap': '0.5rem',
-        },
+    // Flex with gaps
+    'flex-center-gap-1': 'flex items-center gap-1',
+    'flex-center-gap-1.5': 'flex items-center gap-1.5',
+    'flex-center-gap-2': 'flex items-center gap-2',
 
-        // Toolbar items
-        '.toolbar-btn': {
-          height: '2rem',
-          'padding-left': '0.5rem',
-          'padding-right': '0.5rem',
-          display: 'flex',
-          'align-items': 'center',
-          cursor: 'pointer',
-          color: 'var(--fg-2)',
-          'font-family': 'var(--font-title)',
-          'font-weight': '500',
-          'transition-property': 'color, background-color',
-          'transition-duration': '150ms',
-        },
-        '.toolbar-btn:hover': {
-          color: 'var(--fg-1)',
-          'background-color': 'var(--bg-2)',
-        },
-        '.toolbar-btn-active': {
-          'background-color': 'var(--bg-primary)',
-          color: 'var(--primary)',
-        },
-        '.toolbar-item': {
-          height: '2rem',
-          'padding-left': '0.5rem',
-          'padding-right': '0.5rem',
-          display: 'flex',
-          'align-items': 'center',
-          'gap': '0.375rem',
-          'font-size': '0.75rem',
-          'font-family': 'var(--font-title)',
-          'font-weight': '500',
-          color: 'var(--fg-1)',
-          'border-right': '1px solid var(--border-color)',
-          'transition-property': 'background-color',
-          'transition-duration': '150ms',
-        },
-        '.toolbar-item:hover': {
-          'background-color': 'var(--bg-2)',
-        },
+    // Toolbar items
+    'toolbar-btn': 'h-8 px-2 flex items-center cursor-pointer text-fg-2 font-title font-medium transition-colors duration-150 hover:text-fg-1 hover:bg-bg-2',
+    'toolbar-btn-active': 'bg-bg-primary text-primary',
+    'toolbar-item': 'h-8 px-2 flex items-center gap-1.5 text-xs font-title font-medium text-fg-1 border-r border-border transition-colors duration-150 hover:bg-bg-2',
 
-        // Floating panels (tooltips, popovers, dropdowns)
-        '.floating-panel': {
-          position: 'fixed',
-          'z-index': 'var(--z-index-tooltip)',
-          'padding-left': '0.75rem',
-          'padding-right': '0.75rem',
-          'padding-top': '0.5rem',
-          'padding-bottom': '0.5rem',
-          'font-size': '0.75rem',
-          'font-family': 'var(--font-title)',
-          'font-weight': '500',
-          color: 'var(--fg-1)',
-          'background-color': 'var(--bg-1)',
-          border: '1px solid var(--border-color)',
-          'border-radius': 'var(--radius-sm)',
-          'box-shadow': '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
-        },
+    // Floating panels (tooltips, popovers, dropdowns)
+    'floating-panel': 'fixed z-tooltip px-3 py-2 text-xs font-title font-medium text-fg-1 bg-bg-1 border border-border rounded-sm shadow-lg',
 
-        // Typography
-        '.font-numeric': {
-          'font-family': 'var(--font-numbers)',
-          'font-variant-numeric': 'tabular-nums',
-        },
+    // Typography
+    'font-numeric': 'font-numbers tabular-nums',
 
-        // Badges
-        '.badge-chain': {
-          'border-radius': 'var(--radius-xs)',
-          'background-color': 'var(--bg-1)',
-          border: '1px solid var(--border-color)',
-        },
+    // Badges
+    'badge-chain': 'rounded-xs bg-bg-1 border border-border',
 
-        // Button states
-        '.btn-selected': {
-          'background-color': 'var(--bg-primary)',
-          color: 'var(--primary)',
-        },
-        '.btn-unselected': {
-          color: 'var(--fg-2)',
-        },
-
-        // Note: btn-group styles are in index.css (need nested selectors)
-      };
-      addUtilities(customUtilities, ['responsive', 'hover']);
-    }
-  ]
-}
+    // Button states
+    'btn-selected': 'bg-bg-primary text-primary',
+    'btn-unselected': 'text-fg-2',
+  },
+})

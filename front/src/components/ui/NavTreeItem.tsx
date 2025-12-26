@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ComponentChildren } from 'preact';
 import { cn } from '@utils/cn';
 
 export interface NavItem {
@@ -15,7 +15,7 @@ interface NavTreeItemProps {
   hasActiveChild: boolean;
   isOpen: boolean;
   onToggle: () => void;
-  renderChildren?: (() => ReactNode) | null;
+  renderChildren?: (() => ComponentChildren) | null;
   level?: number;
   indent?: (level: number) => number;
 }

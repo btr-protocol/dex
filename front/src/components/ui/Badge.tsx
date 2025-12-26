@@ -1,8 +1,8 @@
-import type { ReactNode } from 'preact/compat';
+import { ComponentChildren } from 'preact';
 import { cva } from '@utils/cva';
 
 export interface BadgeProps {
-  children: ReactNode;
+  children: ComponentChildren;
   variant?: 'default' | 'primary' | 'positive' | 'negative' | 'code' | 'secondary';
   className?: string;
 }
@@ -54,7 +54,7 @@ export function Badge({
 }: BadgeProps) {
   return (
     <span className={badgeVariants({ variant, className })}>
-      {children}
+      {children as any}
     </span>
   );
 }

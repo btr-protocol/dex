@@ -1,5 +1,5 @@
-import { Search, Bell, Settings } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Icon } from '@components/ui/Icon';
+import { useState, useEffect } from 'preact/hooks';
 import { useRouter } from '@lib/router';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { WalletButton } from '@components/wallet/WalletButton';
@@ -91,7 +91,7 @@ export default function Header() {
                 onClick={() => setShowSearch(true)}
                 className="hidden md:flex toolbar-btn flex-center-gap-2 px-3 min-w-[200px] justify-start text-muted-foreground border-r border-border rounded-l-sm"
               >
-                <Search className="w-4 h-4" />
+                <Icon name="magnifying-glass" className="w-4 h-4" />
                 <span className="text-sm">Search</span>
                 <Badge variant="code" className="ml-auto">⌘K</Badge>
               </button>
@@ -103,7 +103,7 @@ export default function Header() {
                 onClick={() => setShowNotifications(true)}
                 className="toolbar-btn border-r border-border relative"
               >
-                <Bell className="w-4 h-4" />
+                <Icon name="bell" className="w-4 h-4" />
                 {notifications.length > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-black text-[10px] font-bold rounded-full flex items-center justify-center">
                     {notifications.length > 9 ? '9+' : notifications.length}
@@ -118,7 +118,7 @@ export default function Header() {
                 onClick={() => setShowSettings(true)}
                 className="toolbar-btn border-r border-border"
               >
-                <Settings className="w-4 h-4" />
+                <Icon name="gear" className="w-4 h-4" />
               </button>
             </Tooltip>
 
