@@ -3,27 +3,7 @@
  * Order: Ticker | Chart Type | Timeframe | Indicators | Select | Draw | Lines | Shapes | [Color/Delete] | Download | Expand
  */
 import { useState } from 'preact/hooks';
-import {
-  Pencil,
-  Highlighter,
-  MousePointer2,
-  SquareDashed,
-  CheckSquare,
-  Trash2,
-  Palette,
-  ChartCandlestick,
-  BarChart3,
-  TrendingUp,
-  FunctionSquare,
-  Download,
-  Maximize2,
-  FileText,
-  Braces,
-  Image,
-  Sun,
-  Moon,
-  ArrowLeftRight,
-} from 'lucide-react';
+import { Icon } from '@components/ui/Icon';
 import type { IChartApi, PriceScaleMode } from 'lightweight-charts';
 import { Tooltip } from '@components/ui/Tooltip';
 import { MaskIcon } from '@components/ui/MaskIcon';
@@ -46,23 +26,23 @@ import { type ExportRow, exportCsv, exportJson, exportPng } from './chartExport'
 
 const MAX_SUB_PANES = 3;
 
-const CHART_ICONS = {
-  candles: ChartCandlestick,
-  bars: BarChart3,
-  line: TrendingUp,
+const CHART_ICONS: Record<ChartType, string> = {
+  candles: 'chart-candlestick',
+  bars: 'chart-bar',
+  line: 'trend-up',
 };
 
 // Tool definitions for dropdowns
 type SelectMode = 'single' | 'area' | 'all';
 const SELECT_ITEMS = [
-  { value: 'single' as SelectMode, label: 'Single', icon: MousePointer2 },
-  { value: 'area' as SelectMode, label: 'Area', icon: SquareDashed },
-  { value: 'all' as SelectMode, label: 'All', icon: CheckSquare },
+  { value: 'single' as SelectMode, label: 'Single', icon: 'cursor' },
+  { value: 'area' as SelectMode, label: 'Area', icon: 'selection-all' },
+  { value: 'all' as SelectMode, label: 'All', icon: 'check-square' },
 ];
 
 const DRAW_ITEMS = [
-  { value: 'freedraw' as DrawingToolType, label: 'Pen', icon: Pencil },
-  { value: 'highlight' as DrawingToolType, label: 'Highlighter', icon: Highlighter },
+  { value: 'freedraw' as DrawingToolType, label: 'Pen', icon: 'pencil' },
+  { value: 'highlight' as DrawingToolType, label: 'Highlighter', icon: 'highlighter' },
 ];
 
 const LINE_ITEMS = [
@@ -122,7 +102,7 @@ function ColorPalette({
         <Tooltip content="Color" side="bottom">
           <div className="h-8 px-2 flex items-center cursor-pointer text-fg-2 hover:text-fg-1 hover:bg-bg-2 transition-colors">
             <div className="relative">
-              <Palette className="w-4 h-4" />
+              <Icon name="palette" className="w-4 h-4" />
               <div
                 className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-bg-1"
                 style={{ backgroundColor: selectedDrawing.style.color === 'transparent' ? '#888' : selectedDrawing.style.color }}
@@ -178,7 +158,7 @@ function ColorPalette({
             <input
               type="color"
               value={selectedDrawing.style.color === 'transparent' ? '#888888' : selectedDrawing.style.color}
-              onChange={(e) => onStyleChange({ color: e.target.value })}
+              onChange={(e) => onStyleChange({ color: (e.target as HTMLInputElement).value })}
               className="w-5 h-5 cursor-pointer border-0 p-0"
             />
             <span className="text-xs text-fg-2">Custom</span>
@@ -344,7 +324,7 @@ export function DrawingToolbar({
   const canHaveFill = selectedDrawing && ['rectangle', 'circle', 'triangle', 'channel'].includes(selectedDrawing.type);
 
   const selectedTimeframe = TIMEFRAME_OPTIONS.find(t => t.value === timeframe)!;
-  const ChartIcon = CHART_ICONS[chartType];
+  const chartIconName = CHART_ICONS[chartType];
   const filename = `${pairLabel.replace('/', '-')}-${timeframe}s`;
 
   // Current select mode for dropdown value
@@ -391,7 +371,7 @@ export function DrawingToolbar({
               onClick={onInvertPair}
               className="toolbar-btn border-r border-border"
             >
-              <ArrowLeftRight className="w-4 h-4" />
+              <Icon name="arrows-left-right" className="w-4 h-4" />
             </button>
           </Tooltip>
         )}
@@ -410,7 +390,7 @@ export function DrawingToolbar({
           trigger={
             <Tooltip content="Chart type" side="bottom">
               <div className="toolbar-btn border-r border-border">
-                <ChartIcon className="w-4 h-4" />
+                <Icon name={chartIconName} className="w-4 h-4" />
               </div>
             </Tooltip>
           }
@@ -481,7 +461,7 @@ export function DrawingToolbar({
               <div className={`toolbar-btn flex-center-gap-1.5 border-r border-border text-xs ${
                 activeIndicators.length > 0 ? 'toolbar-btn-active' : ''
               }`}>
-                <FunctionSquare className="w-4 h-4" />
+                <Icon name="function" className="w-4 h-4" />
                 <span>Presets{activeIndicators.length > 0 ? ` (${activeIndicators.length})` : ''}</span>
               </div>
             </Tooltip>
@@ -495,7 +475,7 @@ export function DrawingToolbar({
           onChange={(v) => handleSelectModeChange(v as SelectMode)}
           size="sm"
           side="bottom"
-          trigger={toolbarTrigger(<MousePointer2 className="w-4 h-4" />, isSelectActive, 'Selection mode')}
+          trigger={toolbarTrigger(<Icon name="cursor" className="w-4 h-4" />, isSelectActive, 'Selection mode')}
         />
 
         {/* Draw Dropdown */}
@@ -505,7 +485,7 @@ export function DrawingToolbar({
           onChange={(v) => onToolChange(v as DrawingToolType)}
           size="sm"
           side="bottom"
-          trigger={toolbarTrigger(<Pencil className="w-4 h-4" />, isDrawActive, 'Draw tools')}
+          trigger={toolbarTrigger(<Icon name="pencil" className="w-4 h-4" />, isDrawActive, 'Draw tools')}
         />
 
         {/* Lines Dropdown */}
@@ -554,7 +534,7 @@ export function DrawingToolbar({
               onClick={onDelete}
               className="toolbar-btn border-r border-border hover:text-red"
             >
-              <Trash2 className="w-4 h-4" />
+              <Icon name="trash" className="w-4 h-4" />
             </button>
           </Tooltip>
         )}
@@ -565,9 +545,9 @@ export function DrawingToolbar({
         {/* Export */}
         <Dropdown
           items={[
-            { value: 'csv', label: 'CSV', icon: FileText },
-            { value: 'json', label: 'JSON', icon: Braces },
-            { value: 'png', label: 'PNG', icon: Image },
+            { value: 'csv', label: 'CSV', icon: 'file-text' },
+            { value: 'json', label: 'JSON', icon: 'code' },
+            { value: 'png', label: 'PNG', icon: 'image' },
           ]}
           value=""
           onChange={(format) => {
@@ -580,7 +560,7 @@ export function DrawingToolbar({
           trigger={
             <Tooltip content="Export" side="bottom">
               <div className="toolbar-btn border-r border-border">
-                <Download className="w-4 h-4" />
+                <Icon name="download" className="w-4 h-4" />
               </div>
             </Tooltip>
           }
@@ -593,7 +573,7 @@ export function DrawingToolbar({
               onClick={onOpenWindow}
               className="toolbar-btn"
             >
-              <Maximize2 className="w-4 h-4" />
+              <Icon name="corners-out" className="w-4 h-4" />
             </button>
           </Tooltip>
         )}
@@ -605,7 +585,7 @@ export function DrawingToolbar({
               onClick={toggleTheme}
               className="toolbar-btn"
             >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {theme === 'dark' ? <Icon name="sun" className="w-4 h-4" /> : <Icon name="moon" className="w-4 h-4" />}
             </button>
           </Tooltip>
         )}

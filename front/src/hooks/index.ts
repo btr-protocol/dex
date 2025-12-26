@@ -1,2 +1,2 @@
-// Export all hooks
-export * from './usePool'
+// Export pool hooks
+export * from './usePoolState'

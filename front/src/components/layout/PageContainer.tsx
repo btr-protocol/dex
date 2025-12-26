@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react';
+import type { ComponentChildren } from 'preact';
 
 interface PageContainerProps {
   title: string;
-  children: ReactNode;
-  actions?: ReactNode;
+  children: ComponentChildren;
+  actions?: ComponentChildren;
 }
 
 export default function PageContainer({ title, children, actions }: PageContainerProps) {

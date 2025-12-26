@@ -1,5 +1,5 @@
-import { Check, Copy } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import { Icon } from './ui/Icon';
+import { useEffect, useState } from 'preact/hooks';
 import { Button } from '@components/ui/Button';
 
 // Utility function to escape HTML
@@ -122,9 +122,9 @@ function CodeBlock({
         onClick={handleCopy}
       >
         {copied ? (
-          <Check className="w-4 h-4 text-green-500" />
+          <Icon name="check" className="w-4 h-4 text-green" />
         ) : (
-          <Copy className="w-4 h-4" />
+          <Icon name="copy" className="w-4 h-4" />
         )}
       </Button>
       <pre className={className} {...props}>
@@ -184,15 +184,36 @@ function MermaidDiagram({ chart }: { chart: string }) {
 
 interface MarkdownRendererProps {
   content: string;
+  slug?: string;
   className?: string;
 }
 
-function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+function MarkdownRenderer({ content: initialContent, slug, className }: MarkdownRendererProps) {
   const [renderedContent, setRenderedContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [content, setContent] = useState(initialContent);
+
+  useEffect(() => {
+    if (!initialContent && slug) {
+      setLoading(true);
+      fetch(`/compiled-docs/${slug}.md`)
+        .then((res) => res.text())
+        .then((text) => setContent(text))
+        .catch((err) => {
+          console.error('Failed to fetch markdown content for slug:', slug, err);
+          setContent('Failed to load content.');
+        });
+    } else {
+      setContent(initialContent);
+    }
+  }, [initialContent, slug]);
 
   useEffect(() => {
     const renderMarkdown = async () => {
+      if (!content) {
+        if (!loading) setRenderedContent('');
+        return;
+      }
       try {
         const [markedLib, PrismLib] = await Promise.all([
           loadMarked(),

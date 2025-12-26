@@ -3,7 +3,7 @@
  * No dependencies on @openzeppelin/merkle-tree - uses viem's keccak256 directly
  */
 
-import { keccak256, Hex, toHex, concat, encodeAbiParameters, parseAbiParameters } from 'viem';
+import { keccak256Sync as keccak256, type Hex, toHex, concat, pad } from '../eth/index.js';
 
 export type MerkleTree = {
   root: Hex;
@@ -77,9 +77,9 @@ export function getMerkleProof(tree: MerkleTree, leafIndex: number): Hex[] {
 export function makeLeaf(entry: MerkleLeaf): Hex {
   // abi.encodePacked does not pad, so we need to manually pack:
   // uint256 (32 bytes) + address (20 bytes) + uint256 (32 bytes) = 84 bytes total
-  const indexHex = toHex(BigInt(entry.index), { size: 32 });
+  const indexHex = pad(toHex(BigInt(entry.index)), 32);
   const accountHex = entry.account.toLowerCase() as Hex;
-  const amountHex = toHex(entry.amount, { size: 32 });
+  const amountHex = pad(toHex(entry.amount), 32);
 
   return keccak256(concat([indexHex, accountHex, amountHex]));
 }

@@ -3,7 +3,7 @@
  * @module @btr/dex-sdk/oracles
  */
 
-import type { Address, PublicClient, WalletClient, Hash } from 'viem';
+import type { Address, Hex, Eip1193Provider } from '../eth/index.js';
 import { type OraclePrice } from '../common/types.js';
 import { calculateDivergenceBps, sleep } from '../common/utils.js';
 import { PRECISION_1E18 } from '../common/constants.js';

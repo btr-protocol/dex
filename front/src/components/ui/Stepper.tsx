@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react';
+import { Icon } from './Icon';
 import { cn } from '@utils/cn';
 
 export interface Step {
@@ -47,7 +47,7 @@ export function Stepper({ steps, currentStep, orientation = 'horizontal', classN
                 isUpcoming && 'bg-bg-2 border-border'
               )}>
                 {isCompleted ? (
-                  <Check className={cn('text-primary-foreground', isHorizontal ? 'w-5 h-5' : 'w-6 h-6')} />
+                  <Icon name="check" className={cn('text-primary-foreground', isHorizontal ? 'w-5 h-5' : 'w-6 h-6')} />
                 ) : (
                   <span className={cn(
                     'font-semibold',

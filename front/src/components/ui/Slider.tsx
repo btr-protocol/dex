@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'preact/hooks';
-import { forwardRef } from 'react';
+import { Ref } from 'preact';
 import { cn } from '@utils/cn';
 
 interface SliderProps {
@@ -16,58 +16,56 @@ interface SliderProps {
   showTicks?: boolean;
   tickCount?: number;
   readOnly?: boolean;
+  ref?: Ref<HTMLDivElement>;
 }
 
-const Slider = forwardRef<HTMLDivElement, SliderProps>(
-  (
-    {
-      value,
-      defaultValue,
-      min = 0,
-      max = 100,
-      step = 1,
-      disabled = false,
-      className,
-      onValueChange,
-      showValue = true,
-      formatValue,
-      showTicks = false,
-      tickCount = 5,
-      readOnly = false,
+export function Slider({
+  value,
+  defaultValue,
+  min = 0,
+  max = 100,
+  step = 1,
+  disabled = false,
+  className,
+  onValueChange,
+  showValue = true,
+  formatValue,
+  showTicks = false,
+  tickCount = 5,
+  readOnly = false,
+  ref,
+}: SliderProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const sliderRef = useRef<HTMLDivElement>(null);
+
+  const currentValue = value?.[0] ?? defaultValue?.[0] ?? min;
+  const displayValue = formatValue ? formatValue(currentValue) : currentValue.toString();
+
+  // Convert value to position (0 to 1)
+  const valueToPosition = useCallback(
+    (val: number): number => {
+      return (val - min) / (max - min);
     },
-    ref
-  ) => {
-    const [isDragging, setIsDragging] = useState(false);
-    const sliderRef = useRef<HTMLDivElement>(null);
+    [min, max]
+  );
 
-    const currentValue = value?.[0] ?? defaultValue?.[0] ?? min;
-    const displayValue = formatValue ? formatValue(currentValue) : currentValue.toString();
+  // Convert position (0 to 1) to value
+  const positionToValue = useCallback(
+    (pos: number): number => {
+      const clampedPos = Math.max(0, Math.min(1, pos));
+      const val = min + clampedPos * (max - min);
+      const roundedVal = Math.round(val / step) * step;
+      return Math.min(Math.max(roundedVal, min), max);
+    },
+    [min, max, step]
+  );
 
-    // Convert value to position (0 to 1)
-    const valueToPosition = useCallback(
-      (val: number): number => {
-        return (val - min) / (max - min);
-      },
-      [min, max]
-    );
+  const currentPosition = useMemo(() => {
+    return Math.min(valueToPosition(currentValue), 1);
+  }, [currentValue, valueToPosition]);
 
-    // Convert position (0 to 1) to value
-    const positionToValue = useCallback(
-      (pos: number): number => {
-        const clampedPos = Math.max(0, Math.min(1, pos));
-        const val = min + clampedPos * (max - min);
-        const roundedVal = Math.round(val / step) * step;
-        return Math.min(Math.max(roundedVal, min), max);
-      },
-      [min, max, step]
-    );
-
-    const currentPosition = useMemo(() => {
-      return Math.min(valueToPosition(currentValue), 1);
-    }, [currentValue, valueToPosition]);
-
-    const handleMouseDown = useCallback(
-      (e: React.MouseEvent) => {
+  const handleMouseDown = useCallback(
+    (e: MouseEvent) => {
         if (disabled || readOnly) return;
 
         setIsDragging(true);
@@ -176,9 +174,4 @@ const Slider = forwardRef<HTMLDivElement, SliderProps>(
         )}
       </div>
     );
-  }
-);
-
-Slider.displayName = 'Slider';
-
-export { Slider };
+}

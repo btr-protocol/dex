@@ -7,7 +7,7 @@ interface ModalActionsProps {
   cancelLabel?: string;
   confirmLabel?: string;
   confirmDisabled?: boolean;
-  confirmVariant?: 'primary' | 'secondary' | 'outlined';
+  confirmVariant?: 'primary' | 'secondary' | 'outlined' | 'glass' | 'default' | 'ghost';
   className?: string;
   reverseOrder?: boolean;
 }
@@ -23,14 +23,14 @@ export function ModalActions({
   reverseOrder = false,
 }: ModalActionsProps) {
   const cancelButton = onCancel && (
-    <Button styleVariant="outlined" onClick={onCancel}>
+    <Button variant="outlined" onClick={onCancel}>
       {cancelLabel}
     </Button>
   );
 
   const confirmButton = onConfirm && (
     <Button
-      styleVariant={confirmVariant}
+      variant={confirmVariant as any}
       onClick={onConfirm}
       disabled={confirmDisabled}
     >

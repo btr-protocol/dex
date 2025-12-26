@@ -2,7 +2,7 @@
  * Common types used across the SDK
  */
 
-import type { Address } from 'viem';
+import type { Address } from '../eth/index.js';
 
 export type TokenAddress = Address;
 export type PoolAddress = Address;
@@ -54,4 +54,17 @@ export interface GuardianConfig extends CircuitBreakerConfig {
   poolAddress: PoolAddress;
   assets: TokenAddress[];
   referenceOracle: string; // e.g., 'binance', 'chainlink'
+}
+
+/**
+ * Contract addresses for a BTR DEX deployment
+ * These should be injected at build time and remain consistent across all environments
+ */
+export interface ContractAddresses {
+  factory: Address; // Factory contract for creating pools
+  pool: Address; // Main BAMM pool contract
+  usdc: Address; // USDC token contract
+  wbtc: Address; // WBTC token contract
+  eth: Address; // ETH/WETH token contract
+  deployer: Address; // Deployer/admin address
 }

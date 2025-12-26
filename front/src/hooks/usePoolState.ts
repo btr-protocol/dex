@@ -1,5 +1,5 @@
-import { useReadContract, useReadContracts } from 'wagmi';
-import type { Address } from 'viem';
+import { useReadContract, useReadContracts } from './useContract';
+import type { Address } from '@sdk/eth';
 import { getAddresses } from '@/contracts/addresses';
 import BAMM_ABI from '@/contracts/abis/BAMM.json';
 
@@ -117,7 +117,7 @@ export function usePoolAssets() {
   const { data: assetAddresses } = useRegisteredAssets();
   const addresses = getAddresses();
 
-  const contracts = assetAddresses?.map((token) => [
+  const contracts = assetAddresses?.map((token: Address) => [
     {
       address: addresses?.pool as Address,
       abi: BAMM_ABI,
@@ -138,7 +138,7 @@ export function usePoolAssets() {
     },
   ]).flat();
 
-  const { data, isLoading, error } = useReadContracts({
+  const { data, loading: isLoading, error } = useReadContracts({
     contracts: contracts || [],
     query: {
       enabled: !!assetAddresses && assetAddresses.length > 0,

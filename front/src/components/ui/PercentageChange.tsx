@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { useState } from 'preact/hooks';
+import { Icon, ICON_NAMES } from './Icon';
 
 interface PercentageChangeProps {
   value: number; // percentage change (e.g., 5 for 5%)
@@ -16,13 +16,13 @@ export function PercentageChange({ value, label }: PercentageChangeProps) {
       <button
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
-        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-700/50 transition-colors"
+        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-2 transition-colors"
         aria-label={`${label || 'Change'}: ${isPositive ? '+' : '-'}${absValue.toFixed(2)}%`}
       >
         {isPositive ? (
-          <TrendingUp className="w-4 h-4 text-green" />
+          <Icon name={ICON_NAMES.trendUp} className="w-4 h-4 text-green" />
         ) : (
-          <TrendingDown className="w-4 h-4 text-red" />
+          <Icon name={ICON_NAMES.trendDown} className="w-4 h-4 text-red" />
         )}
       </button>
 

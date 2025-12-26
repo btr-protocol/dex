@@ -3,8 +3,8 @@
  * @module @btr/dex-sdk/flows
  */
 
-import type { Address, PublicClient, WalletClient, Hash } from 'viem';
-import { erc20Abi, parseUnits } from 'viem';
+import type { Address, Hex, Eip1193Provider, Abi } from '../eth/index.js';
+import { Contract, ERC20_ABI, parseUnits, sendTransaction, waitForTransaction } from '../eth/index.js';
 import { applySlippage } from '../common/utils.js';
 
 export interface DepositParams {
@@ -17,7 +17,7 @@ export interface DepositParams {
 }
 
 export interface DepositResult {
-  hash: Hash;
+  hash: Hex;
   lpTokensReceived?: bigint;
 }
 
@@ -25,58 +25,45 @@ export interface DepositResult {
  * Execute a deposit into a AIMM pool
  */
 export async function deposit(
-  publicClient: PublicClient,
-  walletClient: WalletClient,
-  poolAbi: any,
+  provider: Eip1193Provider,
+  account: Address,
+  poolAbi: Abi,
   params: DepositParams,
 ): Promise<DepositResult> {
-  const account = walletClient.account;
   if (!account) {
-    throw new Error('No account configured on wallet client');
+    throw new Error('No account provided');
   }
 
-  // 1. Check token allowance
-  const allowance = await publicClient.readContract({
+  const tokenContract = new Contract({
     address: params.token,
-    abi: erc20Abi,
-    functionName: 'allowance',
-    args: [account.address, params.poolAddress],
-  }) as bigint;
+    abi: ERC20_ABI,
+    provider,
+  });
+
+  // 1. Check token allowance
+  const allowance = await tokenContract.read('allowance', [account, params.poolAddress]) as bigint;
 
   // 2. Approve if needed
   if (allowance < params.amount) {
     console.log('Approving token...');
-    const { request: approveRequest } = await publicClient.simulateContract({
-      account,
-      address: params.token,
-      abi: erc20Abi,
-      functionName: 'approve',
-      args: [params.poolAddress, params.amount],
-    });
 
-    const approveHash = await walletClient.writeContract(approveRequest);
-    await publicClient.waitForTransactionReceipt({ hash: approveHash });
+    const approveTx = await tokenContract.write('approve', [params.poolAddress, params.amount], { from: account });
+    await waitForTransaction(provider, approveTx);
     console.log('Approval confirmed');
   }
+
+  const poolContract = new Contract({
+    address: params.poolAddress,
+    abi: poolAbi,
+    provider,
+  });
 
   // 3. Calculate minLpTokens if not provided
   let minLpTokens = params.minLpTokens;
   if (!minLpTokens && params.slippageBps) {
     // Estimate LP tokens from current reserves (simplified)
-    // In production, you'd want to calculate this more accurately
-    const assetData = await publicClient.readContract({
-      address: params.poolAddress,
-      abi: poolAbi,
-      functionName: 'assets',
-      args: [params.token],
-    }) as any;
-
-    const totalSupply = await publicClient.readContract({
-      address: params.poolAddress,
-      abi: poolAbi,
-      functionName: 'totalSupply',
-      args: [],
-    }) as bigint;
+    const assetData = await poolContract.read('assets', [params.token]) as any;
+    const totalSupply = await poolContract.read('totalSupply', []) as bigint;
 
     // LP tokens ≈ (amount / reserves) * totalSupply
     const expectedLp = (params.amount * totalSupply) / assetData.reserves;
@@ -86,19 +73,11 @@ export async function deposit(
   }
 
   // 4. Execute deposit
-  const { request } = await publicClient.simulateContract({
-    account,
-    address: params.poolAddress,
-    abi: poolAbi,
-    functionName: 'deposit',
-    args: [params.token, params.amount, minLpTokens],
-  });
-
-  const hash = await walletClient.writeContract(request);
+  const hash = await poolContract.write('deposit', [params.token, params.amount, minLpTokens], { from: account });
   console.log(`Deposit transaction: ${hash}`);
 
-  // Wait for confirmation and extract LP tokens received
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  // Wait for confirmation
+  const receipt = await waitForTransaction(provider, hash);
   console.log(`Deposit confirmed. Gas used: ${receipt.gasUsed}`);
 
   // TODO: Parse logs to extract actual LP tokens received
@@ -109,26 +88,22 @@ export async function deposit(
  * Get quote for a deposit (how many LP tokens will be received)
  */
 export async function getDepositQuote(
-  publicClient: PublicClient,
+  provider: Eip1193Provider,
   poolAddress: Address,
-  poolAbi: any,
+  poolAbi: Abi,
   token: Address,
   amount: bigint,
 ): Promise<bigint> {
+  const poolContract = new Contract({
+    address: poolAddress,
+    abi: poolAbi,
+    provider,
+  });
+
   // Read current state
   const [assetData, totalSupply] = await Promise.all([
-    publicClient.readContract({
-      address: poolAddress,
-      abi: poolAbi,
-      functionName: 'assets',
-      args: [token],
-    }) as Promise<any>,
-    publicClient.readContract({
-      address: poolAddress,
-      abi: poolAbi,
-      functionName: 'totalSupply',
-      args: [],
-    }) as Promise<bigint>,
+    poolContract.read('assets', [token]) as Promise<any>,
+    poolContract.read('totalSupply', []) as Promise<bigint>,
   ]);
 
   // Calculate expected LP tokens

@@ -4,11 +4,11 @@
  */
 import { MaskIcon } from './MaskIcon';
 import { FlexRow, FlexBetween } from './Flex';
-import type { ReactNode } from 'react';
+import type { ComponentChildren } from 'preact';
 
 interface InfoRowProps {
   label: string;
-  value: string | ReactNode;
+  value: string | ComponentChildren;
   icon?: string; // Path to icon SVG
   iconColor?: string;
   iconLabel?: string;
@@ -65,7 +65,7 @@ export function InfoRowCompact({
   className = '',
 }: {
   label: string;
-  value: string | ReactNode;
+  value: string | ComponentChildren;
   className?: string;
 }) {
   return (
@@ -85,7 +85,7 @@ export function InfoSection({
   className = '',
 }: {
   title?: string;
-  children: ReactNode;
+  children: ComponentChildren;
   className?: string;
 }) {
   return (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -231,11 +231,11 @@ export default function LiquidityShaper() {
         <div className="flex items-center justify-between mt-4 text-sm text-gray-400">
           <span>{knots.length} / {MAX_KNOTS} knots</span>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleReset}>
+            <Button variant="outlined" size="sm" onClick={handleReset}>
               Reset
             </Button>
             <Button
-              variant="outline"
+              variant="outlined"
               size="sm"
               onClick={() => setShowEncoded(!showEncoded)}
             >
@@ -252,7 +252,7 @@ export default function LiquidityShaper() {
           <input
             type="number"
             value={baseBreadth}
-            onChange={(e) => setBaseBreadth(Number(e.target.value))}
+            onChange={(e) => setBaseBreadth(Number((e.target as HTMLInputElement).value))}
             className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-sm"
             placeholder="100000"
           />
@@ -266,7 +266,7 @@ export default function LiquidityShaper() {
           <input
             type="number"
             value={maxBreadth}
-            onChange={(e) => setMaxBreadth(Number(e.target.value))}
+            onChange={(e) => setMaxBreadth(Number((e.target as HTMLInputElement).value))}
             className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-sm"
             placeholder="1000000"
           />
@@ -280,7 +280,7 @@ export default function LiquidityShaper() {
           <input
             type="number"
             value={volKappa}
-            onChange={(e) => setVolKappa(Number(e.target.value))}
+            onChange={(e) => setVolKappa(Number((e.target as HTMLInputElement).value))}
             className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-sm"
             placeholder="1000000"
           />
@@ -309,7 +309,7 @@ export default function LiquidityShaper() {
               <div className="font-mono text-xs">{slopes[index]?.toFixed(0) || 'N/A'}</div>
               <div>
                 <Button
-                  variant="outline"
+                  variant="outlined"
                   size="sm"
                   onClick={() => handleRemoveKnot(index)}
                   disabled={knots.length <= 2}
@@ -348,7 +348,7 @@ export default function LiquidityShaper() {
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-semibold">Encoded for Contract</h3>
             <Button
-              variant="outline"
+              variant="outlined"
               size="sm"
               onClick={() => navigator.clipboard.writeText(encodeProfile(profile))}
             >

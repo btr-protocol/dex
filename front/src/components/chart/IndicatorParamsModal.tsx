@@ -86,7 +86,7 @@ function ParamInput({
         min={min}
         max={max}
         value={value}
-        onChange={e => onChange(parseInt(e.target.value) || 1)}
+        onChange={e => onChange(parseInt((e.target as HTMLInputElement).value) || 1)}
         lang="en-US"
         className="w-20 px-2 py-1.5 bg-bg-2 border border-border rounded-xs text-fg-1 text-right"
       />

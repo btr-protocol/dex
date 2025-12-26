@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { Ref } from 'preact';
 
 interface NumberInputProps {
   label?: string;
@@ -13,6 +13,7 @@ interface NumberInputProps {
   helperText?: string;
   className?: string;
   disabled?: boolean;
+  ref?: Ref<HTMLInputElement>;
   [key: string]: any;
 }
 
@@ -30,27 +31,28 @@ interface NumberInputProps {
  *   layout="vertical"
  * />
  */
-export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
-  ({
-    label,
-    value,
-    onChange,
-    layout = 'vertical',
-    variant = 'default',
-    error,
-    helperText,
-    min,
-    max,
-    step,
-    className = '',
-    ...props
-  }, ref) => {
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const numValue = Number(e.currentTarget.value);
-      if (!isNaN(numValue)) {
-        onChange(numValue);
-      }
-    };
+export function NumberInput({
+  label,
+  value,
+  onChange,
+  layout = 'vertical',
+  variant = 'default',
+  error,
+  helperText,
+  min,
+  max,
+  step,
+  className = '',
+  ref,
+  ...props
+}: NumberInputProps) {
+  const handleChange = (e: Event) => {
+    const target = e.currentTarget as HTMLInputElement;
+    const numValue = Number(target.value);
+    if (!isNaN(numValue)) {
+      onChange(numValue);
+    }
+  };
 
     const containerClasses = layout === 'horizontal'
       ? 'flex items-center justify-between gap-4'
@@ -83,7 +85,4 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
         </div>
       </div>
     );
-  }
-);
-
-NumberInput.displayName = 'NumberInput';
+}

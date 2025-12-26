@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'preact/hooks';
 import { Dialog, DialogContent } from '@components/ui/Dialog';
 import { Button } from '@components/ui/Button';
-import { Github, Twitter } from 'lucide-react';
-import { Send } from 'lucide-react';
+import { Icon } from '@components/ui/Icon';
 
 const DISCLAIMER_KEY = 'btr-disclaimer-accepted';
 
@@ -122,7 +121,7 @@ export default function DisclaimerModal({ onAccept }: DisclaimerModalProps) {
                 className="text-gray-400 hover:text-white transition-colors"
                 title="GitHub"
               >
-                <Github className="w-6 h-6" />
+                <Icon name="github-logo" className="w-6 h-6" />
               </a>
               <a
                 href="https://twitter.com/btr_markets"
@@ -131,7 +130,7 @@ export default function DisclaimerModal({ onAccept }: DisclaimerModalProps) {
                 className="text-gray-400 hover:text-white transition-colors"
                 title="Twitter"
               >
-                <Twitter className="w-6 h-6" />
+                <Icon name="twitter-logo" className="w-6 h-6" />
               </a>
               <a
                 href="https://t.me/btrsupply"
@@ -140,13 +139,13 @@ export default function DisclaimerModal({ onAccept }: DisclaimerModalProps) {
                 className="text-gray-400 hover:text-white transition-colors"
                 title="Telegram"
               >
-                <Send className="w-6 h-6" />
+                <Icon name="paper-plane" className="w-6 h-6" />
               </a>
             </div>
 
             {/* Action Buttons */}
             <div className="flex gap-3">
-              <Button variant="outline" onClick={handleBack}>
+              <Button variant="outlined" onClick={handleBack}>
                 Back
               </Button>
               <Button variant="primary" onClick={handleAccept}>

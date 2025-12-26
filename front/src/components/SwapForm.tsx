@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
 import { Button } from '@components/ui/Button';
-import { ButtonGroup } from '@components/ui/ButtonGroup';
 import { TokenRow } from '@components/TokenRow';
 import { InfoRow, InfoSection } from '@components/ui/InfoRow';
 import { BorderedThemedIcon, plusIcon, doubleDownIcon } from '@/components/ui/BorderedThemedIcon';
@@ -10,6 +9,8 @@ import TokenSelector from '@components/TokenSelector';
 import { cn } from '@utils/cn';
 import { useSwap, formatQuote } from '@/hooks/useSwap';
 import { formatUnits } from '@sdk/eth';
+import { SwapStore, OrderType, TokenData } from '@/lib/swap/SwapStore';
+import { DirectionToggle } from './Swap/DirectionToggle';
 
 interface ChainInfo {
   name: string;
@@ -26,19 +27,8 @@ interface SwapFormProps {
   initialPrimaryToken?: string;
   initialSecondaryToken?: string;
   onTokenChange?: (primary: string, secondary: string) => void;
+  store?: SwapStore;
 }
-
-interface TokenData {
-  id: string;
-  symbol: string;
-  amount: string;
-  usdValue: string;
-  balance: string;
-}
-
-type OrderDirection = 'sell' | 'buy';
-type OrderType = 'market' | 'limit' | 'stop';
-type EditingSide = 'primary' | 'secondary' | null;
 
 const ORDER_TYPE_OPTIONS: DropdownItem<OrderType>[] = [
   { value: 'market', label: 'Market' },
@@ -55,27 +45,16 @@ export function SwapForm({
   onSwap,
   initialPrimaryToken = 'ETH',
   initialSecondaryToken = 'USDT',
-  onTokenChange
+  onTokenChange,
+  store: externalStore
 }: SwapFormProps) {
-  // Order state
-  const [direction, setDirection] = useState<OrderDirection>('sell');
-  const [orderType, setOrderType] = useState<OrderType>('market');
-
-  // Token state - primary is always what user "has", secondary is what they "want"
-  const [primaryTokens, setPrimaryTokens] = useState<TokenData[]>([
-    { id: '1', symbol: initialPrimaryToken, amount: '', usdValue: '$0.00', balance: '0.00' }
-  ]);
-  const [secondaryTokens, setSecondaryTokens] = useState<TokenData[]>([
-    { id: '1', symbol: initialSecondaryToken, amount: '', usdValue: '$0.00', balance: '0.00' }
-  ]);
-
-  // Track which side user is actively editing (for two-way binding)
-  const [editingSide, setEditingSide] = useState<EditingSide>(null);
+  const localStore = useMemo(() => new SwapStore(initialPrimaryToken, initialSecondaryToken), []);
+  const store = externalStore || localStore;
 
   // Get swap quote from contract
-  const primaryToken = primaryTokens[0]?.symbol || '';
-  const secondaryToken = secondaryTokens[0]?.symbol || '';
-  const primaryAmount = primaryTokens[0]?.amount || '';
+  const primaryToken = store.primaryTokens.value[0]?.symbol || '';
+  const secondaryToken = store.secondaryTokens.value[0]?.symbol || '';
+  const primaryAmount = store.primaryTokens.value[0]?.amount || '';
 
   const {
     quote,
@@ -92,23 +71,27 @@ export function SwapForm({
   // Format quote for display
   const formattedQuote = useMemo(() => formatQuote(quote), [quote]);
 
-  // Sync with parent when initial tokens change (e.g., from URL params)
+  // Sync with store when initial tokens change (e.g., from URL params)
   useEffect(() => {
-    setPrimaryTokens(prev => prev.map((t, i) => i === 0 ? { ...t, symbol: initialPrimaryToken } : t));
-  }, [initialPrimaryToken]);
+    if (initialPrimaryToken) {
+      store.setTokenSymbol('1', initialPrimaryToken, 'primary');
+    }
+  }, [initialPrimaryToken, store]);
 
   useEffect(() => {
-    setSecondaryTokens(prev => prev.map((t, i) => i === 0 ? { ...t, symbol: initialSecondaryToken } : t));
-  }, [initialSecondaryToken]);
+    if (initialSecondaryToken) {
+      store.setTokenSymbol('1', initialSecondaryToken, 'secondary');
+    }
+  }, [initialSecondaryToken, store]);
 
   // Notify parent when tokens change
   useEffect(() => {
-    const primary = primaryTokens[0]?.symbol;
-    const secondary = secondaryTokens[0]?.symbol;
+    const primary = store.primaryTokens.value[0]?.symbol;
+    const secondary = store.secondaryTokens.value[0]?.symbol;
     if (primary && secondary && onTokenChange) {
       onTokenChange(primary, secondary);
     }
-  }, [primaryTokens, secondaryTokens, onTokenChange]);
+  }, [store.primaryTokens, store.secondaryTokens, onTokenChange]);
 
   // Token selector state
   const [isTokenSelectorOpen, setIsTokenSelectorOpen] = useState(false);
@@ -117,42 +100,15 @@ export function SwapForm({
 
   // Update secondary amount when quote changes
   useEffect(() => {
-    if (quote && editingSide === 'primary') {
+    if (quote && store.editingSide.value === 'primary') {
       const estimatedOut = formatUnits(quote.amountOut, 18);
-      setSecondaryTokens(prev => prev.map((t, i) => i === 0 ? { ...t, amount: estimatedOut } : t));
+      store.updateTokenAmount('1', estimatedOut, 'secondary');
     }
-  }, [quote, editingSide]);
-
-  const handleAmountChange = (id: string, value: string, type: 'primary' | 'secondary') => {
-    const cleaned = value.replace(/[^0-9.]/g, '');
-
-    if (type === 'primary') {
-      setPrimaryTokens(prev => prev.map(t => t.id === id ? { ...t, amount: cleaned } : t));
-      setEditingSide('primary');
-      // Secondary amount will be updated by quote effect
-    } else {
-      setSecondaryTokens(prev => prev.map(t => t.id === id ? { ...t, amount: cleaned } : t));
-      setEditingSide('secondary');
-      // Note: reverse quote not implemented yet - would need quoteBuy
-    }
-  };
+  }, [quote, store.editingSide, store]);
 
   const addToken = (type: 'primary' | 'secondary') => {
-    const newToken: TokenData = {
-      id: Date.now().toString(),
-      symbol: '',
-      amount: '',
-      usdValue: '$0.00',
-      balance: '0.00'
-    };
-
-    if (type === 'primary') {
-      setPrimaryTokens(prev => [...prev, newToken]);
-    } else {
-      setSecondaryTokens(prev => [...prev, newToken]);
-    }
-
-    setEditingTokenId(newToken.id);
+    const id = store.addToken(type);
+    setEditingTokenId(id);
     setEditingTokenType(type);
     setIsTokenSelectorOpen(true);
   };
@@ -165,85 +121,32 @@ export function SwapForm({
 
   const handleTokenSelect = (tokens: string[], _selectedChainId: number) => {
     if (tokens.length === 0 || !editingTokenId) return;
-
     const selectedToken = tokens[0];
-
-    // Check if selected token exists on the opposite side
-    if (editingTokenType === 'primary') {
-      const oppositeToken = secondaryTokens.find(t => t.symbol === selectedToken);
-      const currentToken = primaryTokens.find(t => t.id === editingTokenId);
-
-      if (oppositeToken && currentToken?.symbol) {
-        // Swap: move current token to opposite side, selected token to current side
-        setSecondaryTokens(prev => prev.map(t =>
-          t.symbol === selectedToken ? { ...t, symbol: currentToken.symbol } : t
-        ));
-      }
-
-      setPrimaryTokens(prev => prev.map(t =>
-        t.id === editingTokenId ? { ...t, symbol: selectedToken } : t
-      ));
-    } else {
-      const oppositeToken = primaryTokens.find(t => t.symbol === selectedToken);
-      const currentToken = secondaryTokens.find(t => t.id === editingTokenId);
-
-      if (oppositeToken && currentToken?.symbol) {
-        // Swap: move current token to opposite side, selected token to current side
-        setPrimaryTokens(prev => prev.map(t =>
-          t.symbol === selectedToken ? { ...t, symbol: currentToken.symbol } : t
-        ));
-      }
-
-      setSecondaryTokens(prev => prev.map(t =>
-        t.id === editingTokenId ? { ...t, symbol: selectedToken } : t
-      ));
-    }
+    store.setTokenSymbol(editingTokenId, selectedToken, editingTokenType);
   };
 
   const handleTokenSelectorClose = () => {
-    // Remove empty token if no selection was made
     if (editingTokenId) {
-      const token = editingTokenType === 'primary'
-        ? primaryTokens.find(t => t.id === editingTokenId)
-        : secondaryTokens.find(t => t.id === editingTokenId);
-
+      const tokens = editingTokenType === 'primary' ? store.primaryTokens.value : store.secondaryTokens.value;
+      const token = tokens.find(t => t.id === editingTokenId);
       if (token && !token.symbol) {
-        removeToken(editingTokenId, editingTokenType);
+        store.removeToken(editingTokenId, editingTokenType);
       }
     }
-
     setIsTokenSelectorOpen(false);
     setEditingTokenId(null);
   };
 
-  const removeToken = (id: string, type: 'primary' | 'secondary') => {
-    if (type === 'primary' && primaryTokens.length <= 1) return;
-    if (type === 'secondary' && secondaryTokens.length <= 1) return;
-
-    if (type === 'primary') {
-      setPrimaryTokens(prev => prev.filter(t => t.id !== id));
-    } else {
-      setSecondaryTokens(prev => prev.filter(t => t.id !== id));
-    }
-  };
-
-  // Switch direction
   const handleDirectionSwitch = () => {
-    setDirection(prev => prev === 'sell' ? 'buy' : 'sell');
-    // Don't swap tokens - the direction change itself is the inversion
+    store.setDirection(store.direction.value === 'sell' ? 'buy' : 'sell');
   };
 
-  const canSwap = isConnected && primaryTokens.some(t => t.amount && t.symbol);
+  const canSwap = isConnected && store.primaryTokens.value.some(t => t.amount && t.symbol);
+  const primaryTokenSymbol = store.primaryTokens.value[0]?.symbol || 'token';
+  const secondaryLabel = store.direction.value === 'sell' ? 'For' : 'With';
+  const switchTooltip = store.direction.value === 'sell' ? 'Buy instead' : 'Sell instead';
+  const actionVerb = store.direction.value === 'sell' ? 'sell' : 'buy';
 
-  // Get the primary token symbol for button text
-  const primaryTokenSymbol = primaryTokens[0]?.symbol || 'token';
-
-  // Section label and button text based on direction
-  const secondaryLabel = direction === 'sell' ? 'For' : 'With';
-  const switchTooltip = direction === 'sell' ? 'Buy instead' : 'Sell instead';
-  const actionVerb = direction === 'sell' ? 'sell' : 'buy';
-
-  // Plus separator between token rows
   const PlusSeparator = () => (
     <div className="relative h-0">
       <div className="absolute left-1/2 -translate-x-1/2 -top-[1.1rem] p-1">
@@ -252,7 +155,6 @@ export function SwapForm({
     </div>
   );
 
-  // Add token button with + icon floating above
   const AddTokenButton = ({ onClick }: { onClick: () => void }) => (
     <button onClick={onClick} className="add-token-btn group relative w-full cursor-pointer">
       <div className="absolute left-1/2 -translate-x-1/2 -top-[1.1rem] p-1 transition-colors duration-150 group-hover:text-primary">
@@ -264,7 +166,6 @@ export function SwapForm({
     </button>
   );
 
-  // Token list with + separators between items
   const TokenList = ({ tokens, type, readOnly }: { tokens: TokenData[]; type: 'primary' | 'secondary'; readOnly: boolean }) => {
     const showRemoveButtons = tokens.length > 1;
 
@@ -278,12 +179,12 @@ export function SwapForm({
               chain={chainInfo}
               chainId={chainId}
               amount={token.amount}
-              onAmountChange={(value) => handleAmountChange(token.id, value, type)}
+              onAmountChange={(value) => store.updateTokenAmount(token.id, value, type)}
               onTokenClick={() => handleTokenClick(token.id, type)}
               walletBalance={token.balance}
               usdValue={token.usdValue}
               readOnly={readOnly}
-              onRemove={() => removeToken(token.id, type)}
+              onRemove={() => store.removeToken(token.id, type)}
               showRemove={showRemoveButtons}
             />
           </div>
@@ -293,149 +194,99 @@ export function SwapForm({
     );
   };
 
-  // Direction toggle component - glassy segmented control
-  const DirectionToggle = () => {
-    return (
-      <ButtonGroup direction="horizontal" variant="outlined" className="bg-white/5">
-        <Button
-          onClick={() => setDirection('sell')}
-          size="compact-xl"
-          variant="ghost"
-          className={cn("font-title min-w-[4rem]", direction === 'sell' ? 'btn-selected' : 'btn-unselected')}
-        >
-          Sell
-        </Button>
-        <Button
-          onClick={() => setDirection('buy')}
-          size="compact-xl"
-          variant="ghost"
-          className={cn("font-title min-w-[4rem]", direction === 'buy' ? 'btn-selected' : 'btn-unselected')}
-        >
-          Buy
-        </Button>
-      </ButtonGroup>
-    );
-  };
-
   const content = (
-    <>
-      <div className="relative flex flex-col gap-2">
-        {/* Header: Direction Toggle + Order Type */}
-        <div className="flex items-center justify-between -mb-0.5">
-          <DirectionToggle />
-          <Dropdown
-            items={ORDER_TYPE_OPTIONS}
-            value={orderType}
-            onChange={(v) => setOrderType(v as OrderType)}
-            size="compact-xl"
-            styleVariant="glass"
-            className="min-w-[120px] bg-white/5 border border-white/10"
-          />
-        </div>
-
-        {/* Primary Section - no label, direction is shown in toggle */}
-        <div>
-          <TokenList tokens={primaryTokens} type="primary" readOnly={false} />
-        </div>
-
-        {/* Secondary Section with label + arrow inline */}
-        <div className="flex items-center gap-2 mt-1 relative">
-          <span className="text-2xl font-title text-fg-3 -mb-2">{secondaryLabel}</span>
-          <div className={cn(
-            'absolute left-1/2 -translate-x-1/2',
-            direction === 'buy' && 'mt-4' || 'mt-8'
-          )}>
-            <Tooltip content={switchTooltip} side="right">
-              <button
-                onClick={handleDirectionSwitch}
-                className={cn(
-                  'group cursor-pointer transition-transform duration-200 hover:scale-110',
-                  direction === 'buy' && 'rotate-180'
-                )}
-              >
-                <BorderedThemedIcon icon={doubleDownIcon} size={46} />
-              </button>
-            </Tooltip>
-          </div>
-        </div>
-
-        <div>
-          <TokenList tokens={secondaryTokens} type="secondary" readOnly={false} />
-        </div>
-
-        {/* Breakdown Section */}
-        <InfoSection className="pt-3">
-          <InfoRow
-            label="Price impact"
-            value={formattedQuote ? `${formattedQuote.priceImpact}%` : '--.--% '}
-            icon="/icons/slippage.svg"
-            iconLabel="Slippage"
-            valueClassName={cn(
-              "font-numeric",
-              formattedQuote ? "text-fg-0" : "text-muted-foreground"
-            )}
-          />
-          <InfoRow
-            label="Spread"
-            value={formattedQuote ? `${formattedQuote.spreadPercent}%` : '--.--% '}
-            icon="/icons/fee.svg"
-            iconLabel="Fee"
-            valueClassName={cn(
-              "font-numeric",
-              formattedQuote ? "text-fg-0" : "text-muted-foreground"
-            )}
-          />
-          <InfoRow
-            label="Fees"
-            value={formattedQuote ? `${parseFloat(formattedQuote.totalFee).toFixed(6)}` : '--.--'}
-            icon="/icons/gas.svg"
-            iconLabel="Fees"
-            valueClassName={cn(
-              "font-numeric",
-              formattedQuote ? "text-fg-0" : "text-muted-foreground"
-            )}
-          />
-          {quoteError && (
-            <div className="text-xs text-red-500 mt-1">{quoteError}</div>
-          )}
-          {isMockMode && formattedQuote && (
-            <div className="text-xs text-yellow-500 mt-1">Using estimated prices (no contract)</div>
-          )}
-        </InfoSection>
-
-        {/* Action Button */}
-        <Button
-          className="w-full mt-3 font-semibold"
-          onClick={async () => {
-            if (!isConnected) {
-              onConnect();
-            } else if (needsApproval) {
-              await approve();
-            } else {
-              await executeSwap();
-              onSwap();
-            }
-          }}
-          variant={!isConnected || canSwap ? 'primary' : 'default'}
-          disabled={isConnected && (!canSwap || swapLoading || approveLoading)}
-          size="lg"
-        >
-          {!isConnected
-            ? `Connect to ${actionVerb} ${primaryTokenSymbol}`
-            : swapLoading
-              ? 'Swapping...'
-              : approveLoading
-                ? 'Approving...'
-                : needsApproval
-                  ? `Approve ${primaryTokenSymbol}`
-                  : quoteLoading
-                    ? 'Getting quote...'
-                    : `${actionVerb.charAt(0).toUpperCase()}${actionVerb.slice(1)}`
-          }
-        </Button>
+    <div className="relative flex flex-col gap-2">
+      <div className="flex items-center justify-between -mb-0.5">
+        <DirectionToggle store={store} />
+        <Dropdown
+          items={ORDER_TYPE_OPTIONS}
+          value={store.orderType.value}
+          onChange={(v) => store.setOrderType(v as OrderType)}
+          size="compact-xl"
+                      variant="glass"          className="min-w-[120px] bg-white/5 border border-white/10"
+        />
       </div>
 
-      {/* Token Selector Modal */}
+      <div>
+        <TokenList tokens={store.primaryTokens.value} type="primary" readOnly={false} />
+      </div>
+
+      <div className="flex items-center gap-2 mt-1 relative">
+        <span className="text-2xl font-title text-fg-3 -mb-2">{secondaryLabel}</span>
+        <div className={cn('absolute left-1/2 -translate-x-1/2', store.direction.value === 'buy' ? 'mt-4' : 'mt-8')}>
+          <Tooltip content={switchTooltip} side="right">
+            <button
+              onClick={handleDirectionSwitch}
+              className={cn('group cursor-pointer transition-transform duration-200 hover:scale-110', store.direction.value === 'buy' && 'rotate-180')}
+            >
+              <BorderedThemedIcon icon={doubleDownIcon} size={46} />
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div>
+        <TokenList tokens={store.secondaryTokens.value} type="secondary" readOnly={false} />
+      </div>
+
+      <InfoSection className="pt-3">
+        <InfoRow
+          label="Price impact"
+          value={formattedQuote ? `${formattedQuote.priceImpact}%` : '--.--% '}
+          icon="/icons/slippage.svg"
+          iconLabel="Slippage"
+          valueClassName={cn("font-numeric", formattedQuote ? "text-fg-0" : "text-muted-foreground")}
+        />
+        <InfoRow
+          label="Spread"
+          value={formattedQuote ? `${formattedQuote.spreadPercent}%` : '--.--% '}
+          icon="/icons/fee.svg"
+          iconLabel="Fee"
+          valueClassName={cn("font-numeric", formattedQuote ? "text-fg-0" : "text-muted-foreground")}
+        />
+        <InfoRow
+          label="Fees"
+          value={formattedQuote ? `${parseFloat(formattedQuote.totalFee).toFixed(6)}` : '--.--'}
+          icon="/icons/gas.svg"
+          iconLabel="Fees"
+          valueClassName={cn("font-numeric", formattedQuote ? "text-fg-0" : "text-muted-foreground")}
+        />
+        {quoteError && <div className="text-xs text-red-500 mt-1">{quoteError}</div>}
+        {isMockMode && formattedQuote && (
+          <div className="text-xs text-yellow-500 mt-1">Using estimated prices (no contract)</div>
+        )}
+      </InfoSection>
+
+      <Button
+        className="w-full mt-3 font-semibold"
+        onClick={async () => {
+          if (!isConnected) {
+            onConnect();
+          } else if (needsApproval) {
+            await approve();
+          } else {
+            await executeSwap();
+            onSwap();
+          }
+        }}
+        variant={!isConnected || canSwap ? 'primary' : 'default'}
+        disabled={isConnected && (!canSwap || swapLoading || approveLoading)}
+        size="lg"
+      >
+        {!isConnected
+          ? `Connect to ${actionVerb} ${primaryTokenSymbol}`
+          : swapLoading
+            ? 'Swapping...'
+            : approveLoading
+              ? 'Approving...'
+              : needsApproval
+                ? `Approve ${primaryTokenSymbol}`
+                : quoteLoading
+                  ? 'Getting quote...'
+                  : `${actionVerb.charAt(0).toUpperCase()}${actionVerb.slice(1)}`
+        }
+      </Button>
+
       <TokenSelector
         isOpen={isTokenSelectorOpen}
         onClose={handleTokenSelectorClose}
@@ -444,11 +295,11 @@ export function SwapForm({
         multiSelect={false}
         disabledTokens={
           editingTokenType === 'primary'
-            ? primaryTokens.map(t => t.symbol).filter(s => s !== '')
-            : secondaryTokens.map(t => t.symbol).filter(s => s !== '')
+            ? store.primaryTokens.value.map((t: TokenData) => t.symbol).filter((s: string) => s !== '')
+            : store.secondaryTokens.value.map((t: TokenData) => t.symbol).filter((s: string) => s !== '')
         }
       />
-    </>
+    </div>
   );
 
   if (bordered) {

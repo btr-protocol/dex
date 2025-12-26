@@ -1,6 +1,5 @@
-import { createContext } from 'preact';
+import { createContext, type ComponentChildren } from 'preact';
 import { useContext, useState, useCallback } from 'preact/hooks';
-import type { ReactNode } from 'preact/compat';
 
 interface ExpandableControls {
   open: () => void;
@@ -19,7 +18,7 @@ interface AccordionContextValue {
 export const AccordionContext = createContext<AccordionContextValue | null>(null);
 
 export interface AccordionProps {
-  children: ReactNode;
+  children: ComponentChildren;
   autoClose?: boolean;
   defaultOpen?: string;
   className?: string;
@@ -71,11 +70,13 @@ export function Accordion({ children, autoClose = true, defaultOpen = '', classN
     setActiveExpandable,
   };
 
+  const Provider = AccordionContext.Provider as any;
+
   return (
-    <AccordionContext.Provider value={contextValue}>
+    <Provider value={contextValue}>
       <div className={`w-full flex flex-col ${className}`}>{children}</div>
-    </AccordionContext.Provider>
-  ) as JSX.Element;
+    </Provider>
+  );
 }
 
 export function useAccordion() {

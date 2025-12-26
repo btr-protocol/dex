@@ -1,5 +1,5 @@
-import * as React from "react"
-import { Slot } from "@radix-ui/react-slot"
+import { forwardRef } from "preact/compat"
+import { ComponentChildren, JSX } from "preact"
 import { cn } from "@utils/cn"
 import { cva } from "@utils/cva"
 import {
@@ -11,13 +11,12 @@ import {
   SIZE_GAPS
 } from '@/constants/design'
 
-export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends JSX.HTMLAttributes<HTMLButtonElement> {
   variant?: "default" | "primary" | "outlined" | "ghost" | "glass"
   size?: Size
-  asChild?: boolean
-  styleVariant?: "outlined" | "glass" // Kept for backward compatibility
-  leftIcon?: React.ReactNode
-  rightIcon?: React.ReactNode
+  leftIcon?: ComponentChildren
+  rightIcon?: ComponentChildren
+  disabled?: boolean
 }
 
 const buttonVariants = cva(
@@ -56,13 +55,8 @@ const PADDING_X = {
   "compact-xl": { base: "px-4", left: "pl-3", right: "pr-3" },
 }
 
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "default", asChild, styleVariant, leftIcon, rightIcon, children, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button"
-
-    // Normalize variant (prioritize styleVariant for legacy support)
-    const activeVariant = styleVariant || variant
-
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant = "default", size = "default", leftIcon, rightIcon, children, ...props }, ref) => {
     // Optimization: Pre-calculate icon-only state
     const isIconOnly = !children && (!!leftIcon || !!rightIcon)
 
@@ -71,18 +65,18 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       SIZE_TEXT[size],
       !isIconOnly && SIZE_GAPS[size],
       isIconOnly ? SIZE_ICON_WIDTHS[size] : [
-        PADDING_X[size].base,
-        leftIcon && PADDING_X[size].left,
-        rightIcon && PADDING_X[size].right
+        (PADDING_X as any)[size].base,
+        leftIcon && (PADDING_X as any)[size].left,
+        rightIcon && (PADDING_X as any)[size].right
       ],
       size === "compact-xl" && "py-1.5"
     )
 
     return (
-      <Comp
+      <button
         ref={ref}
         className={buttonVariants({
-          variant: activeVariant as any,
+          variant: variant as any,
           size,
           className: cn(BORDER_RADIUS, dynamicClasses, className)
         })}
@@ -91,7 +85,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {leftIcon && <span className="shrink-0">{leftIcon}</span>}
         {children}
         {rightIcon && <span className="shrink-0 text-fg-3">{rightIcon}</span>}
-      </Comp>
+      </button>
     )
   }
 )

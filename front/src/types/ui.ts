@@ -3,11 +3,10 @@
  * Centralized type definitions for modals, dropdowns, and related UI components
  */
 
-import type { ReactNode, ComponentType } from 'preact/compat';
-import type { LucideProps } from 'lucide-react';
+import type { ComponentChildren } from 'preact';
 
-/** Icon can be: string path, ReactNode, or Lucide component */
-export type IconType = string | ReactNode | ComponentType<LucideProps>;
+/** Icon can be: UnoCSS class name, SVG path, or ComponentChildren */
+export type IconType = string | ComponentChildren;
 
 /**
  * Selection list item (used by SelectionModal)
@@ -18,7 +17,7 @@ export interface SelectionItem {
   label: string;
   caption?: string;
   icon?: IconType;
-  badge?: ReactNode;
+  badge?: ComponentChildren;
   data?: any;
   disabled?: boolean;
 }

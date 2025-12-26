@@ -1,15 +1,15 @@
-import type { ReactNode } from 'react';
-import { useState, useEffect, useCallback } from 'react';
-import { ChevronDown } from 'lucide-react';
+import type { ComponentChildren } from 'preact';
+import { useState, useEffect, useCallback } from 'preact/hooks';
+import { Icon } from './Icon';
 import { useAccordion } from './Accordion';
 
 export interface ExpandableProps {
-  header: ReactNode;
-  children: ReactNode;
+  header: ComponentChildren;
+  children: ComponentChildren;
   defaultExpanded?: boolean;
   id?: string;
   className?: string;
-  icon?: ReactNode;
+  icon?: ComponentChildren;
 }
 
 export function Expandable({ header, children, defaultExpanded = false, id, className = '', icon }: ExpandableProps) {
@@ -69,7 +69,8 @@ export function Expandable({ header, children, defaultExpanded = false, id, clas
           {icon && <span className="shrink-0">{icon}</span>}
           <h4 className={`text-sm ${isExpanded ? 'font-semibold' : 'font-medium'}`}>{header}</h4>
         </div>
-        <ChevronDown
+        <Icon
+          name="caret-down"
           className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
         />
       </button>

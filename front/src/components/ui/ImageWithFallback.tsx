@@ -2,9 +2,9 @@
  * ImageWithFallback - Image with automatic fallback to default logo
  * Replaces 3+ icon loading patterns with fallback handler
  */
-import { ImgHTMLAttributes } from 'react';
+import { JSX } from 'preact';
 
-interface ImageWithFallbackProps extends ImgHTMLAttributes<HTMLImageElement> {
+interface ImageWithFallbackProps extends JSX.HTMLAttributes<HTMLImageElement> {
   fallbackSrc?: string;
   onLoadError?: (e: Event) => void;
 }
@@ -16,9 +16,10 @@ export function ImageWithFallback({
   onLoadError,
   ...props
 }: ImageWithFallbackProps) {
-  const handleError = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    e.currentTarget.src = fallbackSrc;
-    onLoadError?.(e.nativeEvent);
+  const handleError = (e: Event) => {
+    const target = e.currentTarget as HTMLImageElement;
+    target.src = fallbackSrc;
+    onLoadError?.(e);
   };
 
   return (

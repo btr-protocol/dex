@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import UnoCSS from 'unocss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { visualizer } from 'rollup-plugin-visualizer'
 import path from 'path'
@@ -144,6 +145,7 @@ function serveDocsPlugin() {
 
 export default defineConfig({
   plugins: [
+    UnoCSS(),
     react(),
     watchDocsPlugin(),
     serveDocsPlugin(),
@@ -184,8 +186,6 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      'react': 'preact/compat',
-      'react-dom': 'preact/compat',
       '@': path.resolve(__dirname, './src'),
       '@components': path.resolve(__dirname, './src/components'),
       '@config': path.resolve(__dirname, './src/config'),
@@ -222,8 +222,7 @@ export default defineConfig({
           !dep.includes('tvlc') &&
           !dep.includes('prism') &&
           !dep.includes('search') &&
-          !dep.includes('minisearch') &&
-          !dep.includes('radix-heavy')
+          !dep.includes('minisearch')
         );
       },
     },
@@ -234,18 +233,8 @@ export default defineConfig({
           if (id.includes('@walletconnect') || id.includes('/ox/')) {
             return 'walletconnect';
           }
-          // Split radix: heavy components (select, dropdown, popper) vs core (dialog, checkbox, etc)
-          if (id.includes('@floating-ui') || id.includes('react-select') || id.includes('react-dropdown-menu') || id.includes('react-popper') || id.includes('react-menu')) {
-            return 'radix-heavy';
-          }
-          if (id.includes('@radix-ui')) {
-            return 'radix';
-          }
           if (id.includes('lightweight-charts')) {
             return 'tvlc';
-          }
-          if (id.includes('lucide-react')) {
-            return 'icons';
           }
           if (id.includes('minisearch')) {
             return 'search';

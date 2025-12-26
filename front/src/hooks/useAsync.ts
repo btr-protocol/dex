@@ -14,11 +14,12 @@ export interface AsyncState<T> {
 }
 
 type AsyncFunction<T> = () => Promise<T>;
+type DependencyList = Array<unknown>;
 
 export function useAsync<T>(
   asyncFunction: AsyncFunction<T>,
   immediate = true,
-  dependencies: React.DependencyList = []
+  dependencies: DependencyList = []
 ): AsyncState<T> & { refetch: () => Promise<void> } {
   const [state, setState] = useState<AsyncState<T>>({
     data: null,
@@ -66,7 +67,7 @@ export function useAsync<T>(
  */
 export function useAsyncEffect(
   effect: () => Promise<void> | void,
-  dependencies?: React.DependencyList
+  dependencies?: DependencyList
 ) {
   useEffect(() => {
     let isMounted = true;

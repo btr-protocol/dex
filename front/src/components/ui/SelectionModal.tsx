@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo, ReactNode } from 'react';
+import { useState, useEffect, useMemo } from 'preact/hooks';
+import { ReactNode } from 'preact/compat';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { Button } from '@components/ui/Button';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
 import { EmptyState } from '@components/ui/EmptyState';
-import { Check } from 'lucide-react';
+import { Icon } from './Icon';
 import { addNotification } from '@lib/notifications';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
 import { renderIcon, isStringIcon } from '@utils/iconHelpers';
@@ -163,7 +164,7 @@ export function SelectionModal({
             </span>
             <div className="flex items-center gap-2">
               <Button
-                styleVariant="outlined"
+                variant="outlined"
                 size="default"
                 onClick={allSelected ? handleDeselectAll : handleSelectAll}
                 disabled={allSelected && tempSelected.length === minSelections}
@@ -214,7 +215,7 @@ export function SelectionModal({
                 )}
               </div>
               {item.badge}
-              {isSelected && <Check className="w-5 h-5 text-primary shrink-0" />}
+              {isSelected && <Icon name="check" className="w-5 h-5 text-primary shrink-0" />}
             </button>
           );
         })}

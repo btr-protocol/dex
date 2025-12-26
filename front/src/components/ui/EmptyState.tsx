@@ -2,12 +2,13 @@
  * Unified EmptyState Component
  * Consolidates EmptyState, ErrorState, and LoadingState into a single component with variants
  */
-import * as React from 'react';
-import { FilterX, AlertCircle, RefreshCw, Loader2, type LucideIcon } from 'lucide-react';
+import { JSX, Ref, type ComponentChildren } from 'preact';
+import { Icon, ICON_NAMES } from './Icon';
 import { cva } from '@utils/cva';
 import { Button } from './Button';
 
-export interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface EmptyStateProps extends JSX.HTMLAttributes<HTMLDivElement> {
+  ref?: Ref<HTMLDivElement>;
   /**
    * State variant
    * - empty: Generic empty state (default)
@@ -33,14 +34,14 @@ export interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Optional search query to append to message */
   query?: string;
 
-  /** Custom icon (overrides variant default) */
-  icon?: React.ReactNode | LucideIcon;
+  /** Custom icon name or ComponentChildren */
+  icon?: ComponentChildren | string;
 
   /** Action button configuration */
   action?: {
     label: string;
     onClick: () => void;
-    icon?: React.ReactNode;
+    icon?: ComponentChildren;
   };
 
   /** @deprecated Use action prop instead */
@@ -72,51 +73,42 @@ const emptyStateVariants = cva('', {
   },
 });
 
-const DEFAULT_ICONS: Record<'empty' | 'error' | 'loading', LucideIcon> = {
-  empty: FilterX,
-  error: AlertCircle,
-  loading: Loader2,
+const DEFAULT_ICONS: Record<'empty' | 'error' | 'loading', string> = {
+  empty: ICON_NAMES.filterX,
+  error: ICON_NAMES.alertCircle,
+  loading: ICON_NAMES.loader,
 };
 
-const DEFAULT_MESSAGES = {
-  empty: 'No results found',
-  error: 'Something went wrong. Please try again.',
-  loading: 'Loading...',
-};
-
-export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
-  (
-    {
-      className,
-      variant = 'empty',
-      layout = 'default',
-      title,
-      message,
-      query,
-      icon,
-      action,
-      // Deprecated props (backwards compatibility)
-      onReset,
-      resetLabel = 'Reset filters',
-      showResetButton = true,
-      onRetry,
-      ...props
-    },
-    ref
-  ) => {
+export function EmptyState({
+  className,
+  variant = 'empty',
+  layout = 'default',
+  title,
+  message,
+  query,
+  icon,
+  action,
+  // Deprecated props (backwards compatibility)
+  onReset,
+  resetLabel = 'Reset filters',
+  showResetButton = true,
+  onRetry,
+  ref,
+  ...props
+}: EmptyStateProps) {
     // Handle deprecated props
     const finalAction = action || (onReset && showResetButton) || onRetry
       ? {
           label: resetLabel || 'Try Again',
           onClick: action?.onClick || onReset || onRetry || (() => {}),
-          icon: action?.icon || (onReset ? <FilterX className="w-4 h-4" /> : <RefreshCw className="w-4 h-4" />),
+          icon: action?.icon || (onReset ? <Icon name={ICON_NAMES.filterX} className="w-4 h-4" /> : <Icon name={ICON_NAMES.refreshCw} className="w-4 h-4" />),
         }
       : undefined;
 
     const displayMessage = query ? `${message} for "${query}"` : message;
 
     // Resolve icon
-    const IconComponent = icon || DEFAULT_ICONS[variant];
+    const iconName = icon || DEFAULT_ICONS[variant];
     const isLoading = variant === 'loading';
     const isError = variant === 'error';
 
@@ -128,15 +120,16 @@ export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
       >
         <div className="text-center max-w-md mx-auto">
           {/* Icon */}
-          {IconComponent && (
+          {iconName && (
             <div className="flex justify-center mb-4">
               <div
                 className={`w-12 h-12 rounded-full flex items-center justify-center ${
                   isError ? 'bg-red/10' : 'bg-muted'
                 }`}
               >
-                {typeof IconComponent === 'function' ? (
-                  <IconComponent
+                {typeof iconName === 'string' ? (
+                  <Icon
+                    name={iconName}
                     className={`w-6 h-6 ${
                       isLoading
                         ? 'animate-spin text-primary'
@@ -146,7 +139,7 @@ export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
                     }`}
                   />
                 ) : (
-                  IconComponent
+                  iconName as any
                 )}
               </div>
             </div>
@@ -170,7 +163,7 @@ export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
           {finalAction && (
             <Button
               onClick={finalAction.onClick}
-              styleVariant={isError ? 'outlined' : 'default'}
+              variant={isError ? 'outlined' : 'default'}
               size="sm"
               leftIcon={finalAction.icon}
             >
@@ -180,7 +173,4 @@ export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
         </div>
       </div>
     );
-  }
-);
-
-EmptyState.displayName = 'EmptyState';
+}

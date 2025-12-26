@@ -1,13 +1,13 @@
 import { useNotifications, removeNotification, type NotificationType } from '@lib/notifications';
-import { X, Info, CheckCircle, AlertTriangle, AlertCircle } from 'lucide-react';
+import { Icon, ICON_NAMES } from '@components/ui/Icon';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { Button } from '@components/ui/Button';
 
-const icons: Record<NotificationType, any> = {
-    info: Info,
-    success: CheckCircle,
-    warning: AlertTriangle,
-    error: AlertCircle,
+const icons: Record<NotificationType, string> = {
+    info: ICON_NAMES.info,
+    success: ICON_NAMES.checkCircle,
+    warning: ICON_NAMES.warning,
+    error: ICON_NAMES.alertCircle,
 };
 
 // Use CSS variable colors for proper theming
@@ -19,7 +19,7 @@ const stateColors: Record<NotificationType, string> = {
 };
 
 function NotificationItem({ notification }: { notification: { id: string; type: NotificationType; title: string; message?: string; duration?: number } }) {
-    const Icon = icons[notification.type];
+    const iconName = icons[notification.type];
     const stateColor = stateColors[notification.type];
     const barRef = useRef<HTMLDivElement>(null);
     const durationSeconds = (notification.duration || 5000) / 1000;
@@ -60,6 +60,7 @@ function NotificationItem({ notification }: { notification: { id: string; type: 
             </div>
 
             <Icon
+                name={iconName}
                 className="w-4 h-4 mt-0.5 shrink-0"
                 style={{ color: stateColor }}
             />
@@ -74,7 +75,7 @@ function NotificationItem({ notification }: { notification: { id: string; type: 
                 size="xs"
                 onClick={() => removeNotification(notification.id)}
                 className="shrink-0"
-                leftIcon={<X className="w-3 h-3" />}
+                leftIcon={<Icon name="x" className="w-3 h-3" />}
                 aria-label="Dismiss"
             />
         </div>

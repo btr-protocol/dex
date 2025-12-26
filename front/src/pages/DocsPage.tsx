@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'preact/hooks';
 import { getDocBySlug, type DocFile } from '@/utils/docs';
 import { DocsLayout } from '@/components/DocsLayout';
 import { DocNavigation } from '@/components/DocNavigation';

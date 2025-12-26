@@ -5,7 +5,7 @@
  * @module @btr/dex-sdk/oracles
  */
 
-import type { Address, PublicClient, WalletClient } from 'viem';
+import type { Address, Eip1193Provider } from '../eth/index.js';
 import WebSocket from 'ws';
 import { BaseOracle, type OracleConfig, type AssetOracleConfig } from './base-oracle.js';
 import { type OraclePrice } from '../common/types.js';

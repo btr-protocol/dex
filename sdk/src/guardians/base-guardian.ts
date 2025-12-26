@@ -5,11 +5,10 @@
 
 import type {
   Address,
-  PublicClient,
-  WalletClient,
-  Hash,
+  Eip1193Provider,
+  Hex,
   TransactionReceipt,
-} from 'viem';
+} from '../eth/index.js';
 import { type GuardianConfig } from '../common/types.js';
 import { sleep } from '../common/utils.js';
 

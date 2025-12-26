@@ -3,7 +3,7 @@
  * @module @btr/dex-sdk/common/batch
  */
 
-import { type Address, type Hex, concat, pad, toHex } from 'viem';
+import { type Address, type Hex, concat, pad, toHex } from '../eth/index.js';
 
 // ─────────────────────────────────────────────────────────────
 // B64 Encoding (52/5/7 format)
@@ -91,7 +91,7 @@ export function encodeBatchInputs(inputs: BatchInput[]): Hex {
     const amountB64 = encodeB64(input.amount, input.decimals);
     // Pack: address (20 bytes) | amountB64 (8 bytes) | reserved (4 bytes)
     const addressHex = input.token.toLowerCase() as Hex;
-    const amountHex = pad(toHex(amountB64), { size: 8 });
+    const amountHex = pad(toHex(amountB64), 8);
     const reservedHex = '0x00000000' as Hex;
     return concat([addressHex, amountHex, reservedHex]);
   });
@@ -128,8 +128,8 @@ export function encodeBatchQuoteOutputs(outputs: QuoteOutput[]): Hex {
     const slippage = output.slippageBps ?? 50; // Default 0.5%
     // Pack: address (20 bytes) | weightBps (2 bytes) | slippageBps (2 bytes) | reserved (8 bytes)
     const addressHex = output.token.toLowerCase() as Hex;
-    const weightHex = pad(toHex(output.weightBps), { size: 2 });
-    const slippageHex = pad(toHex(slippage), { size: 2 });
+    const weightHex = pad(toHex(output.weightBps), 2);
+    const slippageHex = pad(toHex(slippage), 2);
     const reservedHex = '0x0000000000000000' as Hex;
     return concat([addressHex, weightHex, slippageHex, reservedHex]);
   });
@@ -167,9 +167,9 @@ export function encodeBatchSwapOutputs(outputs: SwapOutput[]): Hex {
     const minOutB64 = encodeB64(output.minAmountOut, output.decimals);
     // Pack: address (20 bytes) | weightBps (2 bytes) | reserved (2 bytes) | minOutB64 (8 bytes)
     const addressHex = output.token.toLowerCase() as Hex;
-    const weightHex = pad(toHex(output.weightBps), { size: 2 });
+    const weightHex = pad(toHex(output.weightBps), 2);
     const reservedHex = '0x0000' as Hex;
-    const minOutHex = pad(toHex(minOutB64), { size: 8 });
+    const minOutHex = pad(toHex(minOutB64), 8);
     return concat([addressHex, weightHex, reservedHex, minOutHex]);
   });
 

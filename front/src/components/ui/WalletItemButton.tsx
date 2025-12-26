@@ -2,8 +2,8 @@
  * WalletItemButton - Consolidated wallet item button (detected, discover, or generic)
  * Consolidates WalletButton and DiscoverWalletButton patterns from WalletModal
  */
-import type { ReactNode } from 'react';
-import { ExternalLink } from 'lucide-react';
+import type { ComponentChildren } from 'preact';
+import { Icon } from './Icon';
 import { Badge } from './Badge';
 import { ImageWithFallback } from './ImageWithFallback';
 import { Tooltip } from './Tooltip';
@@ -18,7 +18,7 @@ interface WalletItemButtonProps {
   variant?: WalletItemVariant;
   isConnecting?: boolean;
   tooltip?: string;
-  rightIcon?: ReactNode;
+  rightIcon?: ComponentChildren;
   isHighlighted?: boolean;
 }
 
@@ -54,7 +54,7 @@ export function WalletItemButton({
       {rightIcon || (
         <>
           {variant === 'detected' && <Badge variant="positive">Detected</Badge>}
-          {variant === 'discover' && <ExternalLink className="w-4 h-4 text-fg-2 flex-shrink-0" />}
+          {variant === 'discover' && <Icon name="arrow-square-out" className="w-4 h-4 text-fg-2 flex-shrink-0" />}
           {isConnecting && (
             <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
           )}

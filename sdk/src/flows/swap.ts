@@ -3,8 +3,8 @@
  * @module @btr/dex-sdk/flows
  */
 
-import type { Address, PublicClient, WalletClient, Hash } from 'viem';
-import { erc20Abi } from 'viem';
+import type { Address, Hex, Eip1193Provider, Abi } from '../eth/index.js';
+import { Contract, ERC20_ABI, waitForTransaction } from '../eth/index.js';
 import { type SwapQuote } from '../common/types.js';
 import { applySlippage, calculatePriceImpact } from '../common/utils.js';
 
@@ -20,7 +20,7 @@ export interface SwapParams {
 }
 
 export interface SwapResult {
-  hash: Hash;
+  hash: Hex;
   amountOut?: bigint;
 }
 
@@ -28,19 +28,24 @@ export interface SwapResult {
  * Execute a swap in a AIMM pool
  */
 export async function swap(
-  publicClient: PublicClient,
-  walletClient: WalletClient,
-  poolAbi: any,
+  provider: Eip1193Provider,
+  account: Address,
+  poolAbi: Abi,
   params: SwapParams,
 ): Promise<SwapResult> {
-  const account = walletClient.account;
   if (!account) {
-    throw new Error('No account configured on wallet client');
+    throw new Error('No account provided');
   }
+
+  const poolContract = new Contract({
+    address: params.poolAddress,
+    abi: poolAbi,
+    provider,
+  });
 
   // 1. Get quote
   const quote = await getSwapQuote(
-    publicClient,
+    provider,
     params.poolAddress,
     poolAbi,
     params.tokenIn,
@@ -60,26 +65,19 @@ export async function swap(
   }
 
   // 3. Check token allowance
-  const allowance = await publicClient.readContract({
+  const tokenContract = new Contract({
     address: params.tokenIn,
-    abi: erc20Abi,
-    functionName: 'allowance',
-    args: [account.address, params.poolAddress],
-  }) as bigint;
+    abi: ERC20_ABI,
+    provider,
+  });
+
+  const allowance = await tokenContract.read('allowance', [account, params.poolAddress]) as bigint;
 
   // 4. Approve if needed
   if (allowance < params.amountIn) {
     console.log('Approving token...');
-    const { request: approveRequest } = await publicClient.simulateContract({
-      account,
-      address: params.tokenIn,
-      abi: erc20Abi,
-      functionName: 'approve',
-      args: [params.poolAddress, params.amountIn],
-    });
-
-    const approveHash = await walletClient.writeContract(approveRequest);
-    await publicClient.waitForTransactionReceipt({ hash: approveHash });
+    const approveHash = await tokenContract.write('approve', [params.poolAddress, params.amountIn], { from: account });
+    await waitForTransaction(provider, approveHash);
     console.log('Approval confirmed');
   }
 
@@ -88,19 +86,11 @@ export async function swap(
     ? [params.tokenIn, params.tokenOut, params.amountIn, minAmountOut, params.data]
     : [params.tokenIn, params.tokenOut, params.amountIn, minAmountOut];
 
-  const { request } = await publicClient.simulateContract({
-    account,
-    address: params.poolAddress,
-    abi: poolAbi,
-    functionName: 'swap',
-    args: swapArgs,
-  });
-
-  const hash = await walletClient.writeContract(request);
+  const hash = await poolContract.write('swap', swapArgs, { from: account });
   console.log(`Swap transaction: ${hash}`);
 
   // Wait for confirmation
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await waitForTransaction(provider, hash);
   console.log(`Swap confirmed. Gas used: ${receipt.gasUsed}`);
 
   // TODO: Parse logs to extract actual amountOut
@@ -111,27 +101,23 @@ export async function swap(
  * Get quote for a swap
  */
 export async function getSwapQuote(
-  publicClient: PublicClient,
+  provider: Eip1193Provider,
   poolAddress: Address,
-  poolAbi: any,
+  poolAbi: Abi,
   tokenIn: Address,
   tokenOut: Address,
   amountIn: bigint,
 ): Promise<SwapQuote> {
+  const poolContract = new Contract({
+    address: poolAddress,
+    abi: poolAbi,
+    provider,
+  });
+
   // Read asset data for both tokens
   const [assetIn, assetOut] = await Promise.all([
-    publicClient.readContract({
-      address: poolAddress,
-      abi: poolAbi,
-      functionName: 'assets',
-      args: [tokenIn],
-    }) as Promise<any>,
-    publicClient.readContract({
-      address: poolAddress,
-      abi: poolAbi,
-      functionName: 'assets',
-      args: [tokenOut],
-    }) as Promise<any>,
+    poolContract.read('assets', [tokenIn]) as Promise<any>,
+    poolContract.read('assets', [tokenOut]) as Promise<any>,
   ]);
 
   // Simple constant product calculation (adjust based on actual AIMM mechanics)

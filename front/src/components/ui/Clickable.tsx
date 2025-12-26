@@ -3,10 +3,10 @@
  * Consolidates common interactive patterns
  */
 import { cn } from '@utils/cn';
-import type { ReactNode } from 'react';
+import type { ComponentChildren } from 'preact';
 
 interface ClickableProps {
-  children: ReactNode;
+  children: ComponentChildren;
   className?: string;
   onClick?: (e?: any) => void;
   disabled?: boolean;

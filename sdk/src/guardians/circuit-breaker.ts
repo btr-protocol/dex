@@ -13,7 +13,7 @@
  * @module @btr/dex-sdk/guardians
  */
 
-import type { Address, PublicClient, WalletClient } from 'viem';
+import type { Address, Eip1193Provider } from '../eth/index.js';
 import { BaseGuardian, type OracleProvider, type PricePoint } from './base-guardian.js';
 import { type GuardianConfig } from '../common/types.js';
 import { BPS_PRECISION, ONE_DAY } from '../common/constants.js';

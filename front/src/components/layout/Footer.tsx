@@ -65,7 +65,7 @@ export default function Footer() {
             {footerNavigation.social.map((link) => (
               <Tooltip key={link.title} content={link.description || link.title} side="top">
                 <Button
-                  styleVariant="ghost"
+                  variant="ghost"
                   size="sm"
                   onClick={() => handleSocialClick(link)}
                   className="p-1.5"

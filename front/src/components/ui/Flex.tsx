@@ -3,10 +3,10 @@
  * Consolidates common flex patterns to reduce Tailwind duplication
  */
 import { cn } from '@utils/cn';
-import type { ReactNode } from 'react';
+import type { ComponentChildren } from 'preact';
 
 interface FlexProps {
-  children: ReactNode;
+  children: ComponentChildren;
   className?: string;
   gap?: '0.5' | '1' | '1.5' | '2' | '3' | '4';
   as?: 'div' | 'section' | 'header' | 'footer' | 'nav';

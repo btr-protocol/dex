@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Icon } from './ui/Icon';
 import { FlexRow, FlexBetween } from './ui/Flex';
 import { Caption } from './ui/Text';
 import { Divider } from './ui/Divider';
@@ -27,7 +27,7 @@ export function DocNavigation({ prev, next, onNavigate }: DocNavigationProps) {
           className="flex-1 p-4 rounded border border-border hover:bg-bg-2 transition-colors text-left"
         >
           <FlexRow gap="2">
-            <ChevronLeft className="w-5 h-5 shrink-0" />
+            <Icon name="caret-left" className="w-5 h-5 shrink-0" />
             <div>
               <Caption className="leading-none">Previous</Caption>
               <div className="font-medium">{prev.label}</div>
@@ -48,7 +48,7 @@ export function DocNavigation({ prev, next, onNavigate }: DocNavigationProps) {
               <Caption className="leading-none">Next</Caption>
               <div className="font-medium">{next.label}</div>
             </div>
-            <ChevronRight className="w-5 h-5 shrink-0" />
+            <Icon name="caret-right" className="w-5 h-5 shrink-0" />
           </FlexRow>
         </button>
       ) : (

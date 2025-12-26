@@ -1,25 +1,61 @@
-import * as React from "react"
-import * as CheckboxPrimitive from "@radix-ui/react-checkbox"
-import { Check } from "lucide-react"
-import { cn } from "@utils/cn"
+import { FunctionalComponent, JSX } from 'preact'
+import { useRef } from 'preact/hooks'
+import { Icon } from './Icon'
+import { cn } from '@utils/cn'
 
-const Checkbox = React.forwardRef<
-  React.ElementRef<typeof CheckboxPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
->(({ className, ...props }, ref) => (
-  <CheckboxPrimitive.Root
-    ref={ref}
-    className={cn(
-      "peer h-4 w-4 shrink-0 rounded-xs border border-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-bg-primary data-[state=checked]:border-primary",
-      className
-    )}
-    {...props}
-  >
-    <CheckboxPrimitive.Indicator className="flex items-center justify-center text-primary">
-      <Check className="h-3 w-3" strokeWidth={3} />
-    </CheckboxPrimitive.Indicator>
-  </CheckboxPrimitive.Root>
-))
-Checkbox.displayName = CheckboxPrimitive.Root.displayName
+export interface CheckboxProps extends JSX.HTMLAttributes<HTMLInputElement> {
+  checked?: boolean
+  onCheckedChange?: (checked: boolean) => void
+  disabled?: boolean
+}
+
+const Checkbox: FunctionalComponent<CheckboxProps> = ({
+  className,
+  checked,
+  onCheckedChange,
+  disabled,
+  ...props
+}) => {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleChange = (e: Event) => {
+    const target = e.target as HTMLInputElement
+    onCheckedChange?.(target.checked)
+  }
+
+  return (
+    <div className="relative inline-flex items-center">
+      <input
+        ref={inputRef}
+        type="checkbox"
+        checked={checked}
+        onChange={handleChange}
+        disabled={disabled}
+        className={cn(
+          'peer h-4 w-4 shrink-0 rounded-xs border border-primary',
+          'ring-offset-background focus-visible:outline-none',
+          'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          'appearance-none cursor-pointer',
+          'checked:bg-bg-primary checked:border-primary',
+          className
+        )}
+        {...props}
+      />
+      {checked && (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-0 flex items-center justify-center',
+            disabled && 'opacity-50'
+          )}
+        >
+          <Icon name="check" className="h-3 w-3 text-primary" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+Checkbox.displayName = 'Checkbox'
 
 export { Checkbox }

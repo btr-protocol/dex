@@ -179,27 +179,22 @@ export function detectLegacy(): WalletInfo[] {
 }
 
 // ─────────────────────────────────────────────────────────────
-// EIP-6963 Store (for React useSyncExternalStore)
+// EIP-6963 Store (using Preact signals)
 // ─────────────────────────────────────────────────────────────
 
-let eip6963Providers: Eip6963Detail[] = [];
-const listeners = new Set<() => void>();
+import { signal } from '@preact/signals';
+
+export const eip6963Providers = signal<Eip6963Detail[]>([]);
 
 if (typeof window !== 'undefined') {
   window.addEventListener('eip6963:announceProvider', (e: any) => {
-    if (!eip6963Providers.some(p => p.info.uuid === e.detail.info.uuid)) {
-      eip6963Providers = [...eip6963Providers, e.detail];
-      listeners.forEach(cb => cb());
+    const current = eip6963Providers.value;
+    if (!current.some(p => p.info.uuid === e.detail.info.uuid)) {
+      eip6963Providers.value = [...current, e.detail];
     }
   });
   window.dispatchEvent(new Event('eip6963:requestProvider'));
 }
-
-export const eip6963Store = {
-  subscribe: (cb: () => void) => { listeners.add(cb); return () => listeners.delete(cb); },
-  getSnapshot: () => eip6963Providers,
-  getServerSnapshot: () => [] as Eip6963Detail[],
-};
 
 // ─────────────────────────────────────────────────────────────
 // Convert EIP-6963 to WalletInfo

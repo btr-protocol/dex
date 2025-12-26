@@ -1,13 +1,8 @@
 // Contract address types and configuration
+// Re-export ContractAddresses type from SDK to ensure consistency
+import type { ContractAddresses } from '@sdk/common';
 
-export interface ContractAddresses {
-  factory: `0x${string}`;
-  pool: `0x${string}`;
-  usdc: `0x${string}`;
-  wbtc: `0x${string}`;
-  eth: `0x${string}`;
-  deployer: `0x${string}`;
-}
+export type { ContractAddresses };
 
 export interface PoolConfig {
   addresses: ContractAddresses;

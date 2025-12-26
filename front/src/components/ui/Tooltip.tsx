@@ -1,10 +1,10 @@
-import { ReactNode } from 'preact/compat';
+import { ComponentChildren } from 'preact';
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 
 interface TooltipProps {
   content: string;
-  children: ReactNode;
+  children: ComponentChildren;
   position?: 'top' | 'bottom' | 'left' | 'right';
   side?: 'top' | 'bottom' | 'left' | 'right'; // Alias for position
   asChild?: boolean; // When true, renders as block instead of inline-block

@@ -1,11 +1,10 @@
-import { useEffect } from 'react';
-import { useAccount } from 'wagmi';
-import { formatUnits } from 'viem';
+import { useEffect } from 'preact/hooks';
+import { useAccount } from '@/hooks/useContract';
+import { formatUnits, Address } from '@sdk/eth';
 import { loadAddresses } from '@/contracts/addresses';
 import { useRegisteredAssets, useAssetState, useOraclePrice, useCoverageRatio } from '@/hooks/usePoolState';
 import { useTokenInfo } from '@/hooks/useTokenInfo';
 import { Badge } from '@components/ui/Badge';
-import type { Address } from 'viem';
 
 interface AssetRowProps {
   address: Address;
@@ -71,14 +70,14 @@ function AssetRow({ address }: AssetRowProps) {
 
 export default function PoolDashboard() {
   const { address: account } = useAccount();
-  const { data: registeredAssets, isLoading, error } = useRegisteredAssets();
+  const { data: registeredAssets, loading, error } = useRegisteredAssets();
 
   // Load addresses on mount
   useEffect(() => {
     loadAddresses();
   }, []);
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="bg-gray-900 rounded-lg p-8 border border-gray-700">
         <div className="flex items-center justify-center">
