@@ -81,13 +81,7 @@ All modules use:
 
 ## Git Identity
 **⚠️ Always use the user's git identity**
-- ❌ NEVER use agent or "Gemini" identity for git commits.
-- ✅ Always use: Paul de Renty (paul.ed.de.renty@gmail.com / pde-rent)
-- Check and restore config if necessary before committing:
-  ```bash
-  git config user.email "paul.ed.de.renty@gmail.com"
-  git config user.name "pde-rent"
-  ```
+- ❌ NEVER use agent or "Gemini" or "Claude" identity for git commits authors or co-authors.
 
 ---
 
