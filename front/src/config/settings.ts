@@ -7,12 +7,14 @@
 // Setting Types
 // ─────────────────────────────────────────────────────────────
 
+type IconValue = string | null | undefined;
+
 export type SettingType =
   | { type: 'toggle' }
   | { type: 'number'; min: number; max: number; step: number }
   | { type: 'slider'; min: number; max: number; step: number; format?: (v: number) => string }
-  | { type: 'select'; options: Array<{ value: string; label: string; icon?: any }> }
-  | { type: 'multiselect'; options: Array<{ value: string; label: string; icon?: any }> };
+  | { type: 'select'; options: Array<{ value: string; label: string; icon?: IconValue }> }
+  | { type: 'multiselect'; options: Array<{ value: string; label: string; icon?: IconValue }> };
 
 export interface SettingDef {
   id: string;
@@ -165,6 +167,41 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
     ]
   },
   {
+    id: 'preferences',
+    label: 'Preferences',
+    icon: 'star',
+    settings: [
+      {
+        id: 'swapTokenIn',
+        label: 'Default Swap Input',
+        description: 'Default token for swap input',
+        config: { type: 'select', options: [] },
+        keywords: ['swap', 'token', 'input', 'default']
+      },
+      {
+        id: 'swapTokenOut',
+        label: 'Default Swap Output',
+        description: 'Default token for swap output',
+        config: { type: 'select', options: [] },
+        keywords: ['swap', 'token', 'output', 'default']
+      },
+      {
+        id: 'chartBase',
+        label: 'Chart Base Asset',
+        description: 'Default base asset for price charts',
+        config: { type: 'select', options: [] },
+        keywords: ['chart', 'base', 'asset', 'pair']
+      },
+      {
+        id: 'chartQuote',
+        label: 'Chart Quote Asset',
+        description: 'Default quote asset for price charts',
+        config: { type: 'select', options: [] },
+        keywords: ['chart', 'quote', 'asset', 'pair']
+      }
+    ]
+  },
+  {
     id: 'other',
     label: 'Other',
     icon: 'package',
@@ -202,16 +239,40 @@ export function getSetting(id: string): { setting: SettingDef; category: Setting
   }
 }
 
-export function getDefaultSettings(): Record<string, any> {
-  const defaults: Record<string, any> = {};
+export interface AppSettings {
+  // Execution
+  maxSlippage: number;
+  detailRoute: boolean;
+  // Interface
+  hideSmallBalances: boolean;
+  hideUnsupportedTokens: boolean;
+  showTestNetworks: boolean;
+  animateBackground: boolean;
+  ringCount: number;
+  rotationSpeed: number;
+  eyeSize: number;
+  // Region
+  currency: string;
+  language: string;
+  // Preferences
+  swapTokenIn: string;
+  swapTokenOut: string;
+  chartBase: string;
+  chartQuote: string;
+  // Other
+  exportFormat: string;
+}
+
+export function getDefaultSettings(): AppSettings {
+  const defaults: any = {};
   for (const cat of SETTINGS_SCHEMA) {
     for (const setting of cat.settings) {
       const cfg = setting.config;
       if (cfg.type === 'toggle') defaults[setting.id] = false;
       else if (cfg.type === 'number' || cfg.type === 'slider') defaults[setting.id] = cfg.min;
-      else if (cfg.type === 'select') defaults[setting.id] = cfg.options[0]?.value;
+      else if (cfg.type === 'select') defaults[setting.id] = cfg.options[0]?.value || '';
       else if (cfg.type === 'multiselect') defaults[setting.id] = [];
     }
   }
-  return defaults;
+  return defaults as AppSettings;
 }

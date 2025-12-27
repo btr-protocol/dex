@@ -1,6 +1,6 @@
 // Contract address types and configuration
 // Re-export ContractAddresses type from SDK to ensure consistency
-import type { ContractAddresses } from '@sdk/common';
+import type { ContractAddresses } from '@sdk/utils/constants';
 
 export type { ContractAddresses };
 

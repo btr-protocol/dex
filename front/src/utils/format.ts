@@ -21,7 +21,7 @@ export {
   capitalize,
   // Parsing
   parseFormattedNumber,
-} from '@sdk/common/format';
+} from '@sdk/utils/format';
 
 // Re-export math utilities for convenience
 export {
@@ -35,4 +35,4 @@ export {
   minmax,
   average,
   niceScale,
-} from '@sdk/common/math';
+} from '@sdk/utils/maths';
