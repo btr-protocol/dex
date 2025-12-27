@@ -119,6 +119,7 @@ function serveDocsPlugin() {
       const distDocsDir = path.resolve(__dirname, 'dist/docs')
       const compiledDocsDir = path.resolve(__dirname, 'public/compiled-docs')
       const distCompiledDocsDir = path.resolve(__dirname, 'dist/compiled-docs')
+      const distDir = path.resolve(__dirname, 'dist')
 
       if (!fs.existsSync(path.dirname(distDocsDir))) {
         return
@@ -139,6 +140,15 @@ function serveDocsPlugin() {
           )
         })
       }
+
+      // Remove search-index and docs-structure from dist root (they belong in compiled-docs)
+      const filesToRemove = ['search-index.json', 'search-index.json.gz', 'docs-structure.json', 'docs-structure.json.gz']
+      filesToRemove.forEach(file => {
+        const filePath = path.join(distDir, file)
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath)
+        }
+      })
     }
   }
 }
