@@ -5,36 +5,42 @@
 
 import { swap, getSwapQuote } from '../src/flows/swap.js';
 import { AIMM_ABI } from '../src/abis/AIMM.js';
-import { formatTokenAmount, parseTokenAmount } from '../src/common/utils.js';
-import { createPublicClient, createWalletClient, http } from 'viem';
-import { mainnet } from 'viem/chains';
-import { privateKeyToAccount } from 'viem/accounts';
+import { formatTokenAmount, parseTokenAmount } from '../src/utils/business.js';
+import type { Eip1193Provider } from '../src/eth/types.js';
 
 async function main() {
-  // Setup viem clients
-  const publicClient = createPublicClient({
-    chain: mainnet,
-    transport: http(process.env.RPC_URL || 'https://eth.llamarpc.com'),
-  });
-
-  const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
-  const walletClient = createWalletClient({
-    account,
-    chain: mainnet,
-    transport: http(process.env.RPC_URL || 'https://eth.llamarpc.com'),
-  });
+  // Setup EIP-1193 provider (works with MetaMask, WalletConnect, Anvil, etc.)
+  const rpcUrl = process.env.RPC_URL || 'https://eth.llamarpc.com';
+  const provider: Eip1193Provider = {
+    request: async (args: { method: string; params: any[] }) => {
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: args.method,
+          params: args.params,
+          id: 1,
+        }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      return data.result;
+    },
+  };
 
   // Pool and token addresses
   const poolAddress = '0x...'; // Your AIMM pool
   const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
   const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
+  const userAddress = process.env.ADDRESS || '0x...'; // Your address
 
   // User wants to swap 1000 USDC for WETH
   const amountIn = parseTokenAmount('1000', 6); // 1000 USDC (6 decimals)
 
   console.log('Getting swap quote...');
   const quote = await getSwapQuote(
-    publicClient,
+    provider,
     poolAddress,
     AIMM_ABI,
     USDC,
@@ -50,17 +56,17 @@ async function main() {
 
   // Execute swap with 0.5% slippage tolerance
   console.log('\nExecuting swap...');
-  const result = await swap(publicClient, walletClient, AIMM_ABI, {
+  const result = await swap(provider, AIMM_ABI, {
     poolAddress,
     tokenIn: USDC,
     tokenOut: WETH,
     amountIn,
     slippageBps: 50, // 0.5%
+    userAddress,
   });
 
   console.log(`✅ Swap executed!`);
-  console.log(`   Transaction: ${result.hash}`);
-  console.log(`   View on Etherscan: https://etherscan.io/tx/${result.hash}`);
+  console.log(`   Transaction: ${result}`);
 }
 
 main().catch(console.error);

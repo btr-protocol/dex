@@ -1,9 +1,9 @@
 /**
  * Minimal Merkle tree builder for reward distributions
- * No dependencies on @openzeppelin/merkle-tree - uses viem's keccak256 directly
+ * Uses @noble/hashes for keccak256
  */
 
-import { keccak256Sync as keccak256, type Hex, toHex, concat, pad } from '../eth/index.js';
+import { keccak256, toHex, concat, pad, type Hex } from '../eth/index.js';
 
 export type MerkleTree = {
   root: Hex;
