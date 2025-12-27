@@ -3,7 +3,7 @@
  * Used across frontend and backend for consistent display
  */
 
-import { round, precision, getDigits } from './math.js';
+import { round, precision, getDigits } from './maths.js';
 
 // ─────────────────────────────────────────────────────────────
 // Currency
@@ -54,6 +54,36 @@ export function formatCurrencyCompact(n: number | null | undefined, currency = '
   if (absN >= 1_000) return `${sign}${symbol}${round(absN / 1_000, 2)}K`;
 
   return `${sign}${symbol}${round(absN, 2)}`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Token Units (Ethereum Wei/Decimals)
+// ─────────────────────────────────────────────────────────────
+
+/** Format token amount from wei to decimal string */
+export function formatUnits(value: bigint, decimals: number): string {
+  const str = value.toString().padStart(decimals + 1, '0');
+  const intPart = str.slice(0, -decimals) || '0';
+  const decPart = str.slice(-decimals);
+  const trimmed = decPart.replace(/0+$/, '');
+  return trimmed ? `${intPart}.${trimmed}` : intPart;
+}
+
+/** Parse decimal string to token amount (wei) */
+export function parseUnits(value: string, decimals: number): bigint {
+  const [intPart, decPart = ''] = value.split('.');
+  const padded = decPart.padEnd(decimals, '0').slice(0, decimals);
+  return BigInt(intPart + padded);
+}
+
+/** Format from wei to ether (18 decimals) */
+export function formatEther(value: bigint): string {
+  return formatUnits(value, 18);
+}
+
+/** Parse ether decimal to wei */
+export function parseEther(value: string): bigint {
+  return parseUnits(value, 18);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -230,7 +260,7 @@ export function generateAnchorId(text: string): string {
   return text
     .toLowerCase()
     .replace(/^([\d.]+)\.\s+/, '$1-')  // Leading "X.Y. " -> "X.Y-" (only trailing dot of section number)
-    .replace(/[^a-z0-9\s.\-]/g, '')    // Remove special chars (keep dots, numbers, letters, spaces, dashes)
+    .replace(/[^a-z0-9\s.-]/g, '')    // Remove special chars (keep dots, numbers, letters, spaces, dashes)
     .replace(/\s+/g, '-')              // Spaces to dashes
     .replace(/-+/g, '-')               // Collapse multiple dashes
     .replace(/^-|-$/g, '');            // Trim leading/trailing dashes
