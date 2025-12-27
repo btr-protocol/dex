@@ -5,9 +5,7 @@
 
 import { CircuitBreakerGuardian, type OracleProvider, type PricePoint } from '../src/guardians/circuit-breaker.js';
 import { AIMM_ABI } from '../src/abis/AIMM.js';
-import { createPublicClient, createWalletClient, http, type Address } from 'viem';
-import { mainnet } from 'viem/chains';
-import { privateKeyToAccount } from 'viem/accounts';
+import type { Address, Eip1193Provider } from '../src/eth/types.js';
 
 // Simple oracle provider implementation using Binance
 class BinanceOracleProvider implements OracleProvider {
@@ -68,25 +66,31 @@ class BinanceOracleProvider implements OracleProvider {
 async function main() {
   console.log('Starting Circuit Breaker Guardian...\n');
 
-  // Setup viem clients
-  const publicClient = createPublicClient({
-    chain: mainnet,
-    transport: http(process.env.RPC_URL || 'https://eth.llamarpc.com'),
-  });
-
-  const account = privateKeyToAccount(process.env.GUARDIAN_PRIVATE_KEY as `0x${string}`);
-  const walletClient = createWalletClient({
-    account,
-    chain: mainnet,
-    transport: http(process.env.RPC_URL || 'https://eth.llamarpc.com'),
-  });
+  // Setup EIP-1193 provider
+  const rpcUrl = process.env.RPC_URL || 'https://eth.llamarpc.com';
+  const provider: Eip1193Provider = {
+    request: async (args: { method: string; params: any[] }) => {
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: args.method,
+          params: args.params,
+          id: 1,
+        }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      return data.result;
+    },
+  };
 
   const oracleProvider = new BinanceOracleProvider();
 
   // Configure guardian
   const guardian = new CircuitBreakerGuardian(
-    publicClient,
-    walletClient,
+    provider,
     {
       poolAddress: process.env.POOL_ADDRESS as `0x${string}`,
       assets: [

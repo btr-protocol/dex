@@ -4,6 +4,6 @@
  */
 
 export * from './merkle.js';
-export * from './earning-power.js';
-export * from './voting-power.js';
+export { applyDamping as applyEarningDamping } from './earning-power.js';
+export { applyDamping as applyVotingDamping } from './voting-power.js';
 export * from './distributor.js';

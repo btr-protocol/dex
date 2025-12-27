@@ -4,9 +4,7 @@
  */
 
 import { BinanceOracle } from '../src/oracles/binance-oracle.js';
-import { createPublicClient, createWalletClient, http } from 'viem';
-import { mainnet } from 'viem/chains';
-import { privateKeyToAccount } from 'viem/accounts';
+import type { Eip1193Provider } from '../src/eth/types.js';
 
 // ExternalOracle ABI (simplified - only what we need)
 const EXTERNAL_ORACLE_ABI = [
@@ -41,18 +39,25 @@ const EXTERNAL_ORACLE_ABI = [
 async function main() {
   console.log('Starting Binance Oracle Bot...\n');
 
-  // Setup viem clients
-  const publicClient = createPublicClient({
-    chain: mainnet,
-    transport: http(process.env.RPC_URL || 'https://eth.llamarpc.com'),
-  });
-
-  const account = privateKeyToAccount(process.env.ORACLE_PRIVATE_KEY as `0x${string}`);
-  const walletClient = createWalletClient({
-    account,
-    chain: mainnet,
-    transport: http(process.env.RPC_URL || 'https://eth.llamarpc.com'),
-  });
+  // Setup EIP-1193 provider
+  const rpcUrl = process.env.RPC_URL || 'https://eth.llamarpc.com';
+  const provider: Eip1193Provider = {
+    request: async (args: { method: string; params: any[] }) => {
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: args.method,
+          params: args.params,
+          id: 1,
+        }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      return data.result;
+    },
+  };
 
   // External Oracle contract address
   const externalOracleAddress = process.env.EXTERNAL_ORACLE_ADDRESS as `0x${string}`;
@@ -63,8 +68,7 @@ async function main() {
 
   // Configure oracle bot
   const oracle = new BinanceOracle(
-    publicClient,
-    walletClient,
+    provider,
     {
       oracleAddress: externalOracleAddress,
       assets: [
