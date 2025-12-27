@@ -8,12 +8,11 @@ import { MarketCollector } from './collector';
 import { getStorage } from './storage';
 import { resolveAlias } from './config';
 import type { PairSymbol, OHLCCandle } from './types';
+import type { ServerWebSocket } from 'bun';
 
-interface WSClient {
-  send(data: any): void;
-  close(): void;
-  subs: Set<string>; // Subscribed symbols ('*' = all)
-  candleSubs: Set<string>; // Symbols subscribed for candle events
+interface WSClient extends ServerWebSocket<undefined> {
+  subs: Set<string>;
+  candleSubs: Set<string>;
 }
 
 export class MarketDataServer {
@@ -139,11 +138,27 @@ export class MarketDataServer {
       }
     });
 
+    // Kill any existing process on this port for clean startup
+    try {
+      const proc = Bun.spawn(['lsof', '-ti', `:${this.port}`], { stdout: 'pipe' });
+      const result = await new Response(proc.stdout).text();
+      const pid = result.trim();
+      if (pid) {
+        const killProc = Bun.spawn(['kill', '-9', pid]);
+        await killProc.exited;
+        console.log(`Cleaned up port ${this.port} (PID: ${pid})`);
+      }
+    } catch (e) {
+      // No process on port, that's fine
+    }
+
     this.server = Bun.serve({
       port: this.port,
       hostname: 'localhost',
+      reusePort: true,
       websocket: {
-        message: async (ws: WSClient, message: string | Buffer) => {
+        message: async (ws: ServerWebSocket<undefined>, message: string | Buffer) => {
+          const client = ws as WSClient;
           try {
             const data = JSON.parse(message.toString());
 
@@ -153,36 +168,36 @@ export class MarketDataServer {
               for (const sym of symbols) {
                 // Resolve aliases and subscribe to both requested and resolved
                 const resolved = resolveAlias(sym);
-                ws.subs.add(sym); // Keep original for client's reference
+                client.subs.add(sym); // Keep original for client's reference
                 if (resolved !== sym) {
-                  ws.subs.add(resolved); // Also subscribe to resolved
+                  client.subs.add(resolved); // Also subscribe to resolved
                 }
               }
-              ws.send(JSON.stringify({ type: 'subscribed', symbols: Array.from(ws.subs) }));
+              client.send(JSON.stringify({ type: 'subscribed', symbols: Array.from(client.subs) }));
             } else if (data.type === 'subscribe_candles') {
               // Subscribe to candle completion events
               const symbols = Array.isArray(data.symbols) ? data.symbols : [data.symbol || '*'];
               for (const sym of symbols) {
                 // Resolve aliases and subscribe to both requested and resolved
                 const resolved = resolveAlias(sym);
-                ws.candleSubs.add(sym); // Keep original for client's reference
+                client.candleSubs.add(sym); // Keep original for client's reference
                 if (resolved !== sym) {
-                  ws.candleSubs.add(resolved); // Also subscribe to resolved
+                  client.candleSubs.add(resolved); // Also subscribe to resolved
                 }
               }
-              ws.send(JSON.stringify({ type: 'subscribed_candles', symbols: Array.from(ws.candleSubs) }));
+              client.send(JSON.stringify({ type: 'subscribed_candles', symbols: Array.from(client.candleSubs) }));
             } else if (data.type === 'unsubscribe') {
               const symbols = Array.isArray(data.symbols) ? data.symbols : [data.symbol];
               for (const sym of symbols) {
-                ws.subs.delete(sym);
+                client.subs.delete(sym);
               }
-              ws.send(JSON.stringify({ type: 'unsubscribed', symbols: Array.from(ws.subs) }));
+              client.send(JSON.stringify({ type: 'unsubscribed', symbols: Array.from(client.subs) }));
             } else if (data.type === 'unsubscribe_candles') {
               const symbols = Array.isArray(data.symbols) ? data.symbols : [data.symbol];
               for (const sym of symbols) {
-                ws.candleSubs.delete(sym);
+                client.candleSubs.delete(sym);
               }
-              ws.send(JSON.stringify({ type: 'unsubscribed_candles', symbols: Array.from(ws.candleSubs) }));
+              client.send(JSON.stringify({ type: 'unsubscribed_candles', symbols: Array.from(client.candleSubs) }));
             } else if (data.type === 'get_candles') {
               const requestedSymbol = data.symbol;
               const resolvedSymbol = resolveAlias(requestedSymbol);
@@ -193,7 +208,7 @@ export class MarketDataServer {
                 data.limit || 100
               );
 
-              ws.send(JSON.stringify({
+              client.send(JSON.stringify({
                 type: 'candles',
                 symbol: requestedSymbol, // Return original requested symbol
                 resolvedSymbol, // Show what it resolved to
@@ -203,31 +218,32 @@ export class MarketDataServer {
               }));
             }
           } catch (e) {
-            ws.send(JSON.stringify({ type: 'error', error: (e as any).message }));
+            client.send(JSON.stringify({ type: 'error', error: (e as any).message }));
           }
         },
-        open: (ws: WSClient) => {
-          ws.subs = new Set();
-          ws.candleSubs = new Set();
-          wsClients.add(ws);
+        open: (ws: ServerWebSocket<undefined>) => {
+          const client = ws as WSClient;
+          client.subs = new Set();
+          client.candleSubs = new Set();
+          wsClients.add(client);
 
           // Notify client if service not ready yet
           if (!collector.isReady()) {
-            ws.send(JSON.stringify({
+            client.send(JSON.stringify({
               type: 'status',
               ready: false,
               message: 'Service warming up - validating historical data'
             }));
           } else {
-            ws.send(JSON.stringify({
+            client.send(JSON.stringify({
               type: 'status',
               ready: true,
               message: 'Service ready'
             }));
           }
         },
-        close: (ws: WSClient) => {
-          wsClients.delete(ws);
+        close: (ws: ServerWebSocket<undefined>) => {
+          wsClients.delete(ws as WSClient);
         }
       },
       async fetch(req: Request, bunServer: any) {
