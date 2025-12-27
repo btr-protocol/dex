@@ -1,5 +1,72 @@
 # Agent Guidelines
 
+## Stack & Tooling (2025)
+
+This monorepo uses **Bun** and **native tooling** for maximum speed.
+
+### Core Stack
+
+| Tool | Purpose | Why |
+|------|---------|-----|
+| **Bun** | Runtime + package manager | 10-100x faster than Node.js |
+| **tsgo** | Type checking | Native Go port, 10-20x faster than tsc |
+| **oxlint** | Linting + formatting | Rust-based, faster than ESLint |
+| **Vite** | Frontend bundler | Fast HMR, optimized builds |
+
+### Module Structure
+
+```
+dex/
+├── sdk/           # Core SDK (library, no dev server)
+├── front/         # Preact frontend (Vite)
+└── back/collector/# Bun WebSocket server
+```
+
+### Consistent Commands (All Modules)
+
+| Command | Description | SDK | Front | Back |
+|---------|-------------|-----|-------|------|
+| `bun run dev` | Development server | - | ✓ | ✓ |
+| `bun run build` | Production build | ✓ | ✓ | ✓ |
+| `bun run typecheck` | Type check with tsgo | ✓ | ✓ | ✓ |
+| `bun run typecheck:watch` | Watch mode | ✓ | ✓ | ✓ |
+| `bun run lint` | Lint with oxlint | ✓ | ✓ | ✓ |
+| `bun run fmt` | Format with oxlint | ✓ | ✓ | ✓ |
+
+### Root Commands
+
+From project root (`./`):
+
+```bash
+bun run dev          # Start front + back in parallel
+bun run build        # Build: sdk → back → front
+bun run typecheck    # Type check all modules
+bun run lint         # Lint entire codebase
+bun run fmt          # Format entire codebase
+```
+
+### Configuration Files
+
+- **oxlint.json** (root) - Linting rules for all modules
+- **tsconfig.json** (per module) - TypeScript config optimized for Bun ESM + tsgo
+- **package.json** (per module) - Scripts and dependencies
+
+### TypeScript Config (tsgo-optimized)
+
+All modules use:
+```json
+{
+  "compilerOptions": {
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "noEmit": true
+  }
+}
+```
+
+---
+
 ## Documentation
 - **Root**: README.md only
 - **Docs**: All in `./docs/` (user-facing)
@@ -11,6 +78,16 @@
 **⚠️ Use `bun` EXCLUSIVELY**
 - ❌ NEVER npm/yarn
 - ✅ `bun install|add|run`
+
+## Git Identity
+**⚠️ Always use the user's git identity**
+- ❌ NEVER use agent or "Gemini" identity for git commits.
+- ✅ Always use: Paul de Renty (paul.ed.de.renty@gmail.com / pde-rent)
+- Check and restore config if necessary before committing:
+  ```bash
+  git config user.email "paul.ed.de.renty@gmail.com"
+  git config user.name "pde-rent"
+  ```
 
 ---
 
