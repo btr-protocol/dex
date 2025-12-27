@@ -365,7 +365,7 @@ async function generateSearchIndex() {
   generateDocsStructureFiles(docsStructure);
 
   const docsStructureOriginalSize = fs.statSync(docsStructureOutputPath).size;
-  const docsStructureCompressedSize = fs.statSync(docsStructureCompressedPath).size;
+  const docsStructureCompressedSize = fs.statSync(docsStructureOutputPathGz).size;
   const docsStructureCompressionRatio = ((docsStructureOriginalSize - docsStructureCompressedSize) / docsStructureOriginalSize * 100).toFixed(1);
 
   console.log(`Done: ${markdownFiles.length} files, ${documents.length} entries`);
