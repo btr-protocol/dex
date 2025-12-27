@@ -6,20 +6,47 @@ import { ExternalLinkProvider } from '@lib/external-links';
 import { enableConsoleIntegration, addNotification } from '@lib/notifications';
 import { Notifications } from '@components/Notifications';
 import { BgRenderer } from '@components/BgRenderer';
-import Header from '@/components/layout/Header';
-import Footer from '@/components/layout/Footer';
-import DisclaimerPage, { useDisclaimer } from '@/pages/DisclaimerPage';
-import { useEffect, lazy, Suspense, useState } from 'preact/compat';
+import { Header } from '@/components/layout/Header';
+import { Footer } from '@/components/layout/Footer';
+import { DisclaimerPage, useDisclaimer } from '@/pages/DisclaimerPage';
+import { useEffect, useState } from 'preact/hooks';
 import { ROUTES } from '@/constants/navigation';
 
-// Lazy load all route pages
-const SwapPage = lazy(() => import('@/pages/SwapPage'));
-const EarnPage = lazy(() => import('@/pages/EarnPage'));
-const VotePage = lazy(() => import('@/pages/VotePage'));
-const MetricsPage = lazy(() => import('@/pages/MetricsPage'));
-const AddAssetPage = lazy(() => import('@/pages/AddAssetPage'));
-const DocsPage = lazy(() => import('@/pages/DocsPage'));
-const ChartPage = lazy(() => import('@/pages/ChartPage'));
+// Lazy loading helper for route pages
+function LazyPage({ load, componentName = 'default' }: { load: () => Promise<any>; componentName?: string }) {
+  const [Component, setComponent] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    load().then(mod => {
+      if (active) {
+        const comp = componentName === 'default' ? mod.default : mod[componentName];
+        setComponent(() => comp);
+        setLoading(false);
+      }
+    }).catch(e => {
+      if (active) {
+        console.error('Failed to load page:', e);
+        setLoading(false);
+      }
+    });
+    return () => { active = false; };
+  }, [load, componentName]);
+
+  if (loading) return <div className="flex-center min-h-screen"><div className="animate-spin">Loading...</div></div>;
+  if (!Component) return <div className="flex-center min-h-screen text-red-500">Failed to load page</div>;
+  return <Component />;
+}
+
+// Memoized lazy loaders to prevent recreating on each render
+const SwapPageLazy = () => <LazyPage load={() => import('@/pages/SwapPage')} componentName="SwapPage" />;
+const EarnPageLazy = () => <LazyPage load={() => import('@/pages/EarnPage')} componentName="EarnPage" />;
+const VotePageLazy = () => <LazyPage load={() => import('@/pages/VotePage')} componentName="VotePage" />;
+const MetricsPageLazy = () => <LazyPage load={() => import('@/pages/MetricsPage')} componentName="MetricsPage" />;
+const AddAssetPageLazy = () => <LazyPage load={() => import('@/pages/AddAssetPage')} componentName="AddAssetPage" />;
+const DocsPageLazy = () => <LazyPage load={() => import('@/pages/DocsPage')} componentName="DocsPage" />;
+const ChartPageLazy = () => <LazyPage load={() => import('@/pages/ChartPage')} componentName="ChartPage" />;
 
 // Detect if user agent is a bot/crawler
 function isBot(): boolean {
@@ -53,41 +80,34 @@ function AppContent() {
   const renderPage = () => {
     // Chart page is standalone - no header/footer/disclaimer
     if (path === ROUTES.CHART) {
-      return <ChartPage />;
+      return <ChartPageLazy />;
     }
 
     if (path === ROUTES.DOCS || path.startsWith(ROUTES.DOCS + '/')) {
-      // Extract slug from path like /docs/1.1.6-Toxic-Flow-Mitigation
-      const slug = path === ROUTES.DOCS
-        ? 'overview'
-        : path.replace(ROUTES.DOCS + '/', '').toLowerCase();
-      return <DocsPage slug={slug} />;
+      // DocsPageLazy handles slug extraction from path
+      return <DocsPageLazy />;
     }
 
     switch (path) {
       case ROUTES.HOME:
       case ROUTES.SWAP:
-        return <SwapPage />;
+        return <SwapPageLazy />;
       case ROUTES.EARN:
-        return <EarnPage />;
+        return <EarnPageLazy />;
       case ROUTES.VOTE:
-        return <VotePage />;
+        return <VotePageLazy />;
       case ROUTES.METRICS:
-        return <MetricsPage />;
+        return <MetricsPageLazy />;
       case ROUTES.ADD_ASSET:
-        return <AddAssetPage />;
+        return <AddAssetPageLazy />;
       default:
-        return <SwapPage />;
+        return <SwapPageLazy />;
     }
   };
 
   // Chart route renders standalone without shell
   if (path === ROUTES.CHART) {
-    return (
-      <Suspense fallback={null}>
-        <ChartPage />
-      </Suspense>
-    );
+    return <ChartPageLazy />;
   }
 
   return (
@@ -100,13 +120,7 @@ function AppContent() {
         <>
           <Header />
           <main className="flex-1 relative z-10 pt-12 pb-10">
-            <Suspense fallback={
-              <div className="flex items-center justify-center min-h-[60vh]">
-                <div className="animate-pulse text-muted-foreground">Loading...</div>
-              </div>
-            }>
-              {renderPage()}
-            </Suspense>
+            {renderPage()}
           </main>
           <Footer />
         </>

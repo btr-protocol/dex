@@ -6,7 +6,7 @@
  *
  * Environment variables (VITE_*_ADDRESS) override SDK defaults for local development.
  */
-import type { ContractAddresses } from '@sdk/common';
+import type { ContractAddresses } from '@sdk/utils/constants';
 
 // Build-time contract addresses
 // Get from environment variables first, then fallback to defaults
