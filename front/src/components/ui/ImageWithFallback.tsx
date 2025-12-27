@@ -5,6 +5,8 @@
 import { JSX } from 'preact';
 
 interface ImageWithFallbackProps extends JSX.HTMLAttributes<HTMLImageElement> {
+  src: string;
+  alt?: string;
   fallbackSrc?: string;
   onLoadError?: (e: Event) => void;
 }

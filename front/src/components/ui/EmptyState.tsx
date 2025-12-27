@@ -43,15 +43,6 @@ export interface EmptyStateProps extends JSX.HTMLAttributes<HTMLDivElement> {
     onClick: () => void;
     icon?: ComponentChildren;
   };
-
-  /** @deprecated Use action prop instead */
-  onReset?: () => void;
-  /** @deprecated Use action.label instead */
-  resetLabel?: string;
-  /** @deprecated Use action instead */
-  showResetButton?: boolean;
-  /** @deprecated Use action.onClick instead */
-  onRetry?: () => void;
 }
 
 const emptyStateVariants = cva('', {
@@ -88,23 +79,9 @@ export function EmptyState({
   query,
   icon,
   action,
-  // Deprecated props (backwards compatibility)
-  onReset,
-  resetLabel = 'Reset filters',
-  showResetButton = true,
-  onRetry,
   ref,
   ...props
 }: EmptyStateProps) {
-    // Handle deprecated props
-    const finalAction = action || (onReset && showResetButton) || onRetry
-      ? {
-          label: resetLabel || 'Try Again',
-          onClick: action?.onClick || onReset || onRetry || (() => {}),
-          icon: action?.icon || (onReset ? <Icon name={ICON_NAMES.filterX} className="w-4 h-4" /> : <Icon name={ICON_NAMES.refreshCw} className="w-4 h-4" />),
-        }
-      : undefined;
-
     const displayMessage = query ? `${message} for "${query}"` : message;
 
     // Resolve icon
@@ -115,7 +92,7 @@ export function EmptyState({
     return (
       <div
         ref={ref}
-        className={emptyStateVariants({ variant, layout, className })}
+        className={emptyStateVariants({ variant, layout, className: className as any })}
         {...props}
       >
         <div className="text-center max-w-md mx-auto">
@@ -160,14 +137,14 @@ export function EmptyState({
           <p className="text-muted-foreground text-sm mb-4">{displayMessage}</p>
 
           {/* Action Button */}
-          {finalAction && (
+          {action && (
             <Button
-              onClick={finalAction.onClick}
+              onClick={action.onClick}
               variant={isError ? 'outlined' : 'default'}
               size="sm"
-              leftIcon={finalAction.icon}
+              leftIcon={action.icon}
             >
-              {finalAction.label}
+              {action.label}
             </Button>
           )}
         </div>

@@ -1,7 +1,5 @@
-import { useEffect } from 'preact/hooks';
 import { useAccount } from '@/hooks/useContract';
 import { formatUnits, Address } from '@sdk/eth';
-import { loadAddresses } from '@/contracts/addresses';
 import { useRegisteredAssets, useAssetState, useOraclePrice, useCoverageRatio } from '@/hooks/usePoolState';
 import { useTokenInfo } from '@/hooks/useTokenInfo';
 import { Badge } from '@components/ui/Badge';
@@ -37,7 +35,7 @@ function AssetRow({ address }: AssetRowProps) {
 
   const formattedReserves = formatUnits(asset.reserves, decimals);
   const formattedLiabilities = formatUnits(asset.liabilities, decimals);
-  const formattedPrice = formatUnits(price as bigint, 18); // Prices are in 18 decimals
+  const formattedPrice = formatUnits((price as unknown) as bigint, 18); // Prices are in 18 decimals
   const formattedCoverage = coverageRatio ? Number(coverageRatio) / 10000 : 0; // BPS to percentage
 
   return (
@@ -68,14 +66,9 @@ function AssetRow({ address }: AssetRowProps) {
   );
 }
 
-export default function PoolDashboard() {
+export function PoolDashboard() {
   const { address: account } = useAccount();
   const { data: registeredAssets, loading, error } = useRegisteredAssets();
-
-  // Load addresses on mount
-  useEffect(() => {
-    loadAddresses();
-  }, []);
 
   if (loading) {
     return (
@@ -96,7 +89,7 @@ export default function PoolDashboard() {
           <p className="text-gray-400 text-sm">
             Make sure Anvil is running and contracts are deployed.
           </p>
-          <p className="text-gray-500 text-xs mt-2 font-mono">{error.message}</p>
+          <p className="text-gray-500 text-xs mt-2 font-mono">{typeof error === 'object' && error !== null && 'message' in error ? (error as any).message : String(error)}</p>
         </div>
       </div>
     );

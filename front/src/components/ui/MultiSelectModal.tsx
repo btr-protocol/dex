@@ -171,8 +171,6 @@ export function MultiSelectModal({
           <EmptyState
             query={search}
             message="No options found"
-            onReset={() => setSearch('')}
-            showResetButton={false}
           />
         )}
       </div>

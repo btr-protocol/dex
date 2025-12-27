@@ -1,6 +1,43 @@
 import { ComponentChildren } from 'preact';
 import { useState, useRef, useEffect } from 'preact/hooks';
-import { createPortal } from 'preact/compat';
+import { render } from 'preact';
+
+// Simple portal that renders outside the component tree
+function TooltipPortal({ coords, getTransform, getArrowStyles, arrow, content }: any) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) {
+      containerRef.current = document.createElement('div');
+      document.body.appendChild(containerRef.current);
+    }
+
+    const el = (
+      <div
+        className="floating-panel rounded-xs whitespace-nowrap pointer-events-none font-medium"
+        style={{
+          left: coords.x,
+          top: coords.y,
+          transform: getTransform(),
+        }}
+      >
+        {arrow && <div style={getArrowStyles() as any} />}
+        {content}
+      </div>
+    );
+
+    render(el, containerRef.current);
+
+    return () => {
+      if (containerRef.current?.parentNode) {
+        containerRef.current.parentNode.removeChild(containerRef.current);
+        containerRef.current = null;
+      }
+    };
+  }, [coords, getTransform, getArrowStyles, arrow, content]);
+
+  return null;
+}
 
 interface TooltipProps {
   content: string;
@@ -150,20 +187,13 @@ export function Tooltip({ content, children, position, side, asChild, delay = 0,
       onMouseLeave={handleMouseLeave}
     >
       {children}
-      {visible && content && createPortal(
-        <div
-          className="floating-panel rounded-xs whitespace-nowrap pointer-events-none font-medium"
-          style={{
-            left: coords.x,
-            top: coords.y,
-            transform: getTransform(),
-          }}
-        >
-          {arrow && <div style={getArrowStyles() as any} />}
-          {content}
-        </div>,
-        document.body
-      )}
+      {visible && content && <TooltipPortal
+        coords={coords}
+        getTransform={getTransform}
+        getArrowStyles={getArrowStyles}
+        arrow={arrow}
+        content={content}
+      />}
     </div>
   );
 }

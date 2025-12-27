@@ -47,3 +47,5 @@ export { CollapsibleSection } from './CollapsibleSection';
 export { NavTreeItem, type NavItem } from './NavTreeItem';
 export { BorderedThemedIcon as ThemedIcon, plusIcon, doubleDownIcon } from './BorderedThemedIcon';
 export type { IconDef } from './BorderedThemedIcon';
+export { HeroMetric } from './HeroMetric';
+export { SearchResultList, type SearchResult, type SearchResultListProps } from './SearchResultList';

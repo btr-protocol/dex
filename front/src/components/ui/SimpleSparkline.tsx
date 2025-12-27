@@ -1,3 +1,6 @@
+import { useEffect, useRef } from 'preact/hooks';
+import * as Chartist from 'chartist';
+
 interface SparklineProps {
   data: number[];
   width?: number;
@@ -13,37 +16,61 @@ export function SimpleSparkline({
   color = '#10b981',
   className = '',
 }: SparklineProps) {
-  if (data.length < 2) return null;
+  const chartRef = useRef<HTMLDivElement>(null);
 
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
+  useEffect(() => {
+    if (!chartRef.current || data.length < 2) return;
 
-  const points = data
-    .map((val, i) => {
-      const x = (i / (data.length - 1)) * width;
-      const y = height - ((val - min) / range) * height;
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(' ');
+    // Prepare chart data
+    const chartData: Chartist.LineChartData = {
+      labels: data.map((_, i) => i.toString()),
+      series: [data],
+    };
 
-  return (
-    <svg
-      width={width}
-      height={height}
-      className={className}
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-    >
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  );
+    const options: Chartist.LineChartOptions = {
+      width,
+      height,
+      fullWidth: false,
+      chartPadding: 0,
+      lineSmooth: Chartist.Interpolation.cardinal(),
+      showLine: true,
+      showPoint: false,
+      showArea: true,
+    };
+
+    // Clear previous chart
+    chartRef.current.innerHTML = '';
+
+    // Create new chart - access Line through the default export
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ChartistLib = (Chartist as any).default || Chartist;
+    new (ChartistLib as any).Line(chartRef.current, chartData, options);
+
+    // Style the chart to match color and hide axes
+    const styleId = Math.random().toString(36).substr(2, 9);
+    const style = document.createElement('style');
+    style.textContent = `
+      .sparkline-chart-${styleId} .ct-line {
+        stroke: ${color};
+        stroke-width: 2px;
+      }
+      .sparkline-chart-${styleId} .ct-area {
+        fill: ${color}20;
+      }
+      .sparkline-chart-${styleId} .ct-axis {
+        display: none;
+      }
+      .sparkline-chart-${styleId} .ct-labels {
+        display: none;
+      }
+    `;
+    document.head.appendChild(style);
+    chartRef.current.classList.add(`sparkline-chart-${styleId}`);
+
+    return () => {
+      style.remove();
+    };
+  }, [data, width, height, color]);
+
+  return <div ref={chartRef} className={`ct-chart ${className}`} style={{ width, height }} />;
 }
