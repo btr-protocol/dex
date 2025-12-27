@@ -5,6 +5,14 @@ const WS_URL = import.meta.env.VITE_COLLECTOR_WS || 'ws://localhost:3001/ws';
 
 export interface OHLC { time: number; open: number; high: number; low: number; close: number; }
 
+interface Candle {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 // Quote priority: higher index = higher priority as quote currency
 const QUOTE_PRIORITY = ['ETH', 'BTC', 'USD1', 'RLUSD', 'PYUSD', 'DAI', 'USDS', 'USDE', 'USDT', 'USDC'];
 
@@ -48,11 +56,11 @@ export function invertPriceData(data: PriceData): PriceData {
 
 interface PriceData { mid: number; bid: number; ask: number; }
 const listeners = new Map<string, Set<(p: PriceData) => void>>();
-const candleListeners = new Map<string, Set<(c: any) => void>>();
+const candleListeners = new Map<string, Set<(c: Candle) => void>>();
 const prices = new Map<string, PriceData>();
 let ws: WebSocket | null = null;
-let reconnectTimer: any = null;
-let throttleTimer: any = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let throttleTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingUpdates = new Map<string, PriceData>();
 const THROTTLE_MS = 333; // Max 3 updates/second
 
@@ -144,7 +152,7 @@ function subscribe(sym: string, cb: (p: PriceData) => void) {
   };
 }
 
-function subscribeCandles(pair: string, timeframe: number, cb: (c: any) => void) {
+function subscribeCandles(pair: string, timeframe: number, cb: (c: Candle) => void) {
   const key = `${pair}:${timeframe}`;
 
   if (!candleListeners.has(key)) {
@@ -204,10 +212,10 @@ export function useCandles(symbol: string, tf = 60, limit = 200) {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then(j => {
+      .then((j: { candles?: Candle[] }) => {
         if (!active) return;
         // API returns DESC (newest first), reverse to chronological order (oldest first)
-        const candles = (j.candles || []).reverse().map((c: any) => ({
+        const candles = (j.candles || []).reverse().map((c: Candle) => ({
           ...c,
           time: c.timestamp / 1000
         }));
@@ -228,7 +236,7 @@ export function useCandles(symbol: string, tf = 60, limit = 200) {
   useEffect(() => {
     if (!symbol || !data.length) return;
 
-    return subscribeCandles(symbol, tf, (candle: any) => {
+    return subscribeCandles(symbol, tf, (candle: Candle) => {
       setData(prev => {
         if (!prev.length) return prev;
 

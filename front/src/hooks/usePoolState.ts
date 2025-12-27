@@ -1,7 +1,6 @@
 import { useReadContract, useReadContracts } from './useContract';
 import type { Address } from '@sdk/eth';
-import { getAddresses } from '@/contracts/addresses';
-import BAMM_ABI from '@/contracts/abis/BAMM.json';
+import { AIMM_ABI, getContractAddress } from '@sdk/eth';
 
 export interface AssetState {
   reserves: bigint;
@@ -24,17 +23,19 @@ export interface PoolAsset {
 
 /**
  * Read asset state from pool
+ * @param token - Token address to query
+ * @param chainId - Chain ID (required to get pool address from SDK)
  */
-export function useAssetState(token: Address | undefined) {
-  const addresses = getAddresses();
+export function useAssetState(token: Address | undefined, chainId?: number) {
+  const poolAddress = chainId ? getContractAddress(chainId, 'AIMM_POOL') : undefined;
 
   return useReadContract({
-    address: addresses?.pool as Address | undefined,
-    abi: BAMM_ABI,
+    address: poolAddress as Address | undefined,
+    abi: AIMM_ABI,
     functionName: 'getAsset',
     args: token ? [token] : undefined,
     query: {
-      enabled: !!addresses?.pool && !!token,
+      enabled: !!poolAddress && !!token,
     },
   });
 }
@@ -42,16 +43,16 @@ export function useAssetState(token: Address | undefined) {
 /**
  * Read oracle price for token
  */
-export function useOraclePrice(token: Address | undefined) {
-  const addresses = getAddresses();
+export function useOraclePrice(token: Address | undefined, chainId?: number) {
+  const poolAddress = chainId ? getContractAddress(chainId, 'AIMM_POOL') : undefined;
 
   return useReadContract({
-    address: addresses?.pool as Address | undefined,
-    abi: BAMM_ABI,
+    address: poolAddress as Address | undefined,
+    abi: AIMM_ABI,
     functionName: 'getOraclePrice',
     args: token ? [token] : undefined,
     query: {
-      enabled: !!addresses?.pool && !!token,
+      enabled: !!poolAddress && !!token,
     },
   });
 }
@@ -59,16 +60,16 @@ export function useOraclePrice(token: Address | undefined) {
 /**
  * Read coverage ratio for token
  */
-export function useCoverageRatio(token: Address | undefined) {
-  const addresses = getAddresses();
+export function useCoverageRatio(token: Address | undefined, chainId?: number) {
+  const poolAddress = chainId ? getContractAddress(chainId, 'AIMM_POOL') : undefined;
 
   return useReadContract({
-    address: addresses?.pool as Address | undefined,
-    abi: BAMM_ABI,
+    address: poolAddress as Address | undefined,
+    abi: AIMM_ABI,
     functionName: 'coverageRatio',
     args: token ? [token] : undefined,
     query: {
-      enabled: !!addresses?.pool && !!token,
+      enabled: !!poolAddress && !!token,
     },
   });
 }
@@ -79,17 +80,18 @@ export function useCoverageRatio(token: Address | undefined) {
 export function useSwapQuote(
   tokenIn: Address | undefined,
   tokenOut: Address | undefined,
-  amountIn: bigint | undefined
+  amountIn: bigint | undefined,
+  chainId?: number
 ) {
-  const addresses = getAddresses();
+  const poolAddress = chainId ? getContractAddress(chainId, 'AIMM_POOL') : undefined;
 
   return useReadContract({
-    address: addresses?.pool as Address | undefined,
-    abi: BAMM_ABI,
+    address: poolAddress as Address | undefined,
+    abi: AIMM_ABI,
     functionName: 'quote',
-    args: tokenIn && tokenOut && amountIn ? [tokenIn, tokenOut, amountIn] : undefined,
+    args: tokenIn && tokenOut && amountIn ? ([tokenIn, tokenOut, amountIn] as const) : undefined,
     query: {
-      enabled: !!addresses?.pool && !!tokenIn && !!tokenOut && !!amountIn && amountIn > 0n,
+      enabled: !!poolAddress && !!tokenIn && !!tokenOut && !!amountIn && amountIn > 0n,
     },
   });
 }
@@ -97,15 +99,15 @@ export function useSwapQuote(
 /**
  * Get all registered assets in the pool
  */
-export function useRegisteredAssets() {
-  const addresses = getAddresses();
+export function useRegisteredAssets(chainId?: number) {
+  const poolAddress = chainId ? getContractAddress(chainId, 'AIMM_POOL') : undefined;
 
   return useReadContract({
-    address: addresses?.pool as Address | undefined,
-    abi: BAMM_ABI,
+    address: poolAddress as Address | undefined,
+    abi: AIMM_ABI,
     functionName: 'registeredAssets',
     query: {
-      enabled: !!addresses?.pool,
+      enabled: !!poolAddress,
     },
   });
 }
@@ -113,26 +115,27 @@ export function useRegisteredAssets() {
 /**
  * Get complete state for all pool assets
  */
-export function usePoolAssets() {
-  const { data: assetAddresses } = useRegisteredAssets();
-  const addresses = getAddresses();
+export function usePoolAssets(chainId?: number) {
+  const { data: assetAddressesData } = useRegisteredAssets(chainId);
+  const assetAddresses = Array.isArray(assetAddressesData) ? (assetAddressesData as Address[]) : undefined;
+  const poolAddress = chainId ? getContractAddress(chainId, 'AIMM_POOL') : undefined;
 
   const contracts = assetAddresses?.map((token: Address) => [
     {
-      address: addresses?.pool as Address,
-      abi: BAMM_ABI,
+      address: poolAddress as Address,
+      abi: AIMM_ABI,
       functionName: 'getAsset',
       args: [token],
     },
     {
-      address: addresses?.pool as Address,
-      abi: BAMM_ABI,
+      address: poolAddress as Address,
+      abi: AIMM_ABI,
       functionName: 'getOraclePrice',
       args: [token],
     },
     {
-      address: addresses?.pool as Address,
-      abi: BAMM_ABI,
+      address: poolAddress as Address,
+      abi: AIMM_ABI,
       functionName: 'coverageRatio',
       args: [token],
     },

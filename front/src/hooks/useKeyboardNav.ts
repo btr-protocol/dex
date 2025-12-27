@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
+import type { JSX } from 'preact';
 
 export interface KeyboardNavOptions<T> {
   items: T[];
@@ -18,7 +19,7 @@ export function useKeyboardNav<T>({ items, onSelect, isEnabled = true }: Keyboar
     setSelectedIndex(0);
   }, [items]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: JSX.TargetedKeyboardEvent<HTMLInputElement>) => {
     if (!isEnabled || items.length === 0) return;
 
     if (e.key === 'ArrowDown') {

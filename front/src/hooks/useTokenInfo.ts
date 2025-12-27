@@ -1,6 +1,6 @@
 import { useReadContract } from './useContract';
 import type { Address } from '@sdk/eth';
-import ERC20_ABI from '@/contracts/abis/ERC20.json';
+import { ERC20_ABI } from '@sdk/eth';
 
 /**
  * Read token metadata (symbol, decimals, name)
