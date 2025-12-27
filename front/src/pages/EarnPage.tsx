@@ -1,5 +1,5 @@
-import LiquidityPage from '@/pages/LiquidityPage';
+import { LiquidityPage } from '@/pages/LiquidityPage';
 
-export default function EarnPage() {
+export function EarnPage() {
     return <LiquidityPage />;
 }

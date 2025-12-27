@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'preact/hooks';
 import { getDocBySlug, type DocFile } from '@/utils/docs';
-import { DocsLayout } from '@/components/DocsLayout';
-import { DocNavigation } from '@/components/DocNavigation';
+import { DocsLayout } from '@components/features/docs';
+import { DocNavigation } from '@components/features/docs';
 import { useRouter } from '@/lib/router';
 
 interface DocsPageProps {
   slug?: string;
 }
 
-export default function DocsPage({ slug = 'overview' }: DocsPageProps) {
+export function DocsPage({ slug = 'overview' }: DocsPageProps) {
   const [doc, setDoc] = useState<DocFile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

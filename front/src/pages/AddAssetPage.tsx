@@ -4,8 +4,8 @@ import { Button } from '@components/ui/Button';
 import { Input } from '@components/ui/Input';
 import { Stepper, type Step } from '@components/ui/Stepper';
 import { useRouter } from '@lib/router';
-import LiquidityShaper from '@components/LiquidityShaper';
-import ParameterShaper from '@components/ParameterShaper';
+import { LiquidityShaper } from '@components/features/liquidity';
+import { ParameterShaper } from '@components/shared/ui-utilities';
 import { ROUTES } from '@/constants/navigation';
 
 const STEPS: Step[] = [
@@ -15,7 +15,7 @@ const STEPS: Step[] = [
     { label: 'Liquidity Profile', description: 'Distribution curve' },
 ];
 
-export default function AddAssetPage() {
+export function AddAssetPage() {
     const { navigate } = useRouter();
     const [activeTab, setActiveTab] = useState(0);
 

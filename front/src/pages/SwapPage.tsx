@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'preact/hooks';
-import { SwapForm } from '@components/SwapForm';
+import { SwapForm } from '@components/features/swap';
 import { useWallet } from '@lib/wallet';
 import { useRouter } from '@lib/router';
 import { useSettings } from '@lib/settings';
-import PageContainer from '@components/layout/PageContainer';
+import { PageContainer } from '@components/layout/PageContainer';
 import { CHAINS, getAllTokensForChain } from '@sdk/eth';
-import { PriceChart } from '@components/PriceChartLazy';
+import { PriceChartLazy } from '@components/features/chart';
 import { SwapStore } from '@/lib/swap/SwapStore';
 
 // Helper to get canonical pair ordering
@@ -16,7 +16,7 @@ function getCanonicalPairOrder(token1: string, token2: string): { base: string; 
   return t1Priority < t2Priority ? { base: token1, quote: token2 } : { base: token2, quote: token1 };
 }
 
-export default function SwapPage() {
+export function SwapPage() {
   const { isConnected, connect, chainId: walletChainId } = useWallet();
   const { queryParams } = useRouter();
   const { settings, updateSettings } = useSettings();
@@ -98,7 +98,8 @@ export default function SwapPage() {
     updateSettings({ swapTokenIn: primary, swapTokenOut: secondary });
   }, [updateSettings]);
 
-  const chainInfo = CHAINS[chainId] || { name: 'Unknown', icon: '/networks/ethereum.svg' };
+  const chainConfig = CHAINS[chainId] || { name: 'Unknown', icon: '/networks/ethereum.svg' };
+  const chainInfo = { name: chainConfig.name, icon: chainConfig.icon || `/networks/${chainConfig.name.toLowerCase()}.svg` };
 
   const handleSwap = () => {
     console.log('Swap initiated');
@@ -111,7 +112,7 @@ export default function SwapPage() {
         {/* Price Chart - 2/3 width on desktop, full width on mobile, shown first on mobile */}
         <div className="w-full lg:w-2/3 order-2 lg:order-1 h-[520px]">
           {store.secondaryTokens.value[0]?.symbol ? (
-            <PriceChart
+            <PriceChartLazy
               key={`${chartPair.base}-${chartPair.quote}`}
               base={chartPair.base}
               quote={chartPair.quote}

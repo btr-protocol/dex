@@ -5,10 +5,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import { useRouter } from '@lib/router';
 import { useSettings } from '@lib/settings';
-import { PriceChart } from '@components/PriceChart';
-import PairSelector from '@components/PairSelector';
+import { PriceChartLazy } from '@components/features/chart';
+import { PairSelector } from '@components/shared/token';
 import type { IndicatorParams } from '@utils/indicators';
-import type { IndicatorKey, InitialIndicator } from '@components/chart';
+import type { IndicatorKey, ChartType } from '@components/features/chart/indicatorsConfig';
+import type { InitialIndicator } from '@components/features/chart/useIndicatorParams';
 
 // Parse indicator from URL format: ema-trend(10,20,14) -> { preset, params }
 function parseIndicator(str: string): InitialIndicator | null {
@@ -44,7 +45,7 @@ export function buildChartUrl(
   return `/chart?${parts.join('&')}`;
 }
 
-export default function ChartPage() {
+export function ChartPage() {
   const { queryParams, navigate } = useRouter();
   const { settings, updateSettings } = useSettings();
   const [ready, setReady] = useState(false);
@@ -60,7 +61,7 @@ export default function ChartPage() {
   const savedPair = settings.chartBase && settings.chartQuote
     ? `${settings.chartBase}${settings.chartQuote}`
     : null;
-  const pair = urlPair || savedPair || 'ETHUSDC';
+  const pair: string = urlPair || savedPair || 'ETHUSDC';
   const tf = parseInt(queryParams.get('tf') || '60', 10);
   const type = (queryParams.get('type') || 'candles') as 'candles' | 'bars' | 'line';
 
@@ -150,7 +151,7 @@ export default function ChartPage() {
 
   return (
     <div className="w-screen h-screen bg-bg-0 overflow-hidden">
-      <PriceChart
+      <PriceChartLazy
         key={`${base}-${quote}`}
         base={base}
         quote={quote}
@@ -162,9 +163,9 @@ export default function ChartPage() {
         standalone
         onChangePair={handleChangePair}
         onInvertPair={handleInvertPair}
-        onTimeframeChange={setCurrentTimeframe}
-        onChartTypeChange={setCurrentChartType}
-        onIndicatorsChange={setCurrentIndicators}
+        onTimeframeChange={(tf: number) => setCurrentTimeframe(tf)}
+        onChartTypeChange={(type: ChartType) => setCurrentChartType(type)}
+        onIndicatorsChange={(indicators: InitialIndicator[]) => setCurrentIndicators(indicators)}
       />
       <PairSelector
         isOpen={pairSelectorOpen}

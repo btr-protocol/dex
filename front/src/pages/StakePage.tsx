@@ -1,6 +1,6 @@
-import { ViewEmptyState } from '@/components/ViewEmptyState';
+import { ViewEmptyState } from '@components/shared/ui-utilities';
 
-export default function StakePage() {
+export function StakePage() {
     return (
         <ViewEmptyState
             title="Staking Coming Soon"

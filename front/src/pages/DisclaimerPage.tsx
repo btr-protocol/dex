@@ -2,7 +2,7 @@ import { useState, useEffect } from 'preact/hooks';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { MaskIcon } from '@components/ui/MaskIcon';
-import { MarkdownRenderer } from '@/components/MarkdownRenderer';
+import { MarkdownRenderer } from '@components/features/docs';
 import { useExternalLink } from '@lib/external-links';
 import { socialLinks } from '@/constants/navigation';
 
@@ -14,7 +14,7 @@ interface DisclaimerPageProps {
   onAccept: () => void;
 }
 
-export default function DisclaimerPage({ onAccept }: DisclaimerPageProps) {
+export function DisclaimerPage({ onAccept }: DisclaimerPageProps) {
   const [hideFor30Days, setHideFor30Days] = useState(false);
   const { openExternalLink } = useExternalLink();
 
@@ -41,12 +41,13 @@ export default function DisclaimerPage({ onAccept }: DisclaimerPageProps) {
       }}
     >
       {/* Logo */}
-      <MaskIcon
-        src="/brand/logo.svg"
-        size={64}
-        color="var(--fg-1)"
-        style={{ marginBottom: '3rem', marginTop: '1rem' }}
-      />
+      <div style={{ marginBottom: '3rem', marginTop: '1rem' }}>
+        <MaskIcon
+          src="/brand/logo.svg"
+          size={64}
+          color="var(--fg-1)"
+        />
+      </div>
 
       {/* Content Box - Blur background with border */}
       <div

@@ -4,30 +4,16 @@ import { Button } from '@components/ui/Button';
 import { Badge } from '@components/ui/Badge';
 import { Input } from '@components/ui/Input';
 import { Dropdown, DropdownItem } from '@components/ui/Dropdown';
-import { Tooltip } from '@components/ui/Tooltip';
+import { HeroMetric } from '@components/ui/HeroMetric';
 import { useRouter } from '@lib/router';
-import PageContainer from '@components/layout/PageContainer';
+import { PageContainer } from '@components/layout/PageContainer';
 import { BorderedThemedIcon, plusIcon } from '@/components/ui/BorderedThemedIcon';
 import { useLiquidityData, formatUsd, formatPercent, type AssetData } from '@/hooks/useLiquidityData';
+import { useSparklineData } from '@/hooks/useSparklineData';
+import { Sparkline } from '@components/shared/metrics';
+import { CoverageGauge } from '@components/shared/metrics';
 import { ROUTES } from '@/constants/navigation';
 import { liquidityStore, type Timeframe } from '@/lib/liquidity/LiquidityStore';
-
-// Stub implementations for missing dependencies
-function useSparklineData(_feedSymbol: string | null) {
-  return {
-    prices: [],
-    lastPrice: null,
-    loading: false,
-  };
-}
-
-function Sparkline({ width, height, color }: { data: number[], width: number, height: number, color: string }) {
-  return <div style={{ width: `${width}px`, height: `${height}px`, backgroundColor: color, opacity: 0.2 }} />;
-}
-
-function CoverageGauge({ ratio }: { ratio: number }) {
-  return <div className="text-sm font-semibold">{(ratio * 100).toFixed(0)}%</div>;
-}
 
 // Format price for display
 function formatPrice(price: number): string {
@@ -55,41 +41,6 @@ const TIMEFRAME_OPTIONS: DropdownItem<Timeframe>[] = [
     { value: '7d', label: '7D' },
     { value: '30d', label: '30D' },
 ];
-
-// Hero metric component with tooltip
-function HeroMetric({
-    label,
-    value,
-    tooltip,
-    emphasized = false,
-    align = 'left'
-}: {
-    label: string;
-    value: string;
-    tooltip?: string;
-    emphasized?: boolean;
-    align?: 'left' | 'right';
-}) {
-    const alignClass = align === 'right' ? 'text-right' : 'text-left';
-    const content = (
-        <div className={alignClass}>
-            <div className="text-xs text-muted-foreground">{label}</div>
-            <div className={`font-numeric ${emphasized ? 'text-xl font-bold text-primary' : 'text-base font-semibold text-foreground'}`}>
-                {value}
-            </div>
-        </div>
-    );
-
-    if (tooltip) {
-        return (
-            <Tooltip content={tooltip} side="bottom">
-                {content}
-            </Tooltip>
-        );
-    }
-
-    return content;
-}
 
 // AssetRow component that displays asset data with real metrics
 interface AssetRowProps {
@@ -236,7 +187,7 @@ const FEED_SYMBOLS: Record<string, string | null> = {
     DAI: null,
 };
 
-export default function LiquidityPage() {
+export function LiquidityPage() {
     const { navigate } = useRouter();
     const isOwner = true; // Mock owner check
 
