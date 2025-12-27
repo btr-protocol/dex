@@ -22,6 +22,7 @@ node_modules/
 
 # Bun
 .bun/
+bun.lock
 bun.lockb
 bun-debug.log
 
