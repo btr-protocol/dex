@@ -1,55 +1,11 @@
-import { createContext } from 'preact';
+import { createContext, JSX } from 'preact';
 import { useContext, useState, useEffect, useCallback } from 'preact/hooks';
-import { ReactNode } from 'preact/compat';
+import { ComponentChildren } from 'preact';
 import { getGPUInfo } from '@utils/gpu-detection';
+import { safeJson } from '@utils/json';
+import { getDefaultSettings, type AppSettings } from '@config/settings';
 
-export interface AppSettings {
-  // Execution
-  maxSlippage: number;
-  detailRoute: boolean;
-  // Interface
-  hideSmallBalances: boolean;
-  hideUnsupportedTokens: boolean;
-  showTestNetworks: boolean;
-  animateBackground: boolean;
-  ringCount: number;
-  rotationSpeed: number;
-  eyeSize: number;
-  // Region
-  currency: string;
-  language: string;
-  // Other
-  exportFormat: string;
-  // Symbol preferences
-  swapTokenIn: string;
-  swapTokenOut: string;
-  chartBase: string;
-  chartQuote: string;
-}
-
-export const DEFAULT_SETTINGS: AppSettings = {
-  // Execution
-  maxSlippage: 0.5,
-  detailRoute: false,
-  // Interface
-  hideSmallBalances: false,
-  hideUnsupportedTokens: false,
-  showTestNetworks: false,
-  animateBackground: true,
-  ringCount: 12,
-  rotationSpeed: 30,
-  eyeSize: 10,
-  // Region
-  currency: 'USD',
-  language: 'en-US',
-  // Other
-  exportFormat: 'JSON',
-  // Symbol preferences
-  swapTokenIn: '',
-  swapTokenOut: '',
-  chartBase: '',
-  chartQuote: '',
-};
+export const DEFAULT_SETTINGS: AppSettings = getDefaultSettings();
 
 const SETTINGS_STORAGE_KEY = 'btr-settings';
 
@@ -61,17 +17,11 @@ interface SettingsContextType {
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
-export function SettingsProvider({ children }: { children: ReactNode }) {
+export function SettingsProvider({ children }: { children: ComponentChildren }) {
   const [settings, setSettings] = useState<AppSettings>(() => {
     const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (stored) {
-      try {
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
-      } catch {
-        return DEFAULT_SETTINGS;
-      }
-    }
-    return DEFAULT_SETTINGS;
+    const parsed = stored ? safeJson<Record<string, unknown>>(stored) : undefined;
+    return { ...DEFAULT_SETTINGS, ...parsed } as AppSettings;
   });
 
   // Detect GPU on mount and update animation setting if not explicitly set
@@ -82,7 +32,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       // Only update animateBackground if it's using the default value
       // (meaning user hasn't manually configured it)
       const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
-      const userSettings = stored ? JSON.parse(stored) : {};
+      const userSettings = (stored ? safeJson<Record<string, unknown>>(stored) : {}) || {};
 
       if (!('animateBackground' in userSettings) && !gpuInfo.hasGPU) {
         setSettings((prev) => ({ ...prev, animateBackground: false }));

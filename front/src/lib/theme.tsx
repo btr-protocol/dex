@@ -1,28 +1,30 @@
-import { createContext } from 'preact';
+import { createContext, JSX } from 'preact';
 import { useContext, useEffect, useState } from 'preact/hooks';
-import type { ReactNode } from 'preact/compat';
+import { ComponentChildren } from 'preact';
 
 // ─────────────────────────────────────────────────────────────
 // Color parsing + cache
 // ─────────────────────────────────────────────────────────────
 
 export interface ThemeColors {
-  // Palette
-  blue: string; green: string; orange: string; red: string;
-  yellow: string; cyan: string; pink: string; violet: string;
-  // UI
-  fg0: string; fg1: string; fg2: string; fg3: string;
-  bg0: string; bg1: string; bg2: string; bg3: string;
-  // Backgrounds - Sentiment
-  bgGreen: string; bgRed: string; bgYellow: string; bgOrange: string; bgBlue: string;
-  bgPositive: string; bgNegative: string;
-  bgSuccess: string; bgError: string; bgWarning: string; bgInfo: string;
-  bgPrimary: string; bgSecondary: string;
-  border: string;
-  // Sentiment
-  success: string; error: string; warn: string; info: string;
+  // Palette (used by charts)
+  blue: string;
+  green: string;
+  orange: string;
+  red: string;
+  pink: string;
+  cyan: string;
+  // UI - Foreground/Background levels
+  fg0: string;
+  fg1: string;
+  fg2: string;
+  bg0: string;
+  bg1: string;
+  bg2: string;
   // Chart
-  chartGrid: string; chartBorder: string; chartText: string;
+  chartGrid: string;
+  chartBorder: string;
+  chartText: string;
 }
 
 let cache: ThemeColors | null = null;
@@ -174,54 +176,30 @@ function parseColor(value: string): string {
 function computeColors(): ThemeColors {
   const root = document.documentElement;
   const styles = getComputedStyle(root);
-  const get = (name: string) => parseColor(styles.getPropertyValue(name));
-  const getRaw = (name: string) => styles.getPropertyValue(name).trim();
+  const result: Record<string, string> = {};
 
-  return {
-    blue: get('--blue'),
-    green: get('--green'),
-    orange: get('--orange'),
-    red: get('--red'),
-    yellow: get('--yellow'),
-    cyan: get('--cyan'),
-    pink: get('--pink'),
-    violet: get('--violet'),
+  for (const key of COLOR_PROPERTIES) {
+    const cssVar = CSS_VAR_MAP[key];
+    const value = styles.getPropertyValue(cssVar).trim();
 
-    fg0: get('--fg-0'),
-    fg1: get('--fg-1'),
-    fg2: get('--fg-2'),
-    fg3: get('--fg-3'),
+    // Preserve alpha for chartText, parse to hex for others
+    result[key] = key === 'chartText' ? value : parseColor(value);
+  }
 
-    bg0: get('--bg-0'),
-    bg1: get('--bg-1'),
-    bg2: get('--bg-2'),
-    bg3: get('--bg-3'),
+  // Verify all required properties exist
+  const required: (keyof ThemeColors)[] = [
+    'blue', 'green', 'orange', 'red', 'pink', 'cyan',
+    'fg0', 'fg1', 'fg2', 'bg0', 'bg1', 'bg2',
+    'chartGrid', 'chartBorder', 'chartText'
+  ];
 
-    bgGreen: get('--bg-green'),
-    bgRed: get('--bg-red'),
-    bgYellow: get('--bg-yellow'),
-    bgOrange: get('--bg-orange'),
-    bgBlue: get('--bg-blue'),
-    bgPositive: get('--bg-positive'),
-    bgNegative: get('--bg-negative'),
-    bgSuccess: get('--bg-success'),
-    bgError: get('--bg-error'),
-    bgWarning: get('--bg-warning'),
-    bgInfo: get('--bg-info'),
-    bgPrimary: get('--bg-primary'),
-    bgSecondary: get('--bg-secondary'),
+  for (const key of required) {
+    if (!result[key]) {
+      result[key] = '#000000'; // Fallback for missing colors
+    }
+  }
 
-    border: get('--border-color'),
-
-    success: get('--fg-success'),
-    error: get('--fg-error'),
-    warn: get('--fg-warning'),
-    info: get('--fg-info'),
-
-    chartGrid: get('--border-color'),
-    chartBorder: get('--border-color'),
-    chartText: getRaw('--fg-3'), // Preserve alpha for chart axis labels
-  };
+  return (result as unknown) as ThemeColors;
 }
 
 export function getColors(): ThemeColors {
@@ -245,14 +223,45 @@ export async function warmColorCache(): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Color Definitions - CSS Properties to Extract
+// ─────────────────────────────────────────────────────────────
+
+const COLOR_PROPERTIES = [
+  'blue', 'green', 'orange', 'red', 'pink', 'cyan',
+  'fg0', 'fg1', 'fg2', 'bg0', 'bg1', 'bg2',
+  'chartGrid', 'chartBorder', 'chartText'
+] as const;
+
+const CSS_VAR_MAP: Record<string, string> = {
+  // Palette
+  blue: '--blue',
+  green: '--green',
+  orange: '--orange',
+  red: '--red',
+  pink: '--pink',
+  cyan: '--cyan',
+  // UI
+  fg0: '--fg-0',
+  fg1: '--fg-1',
+  fg2: '--fg-2',
+  bg0: '--bg-0',
+  bg1: '--bg-1',
+  bg2: '--bg-2',
+  // Chart
+  chartGrid: '--border-color',
+  chartBorder: '--border-color',
+  chartText: '--fg-3',
+};
+
+// ─────────────────────────────────────────────────────────────
 // Chart Config Generators
 // ─────────────────────────────────────────────────────────────
 
 export const getChartTheme = () => {
   const c = getColors();
   return {
-    layout: { background: { type: 'solid', color: c.bg0 }, textColor: c.fg2 },
-    grid: { vertLines: { color: c.bg1 }, horzLines: { color: c.bg1 } },
+    layout: { background: { type: 'solid', color: c.bg2 }, textColor: c.fg2 },
+    grid: { vertLines: { color: c.bg2 }, horzLines: { color: c.bg2 } },
     crosshair: {
       vertLine: { color: c.bg2, labelBackgroundColor: c.bg2, style: 2 },
       horzLine: { color: c.bg2, labelBackgroundColor: c.bg2, style: 2 }
@@ -285,7 +294,7 @@ interface ThemeContextType {
 
 const ThemeCtx = createContext<ThemeContextType | null>(null);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+export function ThemeProvider({ children }: { children: ComponentChildren }) {
   const [theme, setTheme] = useState(() => localStorage.getItem(KEY) || 'dark');
 
   useEffect(() => {

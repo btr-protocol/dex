@@ -1,6 +1,6 @@
-import { createContext } from 'preact';
+import { createContext, JSX } from 'preact';
 import { useContext, useState, useEffect, useCallback } from 'preact/hooks';
-import type { ReactNode } from 'preact/compat';
+import { ComponentChildren } from 'preact';
 import type { Address, Eip1193Provider, TransactionRequest, TypedData, Hex, TransactionReceipt } from '@sdk/eth';
 import {
   requestAccounts,
@@ -64,7 +64,7 @@ function getChainConfig(chainId: number) {
 
 const WalletContext = createContext<WalletContextType>({} as WalletContextType);
 
-export function WalletProvider({ children }: { children: ReactNode }) {
+export function WalletProvider({ children }: { children: ComponentChildren }) {
   const [address, setAddress] = useState<Address>();
   const [isConnecting, setIsConnecting] = useState(false);
   const [provider, setProvider] = useState<Eip1193Provider>();
@@ -192,7 +192,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const waitForTx = useCallback(async (hash: Hex): Promise<TransactionReceipt> => {
     if (!provider) throw new Error('Not connected');
-    return waitForTransaction(provider, hash);
+    return (await waitForTransaction(provider, hash)) as unknown as TransactionReceipt;
   }, [provider]);
 
   const sign = useCallback(async (message: string): Promise<Hex> => {

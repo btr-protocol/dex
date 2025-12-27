@@ -1,32 +1,26 @@
-import { createWalletClient, http, type Address } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { localhost } from 'viem/chains';
+import { type Address } from '@sdk/eth';
 
 /**
  * Test wallet configuration for Anvil
- * Allows programmatic transaction signing for testing
+ * Provides test account data for development and testing
  */
 
 // Default Anvil private key (account #0)
-const DEFAULT_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const DEFAULT_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' as const;
 
 /**
- * Create a wallet client from a private key for programmatic signing
+ * Get test account by private key
  * @param privateKey - Optional private key (defaults to Anvil account #0)
  */
 export function createTestWallet(privateKey: `0x${string}` = DEFAULT_PRIVATE_KEY) {
-  const account = privateKeyToAccount(privateKey);
-
-  const walletClient = createWalletClient({
-    account,
-    chain: localhost,
-    transport: http('http://127.0.0.1:8545'),
-  });
-
+  const account = ANVIL_TEST_ACCOUNTS.find(a => a.privateKey === privateKey);
+  if (!account) {
+    throw new Error(`Unknown test account for private key: ${privateKey}`);
+  }
   return {
-    walletClient,
-    account,
-    address: account.address as Address,
+    privateKey,
+    address: account.address,
+    label: account.label,
   };
 }
 
