@@ -15,7 +15,7 @@ async function main() {
   const cleanForRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   
   const makeTagRegex = tag => new RegExp(
-    '(<!--\\s?' + cleanForRegex(tag) + ':start\\s?-->)([\s\S]*?)' + 
+    '(<!--\\s?' + cleanForRegex(tag) + ':start\\s?-->)([sS]*?)' + 
     '(<!--\\s?' + cleanForRegex(tag) + ':end\\s?-->)'
   );
 
@@ -39,7 +39,7 @@ async function main() {
   
   const toHeaderCase = str =>
     strip(str).toLowerCase()
-    .replace(/(eth|sha|lz|uups|(eip|rip|erc|push|create)\-?[0-9]+i?)/g, m => m.toUpperCase())
+    .replace(/(eth|sha|lz|uups|(eip|rip|erc|push|create)-?[0-9]+i?)/g, m => m.toUpperCase())
     .split(/\s+/)
     .map(w => w.replace(/^([a-zA-Z])/, c => c.toUpperCase()))
     .join(' ');
@@ -56,9 +56,9 @@ async function main() {
     .replace(/\s?\n\s?/g, '   \n')
     .replace(/```([\s\S]+?)```/g, '```solidity$1```')
     .replace(/^\/\/\/\s+@[a-z]+\s?/, '')
-    .replace(/\n\s*?((?:Note|Requirement)s?)\:[\s\/]*?(\-)/gi, '\n\n<b>$1:</b>\n\n$2')
+    .replace(/\n\s*?((?:Note|Requirement)s?):[\s/]*?(-)/gi, '\n\n<b>$1:</b>\n\n$2')
     .replace(/\n\s*?(Emits)/gi, '\n\n$1')
-    .replace(/\{([A-Za-z0-9\-]+)\}/g, '`$1`')
+    .replace(/\{([A-Za-z0-9-]+)\}/g, '`$1`')
   ));
 
   const getSections = s => {
@@ -155,27 +155,27 @@ async function main() {
     m => normalizeNewlines(strip(
       m[1].replace('\n\n', '\n\n\n').split('\n')
       .map(l => l
-        .replace(/(\d\d)\:(\d\d)\:/g, '$1&#58;$2&#58;')
+        .replace(/(\d\d):(\d\d):/g, '$1&#58;$2&#58;')
         .replace(/^\/{2,3}\s{2,3}([1-9][0-9]*?)\.\s/, '    $1. ')
         .replace(/^\/{2,3}\s*/, '')
-        .replace(/^(-\s+[\s\S]{1,64})\:/, '$1&#58;')
-        .replace(/^@dev\s?([\s\S]+?)\:/, '$1:\n\n')
-        .replace(/^Note\:/, 'Note:\n\n')
-        .replace(/^[\s\S]{1,64}\:/, m => has(m, 'http') ? m : '<b>' + m + '</b>')
+        .replace(/^(-\s+[\s\S]{1,64}):/, '$1&#58;')
+        .replace(/^@dev\s?([\s\S]+?):/, '$1:\n\n')
+        .replace(/^Note:/, 'Note:\n\n')
+        .replace(/^[\s\S]{1,64}:/, m => has(m, 'http') ? m : '<b>' + m + '</b>')
       ).join('\n')
-      .replace(/\.\n\<b\>([\s\S]+?)\:\<\/b\>/, '. $1:')
+      .replace(/\.\n<b>([\s\S]+?):<\/b>/, '. $1:')
       .replace(/@dev\s/g, '')
-      .replace(/\-{32,}\s?\+\s*?([\s\S]+)\-{32,}\s?\+/g, (m0, m1) => {
-        const lines = strip(m1.replace(/\-+\s*$/g, '')).split('\n');
+      .replace(/-{32,}\s?\+\s*?([\s\S]+)-{32,}\s?\+/g, (m0, m1) => {
+        const lines = strip(m1.replace(/-+\s*$/g, '')).split('\n');
         const n = Math.max.apply(null, lines.map(l => l.split('|').map(strip).filter(c => c.length).length));
         const h = '|' + Array(n + 1).join(' -- |');
-        return '\n\n' + lines.map(l => l.match(/\-{32,}\s?\|/) ? h : '| ' + l).join('\n') + '\n\n';
+        return '\n\n' + lines.map(l => l.match(/-{32,}\s?\|/) ? h : '| ' + l).join('\n') + '\n\n';
       })
     ))
   );
 
   const getInherits = (s, srcPath) => coalesce(
-    s.match(/contract\s+[A-Za-z0-9_]+\s+is\s+([^\{]*?)\s*\{/),
+    s.match(/contract\s+[A-Za-z0-9_]+\s+is\s+([^{]*?)\s*\{/),
     m => '<b>Inherits:</b>  \n\n' +
       m[1].split(',').map(strip).map(p => 
         getImports(s, srcPath).map(q => has(q, p) ? '- `' + q + '`  \n' : '').join('')
@@ -250,8 +250,8 @@ async function main() {
       writeSync(
         getDocPath(p),
         readSync(getDocPath(p))
-        .replace(/((?:See\:)?\s)`([A-Za-z0-9\/]+?\.sol)`/ig, (m0, m1, m2) => {
-          if (!m0.match(/^See\:/i) && !m2.match(/\.sol$/i)) return m0;
+        .replace(/((?:See:)?\s)`([A-Za-z0-9/]+?\.sol)`/ig, (m0, m1, m2) => {
+          if (!m0.match(/^See:/i) && !m2.match(/\.sol$/i)) return m0;
           let l = docSrcPaths.filter(q => has(q, getTitle(m2)));
           return l.length ? m1 + '[`' + m2 + '`](' + getDocSubPath(l[0]) + ')' : m0;
         })

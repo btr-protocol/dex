@@ -1,7 +1,7 @@
 var solady = require("./solady.js");
 
 function test(msg, fn) {
-    msg = msg.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, "").replace(/([^\.])$/, "$1.");
+    msg = msg.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, "").replace(/([^.])$/, "$1.");
     try {
         fn();
         console.log("\x1b[32m[PASS]\x1b[0m", msg);
