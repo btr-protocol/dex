@@ -9,8 +9,9 @@ import type {
   Hex,
   TransactionReceipt,
 } from '../eth/index.js';
-import { type GuardianConfig } from '../common/types.js';
-import { sleep } from '../common/utils.js';
+import { waitForTransaction as waitForTx } from '../eth/index.js';
+import type { GuardianConfig } from '../utils/constants.js';
+import { sleep } from '../utils/safe.js';
 
 export interface PricePoint {
   timestamp: number;
@@ -22,19 +23,20 @@ export interface OracleProvider {
   getHistoricalPrices(asset: Address, fromTimestamp: number, toTimestamp: number): Promise<PricePoint[]>;
 }
 
+/**
+ * Base Guardian class for monitoring AIMM pools
+ * Subclasses should implement specific checking logic
+ */
 export abstract class BaseGuardian {
-  protected publicClient: PublicClient;
-  protected walletClient: WalletClient;
+  protected provider: Eip1193Provider;
   protected config: GuardianConfig;
   protected isRunning: boolean = false;
 
   constructor(
-    publicClient: PublicClient,
-    walletClient: WalletClient,
+    provider: Eip1193Provider,
     config: GuardianConfig,
   ) {
-    this.publicClient = publicClient;
-    this.walletClient = walletClient;
+    this.provider = provider;
     this.config = config;
   }
 
@@ -93,46 +95,9 @@ export abstract class BaseGuardian {
   }
 
   /**
-   * Helper to get asset data from pool
-   */
-  protected async getAssetData(asset: Address, poolAbi: any): Promise<any> {
-    return await this.publicClient.readContract({
-      address: this.config.poolAddress,
-      abi: poolAbi,
-      functionName: 'assets',
-      args: [asset],
-    });
-  }
-
-  /**
-   * Helper to send transaction
-   */
-  protected async sendTransaction(
-    to: Address,
-    abi: any,
-    functionName: string,
-    args: any[],
-  ): Promise<Hash> {
-    const account = this.walletClient.account;
-    if (!account) {
-      throw new Error('No account configured on wallet client');
-    }
-
-    const { request } = await this.publicClient.simulateContract({
-      account,
-      address: to,
-      abi,
-      functionName,
-      args,
-    });
-
-    return await this.walletClient.writeContract(request);
-  }
-
-  /**
    * Helper to wait for transaction receipt
    */
-  protected async waitForTransaction(hash: Hash): Promise<TransactionReceipt> {
-    return await this.publicClient.waitForTransactionReceipt({ hash });
+  protected async waitForTransaction(hash: Hex): Promise<TransactionReceipt> {
+    return (await waitForTx(this.provider, hash)) as TransactionReceipt;
   }
 }

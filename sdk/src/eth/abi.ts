@@ -1,6 +1,6 @@
 /**
  * Ultra-Compact ABI Coder
- * Supports: All standard Solidity types (recursive arrays, tuples, dynamic types)
+ * Supports: All standard Solidity types (static/dynamic arrays, tuples, events, errors)
  */
 
 import type { Hex } from './types';
@@ -12,12 +12,32 @@ import type { Hex } from './types';
 export type AbiFunction = {
   type: 'function';
   name: string;
-  inputs?: any[];
-  outputs?: any[];
+  inputs?: AbiParameter[];
+  outputs?: AbiParameter[];
   stateMutability?: 'pure' | 'view' | 'nonpayable' | 'payable';
 };
 
-export type Abi = readonly any[];
+export type AbiEvent = {
+  type: 'event';
+  name: string;
+  inputs?: AbiParameter[];
+  anonymous?: boolean;
+};
+
+export type AbiError = {
+  type: 'error';
+  name: string;
+  inputs?: AbiParameter[];
+};
+
+export type AbiParameter = {
+  name?: string;
+  type: string;
+  components?: AbiParameter[];
+  indexed?: boolean;
+};
+
+export type Abi = readonly (AbiFunction | AbiEvent | AbiError | any)[];
 
 // ─────────────────────────────────────────────────────────────
 // Utils & Constants
@@ -39,21 +59,23 @@ const SELECTORS: Record<string, string> = {
   'aggregate3((address,bool,bytes)[])': '82ad56cb', 'aggregate((address,bytes)[])': '252dba42'
 };
 
-export const getSelector = (sig: string) => 
-  `0x${SELECTORS[sig] || (() => { throw new Error(`Missing selector: ${sig}`) })()}`;
+export const getSelector = (sig: string): Hex =>
+  `0x${SELECTORS[sig] || (() => { throw new Error(`Missing selector: ${sig}`) })()}` as Hex;
 
 // ─────────────────────────────────────────────────────────────
 // Encoder
 // ─────────────────────────────────────────────────────────────
 
-const TYPE_RX = /^([a-z]+)(\d+)?(\[\])?$/;
+const TYPE_RX = /^([a-z]+)(\d+)?(\[\d*\])?$/;
 
 export function encode(type: string, val: any, components?: any[]): { h: string; t: string } {
-  // 1. Handle Arrays ([])
-  if (type.endsWith('[]')) {
-    const base = type.slice(0, -2);
+  // 1. Handle Arrays ([] or [N])
+  const arrayMatch = type.match(/(\[\d*\])$/);
+  if (arrayMatch) {
+    const base = type.slice(0, -arrayMatch[1].length);
     const arr = val as any[];
-    return processList(arr.map(v => encode(base, v, components)), true);
+    const isStatic = arrayMatch[1] !== '[]'; // [N] is static, [] is dynamic
+    return processList(arr.map(v => encode(base, v, components)), !isStatic, isStatic ? arr.length : undefined);
   }
 
   // 2. Handle Tuples (tuple)
@@ -90,12 +112,12 @@ export function encode(type: string, val: any, components?: any[]): { h: string;
 }
 
 // Helper to join list of encoded items (Used by Arrays & Tuples)
-const processList = (items: { h: string; t: string }[], isArray: boolean) => {
+const processList = (items: { h: string; t: string }[], isDynamic: boolean, _staticLen?: number) => {
   let head = '', tail = '', offset = items.length * 32;
   const result = { h: '', t: '' };
-  
-  // If array, prefix with length
-  if (isArray) result.t += pad(numToHex(items.length));
+
+  // If dynamic array, prefix with length. Static arrays don't include length.
+  if (isDynamic) result.t += pad(numToHex(items.length));
 
   for (const item of items) {
     if (item.t) { // Is Dynamic
@@ -106,10 +128,10 @@ const processList = (items: { h: string; t: string }[], isArray: boolean) => {
       head += item.h;
     }
   }
-  
-  if (isArray) result.t += head + tail;
-  else Object.assign(result, { h: head + tail }); // Tuples inline content
-  
+
+  if (isDynamic) result.t += head + tail;
+  else Object.assign(result, { h: head + tail }); // Tuples & static arrays inline content
+
   return result;
 };
 
@@ -122,23 +144,36 @@ export function decode(type: string, data: string, offset = 0, components?: any[
   const readWord = (off: number) => d.slice(off, off + 64);
   const readInt = (off: number) => BN('0x' + readWord(off));
 
-  // 1. Arrays
-  if (type.endsWith('[]')) {
-    const base = type.slice(0, -2);
-    const ptr = Number(readInt(offset)) * 2; // Pointer to data start
-    const len = Number(readInt(ptr));       // Array length
+  // 1. Arrays ([] or [N])
+  const arrayMatch = type.match(/(\[\d*\])$/);
+  if (arrayMatch) {
+    const base = type.slice(0, -arrayMatch[1].length);
+    const isDynamic = arrayMatch[1] === '[]';
+    const staticLen = !isDynamic ? Number(arrayMatch[1].slice(1, -1)) : 0;
+
+    let ptr = offset;
+    let len = staticLen;
+
+    // For dynamic arrays, read pointer and then length
+    if (isDynamic) {
+      ptr = Number(readInt(offset)) * 2;
+      len = Number(readInt(ptr));
+      ptr += 64;
+    }
+
     const arr = [];
-    let childOff = ptr + 64;
-    
+    let childOff = ptr;
+
     for (let i = 0; i < len; i++) {
       // If dynamic child, read pointer. Else read data directly.
-      const isDyn = base === 'string' || base === 'bytes' || base.endsWith('[]');
-      const start = isDyn ? ptr + 64 + (Number(readInt(childOff)) * 2) : childOff;
+      const isDyn = base === 'string' || base === 'bytes' || base.endsWith(']');
+      const start = isDyn ? ptr + (Number(readInt(childOff)) * 2) : childOff;
       const res = decode(base, d, start, components);
       arr.push(res.val);
       childOff += isDyn ? 64 : res.read;
     }
-    return { val: arr, read: 64 };
+
+    return { val: arr, read: isDynamic ? 64 : staticLen * 32 };
   }
 
   // 2. Tuples
@@ -201,4 +236,104 @@ export function decodeFn({ abi, functionName, data }: any): any {
   if (!fn || !fn.outputs.length) return undefined;
   const res = decode(fn.outputs.length > 1 ? 'tuple' : fn.outputs[0].type, data, 0, fn.outputs);
   return res.val;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Viem-Compatible ABI Parameter Encoding/Decoding
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Encode parameters to hex string (viem-compatible)
+ * @example encodeAbiParameters([{type: 'address'}, {type: 'uint256'}], ['0x...', 123n])
+ */
+export function encodeAbiParameters(params: AbiParameter[], values: any[]): Hex {
+  const encoded = processList(
+    params.map((p, i) => encode(p.type, values[i], p.components)),
+    false
+  );
+  return `0x${encoded.h}${encoded.t}` as Hex;
+}
+
+/**
+ * Decode parameters from hex string (viem-compatible)
+ * @example decodeAbiParameters([{type: 'address'}, {type: 'uint256'}], '0x...')
+ */
+export function decodeAbiParameters(params: AbiParameter[], data: string): any[] {
+  const d = clean(data);
+  const result: any[] = [];
+  let offset = 0;
+
+  for (const param of params) {
+    const decoded = decode(param.type, d, offset, param.components);
+    result.push(decoded.val);
+    offset += decoded.read;
+  }
+
+  return result;
+}
+
+/**
+ * Get event signature hash (topic 0) - requires external keccak256
+ * @note: This returns the signature string. Use external keccak256 lib for actual topic hash.
+ * @example const topicHash = keccak256(toBytes(getEventSignature(event)))
+ */
+export function getEventSignature(event: AbiEvent): string {
+  return `${event.name}(${(event.inputs || []).map(i => i.type).join(',')})`;
+}
+
+/**
+ * Encode event indexed parameters (for log filtering with external keccak256)
+ * @note: Topic[0] is the event signature hash - compute it separately with keccak256(toBytes(getEventSignature(event)))
+ */
+export function encodeEventTopics(event: AbiEvent, args: Record<string, any>): (Hex | null)[] {
+  const topics: (Hex | null)[] = [];
+
+  for (const input of event.inputs || []) {
+    if (!input.indexed) continue;
+
+    const value = args[input.name || ''];
+    if (value === undefined || value === null) {
+      topics.push(null);
+    } else {
+      const encoded = encode(input.type, value, input.components);
+      topics.push(`0x${pad(encoded.h)}` as Hex);
+    }
+  }
+
+  return topics;
+}
+
+/**
+ * Get error signature (used in error decoding)
+ */
+export function getErrorSignature(error: AbiError): string {
+  return `${error.name}(${(error.inputs || []).map(i => i.type).join(',')})`;
+}
+
+/**
+ * Encode error parameters (for custom errors)
+ */
+export function encodeErrorResult(error: AbiError, args: any[]): Hex {
+  const sig = getErrorSignature(error);
+  const selector = getSelector(sig);
+  const encoded = processList(
+    (error.inputs || []).map((input, i) => encode(input.type, args[i], input.components)),
+    false
+  );
+  return `${selector}${encoded.h}${encoded.t}` as Hex;
+}
+
+/**
+ * Decode error result (for custom errors in revert reasons)
+ */
+export function decodeErrorResult(abi: Abi, data: string): { name: string; args: any[] } | undefined {
+  if (!data.startsWith('0x') || data.length < 10) return undefined;
+
+  const selector = data.slice(0, 10);
+  const error = abi.find((item: any) => item.type === 'error' && getSelector(getErrorSignature(item)) === selector);
+
+  if (!error) return undefined;
+
+  const args = decodeAbiParameters(error.inputs || [], data.slice(10));
+  return { name: error.name, args };
 }

@@ -85,6 +85,14 @@ export interface TypedData {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Viem-compatible Types (for guardian/oracle compatibility)
+// ─────────────────────────────────────────────────────────────
+
+export type PublicClient = Eip1193Provider;
+export type WalletClient = Eip1193Provider;
+export type Hash = Hex;
+
+// ─────────────────────────────────────────────────────────────
 // Validation Helpers
 // ─────────────────────────────────────────────────────────────
 

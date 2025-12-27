@@ -107,23 +107,37 @@ export const DISCOVER_DESKTOP = WALLETS.filter(w => w.discoverDesktop).map(w => 
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
-const win = () => typeof window !== 'undefined' ? window as any : null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const win = (): any => typeof window !== 'undefined' ? window : null;
 
-function getPath(path: string): any {
+function getPath(path: string): Eip1193Provider | null {
   try {
-    let obj = win();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let obj: any = win();
     for (const p of path.split('.')) obj = obj?.[p];
     return obj?.request ? obj : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function hasFlag(p: any, f: string): boolean {
-  try { return !!p?.[f]; } catch { return false; }
+  try {
+    return !!p?.[f];
+  } catch {
+    return false;
+  }
 }
 
-function multiProviders(): any[] {
-  try { const p = win()?.ethereum?.providers; return Array.isArray(p) ? p : []; }
-  catch { return []; }
+function multiProviders(): Eip1193Provider[] {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p: any = win()?.ethereum?.providers;
+    return Array.isArray(p) ? p : [];
+  } catch {
+    return [];
+  }
 }
 
 export const isMobile = () => typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -150,6 +164,7 @@ export function detectLegacy(): WalletInfo[] {
   for (const def of WALLETS) {
     if (!def.path && !def.flag) continue; // No legacy detection possible
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let provider: any = null;
 
     // 1. Check dedicated global
@@ -179,18 +194,17 @@ export function detectLegacy(): WalletInfo[] {
 }
 
 // ─────────────────────────────────────────────────────────────
-// EIP-6963 Store (using Preact signals)
+// EIP-6963 Store
 // ─────────────────────────────────────────────────────────────
 
-import { signal } from '@preact/signals';
-
-export const eip6963Providers = signal<Eip6963Detail[]>([]);
+export const eip6963Providers: Eip6963Detail[] = [];
 
 if (typeof window !== 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   window.addEventListener('eip6963:announceProvider', (e: any) => {
-    const current = eip6963Providers.value;
-    if (!current.some(p => p.info.uuid === e.detail.info.uuid)) {
-      eip6963Providers.value = [...current, e.detail];
+    const detail: Eip6963Detail = e.detail;
+    if (!eip6963Providers.some(p => p.info.uuid === detail.info.uuid)) {
+      eip6963Providers.push(detail);
     }
   });
   window.dispatchEvent(new Event('eip6963:requestProvider'));
@@ -256,6 +270,3 @@ export function getPhantom(): Eip1193Provider | null {
 export function getInjected(): Eip1193Provider | null {
   return win()?.ethereum?.request ? win().ethereum : null;
 }
-
-// Aliases
-export const getCoinbaseWallet = getBaseWallet;

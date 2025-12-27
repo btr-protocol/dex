@@ -3,7 +3,7 @@
  * Zero dependencies
  */
 
-import type { Address, Hex, Eip1193Provider, TransactionRequest, TypedData } from './types';
+import type { Address, Hex, Eip1193Provider, TransactionRequest, TypedData, TransactionReceipt } from './types';
 
 // ─────────────────────────────────────────────────────────────
 // Internal Helpers
@@ -31,6 +31,12 @@ export const getNativeBalance = (p: Eip1193Provider, addr: Address) =>
 
 export const getTransactionCount = (p: Eip1193Provider, addr: Address) =>
   cmd<string>(p, 'eth_getTransactionCount', [addr, 'latest']).then(toInt);
+
+export const getTransactionReceipt = (p: Eip1193Provider, hash: Hex) =>
+  cmd<TransactionReceipt | null>(p, 'eth_getTransactionReceipt', [hash]);
+
+export const getNonce = (p: Eip1193Provider, addr: Address) =>
+  getTransactionCount(p, addr);
 
 // ─────────────────────────────────────────────────────────────
 // Contracts & Tx

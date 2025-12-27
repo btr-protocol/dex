@@ -6,7 +6,7 @@
 import { ethCall } from './rpc';
 import { encodeFn, decodeFn } from './abi';
 import { getMulticall3 } from './chains';
-import type { Address, Eip1193Provider, Hex } from './types';
+import type { Address, Eip1193Provider } from './types';
 
 export const MC3_ADDR = '0xcA11bde05977b3631167028862bE2a173976CA11';
 
@@ -52,9 +52,11 @@ export async function multicall(
 
   // 3. Decode results
   // The decoder returns an array of objects based on component names: [{s: bool, r: bytes}]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [results] = decodeFn({ abi: MC3_ABI, functionName: 'aggregate3', data: raw }) as any[];
 
-  return results.map((res: any, i: number) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return results.map((res: any, i: number): any => {
     if (!res.s) return { success: false, error: new Error('Call failed') };
     try {
       return { success: true, result: decodeFn({ ...calls[i], data: res.r }) };
@@ -70,7 +72,9 @@ export async function multicallStrict<T = any>(
   opt?: { addr?: Address; chainId?: number; block?: string }
 ): Promise<T[]> {
   const res = await multicall(p, calls.map(c => ({ ...c, allowFailure: false })), opt);
-  const err = res.find(r => !r.success);
-  if (err) throw new Error(`Multicall error: ${err.error}`);
-  return res.map(r => r.result);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const err = res.find((r: any) => !r.success);
+  if (err) throw new Error(`Multicall error: ${(err as any).error}`);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return res.map((r: any) => r.result);
 }
