@@ -5,9 +5,11 @@
  */
 
 import { readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-const tokensPath = join(import.meta.dir, 'tokens.ts');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const tokensPath = join(__dirname, 'tokens.ts');
 const content = readFileSync(tokensPath, 'utf-8');
 
 // Extract current TOKEN_ADDRESSES and TOKENS

@@ -3,10 +3,10 @@
  * @module @btr/dex-sdk/oracles
  */
 
-import type { Address, Hex, Eip1193Provider } from '../eth/index.js';
-import { type OraclePrice } from '../common/types.js';
-import { calculateDivergenceBps, sleep } from '../common/utils.js';
-import { PRECISION_1E18 } from '../common/constants.js';
+import type { Address, Eip1193Provider } from '../eth/index.js';
+import type { OraclePrice } from '../utils/constants.js';
+import { calculateDivergenceBps } from '../utils/business.js';
+import { sleep } from '../utils/safe.js';
 
 export interface OracleConfig {
   poolAddress: Address;
@@ -22,21 +22,18 @@ export interface AssetOracleConfig {
 }
 
 export abstract class BaseOracle {
-  protected publicClient: PublicClient;
-  protected walletClient: WalletClient;
+  protected provider: Eip1193Provider;
   protected config: OracleConfig;
   protected isRunning: boolean = false;
   protected lastPrices: Map<Address, bigint> = new Map();
   protected poolAbi: any;
 
   constructor(
-    publicClient: PublicClient,
-    walletClient: WalletClient,
+    provider: Eip1193Provider,
     config: OracleConfig,
     poolAbi: any,
   ) {
-    this.publicClient = publicClient;
-    this.walletClient = walletClient;
+    this.provider = provider;
     this.config = config;
     this.poolAbi = poolAbi;
   }
@@ -67,29 +64,29 @@ export abstract class BaseOracle {
    */
   protected async checkAssetPrice(asset: AssetOracleConfig): Promise<void> {
     // Fetch current market price
-    const lastPrice = await this.fetchPrice(asset);
+    const currentPrice = await this.fetchPrice(asset);
 
     // Get last on-chain price
     const lastPrice = this.lastPrices.get(asset.address);
 
     if (!lastPrice) {
       // First time - just store it
-      this.lastPrices.set(asset.address, lastPrice.price);
-      console.log(`${asset.symbol}: Initial price ${lastPrice.price}`);
+      this.lastPrices.set(asset.address, currentPrice.price);
+      console.log(`${asset.symbol}: Initial price ${currentPrice.price}`);
       return;
     }
 
     // Calculate divergence
-    const divergenceBps = calculateDivergenceBps(lastPrice.price, lastPrice);
+    const divergenceBps = calculateDivergenceBps(currentPrice.price, lastPrice);
 
     console.log(
-      `${asset.symbol}: price ${lastPrice.price}, divergence ${divergenceBps}bps, threshold ${this.config.divergenceThreshold}bps`
+      `${asset.symbol}: price ${currentPrice.price}, divergence ${divergenceBps}bps, threshold ${this.config.divergenceThreshold}bps`
     );
 
     // Update if divergence exceeds threshold
     if (divergenceBps >= this.config.divergenceThreshold) {
-      await this.updateOnChainPrice(asset, lastPrice);
-      this.lastPrices.set(asset.address, lastPrice.price);
+      await this.updateOnChainPrice(asset, currentPrice);
+      this.lastPrices.set(asset.address, currentPrice.price);
     }
   }
 
@@ -103,28 +100,13 @@ export abstract class BaseOracle {
     console.log(`📡 Updating ${asset.symbol} price on-chain to ${price.price}`);
 
     try {
-      const account = this.walletClient.account;
-      if (!account) {
-        throw new Error('No account configured on wallet client');
-      }
-
-      // Encode price in B64 format (assuming 1e18 precision input)
-      // This is a simplified example - adjust based on your B64 encoding
+      // Note: Full transaction execution requires either:
+      // 1. Viem library for contract encoding/simulation
+      // 2. Manual ABI encoding for eth_call and eth_sendTransaction
+      // For now, log the action that would be taken
       const encodedPrice = price.price / (10n ** BigInt(18 - 8)); // Convert to 1e8
-
-      const { request } = await this.publicClient.simulateContract({
-        account,
-        address: this.config.poolAddress,
-        abi: this.poolAbi,
-        functionName: 'push',
-        args: [asset.address, encodedPrice, 0], // volatility = 0 for now
-      });
-
-      const hash = await this.walletClient.writeContract(request);
-      console.log(`   Transaction: ${hash}`);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
-      console.log(`   ✅ Price updated! Gas used: ${receipt.gasUsed.toString()}`);
+      console.log(`   Action: Would call push(${asset.address}, ${encodedPrice}, 0)`);
+      console.log(`   ❌ Transaction sending requires viem or contract encoder`);
     } catch (error) {
       console.error(`   ❌ Failed to update price:`, error);
       throw error;

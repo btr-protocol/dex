@@ -7,6 +7,8 @@
 
 import type { Address } from './types';
 
+export type { Address } from './types';
+
 // ─────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────
@@ -607,7 +609,8 @@ export async function detectAnvilFork(rpcUrl: string = 'http://localhost:8545'):
     });
 
     if (response.ok) {
-      const data = await response.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: any = await response.json();
       // Anvil metadata returns fork info
       return data.result?.forkChainId ? Number(data.result.forkChainId) : null;
     }
@@ -625,7 +628,8 @@ export async function detectAnvilFork(rpcUrl: string = 'http://localhost:8545'):
     });
 
     if (chainIdResponse.ok) {
-      const chainIdData = await chainIdResponse.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const chainIdData: any = await chainIdResponse.json();
       const chainId = parseInt(chainIdData.result, 16);
       // If it's not 31337, it might be a fork
       return chainId !== 31337 ? chainId : null;
@@ -680,7 +684,7 @@ export function getChainInfo(chainId: number): ChainInfo | undefined {
   return {
     id: chain.id,
     name: chain.name,
-    icon: chain.icon,
+    icon: chain.icon || getChainIcon(chainId),
     nativeSymbol: chain.nativeCurrency.symbol,
   };
 }
@@ -694,7 +698,7 @@ export function getAllChainInfo(): Record<number, ChainInfo> {
     result[Number(id)] = {
       id: chain.id,
       name: chain.name,
-      icon: chain.icon,
+      icon: chain.icon || getChainIcon(Number(id)),
       nativeSymbol: chain.nativeCurrency.symbol,
     };
   }

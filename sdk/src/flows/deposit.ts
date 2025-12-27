@@ -4,8 +4,8 @@
  */
 
 import type { Address, Hex, Eip1193Provider, Abi } from '../eth/index.js';
-import { Contract, ERC20_ABI, parseUnits, sendTransaction, waitForTransaction } from '../eth/index.js';
-import { applySlippage } from '../common/utils.js';
+import { Contract, ERC20_ABI, waitForTransaction } from '../eth/index.js';
+import { applySlippage } from '../utils/business.js';
 
 export interface DepositParams {
   poolAddress: Address;
@@ -38,6 +38,7 @@ export async function deposit(
     address: params.token,
     abi: ERC20_ABI,
     provider,
+    account,
   });
 
   // 1. Check token allowance
@@ -47,7 +48,7 @@ export async function deposit(
   if (allowance < params.amount) {
     console.log('Approving token...');
 
-    const approveTx = await tokenContract.write('approve', [params.poolAddress, params.amount], { from: account });
+    const approveTx = await tokenContract.write('approve', [params.poolAddress, params.amount]);
     await waitForTransaction(provider, approveTx);
     console.log('Approval confirmed');
   }
@@ -56,6 +57,7 @@ export async function deposit(
     address: params.poolAddress,
     abi: poolAbi,
     provider,
+    account,
   });
 
   // 3. Calculate minLpTokens if not provided
@@ -73,11 +75,12 @@ export async function deposit(
   }
 
   // 4. Execute deposit
-  const hash = await poolContract.write('deposit', [params.token, params.amount, minLpTokens], { from: account });
+  const hash = await poolContract.write('deposit', [params.token, params.amount, minLpTokens]);
   console.log(`Deposit transaction: ${hash}`);
 
   // Wait for confirmation
-  const receipt = await waitForTransaction(provider, hash);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const receipt = await waitForTransaction(provider, hash) as any;
   console.log(`Deposit confirmed. Gas used: ${receipt.gasUsed}`);
 
   // TODO: Parse logs to extract actual LP tokens received

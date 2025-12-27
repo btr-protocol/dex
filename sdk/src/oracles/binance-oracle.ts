@@ -1,15 +1,15 @@
 /**
  * Binance WebSocket Oracle
  * Streams real-time prices from Binance and updates on-chain when divergence thresholds are met
+ * Uses Bun's native WebSocket support
  *
  * @module @btr/dex-sdk/oracles
  */
 
 import type { Address, Eip1193Provider } from '../eth/index.js';
-import WebSocket from 'ws';
 import { BaseOracle, type OracleConfig, type AssetOracleConfig } from './base-oracle.js';
-import { type OraclePrice } from '../common/types.js';
-import { PRECISION_1E18 } from '../common/constants.js';
+import type { OraclePrice } from '../utils/constants.js';
+import { PRECISION_1E18 } from '../utils/constants.js';
 
 interface BinanceTickerMessage {
   e: string; // Event type
@@ -50,12 +50,11 @@ export class BinanceOracle extends BaseOracle {
   private symbolToAddress: Map<string, Address> = new Map();
 
   constructor(
-    publicClient: PublicClient,
-    walletClient: WalletClient,
+    provider: Eip1193Provider,
     config: BinanceOracleConfig,
     poolAbi: any,
   ) {
-    super(publicClient, walletClient, config, poolAbi);
+    super(provider, config, poolAbi);
     this.wsEndpoint = config.wsEndpoint || 'wss://stream.binance.com:9443/ws';
     this.restEndpoint = config.restEndpoint || 'https://api.binance.com/api/v3';
 
@@ -64,7 +63,6 @@ export class BinanceOracle extends BaseOracle {
       this.symbolToAddress.set(asset.symbol.toLowerCase(), asset.address);
     }
   }
-
 
   /**
    * Connect to Binance WebSocket and stream prices
@@ -79,29 +77,29 @@ export class BinanceOracle extends BaseOracle {
 
     this.ws = new WebSocket(wsUrl);
 
-    this.ws.on('open', () => {
+    this.ws.onopen = () => {
       console.log('✅ Connected to Binance WebSocket');
-    });
+    };
 
-    this.ws.on('message', (data: Buffer) => {
+    this.ws.onmessage = (event: MessageEvent) => {
       try {
-        const message = JSON.parse(data.toString());
+        const message = JSON.parse(event.data.toString());
         this.handlePriceUpdate(message);
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
       }
-    });
+    };
 
-    this.ws.on('error', (error) => {
+    this.ws.onerror = (error: Event) => {
       console.error('WebSocket error:', error);
-    });
+    };
 
-    this.ws.on('close', () => {
+    this.ws.onclose = () => {
       console.log('WebSocket closed. Reconnecting in 5s...');
       if (this.isRunning) {
         setTimeout(() => this.connectWebSocket(), 5000);
       }
-    });
+    };
   }
 
   /**

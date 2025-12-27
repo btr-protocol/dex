@@ -1,12 +1,13 @@
 /**
- * Swap flow for AIMM pools
+ * Swap flow for AIMM pools with batch support
  * @module @btr/dex-sdk/flows
  */
 
 import type { Address, Hex, Eip1193Provider, Abi } from '../eth/index.js';
 import { Contract, ERC20_ABI, waitForTransaction } from '../eth/index.js';
-import { type SwapQuote } from '../common/types.js';
-import { applySlippage, calculatePriceImpact } from '../common/utils.js';
+import type { SwapQuote } from '../utils/constants.js';
+import { applySlippage, calculatePriceImpact } from '../utils/business.js';
+import { encodeB64, concat, pad, toHex } from '../utils/encoding.js';
 
 export interface SwapParams {
   poolAddress: Address;
@@ -41,6 +42,7 @@ export async function swap(
     address: params.poolAddress,
     abi: poolAbi,
     provider,
+    account,
   });
 
   // 1. Get quote
@@ -69,6 +71,7 @@ export async function swap(
     address: params.tokenIn,
     abi: ERC20_ABI,
     provider,
+    account,
   });
 
   const allowance = await tokenContract.read('allowance', [account, params.poolAddress]) as bigint;
@@ -76,7 +79,7 @@ export async function swap(
   // 4. Approve if needed
   if (allowance < params.amountIn) {
     console.log('Approving token...');
-    const approveHash = await tokenContract.write('approve', [params.poolAddress, params.amountIn], { from: account });
+    const approveHash = await tokenContract.write('approve', [params.poolAddress, params.amountIn]);
     await waitForTransaction(provider, approveHash);
     console.log('Approval confirmed');
   }
@@ -86,11 +89,12 @@ export async function swap(
     ? [params.tokenIn, params.tokenOut, params.amountIn, minAmountOut, params.data]
     : [params.tokenIn, params.tokenOut, params.amountIn, minAmountOut];
 
-  const hash = await poolContract.write('swap', swapArgs, { from: account });
+  const hash = await poolContract.write('swap', swapArgs);
   console.log(`Swap transaction: ${hash}`);
 
   // Wait for confirmation
-  const receipt = await waitForTransaction(provider, hash);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const receipt = await waitForTransaction(provider, hash) as any;
   console.log(`Swap confirmed. Gas used: ${receipt.gasUsed}`);
 
   // TODO: Parse logs to extract actual amountOut
@@ -146,4 +150,173 @@ export async function getSwapQuote(
     priceImpact,
     fee,
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Batch Swap Encoding (CoreV1-specific)
+// ─────────────────────────────────────────────────────────────
+
+export interface BatchInput {
+  token: Address;
+  amount: bigint;
+  decimals: number;
+}
+
+/**
+ * Encode batch inputs for quoteBatchSwap/batchSwap
+ * Format: 32 bytes each = [address(20) | uint64 amountB64(8) | uint32 reserved(4)]
+ */
+export function encodeBatchInputs(inputs: BatchInput[]): Hex {
+  if (inputs.length === 0 || inputs.length > 8) {
+    throw new Error('Inputs must be 1-8 tokens');
+  }
+
+  const encoded = inputs.map((input) => {
+    const amountB64 = encodeB64(input.amount, input.decimals);
+    // Pack: address (20 bytes) | amountB64 (8 bytes) | reserved (4 bytes)
+    const addressHex = input.token.toLowerCase() as Hex;
+    const amountHex = pad(toHex(amountB64), 8);
+    const reservedHex = '0x00000000' as Hex;
+    return concat([addressHex, amountHex, reservedHex]);
+  });
+
+  return concat(encoded);
+}
+
+export interface QuoteOutput {
+  token: Address;
+  weightBps: number; // 0-10000 (100% = 10000)
+  slippageBps?: number; // Default 50 (0.5%)
+}
+
+/**
+ * Encode batch outputs for quoteBatchSwap
+ * Format: 32 bytes each = [address(20) | uint16 weightBps(2) | uint16 slippageBps(2) | uint64 reserved(8)]
+ */
+export function encodeBatchQuoteOutputs(outputs: QuoteOutput[]): Hex {
+  if (outputs.length === 0 || outputs.length > 8) {
+    throw new Error('Outputs must be 1-8 tokens');
+  }
+
+  // Validate weights sum to 10000
+  const weightSum = outputs.reduce((sum, o) => sum + o.weightBps, 0);
+  if (weightSum !== 10000) {
+    throw new Error(`Weights must sum to 10000, got ${weightSum}`);
+  }
+
+  const encoded = outputs.map((output) => {
+    const slippage = output.slippageBps ?? 50; // Default 0.5%
+    // Pack: address (20 bytes) | weightBps (2 bytes) | slippageBps (2 bytes) | reserved (8 bytes)
+    const addressHex = output.token.toLowerCase() as Hex;
+    const weightHex = pad(toHex(output.weightBps), 2);
+    const slippageHex = pad(toHex(slippage), 2);
+    const reservedHex = '0x0000000000000000' as Hex;
+    return concat([addressHex, weightHex, slippageHex, reservedHex]);
+  });
+
+  return concat(encoded);
+}
+
+export interface SwapOutput {
+  token: Address;
+  weightBps: number; // 0-10000 (100% = 10000)
+  minAmountOut: bigint; // Minimum output (from quote)
+  decimals: number;
+}
+
+/**
+ * Encode batch outputs for batchSwap
+ * Format: 32 bytes each = [address(20) | uint16 weightBps(2) | uint16 reserved(2) | uint64 minOutB64(8)]
+ */
+export function encodeBatchSwapOutputs(outputs: SwapOutput[]): Hex {
+  if (outputs.length === 0 || outputs.length > 8) {
+    throw new Error('Outputs must be 1-8 tokens');
+  }
+
+  // Validate weights sum to 10000
+  const weightSum = outputs.reduce((sum, o) => sum + o.weightBps, 0);
+  if (weightSum !== 10000) {
+    throw new Error(`Weights must sum to 10000, got ${weightSum}`);
+  }
+
+  const encoded = outputs.map((output) => {
+    const minOutB64 = encodeB64(output.minAmountOut, output.decimals);
+    // Pack: address (20 bytes) | weightBps (2 bytes) | reserved (2 bytes) | minOutB64 (8 bytes)
+    const addressHex = output.token.toLowerCase() as Hex;
+    const weightHex = pad(toHex(output.weightBps), 2);
+    const reservedHex = '0x0000' as Hex;
+    const minOutHex = pad(toHex(minOutB64), 8);
+    return concat([addressHex, weightHex, reservedHex, minOutHex]);
+  });
+
+  return concat(encoded);
+}
+
+export interface BatchQuote {
+  totalValueIn: bigint;      // Total input value in base terms (1e18)
+  amountsOut: bigint[];      // Expected output per token (after impact)
+  minAmountsOut: bigint[];   // With slippage applied
+  avgSpreadBps: bigint;      // Value-weighted average spread
+}
+
+/**
+ * Helper to build equal-weight quote outputs
+ */
+export function equalWeightQuoteOutputs(tokens: Address[]): QuoteOutput[] {
+  const weight = Math.floor(10000 / tokens.length);
+  const remainder = 10000 - weight * tokens.length;
+
+  return tokens.map((token, i) => ({
+    token,
+    weightBps: i === 0 ? weight + remainder : weight,
+  }));
+}
+
+/**
+ * Convert quote results to swap outputs
+ */
+export function quoteToSwapOutputs(
+  quoteOutputs: QuoteOutput[],
+  minAmountsOut: bigint[],
+  decimals: number[],
+): SwapOutput[] {
+  if (quoteOutputs.length !== minAmountsOut.length || quoteOutputs.length !== decimals.length) {
+    throw new Error('Array length mismatch');
+  }
+
+  return quoteOutputs.map((q, i) => ({
+    token: q.token,
+    weightBps: q.weightBps,
+    minAmountOut: minAmountsOut[i],
+    decimals: decimals[i],
+  }));
+}
+
+/**
+ * Helper to build proportional quote outputs from target amounts
+ */
+export function proportionalQuoteOutputs(
+  targets: { token: Address; targetAmount: bigint; price: bigint }[],
+): QuoteOutput[] {
+  // Calculate values
+  const values = targets.map((t) => (t.targetAmount * t.price) / 10n ** 18n);
+  const totalValue = values.reduce((a, b) => a + b, 0n);
+
+  if (totalValue === 0n) throw new Error('Total value is zero');
+
+  // Convert to weights (ensure sum = 10000)
+  let weightSum = 0;
+  const weights = values.map((v) => {
+    const w = Number((v * 10000n) / totalValue);
+    weightSum += w;
+    return w;
+  });
+
+  // Adjust first weight for rounding
+  weights[0] += 10000 - weightSum;
+
+  return targets.map((t, i) => ({
+    token: t.token,
+    weightBps: weights[i],
+  }));
 }

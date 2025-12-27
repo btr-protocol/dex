@@ -5,7 +5,7 @@
 
 import type { Address, Hex, Eip1193Provider, Abi } from '../eth/index.js';
 import { Contract, waitForTransaction } from '../eth/index.js';
-import { applySlippage } from '../common/utils.js';
+import { applySlippage } from '../utils/business.js';
 
 export interface WithdrawParams {
   poolAddress: Address;
@@ -38,6 +38,7 @@ export async function withdraw(
     address: params.poolAddress,
     abi: poolAbi,
     provider,
+    account,
   });
 
   // 1. Get quote for withdrawal
@@ -67,11 +68,12 @@ export async function withdraw(
   }
 
   // 4. Execute withdrawal
-  const hash = await poolContract.write('withdraw', [params.token, params.lpTokens, minAmount], { from: account });
+  const hash = await poolContract.write('withdraw', [params.token, params.lpTokens, minAmount]);
   console.log(`Withdraw transaction: ${hash}`);
 
   // Wait for confirmation
-  const receipt = await waitForTransaction(provider, hash);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const receipt = await waitForTransaction(provider, hash) as any;
   console.log(`Withdraw confirmed. Gas used: ${receipt.gasUsed}`);
 
   // TODO: Parse logs to extract actual amount received
