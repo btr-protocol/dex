@@ -1,369 +1,247 @@
 # Agent Guidelines
 
 ## Documentation
-
 - **Root**: README.md only
-- **Docs**: All documentation in `./docs/` (user-facing)
-- **Code**: Implementation is the spec
+- **Docs**: All in `./docs/` (user-facing)
+- **Code**: Implementation = spec
 
 ---
 
-## Package Manager - BUN ONLY
-
-**⚠️ CRITICAL: Use `bun` EXCLUSIVELY.**
-- ❌ NEVER use `npm` or `yarn`
-- ✅ `bun install`, `bun add`, `bun run`
-
----
-
-## Communication Style
-
-**CRITICAL: Keep responses SHORT and CONCISE.**
-- ❌ NO long summaries after tasks
-- ❌ NO verbose explanations unless requested
-- ✅ Brief status updates (1-2 lines)
-- ✅ Ask questions when needed
+## Package Manager
+**⚠️ Use `bun` EXCLUSIVELY**
+- ❌ NEVER npm/yarn
+- ✅ `bun install|add|run`
 
 ---
 
-## SDK as Source of Truth
+## Communication
+**Keep responses SHORT**
+- ❌ NO long summaries/verbose explanations
+- ✅ Brief status (1-2 lines), ask when needed
 
-**CRITICAL: All token/chain/contract metadata lives in SDK, not frontend.**
+---
+
+## SDK = Source of Truth
+**All token/chain/contract metadata in SDK, NOT frontend**
 
 | Data | SDK File |
 |------|----------|
-| Token metadata | `sdk/src/eth/tokens.ts` |
-| Token addresses | `sdk/src/eth/tokens.ts` |
+| Tokens/addresses/metadata | `sdk/src/eth/tokens.ts` |
 | Chain configs | `sdk/src/eth/chains.ts` |
 | Contract addresses | `sdk/src/eth/contracts.ts` |
 
-**Rules:**
-1. NEVER duplicate metadata in frontend
-2. Always import from `@sdk/eth`
-3. Add new tokens/chains/contracts to SDK only
+**Rules**: Never duplicate in frontend; always import from `@sdk/eth`
 
 ---
 
 ## Frontend Stack
+**Pure Preact + Signals + UnoCSS ONLY**
 
-**CRITICAL: Pure Preact + Signals + UnoCSS ONLY**
+### Core Deps (Keep Lean)
+- ✅ Framework: Preact (no compat)
+- ✅ State: @preact/signals
+- ✅ Styling: UnoCSS w/ Wind preset
+- ✅ Components: Custom headless (no Radix)
+- ✅ Charts: TradingView Lightweight + SVG
+- ✅ Markdown/Math/Mermaid: Backend-compiled
 
-### Core Dependencies (Keep Lean)
-- ✅ **Framework**: Preact (pure, no compat layer)
-- ✅ **State**: @preact/signals (fine-grained reactivity)
-- ✅ **Styling**: UnoCSS with Wind preset (Tailwind syntax)
-- ✅ **Components**: Custom headless UI (no Radix)
-- ✅ **Charts**: TradingView Lightweight Charts + custom SVG charts
-- ✅ **Markdown**: Backend-rendered (snarkdown, build-time)
-- ✅ **Math**: asciimath2ml (~15KB) - AsciiMath → native MathML
+### Forbidden
+- ❌ React/preact-compat/React types
+- ❌ Radix UI or React component libs
+- ❌ Tailwind/chart.js/frontend markdown parsers (marked, markdown-wasm, prismjs, mermaid)
+- ❌ LaTeX (use AsciiMath + MathML, rendered at build-time)
 
-### Forbidden Dependencies
-- ❌ NO React (pure Preact only, zero compat)
-- ❌ NO preact/compat (compile-time incompatibilities)
-- ❌ NO React types or React DOM
-- ❌ NO Radix UI or any React component libs
-- ❌ NO Tailwind CSS (use UnoCSS)
-- ❌ NO chart.js (use custom SVG)
-- ❌ NO frontend markdown parsers (backend only)
-- ❌ NO LaTeX renderers (use AsciiMath + MathML)
-
-### Bundle Size
-- Keep dependencies minimal
-- Final bundle: <500KB gzipped
-- Target: <400KB with aggressive Signal optimization
+### Bundle Target
+- Final: <500KB gzipped (target <400KB)
 
 ---
 
 ## Preact Signals & Reactivity
-
-**Philosophy: Signal-first, performance-obsessed, zero synthetic events**
+**Philosophy: Signal-first, zero synthetic events**
 
 ### Core Patterns
 
-**1. Direct Signal Rendering (The Killer Feature)**
+**1. Direct Signal Rendering** (Preact binds directly to DOM, no VDOM diffing)
 ```tsx
-import { signal } from '@preact/signals';
-
 export const btcPrice = signal('$45,000');
-
 export function PriceDisplay() {
-  // Renders ONCE; text updates on signal change without re-render
-  return <div>BTC: {btcPrice}</div>;
+  return <div>BTC: {btcPrice}</div>; // Renders once, updates without re-render
 }
 ```
-✅ **Why**: Preact binds directly to DOM text node, no VDOM diffing.
-- Ideal for tickers, real-time quotes, streaming data
-- Never pass `signal.value` to JSX—pass the signal itself
 
-**2. Global Stores (Module Exports)**
+**2. Global Stores** (Module exports, no Context plumbing)
 ```tsx
-// lib/swap/SwapStore.ts - NO class, just signals
-export const direction = signal<'buy' | 'sell'>('buy');
+export const direction = signal<'buy'|'sell'>('buy');
 export const orderType = signal<OrderType>('market');
-export const primaryTokens = signal<TokenData[]>([]);
-
-// components/SwapForm.tsx
-import { direction, orderType } from '@lib/swap/SwapStore';
-
-export function SwapForm() {
-  return (
-    <select value={orderType}>
-      <option>Market</option>
-    </select>
-  );
-}
+// Import anywhere: import { direction, orderType } from '@lib/swap/SwapStore'
 ```
-✅ **Why**: Avoids Context plumbing, keeps imports lean, signals are stable refs.
 
-**3. Derived State (computed)**
+**3. Derived State** (Auto-memoized computed signals)
 ```tsx
-import { computed } from '@preact/signals';
-
-// Recomputes only when `orderType` changes
-export const orderLabel = computed(() => {
-  return orderType.value === 'market' ? 'Market Order' : 'Limit Order';
-});
+export const orderLabel = computed(() =>
+  orderType.value === 'market' ? 'Market Order' : 'Limit Order'
+);
 ```
-✅ **Use instead of**: `useMemo`, helper functions in render.
-✅ **Why**: Auto-tracked, auto-memoized, doesn't cause re-renders.
 
-**4. Batch Updates (Multi-Signal Changes)**
+**4. Batch Updates** (Coalesce multi-signal writes)
 ```tsx
-import { batch } from '@preact/signals';
-
-function handleSwap() {
-  batch(() => {
-    direction.value = 'buy';
-    orderType.value = 'market';
-    primaryTokens.value = newTokens;
-  });
-  // DOM updates once after all three changes
-}
+batch(() => {
+  direction.value = 'buy';
+  orderType.value = 'market';
+  primaryTokens.value = newTokens;
+}); // DOM updates once
 ```
-✅ **Why**: Prevents partial UI flushes in tight loops (WebSocket handlers, tickers).
 
-**5. Effects (Side-Effects from Signals)**
+**5. Effects** (Auto-track dependencies, optional cleanup)
 ```tsx
-import { effect } from '@preact/signals';
-
-// Runs when direction changes, auto-cleanup on unmount
 effect(() => {
-  console.log(`Direction changed to: ${direction.value}`);
-  // Return cleanup function if needed
+  console.log(`Direction: ${direction.value}`);
   return () => console.log('Cleanup');
 });
 ```
-✅ **Use instead of**: `useEffect([direction])`.
-✅ **Why**: Automatically tracks dependencies, no stale closures.
 
-**6. Non-Reactive Reads (.peek())**
+**6. Non-Reactive Reads** (Break reactive cycles)
 ```tsx
-// Read without subscribing (rare cases to prevent loops)
 effect(() => {
   if (shouldLog.value) {
-    // This won't re-run when priceHistory changes
-    console.log(`Latest 10: ${priceHistory.peek()}`);
+    console.log(`Latest: ${priceHistory.peek()}`); // Won't re-run
   }
 });
 ```
-✅ **Use for**: Preventing infinite effect loops, ref reads.
 
-### Store Pattern (Recommended for DeFi)
-
+### Store Pattern
 ```tsx
-// lib/liquidity/LiquidityStore.ts
-import { signal, computed } from '@preact/signals';
-
 export class LiquidityStore {
   searchQuery = signal('');
-  timeframe = signal<Timeframe>('24h');
   assets = signal<AssetData[]>([]);
 
-  // Derived state—auto-memoized
   filteredAssets = computed(() =>
-    this.assets.value.filter(a =>
-      a.symbol.toLowerCase().includes(this.searchQuery.value.toLowerCase())
-    )
+    this.assets.value.filter(a => a.symbol.includes(this.searchQuery.value))
   );
-
-  setSearchQuery = (q: string) => {
-    this.searchQuery.value = q;
-  };
 }
 
-// Singleton instance
 export const liquidityStore = new LiquidityStore();
-
-// In components
-import { liquidityStore } from '@lib/liquidity/LiquidityStore';
-
-export function AssetList() {
-  return (
-    <div>
-      {liquidityStore.filteredAssets.value.map(a => (
-        <div key={a.id}>{a.symbol}: {a.price}</div>
-      ))}
-    </div>
-  );
-}
-```
-
-### Component Rendering (Zero Boilerplate)
-
-**❌ BAD: Extract .value first (defeats reactivity)**
-```tsx
-const tokenIn = store.primaryTokens.value[0]?.symbol;
-return <div>{tokenIn}</div>; // Re-renders when signal changes
-```
-
-**✅ GOOD: Pass signal or use direct .value in JSX**
-```tsx
-// Option 1: Pass signal (if component expects it)
-return <TokenDisplay token={store.primaryTokens.value[0]} />;
-
-// Option 2: Read .value inline where used
-return <div>{store.primaryTokens.value[0]?.symbol}</div>;
 ```
 
 ### Optimization Checklist
-
 - [ ] Global state: exported signals, not Context
-- [ ] Text nodes: pass signals directly `{signal}`, never `{signal.value}`
-- [ ] Derived state: use `computed()` for derived values
-- [ ] Multi-writes: wrap in `batch()` for high-frequency streams
-- [ ] Effects: use `effect()` instead of `useEffect()`
-- [ ] Form inputs: `onInput` not `onChange`; `onDblClick` not `onDoubleClick`
-- [ ] Event handlers: use native browser events (no synthetic)
-- [ ] Store methods: keep simple, avoid closures in signals
-- [ ] Component renders: aim for "render once" + signal updates
+- [ ] Text nodes: pass signals `{signal}`, not `{signal.value}`
+- [ ] Derived: use `computed()` not `useMemo()`
+- [ ] Multi-writes: wrap in `batch()`
+- [ ] Effects: `effect()` not `useEffect()`
+- [ ] Forms: `onInput`/`onDblClick` (not `onChange`/`onDoubleClick`)
+- [ ] Events: native browser events only
+- [ ] Renders: "render once" + signal updates
 
 ---
 
-## UnoCSS Usage
+## UnoCSS
+**Why**: 10x smaller, faster HMR, Tailwind v3 syntax
+- **Config**: `front/uno.config.ts`
+- **Preset**: `@unocss/preset-wind`
+- **Import**: `virtual:uno.css`
 
-**Why UnoCSS:**
-- 10x smaller, faster HMR
-- Tailwind v3 syntax compatibility
-- On-demand CSS generation
+---
 
-**Config:** `front/uno.config.ts`
-**Preset:** `@unocss/preset-wind`
-**Import:** `virtual:uno.css` in `main.tsx`
+## Build-Time Compilation
+**Zero runtime deps for content: markdown → HTML, AsciiMath → MathML, Mermaid → SVG at build time**
 
-Same Tailwind syntax works:
+### Markdown Compilation
+- **Script**: `scripts/precompile-markdown.ts` (backend only)
+- **Process**:
+  - Parses markdown with `marked`
+  - Syntax highlights with `prismjs` (JS/TS/JSX/TSX/JSON/Bash/SQL/Markdown/Solidity)
+  - Converts inline math ($...$) and block math ($$...$$) to MathML using `asciimath2ml`
+  - Renders mermaid diagrams to themed SVG (light/dark) via Playwright
+  - Generates heading anchors with IDs
+- **Output**: `/front/public/compiled-docs/docs.json` (pre-rendered HTML)
+- **Frontend**: Uses `MarkdownRenderer` component that loads pre-compiled HTML from JSON (NO parsing)
+
+### Frontend Markdown Usage
 ```tsx
-<div className="flex items-center gap-2 px-4 py-2 bg-bg-1 border rounded-sm">
+// Load by slug from pre-compiled docs
+<MarkdownRenderer slug="overview" />
+
+// Or pass pre-rendered HTML directly
+<MarkdownRenderer content="<p>...</p>" />
 ```
+**Key**: Frontend has ZERO markdown dependencies (`marked`, `prismjs`, `asciimath2ml`, `mermaid` only in backend)
 
----
+### Search Index
+- **Script**: `scripts/build-search-index.ts`
+- **What**: Extracts frontmatter, strips markdown, builds full-text search index
+- **Output**: Searchable JSON metadata
 
-## Documentation Rendering
-
-**CRITICAL: Markdown rendering in BACKEND, not frontend.**
-
-- **Backend**: snarkdown (lightweight JS parser)
-- **Build-time**: Compiled to HTML via `scripts/precompile-markdown.ts`
-- **Frontend**: Receives pre-rendered HTML (zero parsing)
-
-**Math Rendering:**
-- AsciiMath ONLY (NOT LaTeX)
-- asciimath2ml (~15KB) → native MathML
-- Browser native rendering, zero overhead
-
-**Build:**
+### Build Chain
 ```bash
-bun run build:markdown      # Compile markdown
-bun run build:search-index  # Build search index
+bun run build
+# Runs: build:markdown → build:search-index → vite build
 ```
 
----
-
-## Custom Charts (SVG)
-
-**CRITICAL: SVG charts, NOT chart.js**
-
-**Types:** Sparklines ✅, Doughnuts 🔲, Bars 🔲, Heatmaps 🔲
-**Location:** `src/components/charts/`
-**Format:** SVG (easier to style)
-**Size:** <100 lines each
-
-Price charts: TradingView Lightweight Charts only
+**Dependencies**:
+- ✅ Backend (`package.json`): marked, prismjs, asciimath2ml, playwright, mermaid
+- ❌ Frontend (`front/package.json`): NONE of the above (pre-compiled only)
 
 ---
 
-## Python Development (`./sim`)
+## SVG Charts
+**SVG, NOT chart.js**
+- **Types**: Sparklines ✅, other charts 🔲
+- **Location**: `src/components/charts/`
+- **Size**: <100 lines each
+- **Price**: TradingView Lightweight Charts (only external for price data)
 
-**CRITICAL: Use `uv` ONLY**
-- ❌ NEVER use pip/pip3 directly
+---
+
+## Python (`./sim`)
+**Use `uv` ONLY**
+- ❌ NEVER pip/pip3
 - ✅ `uv pip install -e .`
 - ✅ `uv run python3 script.py`
 
-**Cython:**
-- All AMM code uses `.pyx` (10-100x faster)
-- Rebuild after changes: `uv pip install -e . --reinstall`
+**Cython**: All AMM code `.pyx` (10-100x faster); rebuild: `uv pip install -e . --reinstall`
 
 ---
 
-## Documentation Link Schema
+## Doc Link Schema
+**Format**: `/docs/slug#anchor`
 
-**CRITICAL: Use canonical `/docs/slug#anchor` format**
-
-✅ Correct:
-```markdown
-[Coverage Ratio](/docs/1.1.1-Inventory-Management#2.4-coverage-ratio)
-```
-
-❌ Incorrect:
-```markdown
-[Coverage Ratio](./1.1.1. Inventory Management.md#2.4-coverage-ratio)
-```
+✅ `[Coverage Ratio](/docs/1.1.1-Inventory-Management#2.4-coverage-ratio)`
+❌ `[Coverage Ratio](./1.1.1. Inventory Management.md#2.4-coverage-ratio)`
 
 ---
 
 ## Code Philosophy
+**Performance. Elegant. Signal-Driven. DRY. Concise.**
 
-**Performance First. Elegant. Signal-Driven. DRY. Concise.**
+**Signal-First Ethos**:
+- `signal()` > `useState()` for shared/reactive state
+- `computed()` > `useMemo()` for derived values
+- `effect()` > `useEffect()` for side-effects
+- Pass signals to JSX (not `.value`)
+- `batch()` for multi-signal updates
+- `.peek()` sparingly (break reactive cycles)
 
-- **Performance**: Signals > hooks; direct DOM > VDOM diffing
-- **Lean**: Minimize re-renders; batch updates; computed derived state
-- **DRY**: Extract common patterns; reuse computed signals
-- **Minimal**: No unnecessary abstractions or helper wrappers
-- **Generic**: Configurable solutions; avoid one-off utilities
-- **Clean**: Consistent formatting; compact variable names
-- **Silent**: No emojis; no verbose output unless errors
-
-**Signal-First Ethos:**
-- Prefer `signal()` over `useState()` for shared/reactive state
-- Prefer `computed()` over `useMemo()` for derived values
-- Prefer `effect()` over `useEffect()` for side-effects
-- Pass signals to JSX (not `.value`), let Preact handle subscriptions
-- Use `batch()` for multi-signal updates in event handlers
-- Use `.peek()` sparingly (only to break reactive cycles)
+**Best Practices**: Performance first; lean; minimize re-renders; DRY; no over-abstraction; consistent formatting; silent (no emojis/verbose)
 
 ---
 
-## Development Stack
+## Dev Stack
 
-**Start:**
-```bash
-bun run dev  # From monorepo root
-```
+**Start**: `bun run dev`
 
-**Services:**
+**Services**:
 - `front`: Port 3000 (Vite + Preact)
-- `back/collector`: Port 3001 (HTTP API + WebSocket)
+- `back/collector`: Port 3001 (HTTP + WS)
 
-**PWA Assets:**
-```bash
-cd front && bun run pwa-assets  # Regenerate from logo-b.svg
-```
+**PWA**: `cd front && bun run pwa-assets`
 
 ---
 
-## Guidelines for Agents
-
-1. Keep root clean (README.md only)
-2. Use bun exclusively
-3. Frontend: UnoCSS + Radix + Preact only
-4. Doc links: `/docs/slug#anchor` format
-5. Keep responses concise
+## Agent Checklist
+1. Root clean (README.md only)
+2. Bun exclusively
+3. Frontend: Preact + Signals + UnoCSS
+4. Backend compilation: markdown → HTML, math → MathML, Mermaid → SVG
+5. Doc links: `/docs/slug#anchor`
+6. Concise responses
