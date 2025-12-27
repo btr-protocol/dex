@@ -1,3 +1,4 @@
+import type { JSX } from 'preact';
 import { MaskIcon } from './MaskIcon';
 
 export interface IconDef {
@@ -45,7 +46,7 @@ export function BorderedThemedIcon({
         height: sizeStr,
         '--icon-fg-base': resolvedFgColor,
         '--icon-fg-hover': hoverColor,
-      } as React.CSSProperties}
+      } as JSX.CSSProperties}
     >
       {/* Background layer - full size */}
       <MaskIcon

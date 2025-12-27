@@ -1,4 +1,3 @@
-import { forwardRef } from "preact/compat"
 import { ComponentChildren, JSX } from "preact"
 import { cn } from "@utils/cn"
 import { cva } from "@utils/cva"
@@ -55,41 +54,42 @@ const PADDING_X = {
   "compact-xl": { base: "px-4", left: "pl-3", right: "pr-3" },
 }
 
-const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "default", leftIcon, rightIcon, children, ...props }, ref) => {
-    // Optimization: Pre-calculate icon-only state
-    const isIconOnly = !children && (!!leftIcon || !!rightIcon)
+export function Button({
+  className,
+  variant = "default",
+  size = "default",
+  leftIcon,
+  rightIcon,
+  children,
+  ...props
+}: ButtonProps) {
+  // Optimization: Pre-calculate icon-only state
+  const isIconOnly = !children && (!!leftIcon || !!rightIcon)
 
-    // Compose dynamic classes
-    const dynamicClasses = cn(
-      SIZE_TEXT[size],
-      !isIconOnly && SIZE_GAPS[size],
-      isIconOnly ? SIZE_ICON_WIDTHS[size] : [
-        (PADDING_X as any)[size].base,
-        leftIcon && (PADDING_X as any)[size].left,
-        rightIcon && (PADDING_X as any)[size].right
-      ],
-      size === "compact-xl" && "py-1.5"
-    )
+  // Compose dynamic classes
+  const dynamicClasses = cn(
+    SIZE_TEXT[size],
+    !isIconOnly && SIZE_GAPS[size],
+    isIconOnly ? SIZE_ICON_WIDTHS[size] : [
+      (PADDING_X as any)[size].base,
+      leftIcon && (PADDING_X as any)[size].left,
+      rightIcon && (PADDING_X as any)[size].right
+    ],
+    size === "compact-xl" && "py-1.5"
+  )
 
-    return (
-      <button
-        ref={ref}
-        className={buttonVariants({
-          variant: variant as any,
-          size,
-          className: cn(BORDER_RADIUS, dynamicClasses, className)
-        })}
-        {...props}
-      >
-        {leftIcon && <span className="shrink-0">{leftIcon}</span>}
-        {children}
-        {rightIcon && <span className="shrink-0 text-fg-3">{rightIcon}</span>}
-      </button>
-    )
-  }
-)
-
-Button.displayName = "Button"
-
-export { Button }
+  return (
+    <button
+      className={buttonVariants({
+        variant: variant as any,
+        size,
+        className: cn(BORDER_RADIUS, dynamicClasses, className)
+      })}
+      {...props}
+    >
+      {leftIcon && <span className="shrink-0">{leftIcon}</span>}
+      {children}
+      {rightIcon && <span className="shrink-0 text-fg-3">{rightIcon}</span>}
+    </button>
+  )
+}

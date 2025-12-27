@@ -1,10 +1,10 @@
-import { ReactNode } from 'preact/compat';
+import { ComponentChildren } from 'preact';
 import { useState, useRef, useEffect } from 'preact/hooks';
-import { createPortal } from 'preact/compat';
+import { render } from 'preact';
 
 interface PopoverProps {
-  content: ReactNode;
-  children: ReactNode;
+  content: ComponentChildren;
+  children: ComponentChildren;
   position?: 'top' | 'bottom' | 'left' | 'right';
   side?: 'top' | 'bottom' | 'left' | 'right'; // Alias for position
   asChild?: boolean; // When true, renders as block instead of inline-block
@@ -12,9 +12,47 @@ interface PopoverProps {
   maxWidth?: string; // Max width of popover content (default: auto)
 }
 
+// Portal component for popover content
+function PopoverPortal({ coords, getTransform, getArrowStyles, arrow, content, maxWidth }: any) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) {
+      containerRef.current = document.createElement('div');
+      document.body.appendChild(containerRef.current);
+    }
+
+    const el = (
+      <div
+        className="floating-panel pointer-events-auto"
+        style={{
+          left: coords.x,
+          top: coords.y,
+          transform: getTransform(),
+          maxWidth: maxWidth,
+        }}
+      >
+        {arrow && <div style={getArrowStyles() as any} />}
+        {content}
+      </div>
+    );
+
+    render(el, containerRef.current);
+
+    return () => {
+      if (containerRef.current?.parentNode) {
+        containerRef.current.parentNode.removeChild(containerRef.current);
+        containerRef.current = null;
+      }
+    };
+  }, [coords, getTransform, getArrowStyles, arrow, content, maxWidth]);
+
+  return null;
+}
+
 /**
  * Popover component for displaying richer content than tooltips
- * Supports ReactNode content (not just strings)
+ * Supports ComponentChildren content (not just strings)
  *
  * @example
  * <Popover content={<div>Complex content</div>} side="bottom">
@@ -151,20 +189,15 @@ export function Popover({
       onMouseLeave={!isMobile ? () => setVisible(false) : undefined}
     >
       {children}
-      {visible && content && coords && createPortal(
-        <div
-          className="floating-panel pointer-events-auto"
-          style={{
-            left: coords.x,
-            top: coords.y,
-            transform: getTransform(),
-            maxWidth: maxWidth,
-          }}
-        >
-          {arrow && <div style={getArrowStyles() as any} />}
-          {content}
-        </div>,
-        document.body
+      {visible && content && coords && (
+        <PopoverPortal
+          coords={coords}
+          getTransform={getTransform}
+          getArrowStyles={getArrowStyles}
+          arrow={arrow}
+          content={content}
+          maxWidth={maxWidth}
+        />
       )}
     </div>
   );

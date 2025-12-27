@@ -6,7 +6,7 @@ interface PageContainerProps {
   actions?: ComponentChildren;
 }
 
-export default function PageContainer({ title, children, actions }: PageContainerProps) {
+export function PageContainer({ title, children, actions }: PageContainerProps) {
   return (
     <div className="max-w-7xl mx-auto px-3 py-6">
       {/* Page Header */}

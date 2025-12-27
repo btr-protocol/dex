@@ -4,7 +4,7 @@ import { useExternalLink } from '@lib/external-links';
 import { useHealthMonitor } from '@hooks/useHealthMonitor';
 import { useWallet } from '@lib/wallet';
 import { getChain } from '@sdk/eth';
-import { HealthPopover } from '@components/HealthPopover';
+import { HealthPopover } from '@components/shared/metrics';
 import { Button } from '@components/ui/Button';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -33,7 +33,7 @@ function getStatusColor(status: 'healthy' | 'degraded' | 'down'): string {
   return status === 'healthy' ? 'var(--green)' : status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
 }
 
-export default function Footer() {
+export function Footer() {
   const { navigate } = useRouter();
   const { openExternalLink } = useExternalLink();
   const { chainId } = useWallet();

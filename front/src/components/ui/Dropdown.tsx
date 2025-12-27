@@ -1,6 +1,6 @@
 import { type ComponentChildren } from 'preact';
 import { useState, useRef, useEffect } from 'preact/hooks';
-import { createPortal } from 'preact/compat';
+import { render } from 'preact';
 import { Icon } from './Icon';
 import { cn } from '@utils/cn';
 import { Button, ButtonProps } from './Button';
@@ -37,6 +37,45 @@ interface DropdownProps<T = string> {
   minWidth?: number;
 }
 
+// Portal component for dropdown panel
+function DropdownPortal({ position, children }: any) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) {
+      containerRef.current = document.createElement('div');
+      document.body.appendChild(containerRef.current);
+    }
+
+    const el = (
+      <div
+        className="fixed z-dropdown bg-bg-1 border border-border rounded-sm shadow-lg overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100 pointer-events-auto font-title"
+        style={{
+          top: position.openUp ? 'auto' : position.top,
+          bottom: position.openUp ? `calc(100vh - ${position.top}px + 4px)` : 'auto',
+          left: position.left,
+          minWidth: Math.max(position.minWidth || 120, position.width),
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    );
+
+    render(el, containerRef.current);
+
+    return () => {
+      if (containerRef.current?.parentNode) {
+        containerRef.current.parentNode.removeChild(containerRef.current);
+        containerRef.current = null;
+      }
+    };
+  }, [position, children]);
+
+  return null;
+}
+
 export function Dropdown<T = string>({
   items,
   value,
@@ -54,7 +93,7 @@ export function Dropdown<T = string>({
   minWidth = 120,
 }: DropdownProps<T>) {
   const [internalOpen, setInternalOpen] = useState(false);
-  const [position, setPosition] = useState<{ top: number; left: number; width: number; openUp: boolean } | null>(null);
+  const [position, setPosition] = useState<{ top: number; left: number; width: number; openUp: boolean; minWidth?: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -112,6 +151,7 @@ export function Dropdown<T = string>({
         left,
         width: rect.width,
         openUp,
+        minWidth,
       });
     }
   }, [isOpen, side, minWidth]);
@@ -181,90 +221,79 @@ export function Dropdown<T = string>({
     </div>
   ) : defaultTrigger;
 
+  const panelContent = (
+    <>
+      {/* Items */}
+      <div className="max-h-64 overflow-y-auto">
+        {items.map(item => {
+          const selected = isSelected(item.value);
+          const disabled = item.disabled || false;
+
+          const itemButton = (
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelect(item.value, disabled);
+              }}
+              disabled={disabled}
+              className={cn(
+                'w-full flex items-center transition-colors font-title font-medium',
+                itemSizeClasses.item,
+                !disabled && 'hover:bg-bg-2',
+                selected && !disabled && 'bg-bg-primary',
+                disabled && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              {!!item.icon && (
+                isStringIcon(item.icon) ? (
+                  <img src={item.icon} alt="" className={cn(itemSizeClasses.icon, 'rounded-xs shrink-0')} />
+                ) : (
+                  <span className={cn('shrink-0', selected && !disabled ? 'text-primary' : 'text-muted-foreground')}>
+                    {renderIcon(item.icon, itemSizeClasses.icon) as any}
+                  </span>
+                )
+              )}
+              <span className={cn('flex-1 text-left', selected && !disabled && 'text-primary font-medium')}>
+                {item.label}
+              </span>
+              {selected && !disabled && <Icon name="check" className={cn('shrink-0 text-primary', itemSizeClasses.check)} />}
+            </button>
+          );
+
+          if (disabled && item.tooltip) {
+            return (
+              <Tooltip key={String(item.value)} content={item.tooltip} side="left" asChild>
+                <div className="w-full">
+                  {itemButton}
+                </div>
+              </Tooltip>
+            );
+          }
+
+          return <div key={String(item.value)} className="w-full">{itemButton}</div>;
+        })}
+        {items.length === 0 && (
+          <div className={cn('text-center text-muted-foreground', itemSizeClasses.item)}>
+            No options
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      {footer && (
+        <>
+          <div className="border-t border-border" />
+          {footer as any}
+        </>
+      )}
+    </>
+  );
+
   return (
     <>
       {triggerElement}
-
-      {isOpen && position && createPortal(
-        <div
-          ref={panelRef}
-          className="fixed z-dropdown bg-bg-1 border border-border rounded-sm shadow-lg overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100 pointer-events-auto font-title"
-          style={{
-            top: position.openUp ? 'auto' : position.top,
-            bottom: position.openUp ? `calc(100vh - ${position.top}px + 4px)` : 'auto',
-            left: position.left,
-            minWidth: Math.max(minWidth, position.width),
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          {/* Items */}
-          <div className="max-h-64 overflow-y-auto">
-            {items.map(item => {
-              const selected = isSelected(item.value);
-              const disabled = item.disabled || false;
-
-              const itemButton = (
-                <button
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleSelect(item.value, disabled);
-                  }}
-                  disabled={disabled}
-                  className={cn(
-                    'w-full flex items-center transition-colors font-title font-medium',
-                    itemSizeClasses.item,
-                    !disabled && 'hover:bg-bg-2',
-                    selected && !disabled && 'bg-bg-primary',
-                    disabled && 'opacity-50 cursor-not-allowed'
-                  )}
-                >
-                  {!!item.icon && (
-                    isStringIcon(item.icon) ? (
-                      <img src={item.icon} alt="" className={cn(itemSizeClasses.icon, 'rounded-xs shrink-0')} />
-                    ) : (
-                      <span className={cn('shrink-0', selected && !disabled ? 'text-primary' : 'text-muted-foreground')}>
-                        {renderIcon(item.icon, itemSizeClasses.icon) as any}
-                      </span>
-                    )
-                  )}
-                  <span className={cn('flex-1 text-left', selected && !disabled && 'text-primary font-medium')}>
-                    {item.label}
-                  </span>
-                  {selected && !disabled && <Icon name="check" className={cn('shrink-0 text-primary', itemSizeClasses.check)} />}
-                </button>
-              );
-
-              if (disabled && item.tooltip) {
-                return (
-                  <Tooltip key={String(item.value)} content={item.tooltip} side="left" asChild>
-                    <div className="w-full">
-                      {itemButton}
-                    </div>
-                  </Tooltip>
-                );
-              }
-
-              return <div key={String(item.value)} className="w-full">{itemButton}</div>;
-            })}
-            {items.length === 0 && (
-              <div className={cn('text-center text-muted-foreground', itemSizeClasses.item)}>
-                No options
-              </div>
-            )}
-          </div>
-
-          {/* Footer */}
-          {footer && (
-            <>
-              <div className="border-t border-border" />
-              {footer as any}
-            </>
-          )}
-        </div>,
-        document.body
-      )}
+      {isOpen && position && <DropdownPortal position={position}>{panelContent}</DropdownPortal>}
     </>
   );
 }

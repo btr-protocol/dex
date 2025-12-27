@@ -2,17 +2,16 @@ import { Icon } from '@components/ui/Icon';
 import { useState, useEffect } from 'preact/hooks';
 import { useRouter } from '@lib/router';
 import { MaskIcon } from '@components/ui/MaskIcon';
-import { WalletButton } from '@components/wallet/WalletButton';
-import { SearchModal } from '@components/SearchModal';
-import { SettingsModal } from '@components/SettingsModal';
-import { NotificationsModal } from '@components/NotificationsModal';
+import { WalletButton } from '@components/features/wallet';
+import { SearchModal } from '@components/features/search';
+import { SettingsModal, NotificationsModal } from '@components/features/modals';
 import { Badge } from '@components/ui/Badge';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useNotifications, removeNotification } from '@lib/notifications';
 import { LogLevel, type INotification } from '@/types/notification';
 import { headerNavigation, ROUTES } from '@/constants/navigation';
 
-export default function Header() {
+export function Header() {
   const { path, navigate } = useRouter();
   const [showSearch, setShowSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);

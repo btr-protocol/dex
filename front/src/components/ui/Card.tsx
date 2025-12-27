@@ -25,7 +25,7 @@ const cardVariants = cva('', {
 export function Card({ className, variant = 'default', ...props }: CardProps) {
   return (
     <div
-      className={cardVariants({ variant, className })}
+      className={cardVariants({ variant, className: className as any })}
       {...props}
     />
   );

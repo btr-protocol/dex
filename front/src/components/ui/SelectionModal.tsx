@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
-import { ReactNode } from 'preact/compat';
+import { ComponentChildren } from 'preact';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
 import { Button } from '@components/ui/Button';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
@@ -23,7 +23,7 @@ interface SelectionModalProps {
   minSelect?: number; // Min selections (default: 1 for multi, 0 for single)
   maxSelect?: number; // Max selections (default: 1 for single, unlimited for multi)
   filterFn?: (item: SelectionItem, search: string) => boolean;
-  filterSection?: ReactNode;
+  filterSection?: ComponentChildren;
   emptyMessage?: string;
   onResetFilters?: () => void; // Optional: called when reset button is clicked
   hasActiveFilters?: boolean; // Optional: show reset button if true
@@ -223,8 +223,10 @@ export function SelectionModal({
           <EmptyState
             query={search}
             message={emptyMessage}
-            onReset={onResetFilters || (() => setSearch(''))}
-            showResetButton={hasActiveFilters || !!search}
+            action={(hasActiveFilters || !!search) ? {
+              label: 'Reset',
+              onClick: onResetFilters || (() => setSearch('')),
+            } : undefined}
           />
         )}
       </div>

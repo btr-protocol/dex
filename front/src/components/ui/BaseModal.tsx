@@ -1,13 +1,12 @@
-import { useRef, useEffect } from 'preact/hooks';
 import { type ComponentChildren } from 'preact';
 import { Dialog, DialogContent, DialogTitle } from '@components/ui/Dialog';
 import { VisuallyHidden } from '@components/ui/VisuallyHidden';
-import { Button } from '@components/ui/Button';
-import { Icon } from '@components/ui/Icon';
 import { cn } from '@utils/cn';
+import { ModalHeader } from '@components/ui/ModalHeader';
+import { ModalFooter } from '@components/ui/ModalFooter';
 
 // Standard modal padding
-const MODAL_PX = 'px-4';
+export const MODAL_PADDING = 'px-4';
 
 export interface BaseModalProps {
   isOpen: boolean;
@@ -58,16 +57,7 @@ export function BaseModal({
   onSearchKeyDown,
   contrastHeader = true,
 }: BaseModalProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (isOpen && headerType === 'input' && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [isOpen, headerType]);
-
   const headerBg = contrastHeader ? 'bg-bg-2' : 'bg-bg-1';
-  const footerBg = contrastHeader ? 'bg-bg-2' : 'bg-bg-1';
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -78,87 +68,33 @@ export function BaseModal({
           <DialogTitle>{title}</DialogTitle>
         </VisuallyHidden>
 
-        {/* Fixed Header - matches h-8 (sm button size) + borders */}
-        <div className={`shrink-0 ${headerBg} border-b border-border rounded-t-lg`}>
-          <div className="flex items-center gap-3 pl-4 pr-3 h-12">
-            {headerType === 'input' ? (
-              <>
-                <Icon name="magnifying-glass" className="w-4 h-4 text-muted-foreground shrink-0" />
-                <input
-                  ref={inputRef}
-                  type="text"
-                  placeholder={placeholder || 'Search...'}
-                  value={searchValue || ''}
-                  onChange={(e) => onSearchChange?.((e.target as HTMLInputElement).value)}
-                  onKeyDown={onSearchKeyDown}
-                  className="flex-1 bg-transparent border-0 focus:outline-none text-sm min-w-0 h-8 font-title font-medium"
-                />
-              </>
-            ) : (
-              <h2 className="text-sm font-semibold flex-1 flex items-center gap-2">
-                {headerIcon}
-                {title}
-              </h2>
-            )}
-
-            {headerRight && (
-              <div className="flex items-center gap-2 shrink-0">{headerRight as any}</div>
-            )}
-
-            {/* Close button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onClose(false)}
-              className="p-1.5"
-              aria-label="Close"
-            >
-              <Icon name="x" className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
+        {/* Header */}
+        <ModalHeader
+          title={title}
+          headerType={headerType}
+          headerIcon={headerIcon}
+          headerRight={headerRight}
+          onClose={onClose}
+          placeholder={placeholder}
+          searchValue={searchValue}
+          onSearchChange={onSearchChange}
+          onSearchKeyDown={onSearchKeyDown}
+          isOpen={isOpen}
+          bg={headerBg}
+        />
 
         {/* Scrollable Body */}
         <div className="flex-1 overflow-y-auto min-h-0">{children as any}</div>
 
-        {/* Fixed Footer - stacked vertical layout */}
-        {(footer || footerNav || footerContent || footerControls) && (
-          <div className="shrink-0 flex flex-col border-t border-border">
-            {/* Legacy footer support */}
-            {footer && !footerNav && !footerContent && !footerControls && (
-              <div className={`${footerBg} ${MODAL_PX} py-3 flex items-center gap-2`}>
-                {footer as any}
-              </div>
-            )}
-            {/* New stacked footer */}
-            {(footerNav || footerContent || footerControls) && (
-              <>
-                {/* Navigation shortcuts - same bg as body */}
-                {footerNav && (
-                  <div className={`bg-bg-1 ${MODAL_PX} py-1.5 flex justify-center ${!footerContent && !footerControls ? 'rounded-b-lg' : ''}`}>
-                    {footerNav as any}
-                  </div>
-                )}
-                {/* Custom content */}
-                {footerContent && (
-                  <div className={`${footerBg} ${MODAL_PX} py-2.5 ${footerNav ? 'border-t border-border' : ''} ${!footerControls ? 'rounded-b-lg' : ''}`}>
-                    {footerContent as any}
-                  </div>
-                )}
-                {/* Control buttons - aligned right */}
-                {footerControls && (
-                  <div className={`${footerBg} ${MODAL_PX} py-2.5 flex justify-end gap-2 ${footerNav || footerContent ? 'border-t border-border' : ''} rounded-b-lg`}>
-                    {footerControls as any}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
+        {/* Footer */}
+        <ModalFooter
+          footer={footer}
+          footerNav={footerNav}
+          footerContent={footerContent}
+          footerControls={footerControls}
+          contrastHeader={contrastHeader}
+        />
       </DialogContent>
     </Dialog>
   );
 }
-
-// Export padding constant for children that need it
-export const MODAL_PADDING = MODAL_PX;
