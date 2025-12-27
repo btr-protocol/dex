@@ -39,7 +39,7 @@ Compare 13 different AMM designs under identical capital allocation (L₀) to me
 ```
 
 Outputs:
-- `zig-out/lib/libamm_sim.a` - Static library
+- `zig-out/lib/liAIMM_sim.a` - Static library
 
 ### 2. Run Simulation
 
