@@ -14,3 +14,16 @@ interface ImportMeta {
     on: (event: string, cb: () => void) => void
   }
 }
+
+// Ethereum provider types
+interface EthereumProvider {
+  isMetaMask?: boolean;
+  isCoinbaseWallet?: boolean;
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+  on?(event: string, handler: (...args: unknown[]) => void): void;
+  removeListener?(event: string, handler: (...args: unknown[]) => void): void;
+}
+
+interface Window {
+  ethereum?: EthereumProvider;
+}
