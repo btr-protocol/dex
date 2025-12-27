@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { gzipSync } from "zlib";
 import MiniSearch from "minisearch";
-import { slugifyDoc, generateAnchorId } from "../sdk/src/common/format.js";
+import { slugifyDoc, generateAnchorId } from "../sdk/src/utils/format.js";
 
 interface SearchDocument {
   id: string;
@@ -28,11 +28,11 @@ interface DocStructure {
 }
 
 const docsDirectory = path.join(__dirname, "../docs");
-const frontPublicDir = path.join(__dirname, "../front/public");
-const outputPath = path.join(frontPublicDir, "search-index.json");
-const compressedOutputPath = path.join(frontPublicDir, "search-index.json.gz");
-const docsStructureOutputPath = path.join(frontPublicDir, "docs-structure.json");
-const docsStructureCompressedPath = path.join(frontPublicDir, "docs-structure.json.gz");
+const compiledDocsDir = path.join(__dirname, "../front/public/compiled-docs");
+const outputPath = path.join(compiledDocsDir, "search-index.json");
+const outputPathGz = path.join(compiledDocsDir, "search-index.json.gz");
+const docsStructureOutputPath = path.join(compiledDocsDir, "docs-structure.json");
+const docsStructureOutputPathGz = path.join(compiledDocsDir, "docs-structure.json.gz");
 
 // Extract frontmatter from markdown (simple parser, no gray-matter bloat)
 function parseFrontmatter(content: string): { data: Record<string, any>; content: string } {
@@ -59,7 +59,7 @@ function parseFrontmatter(content: string): { data: Record<string, any>; content
   return { data, content: markdownContent };
 }
 
-// Note: generateAnchorId is now imported from SDK (../sdk/src/common/format.js)
+// Note: generateAnchorId is now imported from SDK (../sdk/src/utils/format.js)
 
 // Strip markdown formatting (simple, no need for full parser)
 function stripMarkdown(markdown: string): string {
@@ -68,9 +68,9 @@ function stripMarkdown(markdown: string): string {
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]+`/g, ' ')
     // Remove links but keep text
-    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     // Remove images
-    .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '')
     // Remove headings markers
     .replace(/^#{1,6}\s+/gm, '')
     // Remove bold/italic
@@ -222,13 +222,18 @@ function generateDocsStructure(dirPath: string, relativePath = ""): DocStructure
 
 // Generate the docs structure JSON files
 function generateDocsStructureFiles(docsStructure: DocStructure[]) {
-  // Write JSON file
+  // Create output directory if it doesn't exist
+  const outputDir = path.dirname(docsStructureOutputPath);
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  // Write uncompressed and gzipped versions
   const jsonContent = JSON.stringify(docsStructure, null, 2);
   fs.writeFileSync(docsStructureOutputPath, jsonContent);
 
-  // Create compressed version
   const compressedContent = gzipSync(Buffer.from(jsonContent));
-  fs.writeFileSync(docsStructureCompressedPath, compressedContent);
+  fs.writeFileSync(docsStructureOutputPathGz, compressedContent);
 }
 
 // Generate search index
@@ -344,16 +349,15 @@ async function generateSearchIndex() {
     }))
   };
 
-  // Write search index to JSON file
+  // Write uncompressed and gzipped versions
   const jsonContent = JSON.stringify(indexData);
   fs.writeFileSync(outputPath, jsonContent);
 
-  // Create compressed version
   const compressedContent = gzipSync(Buffer.from(jsonContent));
-  fs.writeFileSync(compressedOutputPath, compressedContent);
+  fs.writeFileSync(outputPathGz, compressedContent);
 
-  const originalSize = fs.statSync(outputPath).size;
-  const compressedSize = fs.statSync(compressedOutputPath).size;
+  const originalSize = jsonContent.length;
+  const compressedSize = compressedContent.length;
   const compressionRatio = ((originalSize - compressedSize) / originalSize * 100).toFixed(1);
 
   // Generate docs structure
