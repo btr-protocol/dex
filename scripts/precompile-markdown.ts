@@ -12,7 +12,7 @@ import { marked } from 'marked';
 import Prism from 'prismjs';
 import loadLanguages from 'prismjs/components/index.js';
 import { asciiToMathML } from 'asciimath2ml';
-import { slugifyDoc, generateAnchorId } from '../sdk/src/common/format.js';
+import { slugifyDoc, generateAnchorId } from '../sdk/src/utils/format.js';
 import { chromium, type Browser } from 'playwright';
 
 // Load Prism languages
