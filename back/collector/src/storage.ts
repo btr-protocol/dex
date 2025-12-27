@@ -306,8 +306,8 @@ export class OHLCStorage {
     while (cursor < end) {
       const data = await rateLimiter.request(exchange.id, () =>
         exchange.fetchOHLCV(symbol, '1m', cursor, 1000)
-      );
-      if (!data.length) break;
+      ) as any[];
+      if (!data || !data.length) break;
       all.push(...data);
       const lastTs = data[data.length - 1][0];
       cursor = lastTs + 60_000;

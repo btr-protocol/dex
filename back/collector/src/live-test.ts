@@ -31,27 +31,12 @@ async function runLiveTest() {
       process.stdout.write(`\r✓ Collected ${priceCount} prices from ${Object.keys(priceUpdates).length} tickers`);
     });
 
-    // Start polling without backfill
-    console.log('Starting price collection...\n');
-    const wsSubscription = await import('./collector').then(m => {
-      // Just start the collector directly without calling start() which does backfill
-      collector['running'] = true;
-      collector['startPolling']?.();
-      return null;
-    }).catch(() => null);
-
-    // Manually trigger polling
-    const pollLoop = setInterval(async () => {
-      const tickerKeys = Object.keys(config.tickers);
-      for (const symbol of tickerKeys) {
-        const tickerConfig = config.tickers[symbol as any];
-        await collector['updateTicker']?.(symbol, tickerConfig).catch(() => {});
-      }
-    }, 1000);
+    // Start collector normally - start() handles historical fetch but it's needed for consistency
+    console.log('Starting collector...\n');
+    await collector.start();
 
     // Run for 10 seconds
     await new Promise(resolve => setTimeout(resolve, 10000));
-    clearInterval(pollLoop);
 
     // Results
     console.log('\n\n=== Live Prices Collected ===\n');

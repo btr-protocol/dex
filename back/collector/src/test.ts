@@ -47,7 +47,7 @@ async function testCollector() {
     // Test candles endpoint
     console.log('\n   Testing /api/candles...');
     const candlesRes = await fetch('http://localhost:3000/api/candles?symbol=ETHUSDT&timeframe=60&limit=10');
-    const candlesData = await candlesRes.json();
+    const candlesData = await candlesRes.json() as any;
     console.log(`   ✓ Candles response:`, {
       symbol: candlesData.symbol,
       timeframe: candlesData.timeframe,
