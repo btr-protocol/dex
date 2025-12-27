@@ -1,6 +1,6 @@
-import LiquidityShaper from '@/components/LiquidityShaper';
+import { LiquidityShaper } from '@components/features/liquidity';
 
-export default function ShaperPage() {
+export function ShaperPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
