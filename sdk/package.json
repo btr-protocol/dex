@@ -1,7 +1,7 @@
 {
   "name": "@btr/dex-sdk",
   "version": "1.0.0",
-  "description": "Modular SDK for BTR DEX - supports AMM flows, oracles, guardians, and privacy features",
+  "description": "Modular SDK for BTR DEX - supports AMM flows, oracles, and guardians",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -14,17 +14,9 @@
       "types": "./src/abis/index.ts",
       "default": "./src/abis/index.ts"
     },
-    "./common": {
-      "types": "./src/common/index.ts",
-      "default": "./src/common/index.ts"
-    },
-    "./circuits": {
-      "types": "./src/circuits/index.ts",
-      "default": "./src/circuits/index.ts"
-    },
-    "./darkpool": {
-      "types": "./src/darkpool/index.ts",
-      "default": "./src/darkpool/index.ts"
+    "./utils": {
+      "types": "./src/utils/index.ts",
+      "default": "./src/utils/index.ts"
     },
     "./guardians": {
       "types": "./src/guardians/index.ts",
@@ -40,37 +32,26 @@
     }
   },
   "scripts": {
-    "dev": "bun run src/index.ts",
-    "test": "bun test",
-    "test:aliases": "bun run src/eth/test-aliases.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bunx tsgo -p tsconfig.json --noEmit",
+    "typecheck:watch": "bunx tsgo -p tsconfig.json --watch --noEmit",
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
-    "generate-zeros": "bun run src/circuits/scripts/generate-zeros.ts",
-    "generate-poseidon": "bun run src/circuits/scripts/generate-poseidon.ts"
+    "lint": "oxlint src",
+    "fmt": "oxlint --fix src",
+    "test": "bun test"
   },
   "dependencies": {
-    "@noble/hashes": "^2.0.1",
-    "@zkpassport/poseidon2": "^0.6.2",
-    "ffjavascript": "^0.3.0",
-    "snarkjs": "^0.7.3",
-    "ws": "^8.18.0"
-  },
-  "optionalDependencies": {
-    "circomlib": "^2.0.5",
-    "poseidon-solidity": "^0.0.5"
+    "@noble/hashes": "^2.0.1"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "@types/node": "^20.10.0",
-    "@types/ws": "^8.5.10",
-    "typescript": "^5.3.3",
-    "@types/bun": "latest"
+    "@typescript/native-preview": "^7.0.0-dev.20251227.1",
+    "typescript": "^5.3.3"
   },
   "keywords": [
     "dex",
     "amm",
     "defi",
-    "zk-snark",
-    "privacy",
     "oracle",
     "circuit-breaker",
     "ethereum"
