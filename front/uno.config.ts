@@ -185,9 +185,13 @@ export default defineConfig({
     },
   },
   shortcuts: {
-    // Flex layouts
+    // Core flex layouts - reduce inline complexity
     'flex-v': 'flex flex-col',
     'flex-h': 'flex flex-row',
+    'flex-between': 'flex items-center justify-between',
+    'flex-center': 'flex items-center justify-center',
+    'flex-start': 'flex items-center justify-start',
+    'flex-end': 'flex items-center justify-end',
     'h-start': 'flex flex-row justify-start items-center',
     'h-center': 'flex flex-row justify-center items-center',
     'v-start': 'flex flex-col items-center justify-start',
@@ -197,6 +201,15 @@ export default defineConfig({
     'flex-center-gap-1': 'flex items-center gap-1',
     'flex-center-gap-1.5': 'flex items-center gap-1.5',
     'flex-center-gap-2': 'flex items-center gap-2',
+    'flex-between-gap-4': 'flex items-center justify-between gap-4',
+
+    // Card & panel patterns - eliminate bg-bg-1 border border-border repetition
+    'card-base': 'bg-bg-1 border border-border rounded-md',
+    'card-lg': 'bg-bg-1 border border-border rounded-lg',
+    'card-xl': 'bg-bg-1 border border-border rounded-xl',
+    'card-glass': 'bg-white/5 border border-white/10 rounded-md',
+    'card-glass-lg': 'bg-white/5 border border-white/10 rounded-lg',
+    'card-hover': 'bg-bg-1 border border-border rounded-md hover:bg-bg-2/50 transition-colors cursor-pointer',
 
     // Toolbar items
     'toolbar-btn': 'h-8 px-2 flex items-center cursor-pointer text-fg-2 font-title font-medium transition-colors duration-150 hover:text-fg-1 hover:bg-bg-2',
@@ -208,6 +221,8 @@ export default defineConfig({
 
     // Typography
     'font-numeric': 'font-numbers tabular-nums',
+    'text-caption': 'text-xs text-muted-foreground',
+    'text-label': 'text-sm font-semibold text-foreground',
 
     // Badges
     'badge-chain': 'rounded-xs bg-bg-1 border border-border',
@@ -215,5 +230,9 @@ export default defineConfig({
     // Button states
     'btn-selected': 'bg-bg-primary text-primary',
     'btn-unselected': 'text-fg-2',
+
+    // Common content layouts
+    'section-padding': 'px-4 py-3',
+    'page-padding': 'px-6 py-4',
   },
 })
