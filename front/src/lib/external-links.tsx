@@ -1,11 +1,11 @@
-import { createContext } from 'preact';
+import { createContext, JSX } from 'preact';
 import { useContext, useState } from 'preact/hooks';
-import type { ReactNode } from 'preact/compat';
-import { ExternalLinkModal } from '@components/ExternalLinkModal';
+import { ComponentChildren } from 'preact';
+import { ExternalLinkModal } from '@components/features/modals';
 
 const ExternalLinkCtx = createContext<{ openExternalLink: (url: string) => void }>({ openExternalLink: () => {} });
 
-export function ExternalLinkProvider({ children }: { children: ReactNode }) {
+export function ExternalLinkProvider({ children }: { children: ComponentChildren }) {
   const [url, setUrl] = useState<string | null>(null);
 
   const open = (target: string) => {

@@ -1,6 +1,6 @@
-import { createContext } from 'preact';
+import { createContext, JSX } from 'preact';
 import { useContext, useEffect, useState } from 'preact/hooks';
-import type { ReactNode } from 'preact/compat';
+import { ComponentChildren } from 'preact';
 import { navRoutes } from '@/constants/navigation';
 
 // Get route by path from navRoutes
@@ -16,7 +16,7 @@ const updateMeta = (path: string) => {
     document.querySelector('meta[name="description"]')?.setAttribute('content', r?.description || 'BTR - Next-generation decentralized exchange.');
 };
 
-export function RouterProvider({ children }: { children: ReactNode }) {
+export function RouterProvider({ children }: { children: ComponentChildren }) {
     const [route, setRoute] = useState({
         path: window.location.pathname,
         query: new URLSearchParams(window.location.search)
