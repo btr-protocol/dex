@@ -65,7 +65,7 @@ export async function initializeSearch() {
     ]);
 
     // Async Docs Load
-    fetch('/search-index.json').then(r => r.ok && r.json()).then(d => {
+    fetch('/compiled-docs/search-index.json').then(r => r.ok && r.json()).then(d => {
       if (d?.documents) eng.addAll(d.documents.filter((x: any) => !x.id.includes('#')).map((doc: any) => ({
         id: `doc-${doc.id}`, title: doc.title, desc: doc.excerpt, content: doc.content || doc.excerpt, path: doc.url, cat: 'Docs'
       })));

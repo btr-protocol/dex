@@ -27,7 +27,7 @@ export async function getDocStructure(): Promise<DocStructure[]> {
   }
 
   try {
-    const response = await fetch("/docs-structure.json");
+    const response = await fetch("/compiled-docs/docs-structure.json");
     if (!response.ok) {
       throw new Error(`Failed to load docs structure: ${response.status}`);
     }
