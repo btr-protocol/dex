@@ -3,18 +3,28 @@ import { useWallet } from '@lib/wallet';
 import * as eth from '@sdk/eth';
 
 // ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
+
+// Dependency array type - values used for cache key generation via JSON.stringify
+// Permits objects that may not be perfectly JSON-serializable since we rely on
+// reference equality for complex types like provider, Call[], etc.
+type DependencyValue = string | number | boolean | bigint | null | undefined | object;
+type DependencyArray = readonly DependencyValue[];
+
+// ─────────────────────────────────────────────────────────────
 // Internal Helpers
 // ─────────────────────────────────────────────────────────────
 
 // Generic fetcher with cancellation & state management
 function useFetch<T>(
-  fn: () => Promise<T>, 
-  deps: any[], 
+  fn: () => Promise<T>,
+  deps: DependencyArray,
   enabled = true
 ) {
-  const [state, setState] = useState<{ data?: T; loading: boolean; error?: any }>({ 
-    loading: enabled, 
-    data: undefined 
+  const [state, setState] = useState<{ data?: T; loading: boolean; error?: Error | object }>({
+    loading: enabled,
+    data: undefined
   });
 
   // Deep compare deps (simple JSON version for brevity/robustness)
@@ -27,7 +37,7 @@ function useFetch<T>(
 
     fn().then(
       res => active && setState({ data: res, loading: false }),
-      err => active && setState({ data: undefined, loading: false, error: err })
+      (err: Error | object) => active && setState({ data: undefined, loading: false, error: err })
     );
 
     return () => { active = false; };
@@ -40,12 +50,12 @@ function useFetch<T>(
 // Hooks
 // ─────────────────────────────────────────────────────────────
 
-export function useReadContract<T = any>(p: { 
-  address?: eth.Address; 
-  abi: eth.Abi; 
-  functionName: string; 
-  args?: any[]; 
-  query?: { enabled?: boolean } 
+export function useReadContract<T = object>(p: {
+  address?: eth.Address;
+  abi: eth.Abi;
+  functionName: string;
+  args?: DependencyArray;
+  query?: { enabled?: boolean }
 }) {
   const { provider } = useWallet();
   const enabled = (p.query?.enabled ?? true) && !!p.address && !!provider;
@@ -68,7 +78,7 @@ export function useReadContracts(p: {
   const { data, ...rest } = useFetch(
     async () => {
       const res = await eth.multicall(provider!, p.contracts.map(c => ({ ...c, allowFailure: true })));
-      return res.map((r: any) => ({ result: r.success ? r.result : undefined, error: r.success ? undefined : r.error }));
+      return res.map((r: { success: boolean; result?: object; error?: Error | object }) => ({ result: r.success ? r.result : undefined, error: r.success ? undefined : r.error }));
     },
     [p.contracts, provider],
     enabled

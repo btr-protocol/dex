@@ -14,7 +14,8 @@ export interface AsyncState<T> {
 }
 
 type AsyncFunction<T> = () => Promise<T>;
-type DependencyList = Array<unknown>;
+type Dependency = string | number | boolean | symbol | object | null | undefined;
+type DependencyList = readonly Dependency[];
 
 export function useAsync<T>(
   asyncFunction: AsyncFunction<T>,

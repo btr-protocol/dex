@@ -1,132 +1,16 @@
 import { useState, useCallback, useEffect } from 'preact/hooks';
 import { useWallet } from '@/lib/wallet';
-import { formatUnits, parseUnits, type Address } from '@sdk/eth';
+import { formatUnits, parseUnits, type Address, POOL_ABI, ERC20_ABI, MOCK_PRICES, getTokenAddress, encodeFn, decodeFn } from '@sdk/eth';
 
-// Pool ABI - only the functions we need for swaps
-const POOL_ABI = [
-  {
-    type: 'function',
-    name: 'getSwapQuote',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'tokenIn', type: 'address' },
-      { name: 'tokenOut', type: 'address' },
-      { name: 'amountIn', type: 'uint256' },
-    ],
-    outputs: [
-      {
-        type: 'tuple',
-        components: [
-          { name: 'amountOut', type: 'uint256' },
-          { name: 'amountIn', type: 'uint256' },
-          { name: 'spreadBps', type: 'uint16' },
-          { name: 'protoFee', type: 'uint256' },
-          { name: 'lpFee', type: 'uint256' },
-          { name: 'skewIn', type: 'int8' },
-          { name: 'skewOut', type: 'int8' },
-          { name: 'routeHops', type: 'address[]' },
-          { name: 'hopAmounts', type: 'uint256[]' },
-        ],
-      },
-    ],
-  },
-  {
-    type: 'function',
-    name: 'swap',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'tokenIn', type: 'address' },
-      { name: 'tokenOut', type: 'address' },
-      { name: 'amountIn', type: 'uint256' },
-      { name: 'minAmountOut', type: 'uint256' },
-      { name: 'recipient', type: 'address' },
-    ],
-    outputs: [{ name: 'amountOut', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'getMidPrice',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'token', type: 'address' }],
-    outputs: [{ name: 'midPrice', type: 'uint256' }],
-  },
-] as const;
-
-const ERC20_ABI = [
-  {
-    type: 'function',
-    name: 'approve',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'spender', type: 'address' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-  {
-    type: 'function',
-    name: 'allowance',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'spender', type: 'address' },
-    ],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'balanceOf',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'decimals',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint8' }],
-  },
-] as const;
-
-// BSC token addresses (from BSC fork)
-const BSC_TOKENS: Record<string, Address> = {
-  USDC: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
-  USDT: '0x55d398326f99059fF775485246999027B3197955',
-  WETH: '0x2170Ed0880ac9A755fd29B2688956BD959F933F8',
-  ETH: '0x2170Ed0880ac9A755fd29B2688956BD959F933F8', // Alias
-  WBTC: '0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c',
-  BTC: '0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c', // Alias
-  WBNB: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
-  BNB: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', // Alias
-  SOL: '0x570A5D26f7765Ecb712C0924E4De545B89fD43dF',
-  DAI: '0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3',
-  PAXG: '0x7950865a9140cB519342433146Ed5b40c6F210f7',
-};
-
-// Pool addresses - these would come from deployment in production
-// For Anvil BSC fork: deploy with `forge test --match-test "test_swap" --fork-url http://localhost:8545`
-// The test deployment uses deterministic addresses based on CREATE2
+/**
+ * Pool addresses by chain ID
+ * For Anvil BSC fork: deploy with `forge test --match-test "test_swap" --fork-url http://localhost:8545`
+ */
 const POOL_ADDRESSES: Record<number, Address> = {
   // Anvil (BSC fork) - address from forge test deployment
-  // Deploy contracts first: cd contracts && forge test --match-path "test/integration/BSCForkTest.t.sol" --fork-url http://localhost:8545
   31337: (import.meta.env.VITE_POOL_ADDRESS as Address) || '0x0000000000000000000000000000000000000000',
-  56: '0x0000000000000000000000000000000000000000', // BSC mainnet - not deployed yet
-};
-
-// Mock prices for development when no contract is available
-const MOCK_PRICES: Record<string, number> = {
-  ETH: 3500,
-  WETH: 3500,
-  BTC: 100000,
-  WBTC: 100000,
-  BNB: 600,
-  WBNB: 600,
-  SOL: 200,
-  USDC: 1,
-  USDT: 1,
-  DAI: 1,
-  PAXG: 2650,
+  // BSC mainnet - not deployed yet
+  56: '0x0000000000000000000000000000000000000000',
 };
 
 export interface SwapQuote {
@@ -173,8 +57,8 @@ export function useSwap(
   const [approveLoading, setApproveLoading] = useState(false);
 
   const poolAddress = chainId ? POOL_ADDRESSES[chainId] : undefined;
-  const tokenIn = BSC_TOKENS[tokenInSymbol];
-  const tokenOut = BSC_TOKENS[tokenOutSymbol];
+  const tokenIn = chainId ? getTokenAddress(tokenInSymbol, chainId) : undefined;
+  const tokenOut = chainId ? getTokenAddress(tokenOutSymbol, chainId) : undefined;
 
   // Check if we should use mock mode (no deployed contract)
   const useMockMode = !poolAddress || poolAddress === '0x0000000000000000000000000000000000000000';
@@ -234,8 +118,7 @@ export function useSwap(
         const amountInWei = parseUnits(amountIn, 18);
 
         // Encode call data for getSwapQuote
-        const { encodeFunctionData, decodeFunctionResult } = await import('viem');
-        const callData = encodeFunctionData({
+        const callData = encodeFn({
           abi: POOL_ABI,
           functionName: 'getSwapQuote',
           args: [tokenIn, tokenOut, amountInWei],
@@ -248,16 +131,20 @@ export function useSwap(
         });
 
         // Decode result
-        const decoded = decodeFunctionResult({
+        const decoded = decodeFn({
           abi: POOL_ABI,
           functionName: 'getSwapQuote',
           data: result as `0x${string}`,
         }) as SwapQuote;
 
         setQuote(decoded);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Quote error:', err);
-        setQuoteError(err.message || 'Failed to get quote');
+        let errorMessage = 'Failed to get quote';
+        if (typeof err === 'object' && err !== null && 'message' in err && typeof (err as Record<string, unknown>).message === 'string') {
+          errorMessage = (err as Record<string, unknown>).message as string;
+        }
+        setQuoteError(errorMessage);
         setQuote(null);
       } finally {
         setQuoteLoading(false);
@@ -281,11 +168,10 @@ export function useSwap(
 
     const checkAllowance = async () => {
       try {
-        const { encodeFunctionData, decodeFunctionResult } = await import('viem');
-        const callData = encodeFunctionData({
+        const callData = encodeFn({
           abi: ERC20_ABI,
           functionName: 'allowance',
-          args: [address as Address, poolAddress],
+          args: [address, poolAddress],
         });
 
         const result = await provider.request({
@@ -293,7 +179,7 @@ export function useSwap(
           params: [{ to: tokenIn, data: callData }, 'latest'],
         });
 
-        const allowance = decodeFunctionResult({
+        const allowance = decodeFn({
           abi: ERC20_ABI,
           functionName: 'allowance',
           data: result as `0x${string}`,
@@ -317,8 +203,7 @@ export function useSwap(
 
     setApproveLoading(true);
     try {
-      const { encodeFunctionData } = await import('viem');
-      const callData = encodeFunctionData({
+      const callData = encodeFn({
         abi: ERC20_ABI,
         functionName: 'approve',
         args: [poolAddress, quote.amountIn],
@@ -340,7 +225,7 @@ export function useSwap(
       });
 
       setNeedsApproval(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Approve error:', err);
       throw err;
     } finally {
@@ -366,11 +251,10 @@ export function useSwap(
       // Calculate minAmountOut with slippage
       const minAmountOut = (quote.amountOut * BigInt(10000 - slippageBps)) / 10000n;
 
-      const { encodeFunctionData } = await import('viem');
-      const callData = encodeFunctionData({
+      const callData = encodeFn({
         abi: POOL_ABI,
         functionName: 'swap',
-        args: [tokenIn, tokenOut, quote.amountIn, minAmountOut, address as Address],
+        args: [tokenIn, tokenOut, quote.amountIn, minAmountOut, address],
       });
 
       const txHash = await provider.request({
@@ -383,9 +267,13 @@ export function useSwap(
       });
 
       return txHash as string;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Swap error:', err);
-      setSwapError(err.message || 'Swap failed');
+      let errorMessage = 'Swap failed';
+      if (typeof err === 'object' && err !== null && 'message' in err && typeof (err as Record<string, unknown>).message === 'string') {
+        errorMessage = (err as Record<string, unknown>).message as string;
+      }
+      setSwapError(errorMessage);
       throw err;
     } finally {
       setSwapLoading(false);
@@ -422,7 +310,5 @@ export function formatQuote(quote: SwapQuote | null, decimals: number = 18) {
   };
 }
 
-// Get token address by symbol
-export function getTokenAddress(symbol: string): Address | undefined {
-  return BSC_TOKENS[symbol.toUpperCase()];
-}
+// Re-export from SDK for backward compatibility
+export { getTokenAddress } from '@sdk/eth';
