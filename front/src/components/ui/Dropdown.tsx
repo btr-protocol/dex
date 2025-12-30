@@ -38,8 +38,9 @@ interface DropdownProps<T = string> {
 }
 
 // Portal component for dropdown panel
-function DropdownPortal({ position, children }: any) {
+function DropdownPortal({ position, children, portalRef }: any) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -47,31 +48,55 @@ function DropdownPortal({ position, children }: any) {
       document.body.appendChild(containerRef.current);
     }
 
+    const panelDiv = document.createElement('div');
+    panelDiv.className = "fixed z-dropdown bg-bg-1 border border-border rounded-sm shadow-lg overflow-hidden pointer-events-auto font-title outline-none";
+    panelDiv.setAttribute('tabindex', '-1');
+
+    // Set positioning styles
+    if (position.openUp) {
+      panelDiv.style.bottom = `${window.innerHeight - position.top + 4}px`;
+      panelDiv.style.top = 'auto';
+    } else {
+      panelDiv.style.top = `${position.top}px`;
+      panelDiv.style.bottom = 'auto';
+    }
+    panelDiv.style.left = `${position.left}px`;
+    panelDiv.style.minWidth = `${Math.max(position.minWidth || 120, position.width)}px`;
+    panelDiv.style.zIndex = '110';
+    panelDiv.style.opacity = '1';
+    panelDiv.style.visibility = 'visible';
+
+    panelDiv.addEventListener('pointerdown', (e) => e.stopPropagation());
+    panelDiv.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    // Focus the panel to capture keyboard events
+    requestAnimationFrame(() => panelDiv.focus());
+
+    // Store reference to panel div for click detection
+    panelRef.current = panelDiv;
+    if (portalRef) {
+      portalRef.current = panelDiv;
+    }
+
     const el = (
-      <div
-        className="fixed z-dropdown bg-bg-1 border border-border rounded-sm shadow-lg overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100 pointer-events-auto font-title"
-        style={{
-          top: position.openUp ? 'auto' : position.top,
-          bottom: position.openUp ? `calc(100vh - ${position.top}px + 4px)` : 'auto',
-          left: position.left,
-          minWidth: Math.max(position.minWidth || 120, position.width),
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+      <div>
         {children}
       </div>
     );
 
-    render(el, containerRef.current);
+    render(el, panelDiv);
+    containerRef.current.appendChild(panelDiv);
 
     return () => {
-      if (containerRef.current?.parentNode) {
-        containerRef.current.parentNode.removeChild(containerRef.current);
-        containerRef.current = null;
+      if (containerRef.current && panelDiv.parentNode === containerRef.current) {
+        containerRef.current.removeChild(panelDiv);
+      }
+      panelRef.current = null;
+      if (portalRef) {
+        portalRef.current = null;
       }
     };
-  }, [position, children]);
+  }, [position, children, portalRef]);
 
   return null;
 }
@@ -94,13 +119,17 @@ export function Dropdown<T = string>({
 }: DropdownProps<T>) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number; width: number; openUp: boolean; minWidth?: number } | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const triggerRef = useRef<HTMLElement>(null);
+  const portalRef = useRef<HTMLDivElement | null>(null);
 
   const isControlled = controlledOpen !== undefined;
   const isOpen = isControlled ? controlledOpen : internalOpen;
 
   const setOpen = (open: boolean) => {
+    if (!open) {
+      setHighlightedIndex(-1);
+    }
     if (isControlled) {
       onOpenChange?.(open);
     } else {
@@ -123,7 +152,7 @@ export function Dropdown<T = string>({
 
   // Calculate position when opening
   useEffect(() => {
-    if (isOpen && triggerRef.current) {
+    if (isOpen && triggerRef.current && typeof triggerRef.current.getBoundingClientRect === 'function') {
       const rect = triggerRef.current.getBoundingClientRect();
       const viewportHeight = window.innerHeight;
       const viewportWidth = window.innerWidth;
@@ -160,10 +189,18 @@ export function Dropdown<T = string>({
   useEffect(() => {
     if (!isOpen) return;
 
+    const selectableItems = items.filter(item => !item.disabled);
+
     const handleClickOutside = (e: MouseEvent) => {
-      // Check immediately if click is inside trigger or panel
-      const isInsideTrigger = triggerRef.current?.contains(e.target as Node);
-      const isInsidePanel = panelRef.current?.contains(e.target as Node);
+      const target = e.target as Node;
+
+      // Check if click is inside trigger (with robust element check)
+      const trigger = triggerRef.current;
+      const isInsideTrigger = trigger && typeof trigger.contains === 'function' && trigger.contains(target);
+
+      // Check if click is inside portal panel
+      const panel = portalRef.current;
+      const isInsidePanel = panel && typeof panel.contains === 'function' && panel.contains(target);
 
       if (isInsideTrigger || isInsidePanel) {
         return;
@@ -173,17 +210,50 @@ export function Dropdown<T = string>({
       requestAnimationFrame(() => setOpen(false));
     };
 
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+    const handleKeyboard = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case 'Escape':
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen(false);
+          triggerRef.current?.focus?.();
+          break;
+        case 'ArrowDown': {
+          e.preventDefault();
+          e.stopPropagation();
+          setHighlightedIndex(prev => {
+            const next = prev + 1;
+            return next >= selectableItems.length ? selectableItems.length - 1 : next;
+          });
+          break;
+        }
+        case 'ArrowUp': {
+          e.preventDefault();
+          e.stopPropagation();
+          setHighlightedIndex(prev => {
+            const next = prev - 1;
+            return next < 0 ? 0 : next;
+          });
+          break;
+        }
+        case 'Enter': {
+          e.preventDefault();
+          e.stopPropagation();
+          if (highlightedIndex >= 0 && highlightedIndex < selectableItems.length) {
+            handleSelect(selectableItems[highlightedIndex].value, false);
+          }
+          break;
+        }
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('keydown', handleKeyboard, true); // capture phase
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleKeyboard, true);
     };
-  }, [isOpen]);
+  }, [isOpen, highlightedIndex, items]);
 
   const handleSelect = (itemValue: T, disabled?: boolean) => {
     if (disabled) return;
@@ -203,7 +273,7 @@ export function Dropdown<T = string>({
   // Default trigger button using Button component
   const defaultTrigger = (
     <Button
-      ref={triggerRef}
+      ref={triggerRef as any}
       onClick={() => setOpen(!isOpen)}
       size={size}
       variant={variant}
@@ -225,7 +295,10 @@ export function Dropdown<T = string>({
     <>
       {/* Items */}
       <div className="max-h-64 overflow-y-auto">
-        {items.map(item => {
+        {items.map((item, idx) => {
+          const selectableItems = items.filter(i => !i.disabled);
+          const selectableIdx = selectableItems.findIndex(i => i.value === item.value);
+          const isHighlighted = selectableIdx === highlightedIndex && !item.disabled;
           const selected = isSelected(item.value);
           const disabled = item.disabled || false;
 
@@ -236,11 +309,17 @@ export function Dropdown<T = string>({
                 e.stopPropagation();
                 handleSelect(item.value, disabled);
               }}
+              onMouseEnter={() => {
+                if (!disabled) {
+                  setHighlightedIndex(selectableIdx);
+                }
+              }}
               disabled={disabled}
               className={cn(
                 'w-full flex items-center transition-colors font-title font-medium',
                 itemSizeClasses.item,
                 !disabled && 'hover:bg-bg-2',
+                isHighlighted && !disabled && 'bg-bg-3',
                 selected && !disabled && 'bg-bg-primary',
                 disabled && 'opacity-50 cursor-not-allowed'
               )}
@@ -293,7 +372,7 @@ export function Dropdown<T = string>({
   return (
     <>
       {triggerElement}
-      {isOpen && position && <DropdownPortal position={position}>{panelContent}</DropdownPortal>}
+      {isOpen && position && <DropdownPortal position={position} portalRef={portalRef}>{panelContent}</DropdownPortal>}
     </>
   );
 }
