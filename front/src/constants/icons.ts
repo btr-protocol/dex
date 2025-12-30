@@ -1,33 +1,33 @@
 /**
  * Icon mappings - single source of truth
  * Centralizes all icon lookups used across the application
- * Uses UnoCSS Phosphor icons (i-ph-*)
+ * Uses lucide-preact icons
  */
 
 // ============================================================================
-// Feature Icons (Phosphor icon classes)
+// Feature Icons (lucide icon names)
 // ============================================================================
 
 export const FEATURE_ICONS = {
-  'Swap': 'ph-arrow-left-right',
-  'Liquidity': 'ph-lightning-bold',
-  'Stake': 'ph-trend-up',
-  'Metrics': 'ph-text-outline',
-  'Add Asset': 'ph-plus',
-  'Documentation': 'ph-text-outline',
+  'Swap': 'arrow-left-right',
+  'Liquidity': 'zap',
+  'Stake': 'trend-up',
+  'Metrics': 'file-text',
+  'Add Asset': 'plus',
+  'Documentation': 'file-text',
 } as const;
 
 export type FeatureName = keyof typeof FEATURE_ICONS;
 
 // ============================================================================
-// Settings Category Icons (Phosphor icon classes)
+// Settings Category Icons (lucide icon names)
 // ============================================================================
 
 export const SETTINGS_CATEGORY_ICONS = {
-  'execution': 'ph-target',
-  'interface': 'ph-palette',
-  'region': 'ph-globe',
-  'other': 'ph-package',
+  'execution': 'target',
+  'interface': 'palette',
+  'region': 'globe',
+  'other': 'package',
 } as const;
 
 export type SettingsCategoryId = keyof typeof SETTINGS_CATEGORY_ICONS;
