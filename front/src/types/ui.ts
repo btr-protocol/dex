@@ -5,7 +5,7 @@
 
 import type { ComponentChildren } from 'preact';
 
-/** Icon can be: UnoCSS class name, SVG path, or ComponentChildren */
+/** Icon can be: CSS class name, SVG path, or ComponentChildren */
 export type IconType = string | ComponentChildren;
 
 /**
@@ -17,21 +17,10 @@ export interface SelectionItem {
   label: string;
   caption?: string;
   icon?: IconType;
+  miniIcon?: IconType; // Optional smaller icon for FilterButton compact displays
   badge?: ComponentChildren;
   data?: any;
   disabled?: boolean;
-}
-
-/**
- * Filter/multi-select option (used by MultiSelectModal)
- * Specialized item for filter buttons with primary + mini icons
- */
-export interface FilterOption {
-  id: string;
-  name: string;
-  caption?: string;
-  icon: IconType;
-  miniIcon?: IconType;
 }
 
 /**

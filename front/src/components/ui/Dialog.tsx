@@ -1,7 +1,7 @@
 import { FunctionalComponent, ComponentChildren, createContext } from 'preact'
 import { useState, useRef, useEffect, useContext } from 'preact/hooks'
-import { createPortalContainer } from '@lib/portal'
-import { Icon } from './Icon'
+import { createPortal } from 'preact/compat'
+import { CloseButton } from './CloseButton'
 import { cn } from '@utils/cn'
 
 interface DialogContextType {
@@ -68,18 +68,10 @@ const DialogTrigger: FunctionalComponent<{ children: ComponentChildren }> = ({ c
 // Portal - renders dialog outside main tree
 const DialogPortal: FunctionalComponent<{ children: ComponentChildren }> = ({ children }) => {
   const { isOpen } = useDialogContext()
-  const containerRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
-    if (isOpen && !containerRef.current) {
-      containerRef.current = createPortalContainer('dialog-portal')
-    }
-  }, [isOpen])
+  if (!isOpen) return null
 
-  // Render portal content directly as JSX
-  return isOpen && containerRef.current
-    ? ((children as any) as any)
-    : null
+  return createPortal(children, document.body)
 }
 
 // Overlay - backdrop
@@ -106,16 +98,19 @@ const DialogOverlay: FunctionalComponent<{ className?: string; onPointerDownOuts
     }
   }, [isOpen, setIsOpen, onPointerDownOutside])
 
+  // Don't render overlay when dialog is closed
+  if (!isOpen) return null
+
   return (
     <div
       ref={overlayRef}
       className={cn(
-        'fixed inset-0 z-50 bg-bg-1/80 backdrop-blur-sm',
+        'fixed inset-0 z-50 bg-bg-0/50 backdrop-blur-sm',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         className
       )}
-      data-state={isOpen ? 'open' : 'closed'}
+      data-state="open"
     />
   )
 }
@@ -200,6 +195,9 @@ const DialogContent: FunctionalComponent<DialogContentProps> = ({
     }
   }, [isOpen, setIsOpen, closable])
 
+  // Don't render anything when dialog is closed
+  if (!isOpen) return null
+
   return (
     <div
       ref={contentRef}
@@ -217,19 +215,15 @@ const DialogContent: FunctionalComponent<DialogContentProps> = ({
       )}
       role="dialog"
       aria-modal="true"
-      data-state={isOpen ? 'open' : 'closed'}
+      data-state="open"
     >
       {children}
       {closable && (
-        <button
-          type="button"
+        <CloseButton
           onClick={() => setIsOpen(false)}
-          className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 focus:outline-none disabled:pointer-events-none"
-          aria-label="Close"
-        >
-          <Icon name="x" className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </button>
+          size={20}
+          className="absolute right-3 top-3"
+        />
       )}
     </div>
   )

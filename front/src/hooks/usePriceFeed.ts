@@ -15,11 +15,12 @@ interface Candle {
 
 // Quote priority: higher index = higher priority as quote currency
 const QUOTE_PRIORITY = ['ETH', 'BTC', 'USD1', 'RLUSD', 'PYUSD', 'DAI', 'USDS', 'USDE', 'USDT', 'USDC'];
+const QUOTE_PRIORITY_MAP = new Map(QUOTE_PRIORITY.map((q, i) => [q, i]));
 
 // Get canonical pair ordering (base/quote) based on priority
 export function getCanonicalPair(a: string, b: string): { base: string; quote: string } {
-  const prioA = QUOTE_PRIORITY.indexOf(a);
-  const prioB = QUOTE_PRIORITY.indexOf(b);
+  const prioA = QUOTE_PRIORITY_MAP.get(a) ?? -1;
+  const prioB = QUOTE_PRIORITY_MAP.get(b) ?? -1;
   // Higher priority becomes quote
   return prioB > prioA ? { base: a, quote: b } : { base: b, quote: a };
 }
@@ -224,7 +225,10 @@ export function useCandles(symbol: string, tf = 60, limit = 200) {
       })
       .catch(e => {
         if (!active) return;
-        console.error('[useCandles] Fetch error:', e);
+        // Only log in production or if it's not an HTML response (API not available)
+        if (!e?.message?.includes('Unexpected token')) {
+          console.error('[useCandles] Fetch error:', e);
+        }
         setError(e?.message || 'Failed to load candles');
         setLoading(false);
       });
@@ -321,16 +325,19 @@ export function getPairFeedInfo(base: string, quote: string, feeds: string[]) {
   const unwrappedBase = unwrap(base);
   const unwrappedQuote = unwrap(quote);
 
+  // Convert to Set for O(1) lookups
+  const feedSet = new Set(feeds);
+
   // Try direct feed first
   const direct = `agg:spot:${unwrappedBase}${unwrappedQuote}`;
-  if (feeds.includes(direct)) return { isSynthetic: false, feed: direct, symbol: `${unwrappedBase}${unwrappedQuote}` };
+  if (feedSet.has(direct)) return { isSynthetic: false, feed: direct, symbol: `${unwrappedBase}${unwrappedQuote}` };
 
   // Try USDT/USDC variants for stablecoin quotes or bases
   const stables = ['USDC', 'USDT'];
   if (stables.includes(unwrappedQuote)) {
     for (const s of stables) {
       const f = `agg:spot:${unwrappedBase}${s}`;
-      if (feeds.includes(f)) return { isSynthetic: false, feed: f, symbol: `${unwrappedBase}${s}` };
+      if (feedSet.has(f)) return { isSynthetic: false, feed: f, symbol: `${unwrappedBase}${s}` };
     }
   }
 
@@ -338,13 +345,13 @@ export function getPairFeedInfo(base: string, quote: string, feeds: string[]) {
   if (stables.includes(unwrappedBase)) {
     for (const s of stables) {
       const f = `agg:spot:${unwrappedBase}${s}`;
-      if (feeds.includes(f)) return { isSynthetic: false, feed: f, symbol: `${unwrappedBase}${s}` };
+      if (feedSet.has(f)) return { isSynthetic: false, feed: f, symbol: `${unwrappedBase}${s}` };
     }
   }
 
   // Triangulation: base/USDC / quote/USDC (prefer USDC over USDT)
-  const baseFeed = feeds.find(f => f.includes(`${unwrappedBase}USDC`)) || feeds.find(f => f.includes(`${unwrappedBase}USDT`));
-  const quoteFeed = feeds.find(f => f.includes(`${unwrappedQuote}USDC`)) || feeds.find(f => f.includes(`${unwrappedQuote}USDT`));
+  const baseFeed = feeds.find(f => f.includes(`${unwrappedBase}USDC`) || f.includes(`${unwrappedBase}USDT`));
+  const quoteFeed = feeds.find(f => f.includes(`${unwrappedQuote}USDC`) || f.includes(`${unwrappedQuote}USDT`));
 
   if (baseFeed && quoteFeed) {
     return {

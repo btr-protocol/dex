@@ -1482,7 +1482,10 @@ export class DrawingToolsPrimitive implements ISeriesPrimitive<Time> {
       if (d.id === '__temp__') continue;
 
       const paneIndex = d.paneIndex ?? 0;
-      const pts = d.points.map(pt => this._drawingPointToScreen(pt, paneIndex)).filter((pt): pt is Point => pt !== null);
+      const pts = d.points.flatMap(pt => {
+        const screenPt = this._drawingPointToScreen(pt, paneIndex);
+        return screenPt !== null ? [screenPt] : [];
+      });
       if (pts.length === 0) continue;
 
       if (this._hitTestDrawing(p, d.type, pts)) {

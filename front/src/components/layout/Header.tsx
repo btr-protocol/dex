@@ -7,7 +7,7 @@ import { SearchModal } from '@components/features/search';
 import { SettingsModal, NotificationsModal } from '@components/features/modals';
 import { Badge } from '@components/ui/Badge';
 import { Tooltip } from '@components/ui/Tooltip';
-import { useNotifications, removeNotification } from '@lib/notifications';
+import { useNotifications, useNotificationLog, clearLog } from '@lib/notifications';
 import { LogLevel, type INotification } from '@/types/notification';
 import { headerNavigation, ROUTES } from '@/constants/navigation';
 
@@ -16,7 +16,8 @@ export function Header() {
   const [showSearch, setShowSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const notifications = useNotifications();
+  const toastNotifications = useNotifications();
+  const logNotifications = useNotificationLog();
 
   // Cmd+K / Ctrl+K to open search
   useEffect(() => {
@@ -30,8 +31,8 @@ export function Header() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Map simple notifications to INotification format
-  const mappedNotifications: INotification[] = notifications.map(n => ({
+  // Map persistent log notifications to INotification format
+  const mappedNotifications: INotification[] = logNotifications.map(n => ({
     id: n.id,
     message: n.message || n.title,
     level: n.type === 'error' ? LogLevel.ERROR
@@ -103,9 +104,9 @@ export function Header() {
                 className="toolbar-btn border-r border-border relative"
               >
                 <Icon name="bell" className="w-4 h-4" />
-                {notifications.length > 0 && (
+                {logNotifications.length > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-black text-[10px] font-bold rounded-full flex items-center justify-center">
-                    {notifications.length > 9 ? '9+' : notifications.length}
+                    {logNotifications.length > 9 ? '9+' : logNotifications.length}
                   </span>
                 )}
               </button>
@@ -140,15 +141,7 @@ export function Header() {
         isOpen={showNotifications}
         onClose={() => setShowNotifications(false)}
         notifications={mappedNotifications}
-        onDeleteNotification={removeNotification}
-        onDeleteGroup={(message) => {
-          mappedNotifications
-            .filter(n => n.message === message)
-            .forEach(n => removeNotification(n.id));
-        }}
-        onClearAll={() => {
-          notifications.forEach(n => removeNotification(n.id));
-        }}
+        onClearAll={clearLog}
       />
     </>
   );

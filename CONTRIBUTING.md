@@ -89,6 +89,25 @@ Co-Authored / Generated with Claude (never mention AI)
 
 ---
 
+## Dead Code Policy
+
+**⚠️ ZERO TOLERANCE for dead code**
+
+- ❌ NO deprecated code, backward compatibility layers, or compatibility shims
+- ❌ NO commented-out code blocks
+- ❌ NO unused imports, functions, types, or variables
+- ❌ NO "TODO: remove this later" comments
+- ✅ Delete unused code immediately
+- ✅ Update all usages when refactoring
+- ✅ Clean slate - if it's not used, it's gone
+
+**When refactoring:**
+1. Update all usages first
+2. Delete old code completely
+3. No transition period with both versions
+
+---
+
 ## Pre-Commit Checklist
 
 - [ ] Change is atomic (one logical change)
@@ -98,6 +117,7 @@ Co-Authored / Generated with Claude (never mention AI)
 - [ ] No AI tool mentions in message
 - [ ] Code compiles without errors
 - [ ] Only related files included
+- [ ] No dead code, deprecated exports, or unused imports
 
 ---
 

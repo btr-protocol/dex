@@ -2,9 +2,9 @@
  * ImageWithFallback - Image with automatic fallback to default logo
  * Replaces 3+ icon loading patterns with fallback handler
  */
-import { JSX } from 'preact';
+import type { HTMLAttributes } from 'preact/compat';
 
-interface ImageWithFallbackProps extends JSX.HTMLAttributes<HTMLImageElement> {
+interface ImageWithFallbackProps extends HTMLAttributes<HTMLImageElement> {
   src: string;
   alt?: string;
   fallbackSrc?: string;

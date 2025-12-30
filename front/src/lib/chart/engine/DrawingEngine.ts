@@ -8,7 +8,7 @@ export class DrawingEngine {
   public selectedIds = signal<Set<string>>(new Set());
   private tools = new Map<DrawingToolType, IDrawingTool>();
   
-  // Keep onUpdate for legacy support if needed, but signals are preferred
+  // Optional callback for external state sync (signals are primary)
   private onUpdate?: () => void;
 
   constructor(onUpdate?: () => void) {

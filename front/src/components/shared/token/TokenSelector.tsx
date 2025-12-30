@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'preact/hooks';
-import { SelectionModal, SelectionItem } from '@components/ui/SelectionModal';
-import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
+import { SelectionModal, SelectionItem, FilterButton } from '@components/ui/SelectionModal';
 import { Badge } from '@components/ui/Badge';
 import { TOKENS, CHAINS, getAllTokensForChain, getSupportedChainIds, tokenMatchesSearch, getTokenIcon, getChainIcon, isTestOrLocalChain } from '@sdk/eth';
 import { SUPPORTED_CHAINS_CONFIG, SUPPORTED_TOKENS_CONFIG, isTokenSupported } from '@/constants/tokens';
@@ -22,6 +21,9 @@ const ALL_SDK_CHAINS = getSupportedChainIds();
 const ALL_SUPPORTED_CHAIN_IDS = SUPPORTED_CHAINS_CONFIG.filter(id =>
   ALL_SDK_CHAINS.includes(id as number)
 ) as number[];
+
+// Build token index for fast sorting
+const TOKEN_INDEX = new Map(SUPPORTED_TOKENS_CONFIG.map((t, i) => [t, i]));
 
 // Helper to get token symbols for a chain (filtered by config)
 function getTokensForChain(chainId: number): string[] {
@@ -50,12 +52,12 @@ export function TokenSelector({
   }, [settings.showTestNetworks]);
 
   // Build chain filter options from filtered SDK chains (in config order)
-  const chainFilterOptions: FilterOption[] = useMemo(() => {
+  const chainFilterOptions: SelectionItem[] = useMemo(() => {
     return supportedChainIds.map((id) => {
       const icon = getChainIcon(id);
       return {
         id: String(id),
-        name: CHAINS[id].name,
+        label: CHAINS[id].name,
         icon,
         miniIcon: icon.replace('.svg', '-mono.svg'),
       };
@@ -74,8 +76,8 @@ export function TokenSelector({
       getTokensForChain(Number(chain)).forEach((token) => allTokens.add(token));
     });
     return Array.from(allTokens).sort((a, b) =>
-      SUPPORTED_TOKENS_CONFIG.indexOf(a as typeof SUPPORTED_TOKENS_CONFIG[number]) -
-      SUPPORTED_TOKENS_CONFIG.indexOf(b as typeof SUPPORTED_TOKENS_CONFIG[number])
+      (TOKEN_INDEX.get(a as typeof SUPPORTED_TOKENS_CONFIG[number]) ?? 1000) -
+      (TOKEN_INDEX.get(b as typeof SUPPORTED_TOKENS_CONFIG[number]) ?? 1000)
     );
   }, [selectedChains]);
 
@@ -113,16 +115,14 @@ export function TokenSelector({
     return tokenMatchesSearch(item.id, search);
   };
 
-  // Filter section with chain selector button
-  const filterSection = (
-    <div className="p-3 border-b border-border">
-      <FilterButton
-        label="Chains"
-        options={chainFilterOptions}
-        selected={selectedChains}
-        onClick={() => setIsChainFilterOpen(true)}
-      />
-    </div>
+  // Filter button for header row
+  const headerFilter = (
+    <FilterButton
+      label="Chains"
+      options={chainFilterOptions}
+      selected={selectedChains}
+      onClick={() => setIsChainFilterOpen(true)}
+    />
   );
 
   return (
@@ -137,20 +137,22 @@ export function TokenSelector({
         onSelect={handleSelect}
         multiSelect={multiSelect}
         filterFn={filterFn}
-        filterSection={filterSection}
+        headerRight={headerFilter}
         emptyMessage="No tokens found"
         maxWidth="max-w-md"
         applyLabel="Ok"
       />
 
-      <MultiSelectModal
+      <SelectionModal
         isOpen={isChainFilterOpen}
         onClose={() => setIsChainFilterOpen(false)}
         title="Filter by Chain"
-        placeholder="Network or chain id..."
-        options={chainFilterOptions}
-        selected={selectedChains}
-        onApply={setSelectedChains}
+        searchPlaceholder="Network or chain id..."
+        items={chainFilterOptions}
+        selectedIds={selectedChains}
+        onSelect={(selected) => setSelectedChains(Array.isArray(selected) ? selected : [selected])}
+        multiSelect={true}
+        minSelect={1}
       />
     </>
   );

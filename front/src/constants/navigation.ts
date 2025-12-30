@@ -192,8 +192,3 @@ export const ROUTES = {
   SETTINGS: specialRoutes.settings,
 } as const
 
-// ============================================================================
-// Legacy Export (for backward compatibility with router)
-// ============================================================================
-
-export const navRoutes = pageRoutes

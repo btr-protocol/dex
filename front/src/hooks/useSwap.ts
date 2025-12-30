@@ -309,6 +309,3 @@ export function formatQuote(quote: SwapQuote | null, decimals: number = 18) {
     priceImpact: (priceImpactBps / 100).toFixed(2),
   };
 }
-
-// Re-export from SDK for backward compatibility
-export { getTokenAddress } from '@sdk/eth';

@@ -1,11 +1,12 @@
-import { JSX, Ref } from 'preact';
+import { Ref } from 'preact';
+import type { HTMLAttributes } from 'preact/compat';
 import { cn } from '@utils/cn';
 import { cva } from '@utils/cva';
 import { type Size, BORDER_RADIUS, SIZE_HEIGHTS, SIZE_PADDINGS, SIZE_TEXT } from '@/constants/design';
 
 type InputVariant = 'default' | 'amount' | 'address' | 'number' | 'search';
 
-export interface InputProps extends Omit<JSX.HTMLAttributes<HTMLInputElement>, 'size'> {
+export interface InputProps extends Omit<HTMLAttributes<HTMLInputElement>, 'size'> {
   variant?: InputVariant
   size?: Size
   type?: string

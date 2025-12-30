@@ -1,9 +1,10 @@
-import { JSX, Ref, cloneElement, isValidElement, ComponentChildren } from "preact"
+import { Ref, cloneElement, isValidElement, ComponentChildren, JSX } from "preact"
+import type { HTMLAttributes } from "preact/compat"
 import { cn } from "@utils/cn"
 import { cva } from "@utils/cva"
 import { BORDER_RADIUS } from '@/constants/design'
 
-export interface ButtonGroupProps extends JSX.HTMLAttributes<HTMLDivElement> {
+export interface ButtonGroupProps extends HTMLAttributes<HTMLDivElement> {
   direction?: "horizontal" | "vertical"
   variant?: "default" | "compact" | "outlined"
   ref?: Ref<HTMLDivElement>

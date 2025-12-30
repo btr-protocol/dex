@@ -42,6 +42,10 @@ export function useSparklineData(feedSymbol: string | null): SparklineData {
         fetch(`${API_URL}/api/candles?symbol=${feedSymbol}&timeframe=${SPARKLINE_TIMEFRAME}&limit=${SPARKLINE_LIMIT}`)
             .then(r => {
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const contentType = r.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server returned non-JSON response (backend may not be running)');
+                }
                 return r.json();
             })
             .then(data => {
@@ -55,9 +59,13 @@ export function useSparklineData(feedSymbol: string | null): SparklineData {
             })
             .catch(e => {
                 if (!active) return;
-                console.error(`[useSparklineData] Error fetching ${feedSymbol}:`, e);
-                setError(e?.message || 'Failed to load sparkline data');
+                // Silently use empty array for sparklines when backend is unavailable
+                setPrices([]);
                 setLoading(false);
+                // Only log once to avoid console spam
+                if (error === null) {
+                    console.warn(`[useSparklineData] ${feedSymbol}: Backend unavailable`);
+                }
             });
 
         return () => { active = false; };

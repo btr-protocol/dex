@@ -1,9 +1,10 @@
-import { FunctionalComponent, JSX } from 'preact'
+import { FunctionalComponent } from 'preact'
+import type { HTMLAttributes } from 'preact/compat'
 import { useRef } from 'preact/hooks'
 import { Icon } from './Icon'
 import { cn } from '@utils/cn'
 
-export interface CheckboxProps extends JSX.HTMLAttributes<HTMLInputElement> {
+export interface CheckboxProps extends HTMLAttributes<HTMLInputElement> {
   checked?: boolean
   onCheckedChange?: (checked: boolean) => void
   disabled?: boolean
@@ -32,7 +33,7 @@ const Checkbox: FunctionalComponent<CheckboxProps> = ({
         onChange={handleChange}
         disabled={disabled}
         className={cn(
-          'peer h-4 w-4 shrink-0 rounded-xs border border-primary',
+          'peer h-5 w-5 shrink-0 rounded-xs border border-primary',
           'ring-offset-background focus-visible:outline-none',
           'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
           'disabled:cursor-not-allowed disabled:opacity-50',
@@ -49,7 +50,7 @@ const Checkbox: FunctionalComponent<CheckboxProps> = ({
             disabled && 'opacity-50'
           )}
         >
-          <Icon name="check" className="h-3 w-3 text-primary" />
+          <Icon name="check" className="h-5 w-5 text-primary" />
         </div>
       )}
     </div>

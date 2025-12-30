@@ -1,11 +1,11 @@
 import { createContext, JSX } from 'preact';
 import { useContext, useEffect, useState } from 'preact/hooks';
 import { ComponentChildren } from 'preact';
-import { navRoutes } from '@/constants/navigation';
+import { pageRoutes } from '@/constants/navigation';
 
-// Get route by path from navRoutes
+// Get route by path from pageRoutes
 const getRouteByPath = (path: string) => {
-  return navRoutes.find(r => r.path === path);
+  return pageRoutes.find(r => r.path === path);
 };
 
 const RouterCtx = createContext<any>(null);

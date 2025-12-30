@@ -1,10 +1,11 @@
-import { JSX, Ref } from 'preact';
+import { Ref } from 'preact';
+import type { HTMLAttributes } from 'preact/compat';
 import { cn } from '@utils/cn';
 import { cva } from '@utils/cva';
 
 type CardVariant = 'default' | 'nested' | 'inset';
 
-export interface CardProps extends JSX.HTMLAttributes<HTMLDivElement> {
+export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   variant?: CardVariant;
   ref?: Ref<HTMLDivElement>;
 }
@@ -31,7 +32,7 @@ export function Card({ className, variant = 'default', ...props }: CardProps) {
   );
 }
 
-export function CardHeader(props: JSX.HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
+export function CardHeader(props: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
   const { className, ...rest } = props;
   return (
     <div
@@ -41,7 +42,7 @@ export function CardHeader(props: JSX.HTMLAttributes<HTMLDivElement> & { ref?: R
   );
 }
 
-export function CardTitle(props: JSX.HTMLAttributes<HTMLHeadingElement> & { ref?: Ref<HTMLHeadingElement> }) {
+export function CardTitle(props: HTMLAttributes<HTMLHeadingElement> & { ref?: Ref<HTMLHeadingElement> }) {
   const { className, ...rest } = props;
   return (
     <h3
@@ -51,7 +52,7 @@ export function CardTitle(props: JSX.HTMLAttributes<HTMLHeadingElement> & { ref?
   );
 }
 
-export function CardDescription(props: JSX.HTMLAttributes<HTMLParagraphElement> & { ref?: Ref<HTMLParagraphElement> }) {
+export function CardDescription(props: HTMLAttributes<HTMLParagraphElement> & { ref?: Ref<HTMLParagraphElement> }) {
   const { className, ...rest } = props;
   return (
     <p
@@ -61,14 +62,14 @@ export function CardDescription(props: JSX.HTMLAttributes<HTMLParagraphElement> 
   );
 }
 
-export function CardContent(props: JSX.HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
+export function CardContent(props: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
   const { className, ...rest } = props;
   return (
     <div className={cn('p-6 pt-0', className)} {...rest} />
   );
 }
 
-export function CardFooter(props: JSX.HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
+export function CardFooter(props: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
   const { className, ...rest } = props;
   return (
     <div

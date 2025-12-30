@@ -30,11 +30,11 @@ export function ExternalLinkModal({ isOpen, onClose, url, onConfirm }: ExternalL
         />
       }
     >
-      <div className={`${MODAL_PADDING} py-4 space-y-2`}>
-        <p className="text-sm text-muted-foreground">
-          You're navigating to <span className="font-mono text-foreground">{domain}</span>
+      <div className={`${MODAL_PADDING} py-4 text-sm text-fg-1`}>
+        <p>
+          You're navigating to <span className="pl-1.5 font-mono text-foreground">{domain}</span>
         </p>
-        <p className="text-xs text-fg-3">
+        <p className="mt-0">
           BTR is not responsible for content or security of third-party sites.
         </p>
       </div>
