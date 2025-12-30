@@ -9,7 +9,7 @@ import { searchGrouped, initializeSearch } from '@lib/search';
 import { useRouter } from '@lib/router';
 import { useModalState } from '@hooks/useModalState';
 import { ROUTES } from '@/constants/navigation';
-import { SearchSection } from './SearchSection';
+import { ModalSection } from '@components/ui/ModalSection';
 import { SearchResultItem, TokenIcon } from './SearchResultItem';
 import {
   getFeatureIcon,
@@ -90,30 +90,26 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
         />
       }
     >
-      <div className="p-2">
+      <div className="flex flex-col">
         {!query.trim() ? (
           <div className="px-4 py-8 text-center text-muted-foreground text-sm">
             Type to search features, settings, links, and documentation
           </div>
         ) : allResults.length === 0 ? (
-          <EmptyState
-            query={query}
-            message="No results found"
-            action={{
-              label: 'Clear search',
-              onClick: () => setQuery(''),
-            }}
-          />
+          <div className="px-4">
+            <EmptyState
+              query={query}
+              message="No results found"
+              action={{
+                label: 'Clear search',
+                onClick: () => setQuery(''),
+              }}
+            />
+          </div>
         ) : (
-          <div className="flex flex-col">
+          <div className="space-y-3">
             {filteredFeatures.length > 0 && (
-              <SearchSection
-                title="Features"
-                icon="zap"
-                dividerVisible={
-                  results.Settings.length > 0 || results.Links.length > 0 || results.Docs.length > 0
-                }
-              >
+              <ModalSection title="Features" icon="zap">
                 {filteredFeatures.map((result, idx) => {
                   const iconName = getFeatureIcon(result.title);
                   const tokenSymbol = getTokenFromTitle(result.title);
@@ -135,15 +131,11 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
                     />
                   );
                 })}
-              </SearchSection>
+              </ModalSection>
             )}
 
             {results.Settings.length > 0 && (
-              <SearchSection
-                title="Settings"
-                icon="gear"
-                dividerVisible={results.Links.length > 0 || results.Docs.length > 0}
-              >
+              <ModalSection title="Settings" icon="settings">
                 {results.Settings.map((result, idx) => {
                   const globalIndex = filteredFeatures.length + idx;
                   const iconType = getSettingsIcon(result.title);
@@ -165,15 +157,11 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
                     />
                   );
                 })}
-              </SearchSection>
+              </ModalSection>
             )}
 
             {results.Links.length > 0 && (
-              <SearchSection
-                title="Links"
-                icon="link"
-                dividerVisible={results.Docs.length > 0}
-              >
+              <ModalSection title="Links" icon="link">
                 {results.Links.map((result, idx) => {
                   const globalIndex = filteredFeatures.length + results.Settings.length + idx;
                   const iconPath = getLinkIcon(result.title);
@@ -195,11 +183,11 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
                     />
                   );
                 })}
-              </SearchSection>
+              </ModalSection>
             )}
 
             {results.Docs.length > 0 && (
-              <SearchSection title="Docs" icon="file-text" dividerVisible={false}>
+              <ModalSection title="Docs" icon="file-text">
                 {results.Docs.map((result, idx) => {
                   const globalIndex =
                     filteredFeatures.length + results.Settings.length + results.Links.length + idx;
@@ -215,7 +203,7 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
                     />
                   );
                 })}
-              </SearchSection>
+              </ModalSection>
             )}
           </div>
         )}

@@ -6,6 +6,7 @@ import { Divider } from '@components/ui/Divider';
 import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
 import { EmptyState } from '@components/ui/EmptyState';
 import { WalletItemButton } from '@components/ui/WalletItemButton';
+import { ModalSection } from '@components/ui/ModalSection';
 import { useWallet } from '@lib/wallet';
 import { useWalletConnection } from '@hooks/useWalletConnection';
 import {
@@ -25,6 +26,7 @@ import { Icon } from '@components/ui/Icon';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Button } from '@components/ui/Button';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
+import { legalRoutes } from '@/constants/navigation';
 
 interface WalletModalProps {
     isOpen: boolean;
@@ -294,7 +296,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                                         className="text-sm text-muted-foreground leading-relaxed cursor-pointer"
                                     >
                                         I agree to {' '}
-                                        <a href="#" className="text-primary/80 underline hover:text-primary">
+                                        <a href={legalRoutes[0]?.path} className="text-primary/80 underline hover:text-primary">
                                             BTR's Terms of Service
                                         </a>{' '}
                                         {/* and{' '}
@@ -311,7 +313,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                         <div className="space-y-3">
                                 {/* Detected wallets */}
                                 {filteredDetected.length > 0 && (
-                                    <WalletSection title="Installed">
+                                    <ModalSection title="Installed">
                                         {filteredDetected.map((wallet, idx) => {
                                             const globalIdx = idx;
                                             const isHighlighted = selectedIndex === globalIdx;
@@ -328,24 +330,24 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                                                 />
                                             );
                                         })}
-                                    </WalletSection>
+                                    </ModalSection>
                                 )}
 
                                 {/* WalletConnect section - always show if no search or search matches */}
                                 {(!searchQuery || 'walletconnect'.includes(searchQuery.toLowerCase())) && (
-                                    <WalletSection title="WalletConnect">
+                                    <ModalSection title="WalletConnect">
                                         <WalletConnectButton
                                             disabled={!agreedToTerms || connectingWallet !== null}
                                             isLoading={isLoadingWC}
                                             onClick={handleWalletConnect}
                                             isHighlighted={selectedIndex === filteredDetected.length}
                                         />
-                                    </WalletSection>
+                                    </ModalSection>
                                 )}
 
                                 {/* Discover section */}
                                 {filteredDiscover.length > 0 && (
-                                    <WalletSection title="Discover">
+                                    <ModalSection title="Discover">
                                         {filteredDiscover.map((walletId, idx) => {
                                             const wcOffset = (!searchQuery || 'walletconnect'.includes(searchQuery.toLowerCase())) ? 1 : 0;
                                             const globalIdx = filteredDetected.length + wcOffset + idx;
@@ -365,7 +367,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                                                 />
                                             );
                                         })}
-                                    </WalletSection>
+                                    </ModalSection>
                                 )}
 
                                 {/* No results */}
@@ -417,29 +419,6 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                 )}
             </div>
         </BaseModal>
-    );
-}
-
-// Section with title that highlights when children are hovered
-function WalletSection({ title, children }: { title: string; children: ComponentChildren }) {
-    const [isChildHovered, setIsChildHovered] = useState(false);
-
-    return (
-        <div className="">
-            <div
-                className={`text-xs uppercase tracking-wider px-3 transition-colors ${
-                    isChildHovered ? 'text-primary' : 'text-muted-foreground'
-                }`}
-            >
-                {title}
-            </div>
-            <div
-                onMouseEnter={() => setIsChildHovered(true)}
-                onMouseLeave={() => setIsChildHovered(false)}
-            >
-                {children}
-            </div>
-        </div>
     );
 }
 

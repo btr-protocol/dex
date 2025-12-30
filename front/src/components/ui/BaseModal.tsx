@@ -1,5 +1,5 @@
 import { type ComponentChildren } from 'preact';
-import { Dialog, DialogContent, DialogTitle } from '@components/ui/Dialog';
+import { Dialog, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from '@components/ui/Dialog';
 import { VisuallyHidden } from '@components/ui/VisuallyHidden';
 import { cn } from '@utils/cn';
 import { ModalHeader } from '@components/ui/ModalHeader';
@@ -17,7 +17,7 @@ export interface BaseModalProps {
   headerIcon?: ComponentChildren;
   headerRight?: ComponentChildren;
   children: ComponentChildren;
-  /** Legacy footer support */
+  /** Simple footer content */
   footer?: ComponentChildren;
   /** Navigation shortcuts (top of footer, same bg as body) */
   footerNav?: ComponentChildren;
@@ -61,40 +61,43 @@ export function BaseModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      {/* @ts-ignore - variant prop is custom extension */}
-      <DialogContent variant="flush" closable={false} className={cn(maxWidth, 'flex flex-col max-h-[80vh] font-title')}>
-        {/* Visually hidden title for accessibility */}
-        <VisuallyHidden>
-          <DialogTitle>{title}</DialogTitle>
-        </VisuallyHidden>
+      <DialogPortal>
+        <DialogOverlay />
+        {/* @ts-ignore - variant prop is custom extension */}
+        <DialogContent variant="flush" closable={false} className={cn(maxWidth, 'flex flex-col max-h-[min(50rem,80vh)] font-title')}>
+          {/* Visually hidden title for accessibility */}
+          <VisuallyHidden>
+            <DialogTitle>{title}</DialogTitle>
+          </VisuallyHidden>
 
-        {/* Header */}
-        <ModalHeader
-          title={title}
-          headerType={headerType}
-          headerIcon={headerIcon}
-          headerRight={headerRight}
-          onClose={onClose}
-          placeholder={placeholder}
-          searchValue={searchValue}
-          onSearchChange={onSearchChange}
-          onSearchKeyDown={onSearchKeyDown}
-          isOpen={isOpen}
-          bg={headerBg}
-        />
+          {/* Header */}
+          <ModalHeader
+            title={title}
+            headerType={headerType}
+            headerIcon={headerIcon}
+            headerRight={headerRight}
+            onClose={onClose}
+            placeholder={placeholder}
+            searchValue={searchValue}
+            onSearchChange={onSearchChange}
+            onSearchKeyDown={onSearchKeyDown}
+            isOpen={isOpen}
+            bg={headerBg}
+          />
 
-        {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto min-h-0">{children as any}</div>
+          {/* Scrollable Body */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">{children as any}</div>
 
-        {/* Footer */}
-        <ModalFooter
-          footer={footer}
-          footerNav={footerNav}
-          footerContent={footerContent}
-          footerControls={footerControls}
-          contrastHeader={contrastHeader}
-        />
-      </DialogContent>
+          {/* Footer */}
+          <ModalFooter
+            footer={footer}
+            footerNav={footerNav}
+            footerContent={footerContent}
+            footerControls={footerControls}
+            contrastHeader={contrastHeader}
+          />
+        </DialogContent>
+      </DialogPortal>
     </Dialog>
   );
 }

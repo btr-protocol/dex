@@ -31,7 +31,7 @@ export function SearchResultItem({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-sm text-left transition-colors ${justifyClass} ${
+      className={`flex items-center gap-3 px-3 py-2.5 text-left transition-colors w-full ${justifyClass} ${
         isSelected ? 'bg-bg-2' : 'hover:bg-bg-2'
       }`}
     >
