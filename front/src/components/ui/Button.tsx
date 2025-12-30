@@ -1,4 +1,6 @@
-import { ComponentChildren, JSX } from "preact"
+import { ComponentChildren } from "preact"
+import type { HTMLAttributes, Ref } from "preact/compat"
+import { forwardRef } from "preact/compat"
 import { cn } from "@utils/cn"
 import { cva } from "@utils/cva"
 import {
@@ -10,12 +12,13 @@ import {
   SIZE_GAPS
 } from '@/constants/design'
 
-export interface ButtonProps extends JSX.HTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends HTMLAttributes<HTMLButtonElement> {
   variant?: "default" | "primary" | "outlined" | "ghost" | "glass"
   size?: Size
   leftIcon?: ComponentChildren
   rightIcon?: ComponentChildren
   disabled?: boolean
+  ref?: Ref<HTMLButtonElement>
 }
 
 const buttonVariants = cva(
@@ -25,7 +28,7 @@ const buttonVariants = cva(
       variant: {
         default: "bg-muted hover:bg-muted/80 text-fg-1",
         primary: "bg-primary text-black hover:bg-primary/90 font-semibold",
-        outlined: "bg-transparent border border-border hover:border-primary/60 hover:bg-primary/10 text-fg-2",
+        outlined: "bg-transparent border border-fg-2 hover:border-primary/60 hover:bg-primary/10 text-fg-1",
         ghost: "bg-transparent hover:bg-accent hover:text-accent-foreground",
         glass: "bg-white/5 border border-white/10 hover:bg-white/10 text-fg-2",
       },
@@ -54,7 +57,7 @@ const PADDING_X = {
   "compact-xl": { base: "px-4", left: "pl-3", right: "pr-3" },
 }
 
-export function Button({
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(({
   className,
   variant = "default",
   size = "default",
@@ -62,7 +65,7 @@ export function Button({
   rightIcon,
   children,
   ...props
-}: ButtonProps) {
+}, ref) => {
   // Optimization: Pre-calculate icon-only state
   const isIconOnly = !children && (!!leftIcon || !!rightIcon)
 
@@ -80,6 +83,7 @@ export function Button({
 
   return (
     <button
+      ref={ref}
       className={buttonVariants({
         variant: variant as any,
         size,
@@ -92,4 +96,4 @@ export function Button({
       {rightIcon && <span className="shrink-0 text-fg-3">{rightIcon}</span>}
     </button>
   )
-}
+})
