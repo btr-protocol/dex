@@ -2,9 +2,8 @@
 @import "./styles/constants.css";
 @import "./styles/markdown.css";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* UnoCSS is loaded via virtual:uno.css in main.tsx */
+/* Tailwind directives removed - not compatible with UnoCSS */
 
 @layer base {
     html,

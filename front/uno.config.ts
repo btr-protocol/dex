@@ -3,7 +3,9 @@ import presetIcons from '@unocss/preset-icons'
 
 export default defineConfig({
   presets: [
-    presetWind(), // Tailwind CSS compatibility preset
+    presetWind({
+      preflight: true, // Enable Tailwind-style reset
+    }),
     presetIcons({
       extraProperties: {
         display: 'inline-block',
@@ -11,9 +13,136 @@ export default defineConfig({
       },
     }),
   ],
+  safelist: [
+    // Rounded utilities
+    'rounded', 'rounded-none', 'rounded-sm', 'rounded-md', 'rounded-lg', 'rounded-xl', 'rounded-2xl', 'rounded-full',
+    'rounded-t-lg', 'rounded-b-lg', 'rounded-l-sm', 'rounded-r-sm', 'rounded-xs',
+    // Common spacing/sizing
+    'gap-1', 'gap-1.5', 'gap-2', 'gap-2.5', 'gap-3', 'gap-4',
+    'px-2', 'px-3', 'px-4', 'py-1', 'py-1.5', 'py-2', 'py-2.5',
+    'h-8', 'h-10', 'h-12', 'w-full',
+    // Transitions
+    'transition-colors', 'duration-150',
+    // Display/flex
+    'inline-flex', 'flex', 'items-center', 'justify-center',
+  ],
   content: {
-    filesystem: ['./index.html', './src/**/*.{vue,js,ts,jsx,tsx}'],
+    pipeline: {
+      include: [
+        /\.(vue|svelte|[jt]sx|mdx?|astro|html)($|\?)/,
+        'src/**/*.{js,ts,jsx,tsx}',
+      ],
+    },
   },
+  rules: [
+    // Custom z-index utilities
+    [/^z-tooltip$/, () => ({ 'z-index': 'var(--z-index-tooltip)' })],
+
+    // Custom font family utilities
+    [/^font-numbers$/, () => ({ 'font-family': 'var(--font-numbers)' })],
+    [/^font-title$/, () => ({ 'font-family': 'var(--font-title)' })],
+
+    // Custom background color utilities for hyphenated colors
+    [/^bg-bg-(\d+)$/, ([, n]) => ({ 'background-color': `var(--bg-${n})` })],
+    [/^bg-bg-primary$/, () => ({ 'background-color': 'var(--bg-primary)' })],
+
+    // Semantic background colors
+    [/^bg-background$/, () => ({ 'background-color': 'var(--bg-0)' })],
+    [/^bg-foreground$/, () => ({ 'background-color': 'var(--fg-0)' })],
+    [/^bg-primary$/, () => ({ 'background-color': 'var(--primary)' })],
+    [/^bg-accent$/, () => ({ 'background-color': 'var(--bg-3)' })],
+    [/^bg-muted$/, () => ({ 'background-color': 'var(--bg-2)' })],
+    [/^bg-popover$/, () => ({ 'background-color': 'var(--bg-1)' })],
+    [/^bg-card$/, () => ({ 'background-color': 'var(--bg-1)' })],
+    [/^bg-destructive$/, () => ({ 'background-color': 'var(--red)' })],
+    [/^bg-ring$/, () => ({ 'background-color': 'var(--primary)' })],
+    [/^bg-border$/, () => ({ 'background-color': 'var(--border-color)' })],
+    [/^bg-input$/, () => ({ 'background-color': 'var(--bg-2)' })],
+
+    // Custom text color utilities
+    [/^text-fg-(\d+)$/, ([, n]) => ({ color: `var(--fg-${n})` })],
+    [/^text-primary$/, () => ({ color: 'var(--primary)' })],
+
+    // Semantic text colors
+    [/^text-background$/, () => ({ color: 'var(--bg-0)' })],
+    [/^text-foreground$/, () => ({ color: 'var(--fg-0)' })],
+    [/^text-accent-foreground$/, () => ({ color: 'var(--fg-0)' })],
+    [/^text-muted-foreground$/, () => ({ color: 'var(--fg-2)' })],
+    [/^text-popover-foreground$/, () => ({ color: 'var(--fg-0)' })],
+    [/^text-card-foreground$/, () => ({ color: 'var(--fg-0)' })],
+    [/^text-destructive-foreground$/, () => ({ color: 'var(--white)' })],
+    [/^text-accent$/, () => ({ color: 'var(--fg-0)' })],
+    [/^text-muted$/, () => ({ color: 'var(--fg-2)' })],
+
+    // Border width utilities - ensure solid style and default color
+    [/^border$/, () => ({ 'border-width': '1px', 'border-style': 'solid', 'border-color': 'var(--border-color)' })],
+    [/^border-(\d+)$/, ([, width]) => ({ 'border-width': `${width}px`, 'border-style': 'solid' })],
+    [/^border-([tblr])$/, ([, side]) => {
+      const sides = { t: 'top', b: 'bottom', l: 'left', r: 'right' };
+      return {
+        [`border-${sides[side]}-width`]: '1px',
+        [`border-${sides[side]}-style`]: 'solid'
+      };
+    }],
+    [/^border-([tblr])-(\d+)$/, ([, side, width]) => {
+      const sides = { t: 'top', b: 'bottom', l: 'left', r: 'right' };
+      return {
+        [`border-${sides[side]}-width`]: `${width}px`,
+        [`border-${sides[side]}-style`]: 'solid'
+      };
+    }],
+
+    // Custom border utilities
+    [/^border-border$/, () => ({ 'border-color': 'var(--border-color)' })],
+    [/^border-input$/, () => ({ 'border-color': 'var(--bg-2)' })],
+    [/^border-ring$/, () => ({ 'border-color': 'var(--primary)' })],
+    [/^border-primary$/, () => ({ 'border-color': 'var(--border-color-primary)' })],
+
+    // Hover variants for custom utilities
+    [/^hover:bg-bg-(\d+)$/, ([, n]) => ({
+      '&:hover': { 'background-color': `var(--bg-${n})` }
+    })],
+    [/^hover:text-fg-(\d+)$/, ([, n]) => ({
+      '&:hover': { color: `var(--fg-${n})` }
+    })],
+    // Hover variants for semantic colors
+    [/^hover:bg-primary\/(\d+)$/, ([, n]) => ({
+      '&:hover': { 'background-color': `rgba(var(--primary-rgb), ${parseInt(n) / 100})` }
+    })],
+    [/^hover:bg-accent$/, () => ({
+      '&:hover': { 'background-color': 'var(--bg-3)' }
+    })],
+    [/^hover:text-accent-foreground$/, () => ({
+      '&:hover': { color: 'var(--fg-0)' }
+    })],
+
+    // Border radius utilities - override presetWind defaults
+    [/^rounded-none$/, () => ({ 'border-radius': '0' })],
+    [/^rounded-xs$/, () => ({ 'border-radius': '5px' })],
+    [/^rounded-sm$/, () => ({ 'border-radius': '8px' })],
+    [/^rounded-md$/, () => ({ 'border-radius': '12px' })],
+    [/^rounded-lg$/, () => ({ 'border-radius': '16px' })],
+    [/^rounded-xl$/, () => ({ 'border-radius': '16px' })],
+    [/^rounded-2xl$/, () => ({ 'border-radius': '16px' })],
+    [/^rounded-full$/, () => ({ 'border-radius': '9999px' })],
+    [/^rounded$/, () => ({ 'border-radius': '12px' })],
+    // Directional rounded
+    [/^rounded-t-lg$/, () => ({ 'border-top-left-radius': '16px', 'border-top-right-radius': '16px' })],
+    [/^rounded-b-lg$/, () => ({ 'border-bottom-left-radius': '16px', 'border-bottom-right-radius': '16px' })],
+    [/^rounded-l-sm$/, () => ({ 'border-top-left-radius': '8px', 'border-bottom-left-radius': '8px' })],
+    [/^rounded-r-sm$/, () => ({ 'border-top-right-radius': '8px', 'border-bottom-right-radius': '8px' })],
+
+    // Ring utilities
+    [/^focus-visible:ring-(\d+)$/, ([, n]) => ({
+      '&:focus-visible': {
+        '--un-ring-width': `${n}px`,
+        '--un-ring-offset-shadow': 'var(--un-ring-inset) 0 0 0 var(--un-ring-offset-width) var(--un-ring-offset-color)',
+        '--un-ring-shadow': 'var(--un-ring-inset) 0 0 0 calc(var(--un-ring-width) + var(--un-ring-offset-width)) var(--un-ring-color)',
+        'box-shadow': 'var(--un-ring-offset-shadow), var(--un-ring-shadow), var(--un-shadow)',
+      }
+    })],
+    [/^ring-ring$/, () => ({ '--un-ring-color': 'var(--primary)' })],
+  ],
   darkMode: 'class',
   theme: {
     extend: {
@@ -41,26 +170,32 @@ export default defineConfig({
         'xs': 'var(--xs)',
         's': 'var(--s)',
         'ssm': 'var(--ssm)',
+        'sm': 'var(--sm)',
         'smm': 'var(--smm)',
         'mss': 'var(--mss)',
+        'ms': 'var(--ms)',
         'mms': 'var(--mms)',
         'mmms': 'var(--mmms)',
         'm': 'var(--m)',
+        'ml': 'var(--ml)',
         'mll': 'var(--mll)',
         'lmm': 'var(--lmm)',
         'lm': 'var(--lm)',
         'l': 'var(--l)',
+        'xl': 'var(--xl)',
+        'xxl': 'var(--xxl)',
+        'xxxl': 'var(--xxxl)',
       },
       borderRadius: {
         'none': '0',
-        'xs': 'var(--radius-xs)',    /* 5px - checkboxes, badges, tags, kbd */
-        'sm': 'var(--radius-sm)',    /* 8px - buttons, inputs */
-        'md': 'var(--radius-md)',    /* 12px - cards, forms */
-        'lg': 'var(--radius-lg)',    /* 16px - modals, containers */
-        'xl': 'var(--radius-lg)',    /* alias */
-        '2xl': 'var(--radius-lg)',   /* alias */
+        'xs': '5px',     /* checkboxes, badges, tags, kbd - matches --radius-xs */
+        'sm': '8px',     /* buttons, inputs - matches --radius-sm */
+        'md': '12px',    /* cards, forms - matches --radius-md */
+        'lg': '16px',    /* modals, containers - matches --radius-lg */
+        'xl': '16px',    /* alias for lg */
+        '2xl': '16px',   /* alias for lg */
         'full': '9999px',
-        DEFAULT: 'var(--radius-md)',
+        DEFAULT: '12px', /* matches --radius-md */
       },
       boxShadow: {
         'chain-badge': '0 0 0 1px var(--border-color)',

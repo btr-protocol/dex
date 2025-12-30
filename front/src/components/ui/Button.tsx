@@ -25,8 +25,8 @@ const buttonVariants = cva(
       variant: {
         default: "bg-muted hover:bg-muted/80 text-fg-1",
         primary: "bg-primary text-black hover:bg-primary/90 font-semibold",
-        outlined: "border border-border hover:border-primary/60 hover:bg-primary/10 text-fg-2",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+        outlined: "bg-transparent border border-border hover:border-primary/60 hover:bg-primary/10 text-fg-2",
+        ghost: "bg-transparent hover:bg-accent hover:text-accent-foreground",
         glass: "bg-white/5 border border-white/10 hover:bg-white/10 text-fg-2",
       },
       size: SIZE_HEIGHTS,
