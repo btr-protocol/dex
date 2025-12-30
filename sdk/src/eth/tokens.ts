@@ -535,6 +535,17 @@ export const TOKENS: Record<string, TokenMetadata> = {
   },
 };
 
+// Build wrapper index for fast lookup
+const WRAPPER_INDEX = new Map<string, Array<{ symbol: string; token: TokenMetadata }>>();
+for (const [symbol, token] of Object.entries(TOKENS)) {
+  if (token.wrapperOf) {
+    if (!WRAPPER_INDEX.has(token.wrapperOf)) {
+      WRAPPER_INDEX.set(token.wrapperOf, []);
+    }
+    WRAPPER_INDEX.get(token.wrapperOf)!.push({ symbol, token });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Token Lists
 // ─────────────────────────────────────────────────────────────
@@ -628,8 +639,9 @@ export function tokenMatchesSearch(symbol: string, searchTerm: string): boolean 
   }
 
   // Check wrappers (e.g., searching "WETH" should find "ETH")
-  for (const [wrapperSymbol, wrapper] of Object.entries(TOKENS)) {
-    if (wrapper.wrapperOf === symbol) {
+  const wrappers = WRAPPER_INDEX.get(symbol);
+  if (wrappers) {
+    for (const { symbol: wrapperSymbol, token: wrapper } of wrappers) {
       if (wrapperSymbol.toLowerCase().includes(searchLower)) return true;
       if (wrapper.name.toLowerCase().includes(searchLower)) return true;
       for (const address of Object.values(wrapper.addresses)) {

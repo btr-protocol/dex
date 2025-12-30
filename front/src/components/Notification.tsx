@@ -1,23 +1,14 @@
-import { Icon, ICON_NAMES } from '@components/ui/Icon';
+import { Icon } from '@components/ui/Icon';
 import { Button } from '@components/ui/Button';
 import { Badge } from '@components/ui/Badge';
-import { INotification, LogLevel } from '@/types/notification';
-
-const ICON_MAP = {
-  [LogLevel.DEBUG]: ICON_NAMES.bug,
-  [LogLevel.INFO]: ICON_NAMES.info,
-  [LogLevel.WARNING]: ICON_NAMES.warning,
-  [LogLevel.ERROR]: ICON_NAMES.xCircle,
-};
+import { INotification, LogLevel, ICON_BY_LOG_LEVEL } from '@/types/notification';
 
 interface NotificationProps {
   notification: INotification;
-  onDelete: (id: string) => void;
-  onDeleteGroup: (message: string) => void;
 }
 
-export function Notification({ notification, onDelete, onDeleteGroup }: NotificationProps) {
-  const iconName = ICON_MAP[notification.level];
+export function Notification({ notification }: NotificationProps) {
+  const iconName = ICON_BY_LOG_LEVEL[notification.level];
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -93,22 +84,6 @@ export function Notification({ notification, onDelete, onDeleteGroup }: Notifica
           className="h-auto w-auto p-1.5"
           title="Report"
           leftIcon={<Icon name="bug" className="w-3.5 h-3.5" />}
-        />
-        <Button
-          onClick={() => onDelete(notification.id)}
-          variant="ghost"
-          size="xs"
-          className="h-auto w-auto p-1.5"
-          title="Delete"
-          leftIcon={<Icon name="x" className="w-3.5 h-3.5" />}
-        />
-        <Button
-          onClick={() => onDeleteGroup(notification.message)}
-          variant="ghost"
-          size="xs"
-          className="h-auto w-auto p-1.5 hover:bg-red/10 text-red"
-          title="Delete all"
-          leftIcon={<Icon name="trash" className="w-3.5 h-3.5" />}
         />
       </div>
     </div>

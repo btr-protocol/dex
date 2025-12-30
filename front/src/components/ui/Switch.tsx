@@ -1,8 +1,9 @@
-import { FunctionalComponent, JSX } from 'preact'
+import { FunctionalComponent } from 'preact'
+import type { HTMLAttributes } from 'preact/compat'
 import { useRef } from 'preact/hooks'
 import { cn } from '@utils/cn'
 
-export interface SwitchProps extends JSX.HTMLAttributes<HTMLInputElement> {
+export interface SwitchProps extends HTMLAttributes<HTMLInputElement> {
   checked?: boolean
   onCheckedChange?: (checked: boolean) => void
   disabled?: boolean

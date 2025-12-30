@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'preact/hooks';
 import { Icon } from '@components/ui/Icon';
 import { BaseModal, MODAL_PADDING } from '@components/ui/BaseModal';
-import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
+import { SelectionModal, SelectionItem, FilterButton } from '@components/ui/SelectionModal';
 import { EmptyState } from '@components/ui/EmptyState';
 import { DownloadModal } from '@components/features/modals';
 import { Tooltip, ButtonGroup } from '@components/ui';
@@ -12,25 +12,21 @@ interface NotificationsModalProps {
   isOpen: boolean;
   onClose: (open: boolean) => void;
   notifications: INotification[];
-  onDeleteNotification: (id: string) => void;
-  onDeleteGroup: (message: string) => void;
   onClearAll: () => void;
 }
 
 // Build log level filter options from centralized icon mapping
-const logLevelFilterOptions: FilterOption[] = [
-  { id: LogLevel.DEBUG, name: 'Debug', icon: ICON_BY_LOG_LEVEL[LogLevel.DEBUG] },
-  { id: LogLevel.INFO, name: 'Info', icon: ICON_BY_LOG_LEVEL[LogLevel.INFO] },
-  { id: LogLevel.WARNING, name: 'Warning', icon: ICON_BY_LOG_LEVEL[LogLevel.WARNING] },
-  { id: LogLevel.ERROR, name: 'Error', icon: ICON_BY_LOG_LEVEL[LogLevel.ERROR] },
+const logLevelFilterOptions: SelectionItem[] = [
+  { id: LogLevel.DEBUG, label: 'Debug', icon: ICON_BY_LOG_LEVEL[LogLevel.DEBUG] },
+  { id: LogLevel.INFO, label: 'Info', icon: ICON_BY_LOG_LEVEL[LogLevel.INFO] },
+  { id: LogLevel.WARNING, label: 'Warning', icon: ICON_BY_LOG_LEVEL[LogLevel.WARNING] },
+  { id: LogLevel.ERROR, label: 'Error', icon: ICON_BY_LOG_LEVEL[LogLevel.ERROR] },
 ];
 
 export function NotificationsModal({
   isOpen,
   onClose,
   notifications,
-  onDeleteNotification,
-  onDeleteGroup,
   onClearAll,
 }: NotificationsModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,19 +46,14 @@ export function NotificationsModal({
 
   // Filter notifications
   const filteredNotifications = useMemo(() => {
-    let filtered = [...notifications];
+    const query = searchQuery?.toLowerCase() || '';
 
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((n) => n.message.toLowerCase().includes(query));
-    }
-
-    // Filter by level if any levels selected
-    if (selectedLevels.length > 0) {
-      filtered = filtered.filter((n) => selectedLevels.includes(n.level));
-    }
-
-    return filtered.sort((a, b) => b.timestamp - a.timestamp);
+    return notifications
+      .filter((n) =>
+        (!searchQuery || n.message.toLowerCase().includes(query)) &&
+        (selectedLevels.length === 0 || selectedLevels.includes(n.level))
+      )
+      .sort((a, b) => b.timestamp - a.timestamp);
   }, [notifications, searchQuery, selectedLevels]);
 
   // Group notifications by day and message
@@ -166,32 +157,40 @@ export function NotificationsModal({
         onSearchChange={setSearchQuery}
         maxWidth="max-w-3xl"
         headerRight={
-          <>
+          <ButtonGroup variant="compact">
             <FilterButton
               label="Filter"
               options={logLevelFilterOptions}
               selected={selectedLevels}
               onClick={() => setIsLevelFilterOpen(true)}
             />
-            <ButtonGroup variant="compact">
-              <Tooltip content="Download notifications" side="bottom">
+            {hasActiveFilters && (
+              <Tooltip content="Clear filters" side="bottom">
                 <button
-                  onClick={() => setIsDownloadModalOpen(true)}
+                  onClick={resetFilters}
                   className="p-1.5 hover:bg-bg-3 transition-colors text-muted-foreground hover:text-foreground"
                 >
-                  <Icon name="download" className="w-4 h-4" />
+                  <Icon name="x" className="w-4 h-4" />
                 </button>
               </Tooltip>
-              <Tooltip content="Clear all notifications" side="bottom">
-                <button
-                  onClick={onClearAll}
-                  className="p-1.5 hover:bg-red/10 transition-colors text-muted-foreground hover:text-red"
-                >
-                  <Icon name="trash" className="w-4 h-4" />
-                </button>
-              </Tooltip>
-            </ButtonGroup>
-          </>
+            )}
+            <Tooltip content="Download notifications" side="bottom">
+              <button
+                onClick={() => setIsDownloadModalOpen(true)}
+                className="p-1.5 hover:bg-bg-3 transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <Icon name="download" className="w-4 h-4" />
+              </button>
+            </Tooltip>
+            <Tooltip content="Delete all notifications" side="bottom">
+              <button
+                onClick={onClearAll}
+                className="p-1.5 hover:bg-red/10 transition-colors text-muted-foreground hover:text-red"
+              >
+                <Icon name="trash" className="w-4 h-4" />
+              </button>
+            </Tooltip>
+          </ButtonGroup>
         }
       >
         <div className="divide-y divide-border">
@@ -207,8 +206,6 @@ export function NotificationsModal({
                   <Notification
                     key={notification.id}
                     notification={notification}
-                    onDelete={onDeleteNotification}
-                    onDeleteGroup={onDeleteGroup}
                   />
                 ))}
               </div>
@@ -226,14 +223,16 @@ export function NotificationsModal({
         </div>
       </BaseModal>
 
-      <MultiSelectModal
+      <SelectionModal
         isOpen={isLevelFilterOpen}
         onClose={() => setIsLevelFilterOpen(false)}
         title="Filter by Level"
-        placeholder="Search log levels..."
-        options={logLevelFilterOptions}
-        selected={selectedLevels}
-        onApply={setSelectedLevels}
+        searchPlaceholder="Search log levels..."
+        items={logLevelFilterOptions}
+        selectedIds={selectedLevels}
+        onSelect={(selected) => setSelectedLevels(Array.isArray(selected) ? selected : [selected])}
+        multiSelect={true}
+        minSelect={1}
       />
 
       <DownloadModal

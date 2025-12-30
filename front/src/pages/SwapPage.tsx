@@ -39,20 +39,22 @@ export function SwapPage() {
 
   // Default tokens - priority: URL param > saved settings > defaults
   const initialTokenIn = useMemo(() => {
-    if (urlToken && availableTokens.includes(urlToken)) return urlToken;
-    if (settings.swapTokenIn && availableTokens.includes(settings.swapTokenIn)) return settings.swapTokenIn;
-    return availableTokens.includes('USDC') ? 'USDC' : availableTokens[0];
+    const availableSet = new Set(availableTokens);
+    if (urlToken && availableSet.has(urlToken)) return urlToken;
+    if (settings.swapTokenIn && availableSet.has(settings.swapTokenIn)) return settings.swapTokenIn;
+    return availableSet.has('USDC') ? 'USDC' : availableTokens[0];
   }, [urlToken, availableTokens, settings.swapTokenIn]);
 
   const initialTokenOut = useMemo(() => {
-    if (urlToken && availableTokens.includes(urlToken)) {
+    const availableSet = new Set(availableTokens);
+    if (urlToken && availableSet.has(urlToken)) {
       if (urlToken === 'USDC' || urlToken === 'USDT') {
         const eth = availableTokens.find((t: string) => t === 'ETH' || t === 'WETH');
         return eth || availableTokens.find((t: string) => t !== urlToken);
       }
-      return availableTokens.includes('USDC') ? 'USDC' : availableTokens.find((t: string) => t !== urlToken);
+      return availableSet.has('USDC') ? 'USDC' : availableTokens.find((t: string) => t !== urlToken);
     }
-    if (settings.swapTokenOut && availableTokens.includes(settings.swapTokenOut)) return settings.swapTokenOut;
+    if (settings.swapTokenOut && availableSet.has(settings.swapTokenOut)) return settings.swapTokenOut;
     const eth = availableTokens.find((t: string) => t === 'ETH' || t === 'WETH');
     return eth || availableTokens.find((t: string) => t !== initialTokenIn);
   }, [urlToken, availableTokens, settings.swapTokenOut, initialTokenIn]);

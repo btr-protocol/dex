@@ -1,7 +1,7 @@
 export type ClassValue = string | number | boolean | undefined | null | { [key: string]: any } | ClassValue[];
 
 /**
- * Lightweight class name merger for UnoCSS.
+ * Lightweight class name merger for Tailwind CSS.
  * Replaces clsx and tailwind-merge with a zero-dependency implementation.
  */
 export function cn(...inputs: ClassValue[]): string {

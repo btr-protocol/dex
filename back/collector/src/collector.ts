@@ -200,6 +200,7 @@ export class MarketCollector {
     connection.isRunning = true;
     const symbols = subscriptions.map(s => s.tickerSymbol);
     const sourceKeyMap = new Map(subscriptions.map(s => [s.tickerSymbol, s.sourceKey]));
+    const subscriptionMap = new Map(subscriptions.map(s => [s.sourceKey, s]));
 
     log(`[${exchangeId}] Streaming ${symbols.length} symbols...`);
 
@@ -225,11 +226,11 @@ export class MarketCollector {
             );
 
             for (const tickers of results) {
-              this.processTickerUpdates(tickers, sourceKeyMap, subscriptions);
+              this.processTickerUpdates(tickers, sourceKeyMap, subscriptionMap);
             }
           } else {
             const tickers = await connection.exchange.watchTickers(symbols);
-            this.processTickerUpdates(tickers, sourceKeyMap, subscriptions);
+            this.processTickerUpdates(tickers, sourceKeyMap, subscriptionMap);
           }
         } else if (connection.exchange.has?.watchTicker) {
           // Watch individual tickers in parallel (for mexc and fallback)
@@ -256,7 +257,7 @@ export class MarketCollector {
             if (sourceKey.includes('USDCUSDT') || sourceKey.includes('USDC-USDT')) {
               this.updateUsdcFromSource(sourceKey, result.ticker.last);
             } else {
-              const sub = subscriptions.find(s => s.sourceKey === sourceKey);
+              const sub = subscriptionMap.get(sourceKey);
               if (sub) {
                 this.updateAggregatedPrice(sub.aggSymbol);
               }
@@ -280,7 +281,7 @@ export class MarketCollector {
   private processTickerUpdates(
     tickers: Record<string, any>,
     sourceKeyMap: Map<string, string>,
-    subscriptions: Array<{ aggSymbol: PairSymbol; tickerSymbol: string; sourceKey: string; weight: number }>
+    subscriptionMap: Map<string, { aggSymbol: PairSymbol; tickerSymbol: string; sourceKey: string; weight: number }>
   ): void {
     for (const [symbol, ticker] of Object.entries(tickers)) {
       if (!ticker || !ticker.last) continue;
@@ -307,7 +308,7 @@ export class MarketCollector {
         this.updateUsdcFromSource(sourceKey, price);
       } else {
         // Trigger aggregated price update for the relevant symbol
-        const sub = subscriptions.find(s => s.sourceKey === sourceKey);
+        const sub = subscriptionMap.get(sourceKey);
         if (sub) {
           this.updateAggregatedPrice(sub.aggSymbol);
         }
@@ -327,6 +328,7 @@ export class MarketCollector {
   ): Promise<void> {
     const symbols = subscriptions.map(s => s.tickerSymbol);
     const sourceKeyMap = new Map(subscriptions.map(s => [s.tickerSymbol, s.sourceKey]));
+    const subscriptionMap = new Map(subscriptions.map(s => [s.sourceKey, s]));
 
     try {
       let tickers: Record<string, any> = {};
@@ -358,7 +360,7 @@ export class MarketCollector {
         if (sourceKey.includes('USDCUSDT') || sourceKey.includes('USDC-USDT')) {
           this.updateUsdcFromSource(sourceKey, ticker.last);
         } else {
-          const sub = subscriptions.find(s => s.sourceKey === sourceKey);
+          const sub = subscriptionMap.get(sourceKey);
           if (sub) {
             this.updateAggregatedPrice(sub.aggSymbol);
           }

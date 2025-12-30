@@ -26,6 +26,7 @@ import {
 import { type ExportRow, exportCsv, exportJson, exportPng } from './chartExport';
 
 const MAX_SUB_PANES = 3;
+const SUB_PANE_SET = new Set(SUB_PANE_KEYS);
 
 const CHART_ICONS: Record<ChartType, string> = {
   candles: 'chart-candlestick',
@@ -289,13 +290,13 @@ export function DrawingToolbar({
 
   // Validate indicator selection - max 3 sub-pane indicators
   const handleIndicatorChange = (newIndicators: IndicatorKey[]) => {
-    const newSubPanes = newIndicators.filter(k => SUB_PANE_KEYS.includes(k));
-    const currentSubPanes = activeIndicators.filter(k => SUB_PANE_KEYS.includes(k));
+    const newSubPanes = newIndicators.filter(k => SUB_PANE_SET.has(k));
+    const currentSubPanes = activeIndicators.filter(k => SUB_PANE_SET.has(k));
 
     if (newSubPanes.length > MAX_SUB_PANES) {
       addNotification('warning', `Maximum ${MAX_SUB_PANES} indicator panes allowed`);
       const limitedIndicators = newIndicators.filter(k => {
-        if (!SUB_PANE_KEYS.includes(k)) return true;
+        if (!SUB_PANE_SET.has(k)) return true;
         return currentSubPanes.includes(k);
       });
       onChangeIndicators(limitedIndicators);

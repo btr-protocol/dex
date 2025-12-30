@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { Icon, ICON_NAMES } from './Icon';
+import { Icon } from './Icon';
 
 interface PercentageChangeProps {
   value: number; // percentage change (e.g., 5 for 5%)
@@ -20,9 +20,9 @@ export function PercentageChange({ value, label }: PercentageChangeProps) {
         aria-label={`${label || 'Change'}: ${isPositive ? '+' : '-'}${absValue.toFixed(2)}%`}
       >
         {isPositive ? (
-          <Icon name={ICON_NAMES.trendUp} className="w-4 h-4 text-green" />
+          <Icon name="trend-up" className="w-4 h-4 text-green" />
         ) : (
-          <Icon name={ICON_NAMES.trendDown} className="w-4 h-4 text-red" />
+          <Icon name="trend-down" className="w-4 h-4 text-red" />
         )}
       </button>
 

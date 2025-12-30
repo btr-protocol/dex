@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'preact/hooks';
-import * as Chartist from 'chartist';
+import { LineChart } from 'chartist';
 
 interface SparklineProps {
   data: number[];
@@ -22,17 +22,16 @@ export function SimpleSparkline({
     if (!chartRef.current || data.length < 2) return;
 
     // Prepare chart data
-    const chartData: Chartist.LineChartData = {
+    const chartData = {
       labels: data.map((_, i) => i.toString()),
       series: [data],
     };
 
-    const options: Chartist.LineChartOptions = {
+    const options = {
       width,
       height,
       fullWidth: false,
       chartPadding: 0,
-      lineSmooth: Chartist.Interpolation.cardinal(),
       showLine: true,
       showPoint: false,
       showArea: true,
@@ -41,10 +40,8 @@ export function SimpleSparkline({
     // Clear previous chart
     chartRef.current.innerHTML = '';
 
-    // Create new chart - access Line through the default export
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ChartistLib = (Chartist as any).default || Chartist;
-    new (ChartistLib as any).Line(chartRef.current, chartData, options);
+    // Create new chart using LineChart
+    new LineChart(chartRef.current, chartData, options);
 
     // Style the chart to match color and hide axes
     const styleId = Math.random().toString(36).substr(2, 9);

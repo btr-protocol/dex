@@ -5,8 +5,8 @@
 import { useRef, useEffect } from 'preact/hooks';
 import { JSX } from 'preact';
 import { type ComponentChildren } from 'preact';
-import { Button } from '@components/ui/Button';
 import { Icon } from '@components/ui/Icon';
+import { CloseButton } from './CloseButton';
 
 interface ModalHeaderProps {
   title: string;
@@ -46,7 +46,7 @@ export function ModalHeader({
 
   return (
     <div className={`shrink-0 ${bg} border-b border-border rounded-t-lg`}>
-      <div className="flex items-center gap-3 pl-4 pr-3 h-12">
+      <div className="flex items-center gap-3 pl-3 pr-3 h-12">
         {headerType === 'input' ? (
           <>
             <Icon name="magnifying-glass" className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -61,8 +61,8 @@ export function ModalHeader({
             />
           </>
         ) : (
-          <h2 className="text-sm font-semibold flex-1 flex items-center gap-2">
-            {headerIcon}
+          <h2 className="text-sm font-semibold flex-1 flex items-center gap-2 text-foreground">
+            {headerIcon && <span className="text-foreground">{headerIcon}</span>}
             {title}
           </h2>
         )}
@@ -71,15 +71,7 @@ export function ModalHeader({
           <div className="flex items-center gap-2 shrink-0">{headerRight}</div>
         )}
 
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onClose(false)}
-          className="p-1.5"
-          aria-label="Close"
-        >
-          <Icon name="x" className="w-4 h-4" />
-        </Button>
+        <CloseButton onClick={() => onClose(false)} size={18} />
       </div>
     </div>
   );

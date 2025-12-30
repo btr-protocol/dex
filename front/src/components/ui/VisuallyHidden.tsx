@@ -1,6 +1,7 @@
-import { JSX, Ref } from "preact"
+import { Ref } from "preact"
+import type { HTMLAttributes } from "preact/compat"
 
-interface VisuallyHiddenProps extends JSX.HTMLAttributes<HTMLSpanElement> {
+interface VisuallyHiddenProps extends HTMLAttributes<HTMLSpanElement> {
   ref?: Ref<HTMLSpanElement>
 }
 

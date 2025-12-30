@@ -18,6 +18,7 @@ export { DataView } from './DataView';
 // Standard UI components
 export { Button } from './Button';
 export { ButtonGroup } from './ButtonGroup';
+export { CloseButton } from './CloseButton';
 export { Input } from './Input';
 export { Card } from './Card';
 export { Tooltip } from './Tooltip';
@@ -30,8 +31,9 @@ export { Accordion } from './Accordion';
 export { Stepper } from './Stepper';
 export { Spinner } from './Spinner';
 export { KeyboardShortcut, KeyboardShortcutGroup } from './KeyboardShortcut';
-export { MultiSelectModal } from './MultiSelectModal';
 export { BaseModal, MODAL_PADDING } from './BaseModal';
+export { SelectionModal, FilterButton } from './SelectionModal';
+export type { SelectionItem } from './SelectionModal';
 export { ModalActions } from './ModalActions';
 export { Badge } from './Badge';
 export { EmptyState } from './EmptyState';

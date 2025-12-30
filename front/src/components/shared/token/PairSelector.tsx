@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'preact/hooks';
-import { SelectionModal, SelectionItem } from '@components/ui/SelectionModal';
-import { MultiSelectModal, FilterButton, FilterOption } from '@components/ui/MultiSelectModal';
+import { SelectionModal, SelectionItem, FilterButton } from '@components/ui/SelectionModal';
 import { Badge } from '@components/ui/Badge';
 import { TOKENS, tokenMatchesSearch, getTokenIcon } from '@sdk/eth';
 import { SUPPORTED_TOKENS_CONFIG } from '@/constants/tokens';
@@ -16,6 +15,9 @@ interface PairSelectorProps {
 
 // Use all supported tokens (including wrapped versions)
 const SUPPORTED_TOKENS = SUPPORTED_TOKENS_CONFIG.filter(symbol => symbol in TOKENS);
+
+// Priority quotes for canonical ordering
+const PRIORITY_QUOTES = new Set(['USDC', 'USDT', 'ETH', 'BTC']);
 
 // Generate all token pairs in BOTH directions
 function generateAllPairs(): Array<{ base: string; quote: string }> {
@@ -42,10 +44,10 @@ function getTokenCaption(symbol: string): string {
 }
 
 // Build token filter options from all supported tokens
-const tokenFilterOptions: FilterOption[] = SUPPORTED_TOKENS
+const tokenFilterOptions: SelectionItem[] = SUPPORTED_TOKENS
   .map((symbol) => ({
     id: symbol,
-    name: symbol,
+    label: symbol,
     caption: getTokenCaption(symbol),
     icon: getTokenIcon(symbol),
   }));
@@ -73,8 +75,9 @@ export function PairSelector({
 
   // Filter pairs by selected tokens
   const availablePairs = useMemo(() => {
+    const tokenSet = new Set(selectedTokens);
     return allPairs.filter(({ base, quote }) => {
-      return selectedTokens.includes(base) || selectedTokens.includes(quote);
+      return tokenSet.has(base) || tokenSet.has(quote);
     });
   }, [allPairs, selectedTokens]);
 
@@ -92,9 +95,8 @@ export function PairSelector({
       if (pairCmp !== 0) return pairCmp;
 
       // Within same pair, prioritize USDC/USDT as quote (canonical direction first)
-      const priorityQuotes = ['USDC', 'USDT', 'ETH', 'BTC'];
-      const aIsCanonical = priorityQuotes.includes(a.quote);
-      const bIsCanonical = priorityQuotes.includes(b.quote);
+      const aIsCanonical = PRIORITY_QUOTES.has(a.quote);
+      const bIsCanonical = PRIORITY_QUOTES.has(b.quote);
       if (aIsCanonical && !bIsCanonical) return -1;
       if (bIsCanonical && !aIsCanonical) return 1;
 
@@ -190,17 +192,15 @@ export function PairSelector({
     return formatMatch || nameMatch || aliasMatch;
   };
 
-  // Filter section with token selector button
-  const filterSection = (
-    <div className="p-3 border-b border-border">
-      <FilterButton
-        label="Tokens"
-        options={tokenFilterOptions}
-        selected={selectedTokens}
-        onClick={() => setIsTokenFilterOpen(true)}
-        partialFilter={true}
-      />
-    </div>
+  // Filter button for header row
+  const headerFilter = (
+    <FilterButton
+      label="Tokens"
+      options={tokenFilterOptions}
+      selected={selectedTokens}
+      onClick={() => setIsTokenFilterOpen(true)}
+      partialFilter={true}
+    />
   );
 
   // Reset all filters (token filter + search)
@@ -222,21 +222,23 @@ export function PairSelector({
         onSelect={handleSelect}
         multiSelect={false}
         filterFn={filterFn}
-        filterSection={filterSection}
+        headerRight={headerFilter}
         emptyMessage="No pairs found"
         onResetFilters={handleResetFilters}
         hasActiveFilters={hasActiveFilters}
         maxWidth="max-w-md"
       />
 
-      <MultiSelectModal
+      <SelectionModal
         isOpen={isTokenFilterOpen}
         onClose={() => setIsTokenFilterOpen(false)}
         title="Filter by Token"
-        placeholder="Token symbol or name..."
-        options={tokenFilterOptions}
-        selected={selectedTokens}
-        onApply={setSelectedTokens}
+        searchPlaceholder="Token symbol or name..."
+        items={tokenFilterOptions}
+        selectedIds={selectedTokens}
+        onSelect={(selected) => setSelectedTokens(Array.isArray(selected) ? selected : [selected])}
+        multiSelect={true}
+        minSelect={1}
       />
     </>
   );

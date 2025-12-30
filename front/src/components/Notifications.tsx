@@ -1,13 +1,13 @@
 import { useNotifications, removeNotification, type NotificationType } from '@lib/notifications';
-import { Icon, ICON_NAMES } from '@components/ui/Icon';
+import { Icon } from '@components/ui/Icon';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { Button } from '@components/ui/Button';
 
 const icons: Record<NotificationType, string> = {
-    info: ICON_NAMES.info,
-    success: ICON_NAMES.checkCircle,
-    warning: ICON_NAMES.warning,
-    error: ICON_NAMES.alertCircle,
+    info: 'info',
+    success: 'check-circle',
+    warning: 'warning',
+    error: 'alert-circle',
 };
 
 // Use CSS variable colors for proper theming

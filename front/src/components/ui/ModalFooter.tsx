@@ -7,7 +7,7 @@ import { type ComponentChildren } from 'preact';
 import { MODAL_PADDING } from '@components/ui/BaseModal';
 
 interface ModalFooterProps {
-  /** Legacy footer support (takes precedence if all others are empty) */
+  /** Simple footer content (used when only basic footer needed) */
   footer?: ComponentChildren;
   /** Navigation shortcuts (top of footer, same bg as body) */
   footerNav?: ComponentChildren;
@@ -33,7 +33,7 @@ export function ModalFooter({
 
   const footerBg = contrastHeader ? 'bg-bg-2' : 'bg-bg-1';
 
-  // Legacy footer support
+  // Simple footer mode - just footer content
   if (footer && !footerNav && !footerContent && !footerControls) {
     return (
       <div className="shrink-0 flex flex-col border-t border-border">

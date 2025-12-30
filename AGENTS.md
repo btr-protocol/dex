@@ -83,6 +83,21 @@ All modules use:
 **⚠️ Always use the user's git identity**
 - ❌ NEVER use agent or "Gemini" or "Claude" identity for git commits authors or co-authors.
 
+## Dead Code Policy
+**⚠️ ZERO TOLERANCE for dead code**
+- ❌ NO deprecated code, backward compatibility layers, or compatibility shims
+- ❌ NO commented-out code blocks
+- ❌ NO unused imports, functions, types, or variables
+- ❌ NO "TODO: remove this later" comments
+- ✅ Delete unused code immediately
+- ✅ Update all usages when refactoring
+- ✅ Clean slate - if it's not used, it's gone
+
+**When refactoring:**
+1. Update all usages first
+2. Delete old code completely
+3. No transition period with both versions
+
 ---
 
 ## Communication
@@ -106,13 +121,13 @@ All modules use:
 ---
 
 ## Frontend Stack
-**Pure Preact + Signals + UnoCSS ONLY**
+**Pure Preact + Signals + Tailwind ONLY**
 
 ### Core Deps (Keep Lean)
 - ✅ Framework: Preact (no compat)
 - ✅ State: @preact/signals
-- ✅ Styling: UnoCSS w/ Wind preset
-- ✅ Components: Custom headless (no Radix)
+- ✅ Styling: Tailwind CSS
+- ✅ Components: Custom headless, atomic (no Radix)
 - ✅ Charts: TradingView Lightweight + SVG
 - ✅ Markdown/Math/Mermaid: Backend-compiled
 
@@ -203,14 +218,6 @@ export const liquidityStore = new LiquidityStore();
 - [ ] Forms: `onInput`/`onDblClick` (not `onChange`/`onDoubleClick`)
 - [ ] Events: native browser events only
 - [ ] Renders: "render once" + signal updates
-
----
-
-## UnoCSS
-**Why**: 10x smaller, faster HMR, Tailwind v3 syntax
-- **Config**: `front/uno.config.ts`
-- **Preset**: `@unocss/preset-wind`
-- **Import**: `virtual:uno.css`
 
 ---
 
@@ -312,7 +319,7 @@ bun run build
 ## Agent Checklist
 1. Root clean (README.md only)
 2. Bun exclusively
-3. Frontend: Preact + Signals + UnoCSS
+3. Frontend: Preact + Signals + Tailwind
 4. Backend compilation: markdown → HTML, math → MathML, Mermaid → SVG
 5. Doc links: `/docs/slug#anchor`
 6. Concise responses

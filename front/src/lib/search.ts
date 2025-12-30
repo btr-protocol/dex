@@ -1,4 +1,4 @@
-import { navRoutes, socialLinks, type NavRoute } from '@/constants/navigation';
+import { pageRoutes, socialLinks, type NavRoute } from '@/constants/navigation';
 
 interface ExtendedNavRoute extends NavRoute {
   description?: string;
@@ -31,11 +31,11 @@ export async function initializeSearch() {
     });
 
     // Bulk Add Static Data
-    const extendedNavRoutes = navRoutes as ExtendedNavRoute[];
+    const extendedNavRoutes = pageRoutes as ExtendedNavRoute[];
     eng.addAll([
-      ...extendedNavRoutes.filter(r => r.path !== '/').map((r, i) => ({
+      ...extendedNavRoutes.flatMap((r, i) => r.path === '/' ? [] : [{
         id: `feat-${i}`, title: r.title, desc: r.description || '', path: r.path, cat: 'Features', aliases: r.aliases || []
-      })),
+      }]),
       ...socialLinks.map((l, i) => ({
         id: `link-${i}`, title: l.title, desc: `Visit ${l.title}`, path: l.path, cat: 'Links', aliases: []
       })),
@@ -66,17 +66,19 @@ export async function initializeSearch() {
 
     // Async Docs Load
     fetch('/compiled-docs/search-index.json').then(r => r.ok && r.json()).then(d => {
-      if (d?.documents) eng.addAll(d.documents.filter((x: any) => !x.id.includes('#')).map((doc: any) => ({
+      if (d?.documents) eng.addAll(d.documents.flatMap((doc: any) => doc.id.includes('#') ? [] : [{
         id: `doc-${doc.id}`, title: doc.title, desc: doc.excerpt, content: doc.content || doc.excerpt, path: doc.url, cat: 'Docs'
-      })));
+      }]));
     }).catch(() => {});
   })());
 }
 
 const getSnippet = (txt: string, q: string) => {
   if (!txt) return '';
-  const match = q.split(/\s+/).find(t => txt.toLowerCase().includes(t.toLowerCase()));
-  const idx = match ? txt.toLowerCase().indexOf(match.toLowerCase()) : 0;
+  const txtLower = txt.toLowerCase();
+  const qLower = q.toLowerCase();
+  const match = qLower.split(/\s+/).find(t => txtLower.includes(t));
+  const idx = match ? txtLower.indexOf(match) : 0;
   const start = Math.max(0, idx - 40), end = Math.min(txt.length, idx + 110);
   let s = txt.substring(start, end);
   const terms = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').split(/\s+/).join('|');
@@ -93,12 +95,20 @@ export const search = (q: string): SearchDoc[] => {
 
 export const searchGrouped = (q: string) => {
   const r = search(q);
-  return {
-    Features: r.filter(x => x.cat === 'Features'),
-    Settings: r.filter(x => x.cat === 'Settings'),
-    Links: r.filter(x => x.cat === 'Links'),
-    Docs: r.filter(x => x.cat === 'Docs')
+  const grouped: Record<string, SearchDoc[]> = {
+    Features: [],
+    Settings: [],
+    Links: [],
+    Docs: []
   };
+
+  for (const item of r) {
+    if (grouped[item.cat]) {
+      grouped[item.cat].push(item);
+    }
+  }
+
+  return grouped;
 };
 
 export const waitForDocs = async () => init;

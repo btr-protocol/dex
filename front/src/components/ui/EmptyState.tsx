@@ -2,12 +2,13 @@
  * Unified EmptyState Component
  * Consolidates EmptyState, ErrorState, and LoadingState into a single component with variants
  */
-import { JSX, Ref, type ComponentChildren } from 'preact';
-import { Icon, ICON_NAMES } from './Icon';
+import { Ref, type ComponentChildren } from 'preact';
+import type { HTMLAttributes } from 'preact/compat';
+import { Icon } from './Icon';
 import { cva } from '@utils/cva';
 import { Button } from './Button';
 
-export interface EmptyStateProps extends JSX.HTMLAttributes<HTMLDivElement> {
+export interface EmptyStateProps extends HTMLAttributes<HTMLDivElement> {
   ref?: Ref<HTMLDivElement>;
   /**
    * State variant
@@ -49,7 +50,7 @@ const emptyStateVariants = cva('', {
   variants: {
     layout: {
       fullscreen: 'min-h-screen bg-background flex items-center justify-center',
-      default: 'bg-bg-1 rounded-lg p-8 border border-border',
+      default: 'bg-bg-1 p-6',
       inline: 'p-4',
     },
     variant: {
@@ -65,9 +66,9 @@ const emptyStateVariants = cva('', {
 });
 
 const DEFAULT_ICONS: Record<'empty' | 'error' | 'loading', string> = {
-  empty: ICON_NAMES.filterX,
-  error: ICON_NAMES.alertCircle,
-  loading: ICON_NAMES.loader,
+  empty: 'funnel-x',
+  error: 'alert-circle',
+  loading: 'loader',
 };
 
 export function EmptyState({
