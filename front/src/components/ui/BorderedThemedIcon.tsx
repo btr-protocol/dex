@@ -20,10 +20,11 @@ interface ThemedIconProps {
 /**
  * BorderedThemedIcon component that layers background and foreground SVGs using MaskIcon
  * Supports efficient theming via CSS variables or explicit colors
+ * Automatically changes color on hover when in a group-hover context
  *
  * @example
  * <BorderedThemedIcon icon={plusIcon} />
- * <BorderedThemedIcon icon={doubleDownIcon} bgColor="var(--bg-2)" fgColor="var(--fg-1)" />
+ * <BorderedThemedIcon icon={doubleDownIcon} bgColor="var(--bg-2)" fgColor="var(--fg-1)" hoverColor="var(--primary)" />
  */
 export function BorderedThemedIcon({
   icon,
@@ -40,7 +41,7 @@ export function BorderedThemedIcon({
 
   return (
     <div
-      className={`bordered-icon relative inline-flex items-center justify-center transition-colors ${className}`}
+      className={`bordered-icon group/icon relative inline-flex items-center justify-center transition-colors ${className}`}
       style={{
         width: sizeStr,
         height: sizeStr,
@@ -66,7 +67,7 @@ export function BorderedThemedIcon({
           height="100%"
           color={resolvedFgColor}
           aria-label={`${icon.name} foreground`}
-          className="transition-colors group-hover:[background-color:var(--icon-fg-hover)]"
+          className="transition-colors group-hover/icon:[background-color:var(--icon-fg-hover)]"
         />
       </div>
     </div>

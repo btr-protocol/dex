@@ -178,7 +178,7 @@ export function SwapForm({
               onClick={handleDirectionSwitch}
               className={cn('group cursor-pointer transition-transform duration-200 hover:scale-110', store.direction.value === 'buy' && 'rotate-180')}
             >
-              <BorderedThemedIcon icon={doubleDownIcon} size={46} />
+              <BorderedThemedIcon icon={doubleDownIcon} size={46} fgColor="var(--fg-3)" hoverColor="var(--primary)" />
             </button>
           </Tooltip>
         </div>
@@ -264,8 +264,8 @@ export function SwapForm({
         multiSelect={false}
         disabledTokens={
           editingTokenType === 'primary'
-            ? store.primaryTokens.value.map((t: TokenData) => t.symbol).filter((s: string) => s !== '')
-            : store.secondaryTokens.value.map((t: TokenData) => t.symbol).filter((s: string) => s !== '')
+            ? store.primaryTokens.value.flatMap((t: TokenData) => t.symbol ? [t.symbol] : [])
+            : store.secondaryTokens.value.flatMap((t: TokenData) => t.symbol ? [t.symbol] : [])
         }
       />
     </div>
