@@ -10,11 +10,10 @@ import { getFeatureIcon as getFeatureIconFromConst, getSettingsFieldIcon, getSoc
 export const getFeatureIcon = (title: string): string => {
   // Check if it's a token swap (e.g., "Swap ETH")
   if (title.startsWith('Swap ')) {
-    return 'arrows-left-right';
+    return 'arrow-left-right';
   }
   const icon = getFeatureIconFromConst(title);
-  // Strip 'ph-' prefix if present, as Icon component adds 'i-ph-'
-  return typeof icon === 'string' ? icon.replace(/^ph-/, '') : 'circles-three-plus';
+  return typeof icon === 'string' ? icon : 'circle-dot';
 };
 
 /**
