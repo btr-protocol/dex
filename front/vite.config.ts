@@ -154,6 +154,15 @@ function serveDocsPlugin() {
 }
 
 export default defineConfig({
+  optimizeDeps: {
+    include: [
+      'preact',
+      'preact/hooks',
+      'preact/jsx-runtime',
+      'preact/jsx-dev-runtime',
+      '@preact/signals',
+    ],
+  },
   plugins: [
     UnoCSS(),
     react(),
