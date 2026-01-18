@@ -8,11 +8,7 @@ import ccxt from 'ccxt';
 import type { PairSymbol, AggregatedTicker, TickerConfig, OHLCCandle } from './types';
 import { getStorage, OHLCStorage } from './storage';
 import { STORAGE_CONFIG } from './config';
-
-const log = (msg: string) => console.log(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
-const warn = (msg: string) => console.warn(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
-const error = (msg: string) => console.error(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
-
+import { log, warn, error } from '../shared/logger.js';
 // M1 candle state per symbol
 interface CandleState {
   current: OHLCCandle | null;

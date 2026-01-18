@@ -3,6 +3,7 @@ import { Button } from '@components/ui/Button';
 import { Knot, Makima } from '@/utils/spline';
 import { getColors } from '@/styles/theme';
 import * as Chartist from 'chartist';
+import { formatNumber, formatPercent } from '@utils/format';
 
 const { computeMakimaSlopes, interpolateCurve, knotsToProfile, encodeProfile } = Makima;
 
@@ -37,7 +38,7 @@ export function LiquidityShaper() {
     const curveData = interpolatedPoints.map(p => p.y);
 
     const data: Chartist.LineChartData = {
-      labels: xValues.map(x => x.toFixed(0)),
+      labels: xValues.map(x => formatNumber(x, 0)),
       series: [
         { name: 'Curve', data: curveData.map((y, i) => ({ x: xValues[i], y })) },
         { name: 'Knots', data: knots.map(k => ({ x: k.x, y: k.y })) },
@@ -159,7 +160,7 @@ export function LiquidityShaper() {
             placeholder="100000"
           />
           <p className="text-xs text-gray-500 mt-1">
-            {(baseBreadth / 10000).toFixed(2)}% base breadth when vol=0
+            {formatPercent(baseBreadth / 10000, 2)}% base breadth when vol=0
           </p>
         </div>
 
@@ -173,7 +174,7 @@ export function LiquidityShaper() {
             placeholder="1000000"
           />
           <p className="text-xs text-gray-500 mt-1">
-            {(maxBreadth / 10000).toFixed(2)}% maximum breadth cap
+            {formatPercent(maxBreadth / 10000, 2)}% maximum breadth cap
           </p>
         </div>
 
@@ -187,7 +188,7 @@ export function LiquidityShaper() {
             placeholder="1000000"
           />
           <p className="text-xs text-gray-500 mt-1">
-            {(volKappa / 1000000).toFixed(1)}x volatility sensitivity
+            {formatNumber(volKappa / 1000000, 1)}x volatility sensitivity
           </p>
         </div>
       </div>
@@ -206,9 +207,9 @@ export function LiquidityShaper() {
           </div>
           {knots.map((knot, index) => (
             <div key={index} className="grid grid-cols-4 gap-2 text-sm mb-2">
-              <div className="font-mono">{knot.x.toFixed(1)}</div>
-              <div className="font-mono">{knot.y.toFixed(1)}</div>
-              <div className="font-mono text-xs">{slopes[index]?.toFixed(0) || 'N/A'}</div>
+              <div className="font-mono">{formatNumber(knot.x, 1)}</div>
+              <div className="font-mono">{formatNumber(knot.y, 1)}</div>
+              <div className="font-mono text-xs">{slopes[index] !== undefined ? formatNumber(slopes[index], 0) : 'N/A'}</div>
               <div>
                 <Button
                   variant="outlined"

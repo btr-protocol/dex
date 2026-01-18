@@ -7,14 +7,7 @@ import { PageContainer } from '@components/layout/PageContainer';
 import { CHAINS, getAllTokensForChain } from '@sdk/eth';
 import { PriceChartLazy } from '@components/features/chart';
 import { SwapStore } from '@/lib/swap/SwapStore';
-
-// Helper to get canonical pair ordering
-function getCanonicalPairOrder(token1: string, token2: string): { base: string; quote: string } {
-  const priority: Record<string, number> = { USDC: 0, USDT: 1, ETH: 2, WETH: 3 };
-  const t1Priority = priority[token1] ?? 100;
-  const t2Priority = priority[token2] ?? 100;
-  return t1Priority < t2Priority ? { base: token1, quote: token2 } : { base: token2, quote: token1 };
-}
+import { getCanonicalPair } from '@hooks/usePriceFeed';
 
 export function SwapPage() {
   const { isConnected, connect, chainId: walletChainId } = useWallet();
@@ -73,7 +66,7 @@ export function SwapPage() {
     if (explicitChartPair) return explicitChartPair;
     // Otherwise derive from swap tokens using canonical ordering
     if (!tokenIn || !tokenOut) return { base: tokenIn || 'ETH', quote: tokenOut || 'USDC' };
-    return getCanonicalPairOrder(tokenIn, tokenOut);
+    return getCanonicalPair(tokenIn, tokenOut);
   }, [store.primaryTokens, store.secondaryTokens, explicitChartPair]);
 
   // Handle pair change from chart PairSelector (user explicitly picks pair)
@@ -124,7 +117,7 @@ export function SwapPage() {
               onInvertPair={handleInvertPair}
             />
           ) : (
-            <div className="h-full flex items-center justify-center text-muted-foreground text-sm bg-bg-1 border border-border rounded-lg">
+            <div className="h-full flex items-center justify-center text-muted-foreground text-sm bg-bg-1">
               Select tokens to view chart
             </div>
           )}

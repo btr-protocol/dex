@@ -25,9 +25,9 @@ export type FeatureName = keyof typeof FEATURE_ICONS;
 
 export const SETTINGS_CATEGORY_ICONS = {
   'execution': 'target',
-  'interface': 'palette',
+  'theme': 'palette',
   'region': 'globe',
-  'other': 'package',
+  'preferences': 'star',
 } as const;
 
 export type SettingsCategoryId = keyof typeof SETTINGS_CATEGORY_ICONS;

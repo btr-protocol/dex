@@ -7,6 +7,7 @@
 import { MarketCollector } from './collector';
 import { getStorage } from './storage';
 import { resolveAlias } from './config';
+import { PoolDataService } from './pools';
 import type { PairSymbol, OHLCCandle } from './types';
 import type { ServerWebSocket } from 'bun';
 
@@ -18,17 +19,29 @@ interface WSClient extends ServerWebSocket<undefined> {
 export class MarketDataServer {
   private server: any = null;
   private collector: MarketCollector;
+  private poolService?: PoolDataService;
   private port: number;
   private wsClients: Set<WSClient> = new Set();
 
-  constructor(collector: MarketCollector, port: number = 3000) {
+  constructor(collector: MarketCollector, port: number = 3000, rpcUrl?: string) {
     this.collector = collector;
     this.port = port;
+
+    // Initialize pool service if RPC URL provided
+    console.log('[server] Initializing with RPC URL:', rpcUrl);
+    if (rpcUrl) {
+      this.poolService = new PoolDataService(rpcUrl);
+      console.log('[server] PoolDataService created');
+      this.poolService.loadPoolAddresses().catch(console.error);
+    } else {
+      console.log('[server] No RPC URL provided - pool service will not be available');
+    }
   }
 
   async start(): Promise<void> {
     const collector = this.collector;
     const wsClients = this.wsClients;
+    const poolService = this.poolService;
 
     // Notify clients when service becomes ready
     let wasReady = collector.isReady();
@@ -389,6 +402,67 @@ export class MarketDataServer {
             JSON.stringify({ tickers, count: tickers.length }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
+        }
+
+        // Pool data
+        if (url.pathname === '/api/pools') {
+          console.log('[/api/pools] Handler called, poolService:', !!poolService);
+          if (!poolService) {
+            console.log('[/api/pools] ERROR: poolService is not available!');
+            return new Response(
+              JSON.stringify({ error: 'Pool service not configured' }),
+              { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          console.log('[/api/pools] Fetching pool data...');
+
+          try {
+            const pools = await poolService.fetchPools();
+            return new Response(
+              JSON.stringify({ pools }),
+              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          } catch (error) {
+            return new Response(
+              JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+        }
+
+        // Swap quote
+        if (url.pathname === '/api/quote') {
+          if (!poolService) {
+            return new Response(
+              JSON.stringify({ error: 'Pool service not configured' }),
+              { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          const pool = url.searchParams.get('pool');
+          const tokenIn = url.searchParams.get('tokenIn');
+          const tokenOut = url.searchParams.get('tokenOut');
+          const amountIn = url.searchParams.get('amountIn');
+
+          if (!pool || !tokenIn || !tokenOut || !amountIn) {
+            return new Response(
+              JSON.stringify({ error: 'Missing required parameters: pool, tokenIn, tokenOut, amountIn' }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          try {
+            const quote = await poolService.getQuote(pool as any, tokenIn as any, tokenOut as any, amountIn);
+            return new Response(
+              JSON.stringify(quote),
+              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          } catch (error) {
+            return new Response(
+              JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
         }
 
         // Data freshness check - returns oldest/newest timestamps per symbol

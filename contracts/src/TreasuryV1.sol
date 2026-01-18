@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {ITreasuryV1} from "./interfaces/ITreasuryV1.sol";
 import {IMintable} from "./interfaces/IMintable.sol";
@@ -116,8 +116,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
     function mintGovToken(address to, uint256 amount) external override onlyOwner {
         if (to == address(0)) revert IErrors.ZeroValue();
         if (amount == 0) revert IErrors.ZeroValue();
-        _enforceMaxSupply(amount);
-        IMintable(govToken).mint(to, amount);
+        _mintAndTrack(to, amount);
         emit GovTokenMinted(to, amount);
     }
 
@@ -126,18 +125,13 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
         if (amount == 0) revert IErrors.ZeroValue();
         if (distributor == address(0)) revert IErrors.ZeroValue();
 
-        VestingSchedule storage es = emissionsSchedule;
-        uint256 newClaimed = es.claimed + amount;
-        if (newClaimed > es.totalAllocation) revert IErrors.ExceedsMaxSupply();
-
-        es.claimed = newClaimed;
-        _enforceMaxSupply(amount);
-        IMintable(govToken).mint(distributor, amount);
+        _checkAndUpdateEmissions(amount);
+        _mintAndTrack(distributor, amount);
         emit EmissionsMinted(distributor, amount);
     }
 
     /// @notice Bridge emissions to remote chain distributor (owner only)
-    /// @dev NOTE: Currently single-chain only - all user claim rights encoded in main chain merkle tree
+    /// @dev NB: Currently single-chain only - all user claim rights encoded in main chain merkle tree
     /// @dev Users can claim rewards from all chains on the main chain via unified merkle proofs
     /// @dev This function is included for future multi-chain support but should not be used yet
     function bridgeEmissions(uint32 dstEid, uint256 amount, bytes calldata options)
@@ -146,7 +140,6 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
         override
         onlyOwner
     {
-        // GATED FOR V2: Multi-chain bridging not enabled yet
         revert IErrors.FeatureDisabled(IErrors.Resource.BRIDGE);
 
         if (amount == 0) revert IErrors.ZeroValue();
@@ -154,17 +147,9 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
         address remoteDistributor = authorizedRemoteDistributor[dstEid];
         if (remoteDistributor == address(0)) revert IErrors.ZeroValue();
 
-        VestingSchedule storage es = emissionsSchedule;
-        uint256 newClaimed = es.claimed + amount;
-        if (newClaimed > es.totalAllocation) revert IErrors.ExceedsMaxSupply();
+        _checkAndUpdateEmissions(amount);
+        _mintAndTrack(address(this), amount);
 
-        es.claimed = newClaimed;
-        _enforceMaxSupply(amount);
-
-        // Mint to treasury, then bridge will burn from treasury
-        IMintable(govToken).mint(address(this), amount);
-
-        // Bridge to remote distributor
         IBridgeV1(bridge).bridgeViaLayerZero{value: msg.value}(
             govToken, dstEid, bytes32(uint256(uint160(remoteDistributor))), amount, options
         );
@@ -470,6 +455,20 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
 
     function getVestingSchedule(address beneficiary) external view override returns (VestingSchedule memory schedule) {
         return vestingSchedules[beneficiary];
+    }
+
+    // ========== INTERNAL HELPERS ==========
+
+    function _mintAndTrack(address to, uint256 amount) internal {
+        _enforceMaxSupply(amount);
+        IMintable(govToken).mint(to, amount);
+    }
+
+    function _checkAndUpdateEmissions(uint256 amount) internal {
+        VestingSchedule storage es = emissionsSchedule;
+        uint256 newClaimed = es.claimed + amount;
+        if (newClaimed > es.totalAllocation) revert IErrors.ExceedsMaxSupply();
+        es.claimed = newClaimed;
     }
 
     receive() external payable {}

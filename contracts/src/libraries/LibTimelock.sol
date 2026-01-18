@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 /// @title LibTimelock
 /// @notice Ultra-compact timelock library with packed storage

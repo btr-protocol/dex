@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'preact/hooks';
 import { Button } from '@components/ui/Button';
 import { InfoRow, InfoSection } from '@components/ui/InfoRow';
 import { BorderedThemedIcon, doubleDownIcon } from '@/components/ui/BorderedThemedIcon';
+import { Card } from '@components/ui/Card';
 import { Dropdown } from '@components/ui/Dropdown';
 import { Tooltip } from '@components/ui/Tooltip';
 import { TokenSelector } from '@components/shared/token';
@@ -12,6 +13,7 @@ import { SwapStore, TokenData, type OrderType } from '@/lib/swap/SwapStore';
 import { DirectionToggle } from './DirectionToggle';
 import { TokenList } from './TokenList';
 import { ORDER_TYPE_OPTIONS } from '@/constants/swap';
+import { formatNumber } from '@/utils/format';
 
 interface ChainInfo {
   name: string;
@@ -215,7 +217,7 @@ export function SwapForm({
         />
         <InfoRow
           label="Fees"
-          value={formattedQuote ? `${parseFloat(formattedQuote.totalFee).toFixed(6)}` : '--.--'}
+          value={formattedQuote ? formatNumber(parseFloat(formattedQuote.totalFee), 6) : '--.--'}
           icon="/icons/gas.svg"
           iconLabel="Fees"
           valueClassName={cn("font-numeric", formattedQuote ? "text-fg-0" : "text-muted-foreground")}
@@ -273,9 +275,9 @@ export function SwapForm({
 
   if (bordered) {
     return (
-      <div className="bg-bg-1 border border-border rounded-lg p-3">
+      <Card className="rounded-lg p-3">
         {content}
-      </div>
+      </Card>
     );
   }
 

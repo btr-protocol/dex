@@ -230,14 +230,14 @@ contract ERC4626Test is SoladyTest {
         // |         7333 |    3333 |     4999 |    4000 |     6000 |
         // |--------------|---------|----------|---------|----------|
         // | 5. Bob mints 2000 shares (costs 3001 assets)           |
-        // |    NOTE: Bob's assets spent got rounded up             |
-        // |    NOTE: Alice's vault assets got rounded up           |
+        // |    NB: Bob's assets spent got rounded up             |
+        // |    NB: Alice's vault assets got rounded up           |
         // |--------------|---------|----------|---------|----------|
         // |         9333 |    3333 |     5000 |    6000 |     9000 |
         // |--------------|---------|----------|---------|----------|
         // | 6. Vault mutates by +3000 tokens...                    |
         // |    (simulated yield returned from strategy)            |
-        // |    NOTE: Vault holds 17001 tokens, but sum of          |
+        // |    NB: Vault holds 17001 tokens, but sum of          |
         // |          assetsOf() is 17000.                          |
         // |--------------|---------|----------|---------|----------|
         // |         9333 |    3333 |     6071 |    6000 |    10929 |
@@ -251,7 +251,7 @@ contract ERC4626Test is SoladyTest {
         // |         6392 |    2000 |     3643 |    4392 |     8000 |
         // |--------------|---------|----------|---------|----------|
         // | 9. Alice withdraws 3643 assets (2000 shares)           |
-        // |    NOTE: Bob's assets have been rounded back up        |
+        // |    NB: Bob's assets have been rounded back up        |
         // |--------------|---------|----------|---------|----------|
         // |         4392 |       0 |        0 |    4392 |     8001 |
         // |--------------|---------|----------|---------|----------|
@@ -384,8 +384,8 @@ contract ERC4626Test is SoladyTest {
 
     function _testMultipleMintDepositRedeemWithdraw5(_TestTemps memory t) internal {
         // 5. Bob mints 2000 shares (costs 3001 assets)
-        // NOTE: Bob's assets spent got rounded up
-        // NOTE: Alices's vault assets got rounded up
+        // NB: Bob's assets spent got rounded up
+        // NB: Alices's vault assets got rounded up
         unchecked {
             vm.prank(t.bob);
             vault.mint(2000, t.bob);
@@ -407,7 +407,7 @@ contract ERC4626Test is SoladyTest {
 
     function _testMultipleMintDepositRedeemWithdraw6(_TestTemps memory t) internal {
         // 6. Vault mutates by +3000 tokens
-        // NOTE: Vault holds 17001 tokens, but sum of assetsOf() is 17000.
+        // NB: Vault holds 17001 tokens, but sum of assetsOf() is 17000.
         unchecked {
             underlying.mint(address(vault), t.mutationUnderlyingAmount);
             assertEq(vault.convertToAssets(vault.balanceOf(t.alice)), 6071 - t.slippage);
@@ -451,7 +451,7 @@ contract ERC4626Test is SoladyTest {
 
     function _testMultipleMintDepositRedeemWithdraw9(_TestTemps memory t) internal {
         // 9. Alice withdraws 3643 assets (2000 shares)
-        // NOTE: Bob's assets have been rounded back up
+        // NB: Bob's assets have been rounded back up
         unchecked {
             vm.prank(t.alice);
             vm.expectEmit(true, true, true, true);

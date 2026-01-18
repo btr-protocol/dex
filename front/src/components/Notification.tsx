@@ -2,6 +2,8 @@ import { Icon } from '@components/ui/Icon';
 import { Button } from '@components/ui/Button';
 import { Badge } from '@components/ui/Badge';
 import { INotification, LogLevel, ICON_BY_LOG_LEVEL } from '@/types/notification';
+import { useNotificationActions } from '@/hooks/useNotificationActions';
+import { formatTime } from '@sdk/utils/format';
 
 interface NotificationProps {
   notification: INotification;
@@ -9,31 +11,11 @@ interface NotificationProps {
 
 export function Notification({ notification }: NotificationProps) {
   const iconName = ICON_BY_LOG_LEVEL[notification.level];
+  const { copy, download, report } = useNotificationActions();
 
-  const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  };
-
-  const copy = () => {
-    navigator.clipboard.writeText(JSON.stringify(notification, null, 2));
-  };
-
-  const save = () => {
-    const blob = new Blob([JSON.stringify(notification, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${notification.id}-log.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const report = () => {
-    const subject = encodeURIComponent('Log Report');
-    const body = encodeURIComponent(JSON.stringify(notification, null, 2));
-    window.location.href = `mailto:tech@btr.supply?subject=${subject}&body=${body}`;
-  };
+  const handleCopy = () => copy(notification);
+  const handleSave = () => download(notification, `${notification.id}-log.json`);
+  const handleReport = () => report(notification);
 
   const levelColors = {
     [LogLevel.DEBUG]: 'text-muted-foreground',
@@ -62,7 +44,7 @@ export function Notification({ notification }: NotificationProps) {
       {/* Actions - visible on hover */}
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-bg-1 border border-border rounded-sm p-1">
         <Button
-          onClick={copy}
+          onClick={handleCopy}
           variant="ghost"
           size="xs"
           className="h-auto w-auto p-1.5"
@@ -70,7 +52,7 @@ export function Notification({ notification }: NotificationProps) {
           leftIcon={<Icon name="copy" className="w-3.5 h-3.5" />}
         />
         <Button
-          onClick={save}
+          onClick={handleSave}
           variant="ghost"
           size="xs"
           className="h-auto w-auto p-1.5"
@@ -78,7 +60,7 @@ export function Notification({ notification }: NotificationProps) {
           leftIcon={<Icon name="floppy-disk" className="w-3.5 h-3.5" />}
         />
         <Button
-          onClick={report}
+          onClick={handleReport}
           variant="ghost"
           size="xs"
           className="h-auto w-auto p-1.5"

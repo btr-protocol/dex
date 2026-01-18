@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {IERC7802} from "./interfaces/external/IERC7802.sol";
 import {LZEndpointV2} from "./interfaces/external/ILZEndpointV2.sol";
@@ -46,6 +46,29 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     address public pendingImplementation;
     uint48 constant UPGRADE_TIMELOCK = 7 days;
     uint48 constant UPGRADE_GRACE = 3 days;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SECURITY FIX (CRITICAL-6): Failed Message Recovery Queue
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// @dev Stores failed bridge messages for later recovery
+    struct FailedMessage {
+        address recipient;      // Target recipient
+        address token;          // Token to mint
+        uint256 amount;         // Amount to mint
+        uint32 srcEid;          // Source chain ID
+        uint64 failureTime;     // When the failure occurred
+        uint8 failureCode;      // 1=peer_removed, 2=token_paused, 3=rate_limit, 4=mint_failed
+    }
+
+    /// @dev Maps GUID => FailedMessage for recovery
+    mapping(bytes32 guid => FailedMessage) public failedMessages;
+
+    /// @dev Emitted when a bridge message fails and is queued for recovery
+    event MessageFailed(bytes32 indexed guid, address recipient, address token, uint256 amount, uint8 failureCode);
+
+    /// @dev Emitted when a failed message is recovered
+    event MessageRecovered(bytes32 indexed guid, address recipient, address token, uint256 amount);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // INITIALIZATION
@@ -106,6 +129,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     }
 
     /// @notice LayerZero receive callback
+    /// @dev SECURITY FIX (CRITICAL-6): Queues failed messages for recovery instead of reverting
     function lzReceive(
         LZEndpointV2.Origin calldata _origin,
         bytes32 _guid,
@@ -115,21 +139,84 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     ) external payable override nonReentrant {
         if (msg.sender != LZ_ENDPOINT) revert Unauthorized();
 
-        bytes32 trustedPeer = peers[_origin.srcEid];
-        if (trustedPeer == bytes32(0) || trustedPeer != _origin.sender) {
-            revert Unauthorized();
-        }
-
         (bytes32 receiver, address token, uint256 amount) = abi.decode(_message, (bytes32, address, uint256));
         if (amount == 0) revert IErrors.ZeroValue();
-
-        _checkAndUpdateLimit(token, amount, IBridgeV1.Direction.Inbound);
 
         address to = address(uint160(uint256(receiver)));
         if (to == address(0)) revert IErrors.ZeroValue();
 
-        IERC7802(token).crosschainMint(to, amount, abi.encode(_origin.srcEid, _origin.nonce, _guid));
-        emit Bridged(to, token, _origin.srcEid, receiver, amount, _origin.nonce, Direction.Inbound);
+        // SECURITY FIX (CRITICAL-6): Check peer - queue for recovery if failed
+        bytes32 trustedPeer = peers[_origin.srcEid];
+        if (trustedPeer == bytes32(0) || trustedPeer != _origin.sender) {
+            _queueFailedMessage(_guid, to, token, amount, _origin.srcEid, 1); // 1 = peer_removed
+            return;
+        }
+
+        // SECURITY FIX (CRITICAL-6): Check rate limit - queue for recovery if exceeded
+        TokenConfig memory cfg = tokenConfigs[token];
+        if ((cfg.flags & FLAG_SUPPORTED) == 0) {
+            _queueFailedMessage(_guid, to, token, amount, _origin.srcEid, 2); // 2 = token_not_supported
+            return;
+        }
+        if ((cfg.flags & FLAG_PAUSED) != 0) {
+            _queueFailedMessage(_guid, to, token, amount, _origin.srcEid, 3); // 3 = token_paused
+            return;
+        }
+
+        // Check rate limit (non-reverting version)
+        if (!_tryCheckAndUpdateLimit(token, amount, cfg)) {
+            _queueFailedMessage(_guid, to, token, amount, _origin.srcEid, 4); // 4 = rate_limit_exceeded
+            return;
+        }
+
+        // SECURITY FIX (CRITICAL-6): Try mint - queue for recovery if fails
+        try IERC7802(token).crosschainMint(to, amount, abi.encode(_origin.srcEid, _origin.nonce, _guid)) {
+            emit Bridged(to, token, _origin.srcEid, receiver, amount, _origin.nonce, Direction.Inbound);
+        } catch {
+            _queueFailedMessage(_guid, to, token, amount, _origin.srcEid, 5); // 5 = mint_failed
+        }
+    }
+
+    /// @dev Queue a failed message for later recovery
+    function _queueFailedMessage(
+        bytes32 guid,
+        address recipient,
+        address token,
+        uint256 amount,
+        uint32 srcEid,
+        uint8 failureCode
+    ) internal {
+        failedMessages[guid] = FailedMessage({
+            recipient: recipient,
+            token: token,
+            amount: amount,
+            srcEid: srcEid,
+            failureTime: uint64(block.timestamp),
+            failureCode: failureCode
+        });
+        emit MessageFailed(guid, recipient, token, amount, failureCode);
+    }
+
+    /// @dev Non-reverting rate limit check
+    function _tryCheckAndUpdateLimit(
+        address token,
+        uint256 amount,
+        TokenConfig memory cfg
+    ) internal returns (bool) {
+        // Check if unlimited
+        if ((cfg.flags & FLAG_UNLIMITED) != 0) return true;
+
+        // Decode limits - inbound limit is outbound limit * inRatio / 100
+        uint256 outLimit = M.decodeB64(cfg.limitOutB64, 18);
+        uint256 inLimit = (outLimit * uint256(cfg.inRatio)) / RATIO_DENOM;
+        uint256 currentIn = M.decodeB64(cfg.bridgedInB64, 18);
+
+        // Check if limit would be exceeded
+        if (currentIn + amount > inLimit) return false;
+
+        // Update accumulator
+        tokenConfigs[token].bridgedInB64 = M.encodeB64(currentIn + amount, 18);
+        return true;
     }
 
     /// @notice Quote bridge fee
@@ -154,6 +241,81 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
             options: options,
             payInLzToken: false
         }));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SECURITY FIX (CRITICAL-6): FAILED MESSAGE RECOVERY
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Recover a failed bridge message
+    /// @dev SECURITY FIX (CRITICAL-6): Allows owner to retry failed messages
+    /// @param guid The LayerZero message GUID
+    function recoverFailedMessage(bytes32 guid) external onlyOwner nonReentrant {
+        FailedMessage memory failed = failedMessages[guid];
+        if (failed.amount == 0) revert IErrors.InvalidState(); // No such failed message
+
+        // Delete before external call (reentrancy protection)
+        delete failedMessages[guid];
+
+        // Attempt to mint
+        IERC7802(failed.token).crosschainMint(
+            failed.recipient,
+            failed.amount,
+            abi.encode(failed.srcEid, uint64(0), guid)
+        );
+
+        emit MessageRecovered(guid, failed.recipient, failed.token, failed.amount);
+    }
+
+    /// @notice Recover a failed message to a different recipient
+    /// @dev For cases where original recipient address was wrong or compromised
+    /// @param guid The LayerZero message GUID
+    /// @param newRecipient New address to receive the tokens
+    function recoverFailedMessageTo(bytes32 guid, address newRecipient) external onlyOwner nonReentrant {
+        if (newRecipient == address(0)) revert IErrors.ZeroValue();
+
+        FailedMessage memory failed = failedMessages[guid];
+        if (failed.amount == 0) revert IErrors.InvalidState();
+
+        delete failedMessages[guid];
+
+        IERC7802(failed.token).crosschainMint(
+            newRecipient,
+            failed.amount,
+            abi.encode(failed.srcEid, uint64(0), guid)
+        );
+
+        emit MessageRecovered(guid, newRecipient, failed.token, failed.amount);
+    }
+
+    /// @notice Refund a failed message back to the source chain
+    /// @dev For cases where recovery on this chain isn't possible
+    /// @param guid The LayerZero message GUID
+    /// @param options LayerZero options for the refund message
+    function refundFailedMessage(bytes32 guid, bytes calldata options) external payable onlyOwner nonReentrant {
+        FailedMessage memory failed = failedMessages[guid];
+        if (failed.amount == 0) revert IErrors.InvalidState();
+
+        bytes32 peer = peers[failed.srcEid];
+        if (peer == bytes32(0)) revert IErrors.NotConfigured(IErrors.Resource.BRIDGE_PEER, address(uint160(failed.srcEid)));
+
+        delete failedMessages[guid];
+
+        // Send refund message to source chain
+        LZEndpointV2.SendParam memory sendParam = LZEndpointV2.SendParam({
+            dstEid: failed.srcEid,
+            to: peer,
+            message: abi.encode(bytes32(uint256(uint160(failed.recipient))), failed.token, failed.amount),
+            options: options,
+            payInLzToken: false
+        });
+
+        LZEndpointV2.MessagingFee memory fee = _quoteFee(sendParam);
+        if (msg.value < fee.nativeFee) revert IErrors.InsufficientAmount(msg.value, fee.nativeFee);
+
+        LZEndpointV2(LZ_ENDPOINT).send{value: fee.nativeFee}(sendParam, fee, payable(msg.sender));
+
+        emit MessageRecovered(guid, failed.recipient, failed.token, failed.amount);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

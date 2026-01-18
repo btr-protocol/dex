@@ -1227,15 +1227,16 @@ Smart contract-to-smart contract interaction recorded on-chain as a distinct eve
 
 ### Inventory Skew
 Price adjustment based on [coverage ratio](#coverage-ratio) deviation, derived from the [Avellaneda-Stoikov Framework](#avellaneda-stoikov-framework). Applies a quadratic penalty/discount to incentivize rebalancing:
-```
-skew ∈ [-100, +100] bps
-skew = sign × 100 × ((coverage - target) / (bound - target))^(γ/10000)
+$$
+skew \in [-100, +100] \text{ bps} \\
+skew = sign \times 100 \times ((coverage - target) / (bound - target))^{\gamma/10000}
+$$
+
 where:
-  - target = 100% coverage (equilibrium)
-  - bound = 50% (lower floor) or 200% (upper ceiling)
-  - γ = gamma sensitivity parameter (default 10000 = 1.0x)
-  - sign = positive if coverage < target (premium), negative if coverage > target (discount)
-```
+- $target$ = 100% coverage (equilibrium)
+- $bound$ = 50% (lower floor) or 200% (upper ceiling)
+- $\gamma$ = gamma sensitivity parameter (default 10000 = 1.0x)
+- $sign$ = positive if coverage < target (premium), negative if coverage > target (discount)
 **Mechanism**: When undercollateralized (coverage < 100%), pool charges a premium to discourage further withdrawals. When overcollateralized (coverage > 100%), pool offers a discount to encourage users to sell assets back. **Economic interpretation**: Acts as a cost for inventory risk borne by remaining LPs. Higher [gamma](#gamma-γ) creates steeper penalty curves. **Relation to Avellaneda-Stoikov**: Replicates the academic model's dynamic spread adjustment as a function of inventory position. See [Coverage Ratio](#coverage-ratio), [Gamma (γ)](#gamma-γ), and `docs/1. AIMM/1.2. Pricing/1.2.5. Parametrization.md` for tuning guidance.
 
 ---
@@ -2689,13 +2690,14 @@ See [Statistical Methods](#statistical-methods), [Risk & Volatility Metrics](#ri
 **Statistical method modeling the relationship between a dependent variable (y) and one or more independent variables (x).** Quantifies how much x influences y and allows predictions.
 
 **Linear Regression Formula**:
-```
-y = α + β₁×x₁ + β₂×x₂ + ... + ε
+$$
+y = \alpha + \beta_1 \times x_1 + \beta_2 \times x_2 + ... + \epsilon
+$$
+
 where:
-  α = intercept
-  β_i = coefficient (slope) for variable x_i
-  ε = error term (unexplained variation)
-```
+- $\alpha$ = intercept
+- $\beta_i$ = coefficient (slope) for variable $x_i$
+- $\epsilon$ = error term (unexplained variation)
 
 **Key Metrics**:
 - **R²**: Percentage of y's variance explained by model (0-1 scale)

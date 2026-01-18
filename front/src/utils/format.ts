@@ -25,6 +25,7 @@ export {
 
 // Re-export math utilities for convenience
 export {
+  calcPercentChange,
   round,
   roundAutoPrecision,
   precision,
@@ -36,3 +37,11 @@ export {
   average,
   niceScale,
 } from '@sdk/utils/maths';
+
+// Re-export date formatting utilities
+export {
+  formatTime,
+  formatDayHeader,
+  formatTimeAgo,
+  formatVerticalLineTime,
+} from './date';

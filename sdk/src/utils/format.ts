@@ -277,3 +277,45 @@ export function parseFormattedNumber(value: string): number {
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Date/Time Formatting
+// ─────────────────────────────────────────────────────────────
+
+export const TIME_FORMATS = {
+  TIME_24H: { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' },
+  TIME_12H: { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' },
+  DATE_LONG: { weekday: 'long', month: 'long', day: 'numeric' },
+} as const;
+
+/** Format timestamp as localized time */
+export function formatTime(timestamp: number, format = TIME_FORMATS.TIME_24H): string {
+  return new Date(timestamp).toLocaleTimeString('en-US', format);
+}
+
+/** Format timestamp as day header (TODAY/YESTERDAY/full date) */
+export function formatDayHeader(timestamp: number): string {
+  const date = new Date(timestamp);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  today.setHours(0, 0, 0, 0);
+  yesterday.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+
+  if (date.getTime() === today.getTime()) return 'TODAY';
+  if (date.getTime() === yesterday.getTime()) return 'YESTERDAY';
+
+  return date.toLocaleDateString('en-US', TIME_FORMATS.DATE_LONG).toUpperCase();
+}
+
+/** Format timestamp as UTC date/time for chart vertical lines */
+export function formatVerticalLineTime(timestamp: number): string {
+  const date = new Date(timestamp * 1000);
+  const day = date.getUTCDate().toString().padStart(2, '0');
+  const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+  const hours = date.getUTCHours().toString().padStart(2, '0');
+  const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+  return `${day}/${month} ${hours}:${minutes}`;
+}

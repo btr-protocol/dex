@@ -101,10 +101,9 @@ export { ERC4626_ABI } from './erc4626';
 export { ERC7540_ABI } from './erc7540';
 export { LAYERZERO_OFT_ABI } from './layerzero-oft';
 
-// Custom Contract ABIs
+// Custom Contract ABIs (POOL_ABI exported from pool module)
 export { AIMM_ABI } from '../abis/AIMM.js';
 export { DARKPOOL_ABI } from '../abis/DarkPool.js';
-export { POOL_ABI } from '../abis/Pool.js';
 
 // Mock Data
 export { MOCK_PRICES, getMockPrice } from './mock';

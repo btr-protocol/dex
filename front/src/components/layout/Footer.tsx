@@ -56,7 +56,7 @@ export function Footer() {
 
   return (
     <footer className="fixed bottom-0 w-full h-10 flex items-center z-50 font-light text-sm">
-      <nav className="px-3 max-w-7xl h-full mx-auto flex items-center justify-between border border-b-0 rounded-t-lg backdrop-blur-md bg-background/80 border-border w-full">
+      <nav className="px-3 max-w-7xl h-full mx-auto flex items-center justify-between border border-b-0 rounded-t-lg backdrop-blur-md bg-bg-0/80 border-border w-full">
         {/* Left: Social Links + Health Status */}
         <div className="flex items-center gap-3">
           {/* Social Links */}

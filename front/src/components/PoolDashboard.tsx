@@ -3,6 +3,7 @@ import { formatUnits, Address } from '@sdk/eth';
 import { useRegisteredAssets, useAssetState, useOraclePrice, useCoverageRatio } from '@/hooks/usePoolState';
 import { useTokenInfo } from '@/hooks/useTokenInfo';
 import { Badge } from '@components/ui/Badge';
+import { formatNumber } from '@utils/format';
 
 interface AssetRowProps {
   address: Address;
@@ -49,7 +50,7 @@ function AssetRow({ address }: AssetRowProps) {
       </td>
       <td className="px-4 py-3 font-mono text-sm">
         <span className={formattedCoverage >= 100 ? 'text-green-400' : 'text-orange-400'}>
-          {formattedCoverage.toFixed(2)}%
+          {formatNumber(formattedCoverage, 2)}%
         </span>
       </td>
       <td className="px-4 py-3 font-mono text-sm text-gray-300">

@@ -5,6 +5,10 @@
 
 import type { Eip1193Provider } from './types';
 
+// Declare window for environments where it may not exist (Node.js)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const window: any;
+
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────

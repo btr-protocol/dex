@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {IPoolV1} from "../src/interfaces/IPoolV1.sol";
 import {PoolProxyV1} from "../src/PoolProxyV1.sol";
-import {CoreV1} from "../src/modules/CoreV1.sol";
+import {ExchangeV1} from "../src/modules/ExchangeV1.sol";
 import {AdminV1} from "../src/modules/AdminV1.sol";
 import {LibConstants as C} from "../src/libraries/LibConstants.sol";
 import {LibMaths} from "../src/libraries/LibMaths.sol";
 
 contract ModuleSlotTest is Test {
     PoolProxyV1 pool;
-    CoreV1 coreModule;
+    ExchangeV1 exchangeModule;
     AdminV1 adminModule;
 
     address constant USDC = 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d;
     address constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
     function setUp() public {
-        coreModule = new CoreV1();
+        exchangeModule = new ExchangeV1();
         adminModule = new AdminV1();
         pool = new PoolProxyV1();
 

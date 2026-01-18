@@ -1,325 +1,107 @@
 # Agent Guidelines
 
-## Stack & Tooling (2025)
+**For AI assistants working on this codebase.**
 
-This monorepo uses **Bun** and **native tooling** for maximum speed.
+---
 
-### Core Stack
+## Quick Start
 
-| Tool | Purpose | Why |
-|------|---------|-----|
-| **Bun** | Runtime + package manager | 10-100x faster than Node.js |
-| **tsgo** | Type checking | Native Go port, 10-20x faster than tsc |
-| **oxlint** | Linting + formatting | Rust-based, faster than ESLint |
-| **Vite** | Frontend bundler | Fast HMR, optimized builds |
+Read the guide for your task:
 
-### Module Structure
+| Role | Guide |
+|------|-------|
+| **Frontend** | [`docs/5. Contributing/FRONTEND.md`](docs/5. Contributing/FRONTEND.md) |
+| **Backend** | [`docs/5. Contributing/BACKEND.md`](docs/5. Contributing/BACKEND.md) |
+| **Smart Contracts** | [`docs/5. Contributing/SMART_CONTRACTS.md`](docs/5. Contributing/SMART_CONTRACTS.md) |
+| **Security/Audit** | [`docs/5. Contributing/SECURITY.md`](docs/5. Contributing/SECURITY.md) |
+| **Quant/Research** | [`docs/5. Contributing/QUANT.md`](docs/5. Contributing/QUANT.md) |
+| **Git Workflow** | [`docs/5. Contributing/GIT.md`](docs/5. Contributing/GIT.md) |
+
+---
+
+## Critical Rules
+
+1. **Package Manager**: Use `bun` exclusively - NEVER npm/yarn
+2. **Git Identity**: Always use the user's git identity - NEVER use agent/AI names as commit author
+3. **Dead Code**: ZERO TOLERANCE - delete unused code immediately
+4. **Communication**: Keep responses SHORT - brief status, no verbose summaries
+
+---
+
+## Problem Solving
+
+When you don't know something:
+1. **WebSearch first** - Use WebSearch to find current information
+2. **Ask second** - If web search doesn't help, ask the user
+
+---
+
+## Tech Stack Overview
+
+| Area | Technology |
+|------|------------|
+| **Runtime** | Bun (not Node.js) |
+| **Frontend** | Native Preact (no compat), Signals, Tailwind CSS |
+| **Backend** | Bun + TypeScript + SQLite |
+| **Contracts** | Solidity 0.8.33 (exact) |
+| **Testing** | Bun test, Foundry |
+| **Linting** | oxlint |
+| **Charts** | TradingView Lightweight, SVG (no chart.js) |
+
+---
+
+## Project Structure
 
 ```
 dex/
-├── sdk/           # Core SDK (library, no dev server)
-├── front/         # Preact frontend (Vite)
-└── back/collector/# Bun WebSocket server
+├── sdk/           # Core SDK (tokens, chains, contracts metadata)
+├── front/         # Preact frontend
+├── back/collector/# Bun WebSocket server
+└── contracts/     # Solidity contracts (Foundry)
 ```
 
-### Consistent Commands (All Modules)
+---
 
-| Command | Description | SDK | Front | Back |
-|---------|-------------|-----|-------|------|
-| `bun run dev` | Development server | - | ✓ | ✓ |
-| `bun run build` | Production build | ✓ | ✓ | ✓ |
-| `bun run typecheck` | Type check with tsgo | ✓ | ✓ | ✓ |
-| `bun run typecheck:watch` | Watch mode | ✓ | ✓ | ✓ |
-| `bun run lint` | Lint with oxlint | ✓ | ✓ | ✓ |
-| `bun run fmt` | Format with oxlint | ✓ | ✓ | ✓ |
+## Module Commands
 
-### Root Commands
-
-From project root (`./`):
-
+All modules support:
 ```bash
-bun run dev          # Start front + back in parallel
-bun run build        # Build: sdk → back → front
-bun run typecheck    # Type check all modules
-bun run lint         # Lint entire codebase
-bun run fmt          # Format entire codebase
+bun run dev           # Development server
+bun run build         # Production build
+bun run typecheck     # Type check with tsgo
+bun run lint          # Lint with oxlint
+bun run fmt           # Format with oxlint
 ```
 
-### Configuration Files
-
-- **oxlint.json** (root) - Linting rules for all modules
-- **tsconfig.json** (per module) - TypeScript config optimized for Bun ESM + tsgo
-- **package.json** (per module) - Scripts and dependencies
-
-### TypeScript Config (tsgo-optimized)
-
-All modules use:
-```json
-{
-  "compilerOptions": {
-    "module": "Preserve",
-    "moduleResolution": "bundler",
-    "verbatimModuleSyntax": true,
-    "noEmit": true
-  }
-}
-```
-
----
-
-## Documentation
-- **Root**: README.md only
-- **Docs**: All in `./docs/` (user-facing)
-- **Code**: Implementation = spec
-
----
-
-## Package Manager
-**⚠️ Use `bun` EXCLUSIVELY**
-- ❌ NEVER npm/yarn
-- ✅ `bun install|add|run`
-
-## Git Identity
-**⚠️ Always use the user's git identity**
-- ❌ NEVER use agent or "Gemini" or "Claude" identity for git commits authors or co-authors.
-
-## Dead Code Policy
-**⚠️ ZERO TOLERANCE for dead code**
-- ❌ NO deprecated code, backward compatibility layers, or compatibility shims
-- ❌ NO commented-out code blocks
-- ❌ NO unused imports, functions, types, or variables
-- ❌ NO "TODO: remove this later" comments
-- ✅ Delete unused code immediately
-- ✅ Update all usages when refactoring
-- ✅ Clean slate - if it's not used, it's gone
-
-**When refactoring:**
-1. Update all usages first
-2. Delete old code completely
-3. No transition period with both versions
-
----
-
-## Communication
-**Keep responses SHORT**
-- ❌ NO long summaries/verbose explanations
-- ✅ Brief status (1-2 lines), ask when needed
-
----
-
-## SDK = Source of Truth
-**All token/chain/contract metadata in SDK, NOT frontend**
-
-| Data | SDK File |
-|------|----------|
-| Tokens/addresses/metadata | `sdk/src/eth/tokens.ts` |
-| Chain configs | `sdk/src/eth/chains.ts` |
-| Contract addresses | `sdk/src/eth/contracts.ts` |
-
-**Rules**: Never duplicate in frontend; always import from `@sdk/eth`
-
----
-
-## Frontend Stack
-**Pure Preact + Signals + Tailwind ONLY**
-
-### Core Deps (Keep Lean)
-- ✅ Framework: Preact (no compat)
-- ✅ State: @preact/signals
-- ✅ Styling: Tailwind CSS
-- ✅ Components: Custom headless, atomic (no Radix)
-- ✅ Charts: TradingView Lightweight + SVG
-- ✅ Markdown/Math/Mermaid: Backend-compiled
-
-### Forbidden
-- ❌ React/preact-compat/React types
-- ❌ Radix UI or React component libs
-- ❌ Tailwind/chart.js/frontend markdown parsers (marked, markdown-wasm, prismjs, mermaid)
-- ❌ LaTeX (use AsciiMath + MathML, rendered at build-time)
-
-### Bundle Target
-- Final: <500KB gzipped (target <400KB)
-
----
-
-## Preact Signals & Reactivity
-**Philosophy: Signal-first, zero synthetic events**
-
-### Core Patterns
-
-**1. Direct Signal Rendering** (Preact binds directly to DOM, no VDOM diffing)
-```tsx
-export const btcPrice = signal('$45,000');
-export function PriceDisplay() {
-  return <div>BTC: {btcPrice}</div>; // Renders once, updates without re-render
-}
-```
-
-**2. Global Stores** (Module exports, no Context plumbing)
-```tsx
-export const direction = signal<'buy'|'sell'>('buy');
-export const orderType = signal<OrderType>('market');
-// Import anywhere: import { direction, orderType } from '@lib/swap/SwapStore'
-```
-
-**3. Derived State** (Auto-memoized computed signals)
-```tsx
-export const orderLabel = computed(() =>
-  orderType.value === 'market' ? 'Market Order' : 'Limit Order'
-);
-```
-
-**4. Batch Updates** (Coalesce multi-signal writes)
-```tsx
-batch(() => {
-  direction.value = 'buy';
-  orderType.value = 'market';
-  primaryTokens.value = newTokens;
-}); // DOM updates once
-```
-
-**5. Effects** (Auto-track dependencies, optional cleanup)
-```tsx
-effect(() => {
-  console.log(`Direction: ${direction.value}`);
-  return () => console.log('Cleanup');
-});
-```
-
-**6. Non-Reactive Reads** (Break reactive cycles)
-```tsx
-effect(() => {
-  if (shouldLog.value) {
-    console.log(`Latest: ${priceHistory.peek()}`); // Won't re-run
-  }
-});
-```
-
-### Store Pattern
-```tsx
-export class LiquidityStore {
-  searchQuery = signal('');
-  assets = signal<AssetData[]>([]);
-
-  filteredAssets = computed(() =>
-    this.assets.value.filter(a => a.symbol.includes(this.searchQuery.value))
-  );
-}
-
-export const liquidityStore = new LiquidityStore();
-```
-
-### Optimization Checklist
-- [ ] Global state: exported signals, not Context
-- [ ] Text nodes: pass signals `{signal}`, not `{signal.value}`
-- [ ] Derived: use `computed()` not `useMemo()`
-- [ ] Multi-writes: wrap in `batch()`
-- [ ] Effects: `effect()` not `useEffect()`
-- [ ] Forms: `onInput`/`onDblClick` (not `onChange`/`onDoubleClick`)
-- [ ] Events: native browser events only
-- [ ] Renders: "render once" + signal updates
-
----
-
-## Build-Time Compilation
-**Zero runtime deps for content: markdown → HTML, AsciiMath → MathML, Mermaid → SVG at build time**
-
-### Markdown Compilation
-- **Script**: `scripts/precompile-markdown.ts` (backend only)
-- **Process**:
-  - Parses markdown with `marked`
-  - Syntax highlights with `prismjs` (JS/TS/JSX/TSX/JSON/Bash/SQL/Markdown/Solidity)
-  - Converts inline math ($...$) and block math ($$...$$) to MathML using `asciimath2ml`
-  - Renders mermaid diagrams to themed SVG (light/dark) via Playwright
-  - Generates heading anchors with IDs
-- **Output**: `/front/public/compiled-docs/docs.json` (pre-rendered HTML)
-- **Frontend**: Uses `MarkdownRenderer` component that loads pre-compiled HTML from JSON (NO parsing)
-
-### Frontend Markdown Usage
-```tsx
-// Load by slug from pre-compiled docs
-<MarkdownRenderer slug="overview" />
-
-// Or pass pre-rendered HTML directly
-<MarkdownRenderer content="<p>...</p>" />
-```
-**Key**: Frontend has ZERO markdown dependencies (`marked`, `prismjs`, `asciimath2ml`, `mermaid` only in backend)
-
-### Search Index
-- **Script**: `scripts/build-search-index.ts`
-- **What**: Extracts frontmatter, strips markdown, builds full-text search index
-- **Output**: Searchable JSON metadata
-
-### Build Chain
+Root level:
 ```bash
-bun run build
-# Runs: build:markdown → build:search-index → vite build
+bun run dev           # Start front + back in parallel
+bun run build         # Build all modules
+bun run typecheck     # Type check all
+bun run lint          # Lint entire codebase
 ```
 
-**Dependencies**:
-- ✅ Backend (`package.json`): marked, prismjs, asciimath2ml, playwright, mermaid
-- ❌ Frontend (`front/package.json`): NONE of the above (pre-compiled only)
+---
+
+## Key Policies
+
+### Dead Code
+- NO deprecated code, backward compatibility layers
+- NO commented-out code blocks
+- NO unused imports, functions, types, or variables
+- Delete unused code immediately
+
+### Comments
+- Explain WHY, not WHAT
+- Keep non-obvious logic, invariants, safety constraints
+- Remove decorative ASCII art, verbose headers
+
+### Git
+- Atomic commits (one logical change)
+- Category prefixes: `feat`, `fix`, `docs`, `refac`, `ops`
+- NEVER mention AI tools in commit messages
+- Use user's git identity (not agent/AI)
 
 ---
 
-## SVG Charts
-**SVG, NOT chart.js**
-- **Types**: Sparklines ✅, other charts 🔲
-- **Location**: `src/components/charts/`
-- **Size**: <100 lines each
-- **Price**: TradingView Lightweight Charts (only external for price data)
-
----
-
-## Python (`./sim`)
-**Use `uv` ONLY**
-- ❌ NEVER pip/pip3
-- ✅ `uv pip install -e .`
-- ✅ `uv run python3 script.py`
-
-**Cython**: All AMM code `.pyx` (10-100x faster); rebuild: `uv pip install -e . --reinstall`
-
----
-
-## Doc Link Schema
-**Format**: `/docs/slug#anchor`
-
-✅ `[Coverage Ratio](/docs/1.1.1-Inventory-Management#2.4-coverage-ratio)`
-❌ `[Coverage Ratio](./1.1.1. Inventory Management.md#2.4-coverage-ratio)`
-
----
-
-## Code Philosophy
-**Performance. Elegant. Signal-Driven. DRY. Concise.**
-
-**Signal-First Ethos**:
-- `signal()` > `useState()` for shared/reactive state
-- `computed()` > `useMemo()` for derived values
-- `effect()` > `useEffect()` for side-effects
-- Pass signals to JSX (not `.value`)
-- `batch()` for multi-signal updates
-- `.peek()` sparingly (break reactive cycles)
-
-**Best Practices**: Performance first; lean; minimize re-renders; DRY; no over-abstraction; consistent formatting; silent (no emojis/verbose)
-
----
-
-## Dev Stack
-
-**Start**: `bun run dev`
-
-**Services**:
-- `front`: Port 3000 (Vite + Preact)
-- `back/collector`: Port 3001 (HTTP + WS)
-
-**PWA**: `cd front && bun run pwa-assets`
-
----
-
-## Agent Checklist
-1. Root clean (README.md only)
-2. Bun exclusively
-3. Frontend: Preact + Signals + Tailwind
-4. Backend compilation: markdown → HTML, math → MathML, Mermaid → SVG
-5. Doc links: `/docs/slug#anchor`
-6. Concise responses
+*For detailed guidelines, see the role-specific guides listed above.*

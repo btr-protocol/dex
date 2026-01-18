@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
@@ -7,6 +7,7 @@ import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibOracle} from "../libraries/LibOracle.sol";
+import {LibConstants as C} from "../libraries/LibConstants.sol";
 
 /// @title InternalOracle
 /// @notice Ultra-efficient internal TWAP oracle that updates automatically on swaps
@@ -22,14 +23,14 @@ contract InternalOracleV1 is BaseV1 {
     /// @notice Slow TWAP window (1 hour)
     uint32 public constant SLOW_WINDOW = 3600;
 
-    /// @notice Fast volatility EMA alpha (0.02% = 200 units in 1e6 base)
+    /// @notice Fast volatility EMA alpha (0.02% = 200 units in C.PBPS)
     uint32 public constant FAST_VOL_ALPHA = 200;
 
-    /// @notice Slow volatility EMA alpha (0.18% = 1800 units in 1e6 base)
+    /// @notice Slow volatility EMA alpha (0.18% = 1800 units in C.PBPS)
     uint32 public constant SLOW_VOL_ALPHA = 1800;
 
-    /// @notice Maximum allowed volatility (10,000% = 100_000_000 in 1e6 base)
-    uint32 public constant MAX_VOLATILITY = 100_000_000;
+    /// @notice Maximum allowed volatility (10,000% = 100 * C.PBPS)
+    uint32 public constant MAX_VOLATILITY = 100 * uint32(C.PBPS);
 
     /// @notice Default TTL for feeds (1 hour)
     uint16 public constant DEFAULT_TTL = 3600;
@@ -212,8 +213,8 @@ contract InternalOracleV1 is BaseV1 {
         // Initialize if first update (should have been initialized via updateFeed)
         if (acc.lastUpdate == 0) {
             acc.lastPriceB64 = newPrice;
-            acc.fastVolEMA = 10_000;  // 0.01% default
-            acc.slowVolEMA = 10_000;
+            acc.fastVolEMA = C.ONE_PCT_PBPS / 100;  // 0.01% default
+            acc.slowVolEMA = C.ONE_PCT_PBPS / 100;
             acc.lastUpdate = currentTime;
             acc.ttl = DEFAULT_TTL;
             acc.confidence = 100;
@@ -233,6 +234,19 @@ contract InternalOracleV1 is BaseV1 {
 
             // Skip if same block (prevents manipulation)
             if (dt == 0) return;
+
+            // SECURITY FIX (CRITICAL-7): Staleness threshold to prevent TWAP corruption
+            // If oracle hasn't been updated in > 7 days, cap dt to prevent accumulator corruption
+            // and reset snapshots to ensure clean TWAP windows
+            uint256 MAX_STALENESS = 604800; // 7 days in seconds
+            if (dt > MAX_STALENESS) {
+                dt = MAX_STALENESS;
+                // Reset snapshots to current state - TWAP will rebuild from fresh data
+                acc.fastSnapB64 = acc.priceAccB64;
+                acc.slowSnapB64 = acc.priceAccB64;
+                acc.fastSnapshotTime = acc.lastUpdate;
+                acc.slowSnapshotTime = acc.lastUpdate;
+            }
 
             // Get accumulator decimals (set at initialization)
             uint8 accDec = acc.accDecimals;
@@ -260,36 +274,54 @@ contract InternalOracleV1 is BaseV1 {
             if (dtFast >= FAST_WINDOW) {
                 // Decode snapshot with accDecimals
                 uint256 fastAccSnapshot = acc.fastSnapB64 == 0 ? 0 : M.decodeB64(acc.fastSnapB64, accDec);
-                uint256 windowAccumulation = currentAcc - fastAccSnapshot;
 
-                // TWAP in accDecimals base, then scale to 1e18
-                uint256 twapInAccDec = windowAccumulation / dtFast;
-                uint256 fastTWAP = twapInAccDec * (10 ** (18 - accDec));
+                // SECURITY FIX (CRITICAL-7): Underflow protection on accumulator subtraction
+                // If snapshot > current (corruption/reinitialization), reset snapshot to current
+                if (fastAccSnapshot > currentAcc) {
+                    acc.fastSnapB64 = acc.priceAccB64;
+                    acc.fastSnapshotTime = currentTime;
+                    // Skip TWAP update this cycle - will be valid next window
+                } else {
+                    uint256 windowAccumulation = currentAcc - fastAccSnapshot;
 
-                // Encode offset directly from 1e18 values
-                acc.fastOffset = LibOracle.encodeOffset1e18(lastPriceInt, fastTWAP);
+                    // TWAP in accDecimals base, then scale to 1e18
+                    uint256 twapInAccDec = windowAccumulation / dtFast;
+                    uint256 fastTWAP = twapInAccDec * (10 ** (18 - accDec));
 
-                // Store current accumulator as new snapshot (B64 with accDecimals)
-                acc.fastSnapB64 = acc.priceAccB64;
-                acc.fastSnapshotTime = currentTime;
+                    // Encode offset directly from 1e18 values
+                    acc.fastOffset = LibOracle.encodeOffset1e18(lastPriceInt, fastTWAP);
+
+                    // Store current accumulator as new snapshot (B64 with accDecimals)
+                    acc.fastSnapB64 = acc.priceAccB64;
+                    acc.fastSnapshotTime = currentTime;
+                }
             }
 
             uint256 dtSlow = currentTime - acc.slowSnapshotTime;
             if (dtSlow >= SLOW_WINDOW) {
                 // Decode snapshot with accDecimals
                 uint256 slowAccSnapshot = acc.slowSnapB64 == 0 ? 0 : M.decodeB64(acc.slowSnapB64, accDec);
-                uint256 windowAccumulation = currentAcc - slowAccSnapshot;
 
-                // TWAP in accDecimals base, then scale to 1e18
-                uint256 twapInAccDec = windowAccumulation / dtSlow;
-                uint256 slowTWAP = twapInAccDec * (10 ** (18 - accDec));
+                // SECURITY FIX (CRITICAL-7): Underflow protection on accumulator subtraction
+                // If snapshot > current (corruption/reinitialization), reset snapshot to current
+                if (slowAccSnapshot > currentAcc) {
+                    acc.slowSnapB64 = acc.priceAccB64;
+                    acc.slowSnapshotTime = currentTime;
+                    // Skip TWAP update this cycle - will be valid next window
+                } else {
+                    uint256 windowAccumulation = currentAcc - slowAccSnapshot;
 
-                // Encode offset directly from 1e18 values
-                acc.slowOffset = LibOracle.encodeOffset1e18(lastPriceInt, slowTWAP);
+                    // TWAP in accDecimals base, then scale to 1e18
+                    uint256 twapInAccDec = windowAccumulation / dtSlow;
+                    uint256 slowTWAP = twapInAccDec * (10 ** (18 - accDec));
 
-                // Store current accumulator as new snapshot (B64 with accDecimals)
-                acc.slowSnapB64 = acc.priceAccB64;
-                acc.slowSnapshotTime = currentTime;
+                    // Encode offset directly from 1e18 values
+                    acc.slowOffset = LibOracle.encodeOffset1e18(lastPriceInt, slowTWAP);
+
+                    // Store current accumulator as new snapshot (B64 with accDecimals)
+                    acc.slowSnapB64 = acc.priceAccB64;
+                    acc.slowSnapshotTime = currentTime;
+                }
             }
 
             // Update volatility based on price change (using LibMaths B64 function)
@@ -309,7 +341,7 @@ contract InternalOracleV1 is BaseV1 {
     /// @notice Update volatility EMA
     /// @param oldVol Current EMA value
     /// @param newVol New sample
-    /// @param alpha EMA smoothing factor (1e6 base)
+    /// @param alpha EMA smoothing factor (C.PBPS precision)
     /// @return updatedVol New EMA value
     function _updateVolEMA(
         uint32 oldVol,
@@ -322,8 +354,8 @@ contract InternalOracleV1 is BaseV1 {
             uint256 a = alpha;
 
             uint256 delta = n > o
-                ? ((n - o) * a) / 1_000_000
-                : ((o - n) * a) / 1_000_000;
+                ? ((n - o) * a) / C.PBPS
+                : ((o - n) * a) / C.PBPS;
 
             if (n > o) {
                 uint256 result = o + delta;

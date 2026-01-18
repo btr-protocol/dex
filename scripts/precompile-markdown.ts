@@ -111,8 +111,8 @@ const MERMAID_THEMES = {
       pie7: '#e94cef',               // pink
       pie8: '#a273f5',               // violet
       pie9: '#6C6C6C',               // grey
-      pie10: '#ffffff',
-      pie11: '#1B1B1B',
+      pie10: '#1B1B1B',
+      pie11: '#fafafa',
       pie12: '#c47310',
 
       // Font
@@ -283,6 +283,17 @@ marked.setOptions({
 
 async function getAllMarkdownFiles(dir: string, baseDir: string = dir): Promise<string[]> {
   const files: string[] = [];
+
+  // Verify the path exists and is a directory before calling readdir
+  try {
+    const stat = await Bun.file(dir).stat();
+    if (!stat.isDirectory) {
+      return files;
+    }
+  } catch {
+    return files;
+  }
+
   const items = await readdir(dir, { withFileTypes: true });
 
   for (const item of items) {
@@ -359,7 +370,11 @@ function normalizeMathExpr(expr: string): string {
     .replace(/\\kappa/g, 'kappa')
     .replace(/\\zeta/g, 'zeta')
     // Convert |expr| to abs(expr) to avoid parser confusion
-    .replace(/\|([^|]+)\|/g, 'abs($1)');
+    .replace(/\|([^|]+)\|/g, 'abs($1)')
+    // Convert times/cdot to proper AsciiMath symbols
+    // Use center dot (·) for multiplication - cleaner than ×
+    .replace(/\btimes\b/g, '*')
+    .replace(/\bcdot\b/g, '*');
 
   // Add quad spacing around "with" and "where" keywords (but not if already processed)
   // Pattern: " with " -> quad "with" quad
@@ -437,38 +452,87 @@ function renderPiecewise(expr: string, isBlock: boolean): string | null {
     condMathML = `<mtext>${condClean}</mtext>`;
 
     return `<mtr><mtd columnalign="left">${exprMathML}</mtd><mtd columnalign="left">${condMathML}</mtd></mtr>`;
-  });
+  }).join('');
 
-  return `<math display="${display}"><mstyle displaystyle="true">${lhsMathML}<mo>=</mo><mrow><mo stretchy="true" fence="true">{</mo><mtable columnspacing="1em" rowspacing="0.5em">${rows.join('')}</mtable></mrow></mstyle></math>`;
+  return `<math display="${display}"><mstyle displaystyle="true">${lhsMathML}<mo>=</mo><mrow><mo stretchy="true" fence="true">{</mo><mtable columnspacing="1em" rowspacing="0.5em">${rows}</mtable></mrow></mstyle></math>`;
 }
 
-async function renderMarkdown(content: string): Promise<string> {
-  // Track math and mermaid placeholders
+export interface RenderMarkdownOptions {
+  includeMermaid?: boolean;
+  includeCopyButton?: boolean;
+}
+
+/**
+ * Unified markdown renderer - handles both docs compilation and agent responses.
+ *
+ * Supports:
+ * - Markdown (GFM) with marked.js
+ * - AsciiMath: $$...$$ (display), $...$ (inline), ```math blocks
+ * - Syntax highlighting with Prism.js
+ * - Mermaid diagrams (optional)
+ * - Charts (Chartist.js) with ```chart blocks
+ * - Tables with sortable headers
+ *
+ * @param content - Raw markdown content
+ * @param options - Rendering options
+ * @returns Compiled HTML
+ */
+export async function renderMarkdown(content: string, options: RenderMarkdownOptions = {}): Promise<string> {
+  const { includeMermaid = true, includeCopyButton = true } = options;
+
+  // Track math, mermaid, and chart placeholders
   const mathBlocks: { placeholder: string; html: string }[] = [];
+  const whereBlocks: { placeholder: string; html: string }[] = [];
+  const chartBlocks: { placeholder: string; config: string }[] = [];
   let mathCounter = 0;
+  let whereBlockCounter = 0;
+  let chartCounter = 0;
 
-  // Handle ```mermaid blocks - compile to themed SVG
-  const mermaidMatches = [...content.matchAll(/```mermaid\n([\s\S]+?)\n```/g)];
-  for (const match of mermaidMatches) {
-    const mermaidCode = match[1];
+  let processedContent = content;
+
+  // Handle ```chart blocks (Chartist.js charts)
+  const chartMatches = [...content.matchAll(/```chart\n([\s\S]+?)\n```/g)];
+  for (const match of chartMatches) {
+    const chartConfig = match[1].trim();
     try {
-      const { light, dark } = await renderMermaidToSVG(mermaidCode);
+      // Validate JSON config
+      JSON.parse(chartConfig);
 
-      // Wrap SVGs in a container that switches based on theme
-      const placeholder = `<!--MERMAID${mathCounter}-->`;
-      const html = `
-<div class="mermaid-diagram">
-  <div class="mermaid-light" style="display: none;">${light}</div>
-  <div class="mermaid-dark" style="display: none;">${dark}</div>
-</div>`.trim();
-
-      mathBlocks.push({ placeholder, html });
-      content = content.replace(match[0], placeholder);
-      mathCounter++;
-
-      // Silent success
+      // Create placeholder with embedded config
+      const placeholder = `<!--CHART${chartCounter}-->`;
+      chartBlocks.push({ placeholder, config: chartConfig });
+      processedContent = processedContent.replace(match[0], placeholder);
+      chartCounter++;
     } catch (err) {
-      // Silent failure - leave the code block as-is if rendering fails
+      // Silent failure - leave as code block if JSON is invalid
+      console.warn('Invalid chart config JSON:', err);
+    }
+  }
+
+  // Handle ```mermaid blocks (optional)
+  if (includeMermaid) {
+    const mermaidMatches = [...content.matchAll(/```mermaid\n([\s\S]+?)\n```/g)];
+    for (const match of mermaidMatches) {
+      const mermaidCode = match[1];
+      try {
+        const { light, dark } = await renderMermaidToSVG(mermaidCode);
+
+        // Wrap SVGs in a container that switches based on theme
+        const placeholder = `<!--MERMAID${mathCounter}-->`;
+        const html = `
+  <div class="mermaid-diagram">
+    <div class="mermaid-light" style="display: none;">${light}</div>
+    <div class="mermaid-dark" style="display: none;">${dark}</div>
+  </div>`.trim();
+
+        mathBlocks.push({ placeholder, html });
+        processedContent = processedContent.replace(match[0], placeholder);
+        mathCounter++;
+
+        // Silent success
+      } catch (err) {
+        // Silent failure - leave code block as-is if rendering fails
+      }
     }
   }
 
@@ -476,7 +540,7 @@ async function renderMarkdown(content: string): Promise<string> {
   const codeBlockPlaceholders: { placeholder: string; content: string }[] = [];
   let codeBlockCounter = 0;
 
-  let processedContent = content.replace(/```([a-z]+)\n([\s\S]+?)\n```/g, (match, lang, code) => {
+  processedContent = processedContent.replace(/```([a-z]+)\n([\s\S]+?)\n```/g, (match, lang, code) => {
     const placeholder = `<!--CODEBLOCK${codeBlockCounter}-->`;
     codeBlockPlaceholders.push({ placeholder, content: match });
     codeBlockCounter++;
@@ -528,6 +592,45 @@ async function renderMarkdown(content: string): Promise<string> {
     return match;
   });
 
+  // Handle where: blocks (lowercase) - generate styled HTML container
+  // Pattern: where:\n- var = description
+  processedContent = processedContent.replace(/^where:\s*\n((?:- .+\n?)+)/gm, (match, listContent) => {
+    const lines = listContent.trim().split('\n');
+    const htmlLines: string[] = [];
+
+    for (const line of lines) {
+      const listMatch = line.match(/^-\s+(.+)$/);
+      if (!listMatch) continue;
+
+      const content = listMatch[1];
+      // Split on = to get variable and description
+      const eqMatch = content.match(/^([^=]+?)\s*=\s*(.+)$/);
+      if (!eqMatch) {
+        htmlLines.push(`<div class="where-line">${content}</div>`);
+        continue;
+      }
+
+      const [, varPart, descPart] = eqMatch;
+      const trimmedVar = varPart.trim();
+
+      // Variable is already wrapped in $...$ or needs wrapping
+      const varForMath = trimmedVar.startsWith('$') && trimmedVar.endsWith('$')
+        ? trimmedVar.slice(1, -1) // Remove $ delimiters, will be processed later
+        : trimmedVar;
+
+      htmlLines.push(`<div class="where-line">$${varForMath}$ = ${descPart.trim()}</div>`);
+    }
+
+    // Return as HTML placeholder that won't be processed by markdown
+    const placeholder = `<!--WHERE_BLOCK_${whereBlockCounter}-->`;
+    whereBlocks.push({
+      placeholder,
+      html: `<div class="where-block"><div class="where-header">WHERE</div>${htmlLines.join('')}</div>`,
+    });
+    whereBlockCounter++;
+    return placeholder;
+  });
+
   // Restore labeled code blocks
   codeBlockPlaceholders.forEach(({ placeholder, content }) => {
     processedContent = processedContent.replace(placeholder, content);
@@ -567,105 +670,52 @@ async function renderMarkdown(content: string): Promise<string> {
     return match;
   });
 
-  // Handle WHERE blocks - convert to styled div with math rendering
+  // Handle WHERE blocks - convert to plain markdown list (no containers)
   // Match code blocks that start with "WHERE" (no language specified)
   processedContent = processedContent.replace(/```\nWHERE\n([\s\S]+?)\n```/g, (match, whereContent) => {
     const lines = whereContent.trim().split('\n');
-    const renderedLines: string[] = [];
+    const markdownLines: string[] = ['where:'];
 
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
 
-      // Split by comma to handle multiple definitions per line (e.g., "x = input, y = output")
+      // Split by comma to handle multiple definitions per line
       const parts = trimmed.split(/,\s*(?=[a-zA-Z$_\\])/);
 
       for (const part of parts) {
         const partTrimmed = part.trim();
         if (!partTrimmed) continue;
 
-        // Try to extract math expression and description
-        // Format: "$var$ = $expression$" or "$var$ = description text" or "var = description"
-
         // Check if line has $...$ segments
         const mathSegments = [...partTrimmed.matchAll(/\$([^$]+)\$/g)];
 
         if (mathSegments.length > 0) {
-          // Find where the math ends and description begins
-          const lastMathEnd = partTrimmed.lastIndexOf('$');
-          const afterMath = partTrimmed.slice(lastMathEnd + 1).trim();
-
-          // Check for parenthetical description at end of line
-          let description = '';
-          let mathPortion = partTrimmed;
-          let wrapInParens = false;
-
-          const commentMatch = afterMath.match(/^\s*\((.+)\)$/);
-          if (commentMatch) {
-            description = commentMatch[1];
-            mathPortion = partTrimmed.slice(0, lastMathEnd + 1).trim();
-            wrapInParens = true;
-          } else if (afterMath && !afterMath.startsWith('$')) {
-            description = afterMath.trim();
-            mathPortion = partTrimmed.slice(0, lastMathEnd + 1).trim();
-          }
-
-          // Merge all $...$ segments into one math expression
-          let fullMathExpr = mathPortion.replace(/\$/g, '').trim();
-          fullMathExpr = normalizeMathExpr(fullMathExpr);
-
-          // Render the math expression
-          let mathHtml = '';
-          try {
-            const mathML = asciiToMathML(fullMathExpr, true);
-            mathHtml = `<span class="math-inline">${mathML}</span>`;
-          } catch {
-            mathHtml = `<code class="where-expr">${escapeHtml(fullMathExpr)}</code>`;
-          }
-
-          if (description) {
-            // Render description as plain HTML text (not math - preserves spaces and proper formatting)
-            const descText = wrapInParens ? `(${description})` : description;
-            renderedLines.push(`<div class="where-line">${mathHtml}<span class="where-desc">${escapeHtml(descText)}</span></div>`);
-          } else {
-            renderedLines.push(`<div class="where-line">${mathHtml}</div>`);
-          }
+          // Keep as-is with inline math
+          markdownLines.push(`- ${partTrimmed}`);
         } else {
           // No math segments - check for simple "var = desc" pattern
           const eqMatch = partTrimmed.match(/^([^=]+?)\s*=\s*(.+)$/);
           if (eqMatch) {
             const [, varPart, descPart] = eqMatch;
-            try {
-              const normalized = normalizeMathExpr(varPart.trim());
-              const mathML = asciiToMathML(normalized, true);
-              // Render description as plain HTML text
-              renderedLines.push(`<div class="where-line"><span class="math-inline">${mathML}</span><span class="where-eq">=</span><span class="where-desc">${escapeHtml(descPart.trim())}</span></div>`);
-            } catch {
-              renderedLines.push(`<div class="where-line"><span class="where-var">${escapeHtml(varPart.trim())}</span><span class="where-eq">=</span><span class="where-desc">${escapeHtml(descPart.trim())}</span></div>`);
-            }
+            // Wrap variable in inline math
+            markdownLines.push(`- $${varPart.trim()}$ = ${descPart.trim()}`);
           } else {
-            // No equals sign - just render as plain text
-            renderedLines.push(`<div class="where-line"><span class="where-desc">${escapeHtml(partTrimmed)}</span></div>`);
+            markdownLines.push(`- ${partTrimmed}`);
           }
         }
       }
     }
 
-    const placeholder = `<!--WHEREBLOCK${mathCounter}-->`;
-    mathBlocks.push({
-      placeholder,
-      html: `<div class="where-block"><div class="where-header">WHERE</div>${renderedLines.join('\n')}</div>`,
-    });
-    mathCounter++;
-    return placeholder;
+    return markdownLines.join('\n');
   });
 
-  // Merge consecutive $$...$$ blocks into single multi-line math blocks
-  // Pattern: $$expr1$$\n\n$$expr2$$\n\n$$expr3$$ -> one block with all expressions
+  // Merge consecutive $$...$$ blocks into single multi-line math block
+  // Pattern: $$expr1$$\n\n$$expr2$$\n\n$$expr3$$ -> separate lines with spacing
   processedContent = processedContent.replace(
     /(\$\$[^$]+?\$\$(?:\s*\n\s*\n?\s*\$\$[^$]+?\$\$)+)/g,
     (multiBlock) => {
-      // Extract all expressions from the consecutive blocks
+      // Extract all expressions from consecutive blocks
       const expressions = [...multiBlock.matchAll(/\$\$([^$]+?)\$\$/g)].map(m => m[1].trim());
 
       try {
@@ -680,10 +730,8 @@ async function renderMarkdown(content: string): Promise<string> {
         });
 
         const placeholder = `<!--MATHBLOCK${mathCounter}-->`;
-        mathBlocks.push({
-          placeholder,
-          html: `<div class="math-block math-multiline">${mathMLParts.join('<br/>')}</div>`,
-        });
+        const html = `<div class="math-block math-multiline">${mathMLParts.join('')}</div>`;
+        mathBlocks.push({ placeholder, html });
         mathCounter++;
         return placeholder;
       } catch (err) {
@@ -703,10 +751,7 @@ async function renderMarkdown(content: string): Promise<string> {
       const piecewise = renderPiecewise(trimmed, true);
       if (piecewise) {
         const placeholder = `<!--MATHBLOCK${mathCounter}-->`;
-        mathBlocks.push({
-          placeholder,
-          html: `<div class="math-block">${piecewise}</div>`,
-        });
+        mathBlocks.push({ placeholder, html: `<div class="math-block">${piecewise}</div>` });
         mathCounter++;
         return placeholder;
       }
@@ -714,10 +759,8 @@ async function renderMarkdown(content: string): Promise<string> {
       const normalized = normalizeMathExpr(trimmed);
       const mathML = asciiToMathML(normalized, false);
       const placeholder = `<!--MATHBLOCK${mathCounter}-->`;
-      mathBlocks.push({
-        placeholder,
-        html: `<div class="math-block">${mathML}</div>`,
-      });
+      const html = `<div class="math-block">${mathML}</div>`;
+      mathBlocks.push({ placeholder, html });
       mathCounter++;
       return placeholder;
     } catch (err) {
@@ -727,14 +770,15 @@ async function renderMarkdown(content: string): Promise<string> {
   });
 
   // Replace inline math $...$ with placeholders
-  // Only match if contains math operators/symbols: ^, _, *, /, =, greek letters, or parentheses
+  // Only match if contains math operators/symbols: ^, _, *, /, =, ', greek letters, or parentheses
   processedContent = processedContent.replace(/\$([^$\n]+?)\$/g, (match, math) => {
     const trimmed = math.trim();
     // Check if it looks like actual math:
     // - Single letters/variables (e.g., $k$, $R$, $c$)
-    // - Contains operators, subscripts, or special symbols
+    // - Contains operators, subscripts, or special symbols (including prime ')
     // - Greek letters or math functions
-    const isMath = /^[a-zA-Z]$/.test(trimmed) || /[=^_*/()<>\\]|alpha|beta|gamma|delta|sigma|lambda|phi|pi|theta|omega|rho|eta|psi|sqrt|sum|int|frac|cdot|times|div/i.test(trimmed);
+    const isMath = /^[a-zA-Z]$/.test(trimmed) ||
+      /[=^_*/'()<>\\]|alpha|beta|gamma|delta|sigma|lambda|phi|pi|theta|omega|rho|eta|psi|nu|mu|tau|epsilon|kappa|chi|zeta|xi|iota|upsilon|sqrt|sum|int|frac|cdot|times|div|bar|max|min|abs/i.test(trimmed);
 
     if (!isMath) {
       // Not math, just a dollar amount - leave it as is
@@ -742,13 +786,22 @@ async function renderMarkdown(content: string): Promise<string> {
     }
 
     try {
+      // Try piecewise for inline
+      const piecewise = renderPiecewise(trimmed, false);
+      if (piecewise) {
+        const placeholder = `<!--MATHINLINE${mathCounter}-->`;
+        mathBlocks.push({ placeholder, html: `<span class="math-inline">${piecewise}</span>` });
+        mathCounter++;
+        return placeholder;
+      }
+
       const normalized = normalizeMathExpr(trimmed);
-      const mathML = asciiToMathML(normalized, true);
+      let mathML = asciiToMathML(normalized, true);
+      // Fix displaystyle for inline math - should be false for compact rendering
+      mathML = mathML.replace(/displaystyle="true"/g, 'displaystyle="false"');
       const placeholder = `<!--MATHINLINE${mathCounter}-->`;
-      mathBlocks.push({
-        placeholder,
-        html: `<span class="math-inline">${mathML}</span>`,
-      });
+      const html = `<span class="math-inline">${mathML}</span>`;
+      mathBlocks.push({ placeholder, html });
       mathCounter++;
       return placeholder;
     } catch (err) {
@@ -760,11 +813,11 @@ async function renderMarkdown(content: string): Promise<string> {
   // Parse markdown with marked
   let html = marked.parse(processedContent) as string;
 
-  // Post-process: Apply syntax highlighting with Prism using string manipulation
+  // Apply syntax highlighting with Prism
   const codeBlockRegex = /<pre><code class="language-([^"]*)">([\s\S]*?)<\/code><\/pre>/g;
   html = html.replace(codeBlockRegex, (match, lang, code) => {
     const rawCode = code
-      .replace(/<[^>]+>/g, '') // Strip any HTML tags
+      .replace(/<[^>]+>/g, '')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&amp;/g, '&')
@@ -775,7 +828,7 @@ async function renderMarkdown(content: string): Promise<string> {
     if (lang && Prism.languages[lang]) {
       try {
         highlighted = Prism.highlight(rawCode, Prism.languages[lang], lang);
-      } catch (err) {
+      } catch {
         highlighted = escapeHtml(rawCode);
       }
     } else {
@@ -783,18 +836,18 @@ async function renderMarkdown(content: string): Promise<string> {
     }
 
     // Wrap each line in .line element
-    let lines = highlighted.split('\n');
-    while (lines.length > 0 && !lines[lines.length - 1].trim()) {
-      lines.pop();
+    const lines = highlighted.split('\n').filter((l: string) => l.trim());
+    const wrappedLines = lines.map((line: string) => `<span class="line">${line || ' '}</span>`).join('\n');
+
+    // Add copy button only if requested (false for agent responses, handled in frontend)
+    let copyButton = '';
+    if (includeCopyButton) {
+      const lineCount = rawCode.split('\n').filter(l => l.trim()).length;
+      const shortAttr = lineCount <= 3 ? ' data-short="true"' : '';
+      copyButton = `<button class="copy-button" data-code="${escapeHtml(rawCode)}" aria-label="Copy code"${shortAttr}><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>`;
     }
-    const wrappedLines = lines.map(line => `<span class="line">${line || ' '}</span>`).join('\n');
 
-    // Add copy button
-    const lineCount = rawCode.split('\n').filter(l => l.trim()).length;
-    const shortAttr = lineCount <= 3 ? ' data-short="true"' : '';
-    const copyBtn = `<button class="copy-button" data-code="${escapeHtml(rawCode)}" aria-label="Copy code"${shortAttr}><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>`;
-
-    return `<pre data-language="${escapeHtml(lang)}"><code class="language-${lang}">${wrappedLines}</code>${copyBtn}</pre>`;
+    return `<pre data-language="${escapeHtml(lang)}"><code class="language-${lang}">${wrappedLines}</code>${copyButton}</pre>`;
   });
 
   // Add IDs to headings
@@ -818,15 +871,51 @@ async function renderMarkdown(content: string): Promise<string> {
     .replace(/→\s+/g, '→ ')
     .replace(/<li>\s*\*\s*/g, '<li>');
 
+  // Restore where blocks - process inline math first
+  whereBlocks.forEach(({ placeholder, html: whereHtml }) => {
+    // Process inline math within where block HTML
+    let processedWhereHtml = whereHtml.replace(/\$([^$]+)\$/g, (m, expr) => {
+      try {
+        const normalized = normalizeMathExpr(expr);
+        let mathML = asciiToMathML(normalized, true);
+        mathML = mathML.replace(/displaystyle="true"/g, 'displaystyle="false"');
+        return `<span class="math-inline">${mathML}</span>`;
+      } catch {
+        return `<span class="where-var">${expr}</span>`;
+      }
+    });
+
+    const escaped = placeholder.replace('<!--', '&lt;!--').replace('-->', '--&gt;');
+    fixedHtml = fixedHtml.replace(placeholder, processedWhereHtml);
+    fixedHtml = fixedHtml.replace(escaped, processedWhereHtml);
+    fixedHtml = fixedHtml.replace(`<p>${placeholder}</p>`, processedWhereHtml);
+    fixedHtml = fixedHtml.replace(`<p>${escaped}</p>`, processedWhereHtml);
+  });
+
   // Restore math blocks - handle both escaped and unescaped comment forms
   mathBlocks.forEach(({ placeholder, html: mathHtml }) => {
-    // Match the placeholder in various escaped forms
+    // Match placeholder in various escaped forms
     const escaped = placeholder.replace('<!--', '&lt;!--').replace('-->', '--&gt;');
     fixedHtml = fixedHtml.replace(placeholder, mathHtml);
     fixedHtml = fixedHtml.replace(escaped, mathHtml);
     // Also handle when wrapped in <p> tags
     fixedHtml = fixedHtml.replace(`<p>${placeholder}</p>`, mathHtml);
     fixedHtml = fixedHtml.replace(`<p>${escaped}</p>`, mathHtml);
+  });
+
+  // Restore chart blocks - convert placeholders to data attributes for frontend rendering
+  chartBlocks.forEach(({ placeholder, config }) => {
+    const encodedConfig = encodeURIComponent(config);
+    const escaped = placeholder.replace('<!--', '&lt;!--').replace('-->', '--&gt;');
+
+    // Create chart container with data attribute
+    const html = `<div class="chart-container" data-chart-config="${encodedConfig}"></div>`;
+
+    fixedHtml = fixedHtml.replace(placeholder, html);
+    fixedHtml = fixedHtml.replace(escaped, html);
+    // Also handle when wrapped in <p> tags
+    fixedHtml = fixedHtml.replace(`<p>${placeholder}</p>`, html);
+    fixedHtml = fixedHtml.replace(`<p>${escaped}</p>`, html);
   });
 
   return fixedHtml;

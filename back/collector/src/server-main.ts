@@ -9,9 +9,10 @@ import { MarketDataServer } from './server';
 import { config } from './config';
 
 const port = parseInt(process.env.PORT || '3000');
+const rpcUrl = process.env.RPC_URL || process.env.ANVIL_RPC_URL || 'http://localhost:8545';
 
 const collector = new MarketCollector(config.tickers);
-const server = new MarketDataServer(collector, port);
+const server = new MarketDataServer(collector, port, rpcUrl);
 
 process.on('SIGINT', async () => {
   console.log('\nShutting down...');

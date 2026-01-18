@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
@@ -41,6 +41,37 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit IAdminV1.EmergencyUnfreeze(tokenNorm);
     }
 
+    // ========== DIRECT ASSET ADDITION (NO TIMELOCK) ==========
+
+    /// @notice Add asset directly without timelock - for initial pool setup
+    /// @dev Only callable by owner. Combines request + execute for efficiency.
+    function addAsset(
+        address token,
+        IPoolV1.OracleConfig calldata oracleCfg,
+        IPoolV1.RiskConfig calldata riskCfg,
+        IPoolV1.LiquidityProfile calldata profile,
+        uint16 minFeeBps,
+        uint8 decimals,
+        uint64 initialPrice,
+        uint32 initialFastVolEMA,
+        uint32 initialSlowVolEMA
+    ) external onlyOwner {
+        IPoolV1.PoolStorage storage $ = _s();
+
+        if (initialPrice == 0) revert IErrors.ZeroValue();
+        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert IErrors.InvalidInput();
+
+        address tokenNorm = _wrap($, token);
+        if ($.assets[tokenNorm].decimals != 0) revert IErrors.AlreadyConfigured(IErrors.Resource.ASSET, tokenNorm);
+
+        _validateProfileMemory(profile);
+        _validateOracleConfig(oracleCfg);
+        _initAsset($, tokenNorm, decimals, minFeeBps);
+        _setupOracleAndConfig($, tokenNorm, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
+
+        emit IAdminV1.AssetAdded(tokenNorm, decimals, 0);
+    }
+
     // ========== TIMELOCKED ADMIN FUNCTIONS ==========
 
     function requestAddAsset(
@@ -66,7 +97,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit IAdminV1.TimelockRequested(id, uint8(IPoolV1.OpType.ADD_ASSET), uint48(block.timestamp) + C.LOW_TIMELOCK);
     }
 
-    function executeAddAsset(address token) external override onlyOwner {
+    function executeAddAsset(address token) external override nonReentrant onlyOwner {
         bytes32 id = keccak256(abi.encodePacked("ADD_ASSET", token));
         IPoolV1.PoolStorage storage $ = _s();
 
@@ -87,53 +118,12 @@ contract AdminV1 is BaseV1, IAdminV1 {
         if (storedToken != token) revert IErrors.InvalidInput();
 
         address tokenNorm = _wrap($, token);
-        IPoolV1.Asset storage asset = $.assets[tokenNorm];
-        if (asset.decimals != 0) revert IErrors.AlreadyConfigured(IErrors.Resource.ASSET, tokenNorm);
+        if ($.assets[tokenNorm].decimals != 0) revert IErrors.AlreadyConfigured(IErrors.Resource.ASSET, tokenNorm);
 
         _validateProfileMemory(profileMem);
         _validateOracleConfig(oracleCfg);
-
-        asset.decimals = decimals;
-        asset.minFeeBps = minFeeBps;
-        asset.maxFeeBps = 10000;          // Default 1% max fee
-        asset.minLiquidity = 0;
-        asset.minDispersion = 1000;        // Default 0.1% min dispersion
-        asset.maxDispersion = 100000;      // Default 10% max dispersion
-        asset.gamma = 10000;               // Default 1.0x inventory sensitivity
-        asset.vega = 10000;                // Default 1.0x volatility sensitivity
-        asset.lambda = 10000;              // Default 1.0x deviation sensitivity
-        asset.haircutSuppressor = 10000;   // Default 1.0x haircut
-
-        // Initialize anchor tree relationship
-        // By default, new assets anchor to base token (hub-and-spoke)
-        // Can be changed later via setAnchor()
-        if (tokenNorm == $.baseToken) {
-            asset.anchor = address(0); // Base token is root
-            asset.anchorDepth = 0;
-        } else {
-            asset.anchor = $.baseToken; // Default to base token as anchor
-            asset.anchorDepth = 1;
-        }
-
-        $.oracleConfigs[tokenNorm] = oracleCfg;
-        $.riskConfigs[tokenNorm] = riskCfg;
-        $.profiles[tokenNorm] = profileMem;
-
-        // Initialize internal oracle with base price and volatility
-        // Only initialize if using internal oracle (primary = address(this))
-        if (oracleCfg.primary == address(this)) {
-            // Use accDecimals from oracle config (0 defaults to 6 for stablecoin-friendly range)
-            uint8 accDec = oracleCfg.accDecimals == 0 ? 6 : oracleCfg.accDecimals;
-            try InternalOracleV1(address(this)).updateFeed(
-                tokenNorm,
-                initialPrice,
-                accDec,
-                initialFastVolEMA,
-                initialSlowVolEMA
-            ) {} catch {
-                revert IErrors.OperationFailed();
-            }
-        }
+        _initAsset($, tokenNorm, decimals, minFeeBps);
+        _setupOracleAndConfig($, tokenNorm, oracleCfg, riskCfg, profileMem, initialPrice, initialFastVolEMA, initialSlowVolEMA);
 
         delete $.pendingOps[id];
         delete $.pendingData[id];
@@ -149,7 +139,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit IAdminV1.TimelockRequested(id, uint8(IPoolV1.OpType.UPDATE_RISK), uint48(block.timestamp) + C.LOW_TIMELOCK);
     }
 
-    function executeUpdateRiskConfig(address token) external override onlyOwner {
+    function executeUpdateRiskConfig(address token) external override nonReentrant onlyOwner {
         bytes32 id = keccak256(abi.encodePacked("UPDATE_RISK", token));
         IPoolV1.PoolStorage storage $ = _s();
 
@@ -175,7 +165,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_FEE_PARAMS, uint8(IPoolV1.OpType.UPDATE_FEES), uint48(block.timestamp) + C.LOW_TIMELOCK);
     }
 
-    function executeUpdateFeeParams() external override onlyOwner {
+    function executeUpdateFeeParams() external override nonReentrant onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
 
         TL.validate($.pendingOps[C.TIMELOCK_ID_FEE_PARAMS]);
@@ -214,7 +204,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_OWNERSHIP, uint8(IPoolV1.OpType.TRANSFER_OWNERSHIP), uint48(block.timestamp) + C.HIGH_TIMELOCK);
     }
 
-    function executeOwnershipTransfer() external override {
+    function executeOwnershipTransfer() external override nonReentrant {
         IPoolV1.PoolStorage storage $ = _s();
 
         TL.validate($.pendingOps[C.TIMELOCK_ID_OWNERSHIP]);
@@ -236,7 +226,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_BRIDGE, uint8(IPoolV1.OpType.UPDATE_BRIDGE), uint48(block.timestamp) + C.HIGH_TIMELOCK);
     }
 
-    function executeBridgeUpdate() external override onlyOwner {
+    function executeBridgeUpdate() external override nonReentrant onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
 
         TL.validate($.pendingOps[C.TIMELOCK_ID_BRIDGE]);
@@ -259,7 +249,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_TREASURY, uint8(IPoolV1.OpType.UPDATE_TREASURY), uint48(block.timestamp) + C.HIGH_TIMELOCK);
     }
 
-    function executeTreasuryUpdate() external override onlyOwner {
+    function executeTreasuryUpdate() external override nonReentrant onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
 
         TL.validate($.pendingOps[C.TIMELOCK_ID_TREASURY]);
@@ -302,7 +292,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_BASE_MIGRATION, uint8(IPoolV1.OpType.MIGRATE_BASE_TOKEN), uint48(block.timestamp) + C.CRITICAL_TIMELOCK);
     }
 
-    function executeBaseMigration() external override onlyOwner {
+    function executeBaseMigration() external override nonReentrant onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
 
         TL.validate($.pendingOps[C.TIMELOCK_ID_BASE_MIGRATION]);
@@ -325,7 +315,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit IAdminV1.TimelockRequested(id, uint8(IPoolV1.OpType.UPDATE_ORACLE), uint48(block.timestamp) + C.BASE_TIMELOCK);
     }
 
-    function executeOracleUpdate(address token) external onlyOwner {
+    function executeOracleUpdate(address token) external nonReentrant onlyOwner {
         bytes32 id = keccak256(abi.encodePacked("ORACLE_UPDATE", token));
         IPoolV1.PoolStorage storage $ = _s();
 
@@ -550,6 +540,55 @@ contract AdminV1 is BaseV1, IAdminV1 {
         emit AssetParamsUpdated(tokenNorm, minLiquidity, reservationPrice);
     }
 
-    // Note: clearRouteCache removed - no caching needed
+    // ========== INTERNAL HELPERS ==========
+
+    function _initAsset(
+        IPoolV1.PoolStorage storage $,
+        address tokenNorm,
+        uint8 decimals,
+        uint16 minFeeBps
+    ) internal {
+        IPoolV1.Asset storage asset = $.assets[tokenNorm];
+        asset.decimals = decimals;
+        asset.minFeeBps = minFeeBps;
+        asset.maxFeeBps = 10000;
+        asset.minLiquidity = 0;
+        asset.minDispersion = 1000;
+        asset.maxDispersion = 100000;
+        asset.gamma = 10000;
+        asset.vega = 10000;
+        asset.lambda = 10000;
+        asset.haircutSuppressor = 10000;
+
+        if (tokenNorm == $.baseToken) {
+            asset.anchor = address(0);
+            asset.anchorDepth = 0;
+        } else {
+            asset.anchor = $.baseToken;
+            asset.anchorDepth = 1;
+        }
+    }
+
+    function _setupOracleAndConfig(
+        IPoolV1.PoolStorage storage $,
+        address tokenNorm,
+        IPoolV1.OracleConfig memory oracleCfg,
+        IPoolV1.RiskConfig memory riskCfg,
+        IPoolV1.LiquidityProfile memory profile,
+        uint64 initialPrice,
+        uint32 initialFastVolEMA,
+        uint32 initialSlowVolEMA
+    ) internal {
+        $.oracleConfigs[tokenNorm] = oracleCfg;
+        $.riskConfigs[tokenNorm] = riskCfg;
+        $.profiles[tokenNorm] = profile;
+
+        if (oracleCfg.primary == address(this)) {
+            uint8 accDec = oracleCfg.accDecimals == 0 ? 6 : oracleCfg.accDecimals;
+            try InternalOracleV1(address(this)).updateFeed(tokenNorm, initialPrice, accDec, initialFastVolEMA, initialSlowVolEMA) {} catch {
+                revert IErrors.OperationFailed();
+            }
+        }
+    }
 
 }

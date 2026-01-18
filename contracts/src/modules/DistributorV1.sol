@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
@@ -123,33 +123,15 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         DistributorStorage storage ds = _ds();
         Campaign storage campaign = ds.campaigns[campaignId];
 
-        if (campaign.id == 0) revert IErrors.NotConfigured(IErrors.Resource.CAMPAIGN, address(uint160(campaignId)));
-        if (campaign.status != CampaignStatus.ACTIVE) revert IErrors.InvalidState();
-        if (campaign.merkleRoot == bytes32(0)) revert IErrors.InvalidInput();
-        if (totalEarned == 0) revert IErrors.ZeroValue();
+        uint256 claimable = _verifyAndGetClaimable(ds, campaign, campaignId, index, account, totalEarned, merkleProof);
+        if (claimable == 0) revert IErrors.InvalidState();
 
-        uint256 claimed = ds.campaignClaimed[campaignId][account];
-        if (totalEarned <= claimed) revert IErrors.InvalidState();
-
-        // Verify Merkle proof
-        bytes32 leaf = keccak256(abi.encodePacked(index, account, totalEarned));
-        if (!MerkleProofLib.verify(merkleProof, campaign.merkleRoot, leaf)) {
-            revert IErrors.InvalidInput();
-        }
-
-        // Calculate claimable amount
-        uint256 claimable = totalEarned - claimed;
-
-        // Update claimed amounts
         ds.campaignClaimed[campaignId][account] = totalEarned;
         ds.totalClaimed[campaignId] += claimable;
 
-        // Mint or transfer rewards
         if (campaign.campaignType == CampaignType.POINTS) {
-            // Mint SBT points
             SoulboundToken(campaign.rewardToken).mint(account, claimable);
         } else {
-            // Transfer tokens
             uint256 available = SafeTransferLib.balanceOf(campaign.rewardToken, address(this));
             if (available < claimable) revert IErrors.InsufficientAmount(available, claimable);
             campaign.rewardToken.safeTransfer(account, claimable);
@@ -285,15 +267,28 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
     ) external view returns (uint256) {
         DistributorStorage storage ds = _ds();
         Campaign storage campaign = ds.campaigns[campaignId];
+        return _verifyAndGetClaimable(ds, campaign, campaignId, index, account, totalEarned, merkleProof);
+    }
 
+    // ========== INTERNAL HELPERS ==========
+
+    function _verifyAndGetClaimable(
+        DistributorStorage storage ds,
+        Campaign storage campaign,
+        uint256 campaignId,
+        uint256 index,
+        address account,
+        uint256 totalEarned,
+        bytes32[] calldata merkleProof
+    ) internal view returns (uint256) {
         if (campaign.id == 0) return 0;
         if (campaign.status != CampaignStatus.ACTIVE) return 0;
         if (campaign.merkleRoot == bytes32(0)) return 0;
+        if (totalEarned == 0) return 0;
 
         uint256 claimed = ds.campaignClaimed[campaignId][account];
         if (totalEarned <= claimed) return 0;
 
-        // Verify proof
         bytes32 leaf = keccak256(abi.encodePacked(index, account, totalEarned));
         if (!MerkleProofLib.verify(merkleProof, campaign.merkleRoot, leaf)) return 0;
 

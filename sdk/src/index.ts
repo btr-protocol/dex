@@ -56,9 +56,57 @@
  * @module @btr/dex-sdk
  */
 
-// Re-export everything from submodules for convenience
-export * from './utils/index.js';
-export * from './abis/index.js';
-export * from './flows/index.js';
+// Re-export from utils (excluding types that conflict with pool module)
+export {
+  BPS_PRECISION,
+  PRECISION_1E18,
+  PRECISION_1E8,
+  DEFAULT_GAS_LIMIT,
+  SWAP_GAS_LIMIT,
+  DEPOSIT_GAS_LIMIT,
+  WITHDRAW_GAS_LIMIT,
+  ONE_MINUTE,
+  FIVE_MINUTES,
+  ONE_HOUR,
+  ONE_DAY,
+  DEFAULT_ORACLE_STALENESS,
+  DEFAULT_PRICE_DIVERGENCE_BPS,
+  DEFAULT_CB_CHECK_INTERVAL,
+  DEFAULT_CB_COOLDOWN,
+  SUPPORTED_CHAINS,
+  type TokenAddress,
+  type PoolAddress,
+  type TokenInfo,
+  type OraclePrice,
+  type CircuitBreakerConfig,
+  type GuardianConfig,
+} from './utils/constants.js';
+export * from './utils/typing.js';
+export * from './utils/safe.js';
+export * from './utils/validation.js';
+export * from './utils/business.js';
+export * from './utils/maths.js';
+export * from './utils/format.js';
+export * from './utils/encoding.js';
+
+// ABIs (excluding POOL_ABI which is superseded by pool module)
+export { AIMM_ABI } from './abis/AIMM.js';
+export { DARKPOOL_ABI } from './abis/DarkPool.js';
+
+// Oracles and Guardians
 export * from './oracles/index.js';
 export * from './guardians/index.js';
+
+// Pool data and transactions (canonical source for POOL_ABI, SwapQuote, PoolAsset)
+export * from './pool/index.js';
+
+// Eth utilities and clients
+export * from './eth/index.js';
+export type { Client } from './eth/client.js';
+export {
+  createWalletClient,
+  createPublicClient,
+  createHttpProvider,
+  createPrivateKeyClient,
+  privateKeyToAddress,
+} from './eth/client.js';

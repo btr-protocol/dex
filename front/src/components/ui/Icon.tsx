@@ -28,6 +28,7 @@ const PHOSPHOR_TO_LUCIDE: Record<string, string> = {
   // Actions
   'check': 'Check',
   'check-circle': 'CheckCircle',
+  'check-square': 'CheckSquare2',
   'x': 'X',
   'x-circle': 'XCircle',
   'plus': 'Plus',
@@ -42,6 +43,8 @@ const PHOSPHOR_TO_LUCIDE: Record<string, string> = {
   'trash': 'Trash2',
   'pencil': 'Pencil',
   'edit': 'Edit',
+  'highlighter': 'Highlighter',
+  'selection-all': 'Copy',
 
   // UI Elements
   'magnifying-glass': 'Search',
@@ -75,6 +78,8 @@ const PHOSPHOR_TO_LUCIDE: Record<string, string> = {
   'trending-up': 'TrendingUp',
   'trend-down': 'TrendingDown',
   'trending-down': 'TrendingDown',
+  'chart-candlestick': 'ChartCandlestick',
+  'chart-bar': 'BarChart',
 
   // Content & Media
   'book-open': 'BookOpen',
@@ -103,6 +108,7 @@ const PHOSPHOR_TO_LUCIDE: Record<string, string> = {
   // Menu & Navigation
   'list': 'Menu',
   'menu': 'Menu',
+  'bars-3': 'Menu',
   'dots-three-vertical': 'MoreVertical',
   'more-vertical': 'MoreVertical',
   'dots-three': 'MoreHorizontal',
@@ -141,7 +147,7 @@ const PHOSPHOR_TO_LUCIDE: Record<string, string> = {
   'percent': 'Percent',
   'dollar-sign': 'DollarSign',
   'credit-card': 'CreditCard',
-  'bar-chart': 'BarChart',
+  'bar-chart': 'PieChart',
   'pie-chart': 'PieChart',
   'activity': 'Activity',
   'zap': 'Zap',

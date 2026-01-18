@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { Dialog, DialogContent } from '@components/ui/Dialog';
 import { Button } from '@components/ui/Button';
 import { Icon } from '@components/ui/Icon';
+import { Spinner } from '@components/ui/Spinner';
 
 const DISCLAIMER_KEY = 'btr-disclaimer-accepted';
 
@@ -100,7 +101,7 @@ export function DisclaimerModal({ onAccept }: DisclaimerModalProps) {
         <div className="flex-1 overflow-y-auto px-8 py-6">
           {loading ? (
             <div className="flex items-center justify-center h-full">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <Spinner size="lg" />
             </div>
           ) : (
             <div className="prose prose-invert max-w-none">

@@ -25,6 +25,7 @@
       "@utils/*": ["./src/utils/*"],
       "@constants/*": ["./src/constants/*"],
       "@assets/*": ["./src/assets/*"],
+      "@sdk": ["../sdk/src/index"],
       "@sdk/*": ["../sdk/src/*"]
     }
   },

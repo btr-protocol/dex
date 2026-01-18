@@ -4,7 +4,6 @@
  */
 import { useEffect, useState } from 'preact/hooks';
 import { useRouter } from '@lib/router';
-import { useSettings } from '@lib/settings';
 import { PriceChartLazy } from '@components/features/chart';
 import { PairSelector } from '@components/shared/token';
 import type { IndicatorParams } from '@utils/indicators';
@@ -47,7 +46,6 @@ export function buildChartUrl(
 
 export function ChartPage() {
   const { queryParams, navigate } = useRouter();
-  const { settings, updateSettings } = useSettings();
   const [ready, setReady] = useState(false);
   const [pairSelectorOpen, setPairSelectorOpen] = useState(false);
 
@@ -56,12 +54,9 @@ export function ChartPage() {
   const [currentChartType, setCurrentChartType] = useState<string | null>(null);
   const [currentIndicators, setCurrentIndicators] = useState<InitialIndicator[] | null>(null);
 
-  // Parse URL params - priority: URL > saved settings > defaults
+  // Parse URL params - priority: URL > defaults
   const urlPair = queryParams.get('pair');
-  const savedPair = settings.chartBase && settings.chartQuote
-    ? `${settings.chartBase}${settings.chartQuote}`
-    : null;
-  const pair: string = urlPair || savedPair || 'ETHUSDC';
+  const pair: string = urlPair || 'ETHUSDC';
   const tf = parseInt(queryParams.get('tf') || '60', 10);
   const type = (queryParams.get('type') || 'candles') as 'candles' | 'bars' | 'line';
 
@@ -96,9 +91,6 @@ export function ChartPage() {
 
   // Handle pair change
   const handleChangePair = (newBase: string, newQuote: string) => {
-    // Persist to settings
-    updateSettings({ chartBase: newBase, chartQuote: newQuote });
-
     // Use current state (from chart component) instead of URL params to preserve user changes
     const parts: string[] = [`pair=${newBase}${newQuote}`];
 
@@ -121,15 +113,11 @@ export function ChartPage() {
     handleChangePair(quote, base);
   };
 
-  // Set document title and persist pair to settings
+  // Set document title
   useEffect(() => {
     document.title = `${base}/${quote} Chart`;
-    // Persist current pair (whether from URL or saved settings)
-    if (base && quote) {
-      updateSettings({ chartBase: base, chartQuote: quote });
-    }
     setReady(true);
-  }, [base, quote, updateSettings]);
+  }, [base, quote]);
 
   // Keyboard shortcut: Cmd+K to open pair selector
   useEffect(() => {
@@ -150,7 +138,7 @@ export function ChartPage() {
   const TOOLBAR_HEIGHT = 32;
 
   return (
-    <div className="w-screen h-screen bg-bg-0 overflow-hidden">
+    <div className="w-full h-full bg-bg-0 overflow-hidden">
       <PriceChartLazy
         key={`${base}-${quote}`}
         base={base}

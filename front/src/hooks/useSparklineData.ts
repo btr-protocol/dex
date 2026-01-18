@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { usePriceStream, type OHLC } from './usePriceFeed';
 
-const API_URL = import.meta.env.VITE_COLLECTOR_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_COLLECTOR_API || 'http://localhost:3001';
 const SPARKLINE_TIMEFRAME = 1800; // 30 minutes in seconds
 const SPARKLINE_LIMIT = 48; // 48 * 30min = 24 hours
 

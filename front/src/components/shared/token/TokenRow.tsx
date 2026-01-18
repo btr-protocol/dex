@@ -4,6 +4,7 @@ import { getTokenAddress, getTokenIcon, getChainIcon } from '@sdk/eth';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import { Tooltip } from '@components/ui/Tooltip';
 import { addNotification } from '@lib/notifications';
+import { useExternalLink } from '@/lib/external-links';
 import { useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 
@@ -42,6 +43,7 @@ export function TokenRow({
   showRemove = false,
 }: TokenRowProps) {
   const [copiedAddress, setCopiedAddress] = useState(false);
+  const { openExternalLink } = useExternalLink();
   const hasToken = token && token.length > 0;
   const iconSrc = hasToken ? getTokenIcon(token) : null;
   const tokenAddress = hasToken ? getTokenAddress(token, chainId) : null;
@@ -74,7 +76,7 @@ export function TokenRow({
       };
       const baseUrl = explorers[chainId] || 'https://etherscan.io';
       const explorerUrl = `${baseUrl}/token/${tokenAddress}`;
-      window.open(explorerUrl, '_blank');
+      openExternalLink(explorerUrl);
     }
   };
 

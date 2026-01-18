@@ -19,37 +19,37 @@ export const pageRoutes: NavRoute[] = [
   {
     title: 'Dashboard',
     path: '/',
-    description: 'BTR - Next-generation decentralized exchange',
+    description: 'BTR - Decentralized Exchange',
     icon: '/icons/home.svg',
   },
   {
     title: 'Swap',
     path: '/swap',
-    description: 'Trade tokens with minimal slippage',
+    description: 'Trade at better rates',
     icon: '/icons/swap.svg',
   },
   {
     title: 'Earn',
     path: '/earn',
-    description: 'Provide liquidity and earn fees',
+    description: 'Provide and stake liquidity',
     icon: '/icons/liquidity.svg',
   },
   {
     title: 'Vote',
     path: '/vote',
-    description: 'Participate in DAO governance',
+    description: 'Help steer the DAO',
     icon: '/icons/vote.svg',
   },
   {
     title: 'Metrics',
     path: '/metrics',
-    description: 'View protocol metrics',
+    description: 'Explore protocol metrics',
     icon: '/icons/metrics.svg',
   },
   {
     title: 'Docs',
     path: '/docs',
-    description: 'Protocol documentation and guides',
+    description: 'Browse protocol docs',
     icon: '/icons/docs.svg',
   }
 ]
@@ -62,6 +62,7 @@ export const specialRoutes = {
   addAsset: '/add-asset',
   chart: '/chart',
   settings: '/settings',
+  archivist: '/archivist',
 } as const
 
 // ============================================================================
@@ -72,14 +73,14 @@ export const socialLinks: NavRoute[] = [
   {
     title: 'X (Twitter)',
     path: 'https://x.com/btr_supply',
-    description: 'Follow us on X (Twitter)',
+    description: 'Follow us on X',
     icon: '/icons/x.svg',
     isExternal: true,
   },
   {
     title: 'Telegram',
     path: 'https://t.me/btrsupply',
-    description: 'Join our Telegram community',
+    description: 'Chat with us on Telegram',
     icon: '/icons/telegram.svg',
     isExternal: true,
   },
@@ -93,7 +94,7 @@ export const socialLinks: NavRoute[] = [
   {
     title: 'Documentation',
     path: '/docs',
-    description: 'Read the documentation',
+    description: 'Read the docs',
     icon: '/icons/docs.svg',
     isExternal: false,
   },
@@ -126,31 +127,31 @@ export const headerNavigation: NavRoute[] = [
   {
     title: 'Swap',
     path: '/swap',
-    description: 'Trade tokens with minimal slippage',
+    description: 'Trade at better rates',
     icon: '/icons/swap.svg',
   },
   {
     title: 'Earn',
     path: '/earn',
-    description: 'Provide liquidity and earn fees',
+    description: 'Provide and stake liquidity',
     icon: '/icons/liquidity.svg',
   },
   {
     title: 'Vote',
     path: '/vote',
-    description: 'Participate in DAO governance',
+    description: 'Help steer the DAO',
     icon: '/icons/vote.svg',
   },
   {
     title: 'Metrics',
     path: '/metrics',
-    description: 'View protocol metrics',
+    description: 'Explore protocol metrics',
     icon: '/icons/metrics.svg',
   },
   {
     title: 'Docs',
     path: '/docs',
-    description: 'Protocol documentation and guides',
+    description: 'Browse protocol docs',
     icon: '/icons/docs.svg',
   }
 ]
@@ -190,5 +191,6 @@ export const ROUTES = {
   ADD_ASSET: specialRoutes.addAsset,
   CHART: specialRoutes.chart,
   SETTINGS: specialRoutes.settings,
+  ARCHIVIST: specialRoutes.archivist,
 } as const
 

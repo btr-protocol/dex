@@ -1,496 +1,666 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+/*
+ * CREATE3 DETERMINISTIC DEPLOYMENT
+ * ─────────────────────────────────────────────────────────────────────────
+ * This script uses CreateX CREATE3 for deterministic cross-chain addresses.
+ *
+ * Salt allocation:
+ * - Core contracts (pools, bridge, treasury): salts/b712_b712.txt (lower b712)
+ * - Mock ERC20 tokens: salts/bbbb_bb.txt
+ *
+ * All deployments use DEPLOYER_PK from .env to ensure identical addresses
+ * across local fork (31337), testnet, and mainnet.
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+
 import {Script, console2} from "forge-std/Script.sol";
 import {IPoolV1} from "../src/interfaces/IPoolV1.sol";
 import {ICoreV1} from "../src/interfaces/modules/ICoreV1.sol";
 import {IAdminV1} from "../src/interfaces/modules/IAdminV1.sol";
+import {ICreateX} from "../src/interfaces/external/ICreateX.sol";
 import {PoolProxyV1} from "../src/PoolProxyV1.sol";
-import {CoreV1} from "../src/modules/CoreV1.sol";
+import {ExchangeV1} from "../src/modules/ExchangeV1.sol";
+import {LiquidityV1} from "../src/modules/LiquidityV1.sol";
 import {AdminV1} from "../src/modules/AdminV1.sol";
 import {InternalOracleV1} from "../src/modules/InternalOracleV1.sol";
 import {LibConstants as C} from "../src/libraries/LibConstants.sol";
 import {LibMaths} from "../src/libraries/LibMaths.sol";
+import {LibCast} from "../src/libraries/LibCast.sol";
+import {MockERC20} from "../src/mocks/MockERC20.sol";
 
 /// @title DeployBSCFork
-/// @notice Deploy AIMM pools on local BSC fork: Pool Zero (multi-asset) and Pool Stable (stablecoins)
+/// @notice Deploy AIMM pools with CREATE3 deterministic addresses
 contract DeployBSCFork is Script {
-    // ═══════════════════════════════════════════════════════════════════════════
-    // BSC MAINNET TOKEN ADDRESSES
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
+    // CONFIGURATION STRUCTURES
+    // ─────────────────────────────────────────────────────────────────────────
 
-    // Pool Zero Tokens
-    address constant USDC = 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d;  // Binance-Peg USDC
-    address constant USDT = 0x55d398326f99059fF775485246999027B3197955;  // Binance-Peg USDT
-    address constant WETH = 0x2170Ed0880ac9A755fd29B2688956BD959F933F8;  // Binance-Peg ETH
-    address constant WBTC = 0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c;  // Binance-Peg BTCB
-    address constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;  // Wrapped BNB
-    address constant SOL = 0x570A5D26f7765Ecb712C0924E4De545B89fD43dF;   // Solana Token
-    address constant ZEC = 0x1Ba42e5193dfA8B03D15dd1B86a3113bbBEF8Eeb;   // Binance-Peg ZEC
-    address constant PAXG = 0x7950865a9140cB519342433146Ed5b40c6F210f7;  // Paxos Gold
+    struct TokenDef {
+        string name;
+        string symbol;
+        uint256 price;       // USD price (e.g. 3500 for ETH)
+        bool isStable;       // true = stablecoin (accDec=6, slippage=5, price=$1)
+        bool inPoolZero;     // Include in Pool Zero?
+        bool inPoolStable;   // Include in Pool Stable?
+        bytes32 salt;        // CREATE3 salt (from bbbb_bb.txt)
+        address addr;        // Set after deployment
+    }
 
-    // Pool Stable Additional Tokens
-    address constant DAI = 0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3;   // Binance-Peg DAI
-    address constant TUSD = 0x40af3827F39D0EAcBF4A168f8D4ee67c121D11c9;  // TrueUSD
-    address constant FDUSD = 0xc5f0f7b66764F6ec8C8Dff7BA683102295E16409; // First Digital USD
-    address constant USDD = 0xd17479997F34dd9156Deef8F95A52D81D265be9c;  // Decentralized USD
-    address constant USDP = 0xb3c11196A4f3b1da7c23d9FB0A3dDE9c6340934F;  // Pax Dollar
-    address constant crvUSD = 0xe2fb3F127f5450DeE44afe054385d74C392BdeF4; // Curve USD
-    address constant lisUSD = 0x0782b6d8c4551B9760e74c0545a9bCD90bdc41E5; // Lista USD
-    address constant AUSD = 0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a;  // Agora Dollar
-    address constant frxUSD = 0x80Eede496655FB9047dd39d9f418d5483ED600df; // Frax USD
+    struct ModuleConfig {
+        address exchange;
+        address liquidity;
+        address admin;
+        address oracle;
+    }
 
-    // Token decimals
-    uint8 constant DECIMALS_USDC = 18;
-    uint8 constant DECIMALS_USDT = 18;
-    uint8 constant DECIMALS_WETH = 18;
-    uint8 constant DECIMALS_WBTC = 18;
-    uint8 constant DECIMALS_WBNB = 18;
-    uint8 constant DECIMALS_SOL = 18;
-    uint8 constant DECIMALS_ZEC = 18;
-    uint8 constant DECIMALS_PAXG = 18;
-    uint8 constant DECIMALS_DAI = 18;
-    uint8 constant DECIMALS_TUSD = 18;
-    uint8 constant DECIMALS_FDUSD = 18;
-    uint8 constant DECIMALS_USDD = 18;
-    uint8 constant DECIMALS_USDP = 18;
-    uint8 constant DECIMALS_crvUSD = 18;
-    uint8 constant DECIMALS_lisUSD = 18;
-    uint8 constant DECIMALS_AUSD = 18;
-    uint8 constant DECIMALS_frxUSD = 18;
+    // ─────────────────────────────────────────────────────────────────────────
+    // STATE
+    // ─────────────────────────────────────────────────────────────────────────
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // DEPLOYED CONTRACTS
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    PoolProxyV1 public poolZero;
-    PoolProxyV1 public poolStable;
-    CoreV1 public coreModule;
-    AdminV1 public adminModule;
-    InternalOracleV1 public oracleModule;
-
+    TokenDef[] public tokens;
+    ModuleConfig public modules;
+    ICreateX public createX;
     address public deployer;
+    address constant TEST_ADDR = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // MAIN DEPLOYMENT
-    // ═══════════════════════════════════════════════════════════════════════════
+    // Pool CREATE3 salts & expected addresses (from b712_b712.txt - lower b712)
+    bytes32 constant SALT_POOL_ZERO = 0x0a37aec263cba0aabc09bac56a0f2074a22e69a30030d6f06d1a2b1002c664a2;
+    address constant EXPECTED_POOL_ZERO = 0xb7127AE785907441BFBC6C7bDAcC339CD7e2b712;
+
+    bytes32 constant SALT_POOL_STABLE = 0x0a37aec263cba0aabc09bac56a0f2074a22e69a300bd8547f48cdb0302ad4c3e;
+    address constant EXPECTED_POOL_STABLE = 0xb712dCA09c4327daC7789EA34574783dC554b712;
+
+    // BTR Token CREATE3 salt & expected address (from b712_b712.txt - lower b712)
+    bytes32 constant SALT_BTR = 0x0a37aec263cba0aabc09bac56a0f2074a22e69a3002066d05b248fb3f09025efe1db9d1761b712;
+    address constant EXPECTED_BTR = 0xb7122066D05B248FB3F09025EFe1db9d1761b712;
+
+    // Treasury CREATE3 salt & expected address (from b712_b712.txt - lower b712)
+    bytes32 constant SALT_TREASURY = 0x0a37aec263cba0aabc09bac56a0f2074a22e69a3008212286a6e7f4fEF52E9c5CE6963C75ab712;
+    address constant EXPECTED_TREASURY = 0xb7128212286a6e7f4fEF52E9c5CE6963C75ab712;
+
+    // Bridge CREATE3 salt & expected address (from b712_b712.txt - lower b712)
+    bytes32 constant SALT_BRIDGE = 0x0a37aec263cba0aabc09bac56a0f2074a22e69a30069762A37C3bAaE98Bc1C9d95aec3885Fb712;
+    address constant EXPECTED_BRIDGE = 0xb71269762A37C3bAaE98Bc1C9d95aec3885Fb712;
+
+    // Pool addresses (deterministic via CREATE3)
+    address public poolZero;
+    address public poolStable;
+
+    // BTR, Treasury, Bridge addresses (deterministic via CREATE3)
+    address public btrToken;
+    address public treasury;
+    address public bridge;
+
+    // Pool CREATE3 salts & expected addresses (from b712_b712.txt - lower b712)
+    bytes32 constant SALT_POOL_ZERO = 0x0a37aec263cba0aabc09bac56a0f2074a22e69a30030d6f06d1a2b1002c664a2;
+    address constant EXPECTED_POOL_ZERO = 0xb7127AE785907441BFBC6C7bDAcC339CD7e2b712;
+
+    bytes32 constant SALT_POOL_STABLE = 0x0a37aec263cba0aabc09bac56a0f2074a22e69a300bd8547f48cdb0302ad4c3e;
+    address constant EXPECTED_POOL_STABLE = 0xb712dCA09c4327daC7789EA34574783dC554b712;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MAIN RUN
+    // ─────────────────────────────────────────────────────────────────────────
 
     function run() external {
-        deployer = vm.envOr("DEPLOYER", msg.sender);
+        // Load env vars
+        deployer = vm.envAddress("DEPLOYER");
+        createX = ICreateX(vm.envAddress("CREATEX"));
+        uint256 deployerPk = vm.envUint("DEPLOYER_PK");
+        bool useCreate3 = vm.envOr("USE_CREATE3", true);
 
-        console2.log("Deploying on BSC fork with deployer:", deployer);
+        console2.log("Starting BTR Pool deployment...");
+        console2.log("Deployment mode:", useCreate3 ? "Deterministic (CREATE3)" : "Non-deterministic (CREATE)");
+        console2.log("Deployer:", deployer);
+        console2.log("CreateX:", address(createX));
+        console2.log();
 
-        vm.startBroadcast(deployer);
+        vm.startBroadcast(deployerPk);
 
-        // 1. Deploy shared modules
+        // 1. Setup & Deploy Mock Tokens (CREATE3)
+        initTokenDefs();
+        deployMocks();
+
+        // 2. Deploy Modules (normal CREATE, not deterministic)
         deployModules();
 
-        // 2. Deploy and configure Pool Zero
-        deployPoolZero();
+        // 3. Deploy BTR Token (CREATE3)
+        btrToken = deployUserContract("BTR Token", SALT_BTR, EXPECTED_BTR);
+        console2.log("BTR Token Proxy: %s", btrToken);
+        console2.log("  Treasury: %s", address(treasury));
 
-        // 3. Deploy and configure Pool Stable
-        deployPoolStable();
+        // 4. Deploy Treasury (CREATE3)
+        treasury = deployUserContract("Treasury", SALT_TREASURY, EXPECTED_TREASURY);
+        console2.log("Treasury Proxy: %s", treasury);
+        console2.log("  Owner: %s", address(treasury));
 
-        // 4. Refresh all oracle feeds (counteract vm.warp staleness)
-        refreshOracleFeeds();
+        // 5. Deploy Bridge (CREATE3)
+        bridge = deployUserContract("Bridge", SALT_BRIDGE, EXPECTED_BRIDGE);
+        console2.log("Bridge Proxy: %s", bridge);
+        console2.log("  Owner: %s", address(treasury));
 
-        vm.stopBroadcast();
+    // ─────────────────────────────────────────────────────────────────
+    // DEPLOYMENT FUNCTIONS (CREATE3 for user contracts)
+    // ─────────────────────────────────────────────────────────────────
 
-        // Print summary
-        printDeploymentSummary();
-    }
+    function deployUserContract(
+        string memory logName,
+        bytes32 salt,
+        address expectedAddr
+    ) internal returns (address) {
+        bytes32 processedSalt = LibCast.hashFast(bytes32(uint256(uint160(deployer))), salt);
+        address predicted = createX.computeCreate3Address(processedSalt);
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // MODULE DEPLOYMENT
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    function deployModules() internal {
-        console2.log("\n=== Deploying Modules ===");
-
-        coreModule = new CoreV1();
-        console2.log("CoreV1:", address(coreModule));
-
-        adminModule = new AdminV1();
-        console2.log("AdminV1:", address(adminModule));
-
-        oracleModule = new InternalOracleV1();
-        console2.log("InternalOracleV1:", address(oracleModule));
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // POOL ZERO DEPLOYMENT
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    function deployPoolZero() internal {
-        console2.log("\n=== Deploying Pool Zero ===");
-
-        // Deploy proxy
-        poolZero = new PoolProxyV1();
-        console2.log("Pool Zero Proxy:", address(poolZero));
-
-        // Initialize with USDC as base
-        uint8[29] memory feePad;
-        IPoolV1.FeeParams memory feeParams = IPoolV1.FeeParams({
-            protoShare: 25,      // 25% protocol share
-            flashFeeBps: 5,      // 0.0005% flash fee
-            _pad: feePad
-        });
-
-        poolZero.initialize(deployer, USDC, WBNB, feeParams);
-
-        // Register modules
-        registerModules(address(poolZero));
-
-        // Add base token (USDC) as root
-        addAssetPoolZero(USDC, DECIMALS_USDC, address(0), true);  // Stablecoin
-
-        // Add USDT (stablecoin anchored to USDC)
-        addAssetPoolZero(USDT, DECIMALS_USDT, USDC, true);
-
-        // Add volatile assets (all anchored to USDC)
-        addAssetPoolZero(WETH, DECIMALS_WETH, USDC, false);
-        addAssetPoolZero(WBTC, DECIMALS_WBTC, USDC, false);
-        addAssetPoolZero(WBNB, DECIMALS_WBNB, USDC, false);
-        addAssetPoolZero(SOL, DECIMALS_SOL, USDC, false);
-        addAssetPoolZero(ZEC, DECIMALS_ZEC, USDC, false);
-        addAssetPoolZero(PAXG, DECIMALS_PAXG, USDC, false);
-
-        console2.log("Pool Zero configured with 8 assets");
-    }
-
-    function addAssetPoolZero(address token, uint8 decimals, address anchor, bool isStable) internal {
-        // Oracle config - internal oracle with appropriate decimals
-        uint8[13] memory oraclePad;
-        IPoolV1.OracleConfig memory oracleCfg = IPoolV1.OracleConfig({
-            primary: address(poolZero),
-            secondary: address(0),
-            feedId: bytes32(0),
-            modeFlags: 0,
-            accDecimals: isStable ? 6 : 12,  // Stables: 6, Volatiles: 12
-            _pad: oraclePad
-        });
-
-        // Risk config (same for all assets per spec)
-        uint8[18] memory riskPad;
-        IPoolV1.RiskConfig memory riskCfg = IPoolV1.RiskConfig({
-            decayStartRatioBps: 9800,           // 98%
-            coverageFloor: 5000,                // 50%
-            decaySlope: 31709791,               // ~1%/year
-            depthAmplifier: 20000,              // 2% (scaled by 1e6 in formula = 0.02)
-            flags: C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT,
-            _pad: riskPad
-        });
-
-        // Liquidity profile
-        IPoolV1.LiquidityProfile memory profile = isStable
-            ? concentratedProfile()  // Stables: [-50, -5, 5, 50] with [5, 90, 5]
-            : balancedProfile();     // Volatiles: [-50, -15, 15, 50] with [25, 50, 25]
-
-        // Determine initial price based on token
-        uint64 initialPrice = getInitialPrice(token, decimals);
-
-        // Request asset addition
-        IPoolV1(address(poolZero)).requestAddAsset(
-            token,
-            oracleCfg,
-            riskCfg,
-            profile,
-            isStable ? 5 : 100,  // minFeeBps: stables=0.0005%, volatiles=0.01%
-            decimals,
-            initialPrice,
-            10000,  // Initial fast vol EMA
-            10000   // Initial slow vol EMA
-        );
-
-        // Warp past timelock and execute
-        vm.warp(block.timestamp + C.LOW_TIMELOCK + 1);
-        IPoolV1(address(poolZero)).executeAddAsset(token);
-
-        // Set anchor if not root
-        if (anchor != address(0)) {
-            IAdminV1(address(poolZero)).setAnchor(token, anchor);
+        if (useCreate3) {
+            // Deploy with CREATE3
+            bytes memory initCode = abi.encodePacked(type(PoolProxyV1).creationCode);
+            address deployed = createX.deployCreate3(processedSalt, initCode);
+            require(deployed == predicted, "CREATE3 computed address mismatch");
+            require(deployed == expectedAddr, "CREATE3 expected address mismatch");
+        } else {
+            // Deploy with normal CREATE
+            deployed = address(new PoolProxyV1());
         }
 
-        console2.log("Added asset:", token);
+        console2.log("%s Proxy: %s", logName, deployed);
+        return deployed;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // POOL STABLE DEPLOYMENT
-    // ═══════════════════════════════════════════════════════════════════════════
+    function deployPool(
+        string memory logName,
+        bytes32 salt,
+        address expectedAddr,
+        address base,
+        address wnative,
+        bool isPoolZero
+    ) internal returns (address) {
+        address deployed = deployUserContract(logName, salt, expectedAddr);
 
-    function deployPoolStable() internal {
-        console2.log("\n=== Deploying Pool Stable ===");
+        PoolProxyV1(payable(deployed)).initialize(deployer, base, wnative, IPoolV1.FeeParams({protoShare: 25, flashFeeBps: 5, _pad: feePad}));
 
-        // Deploy proxy
-        poolStable = new PoolProxyV1();
-        console2.log("Pool Stable Proxy:", address(poolStable));
+        console2.log("%s configured with %s assets\n", logName, isPoolZero ? "Pool Zero" : "Pool Stable");
+        return deployed;
+    }
 
-        // Initialize with USDC as base
+     // 6. Export Deployment JSON
+        exportDeployment(poolZero, poolStable, btrToken, treasury, bridge);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DEPLOYMENT LOGIC
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function deployMocks() internal {
+        console2.log("=== Deploying Mock Tokens (CREATE3) ===");
+        for (uint i = 0; i < tokens.length; i++) {
+            uint256 supply = (tokens[i].isStable ? 100_000 : 100) * 1e18;
+
+            // Deploy with CREATE3
+            bytes32 processedSalt = LibCast.hashFast(bytes32(uint256(uint160(deployer))), tokens[i].salt);
+            address predicted = createX.computeCreate3Address(processedSalt);
+
+            bytes memory initCode = abi.encodePacked(
+                type(MockERC20).creationCode, abi.encode(tokens[i].name, tokens[i].symbol, uint8(18))
+            );
+
+            address deployed = createX.deployCreate3(processedSalt, initCode);
+            require(deployed == predicted, "CREATE3 address mismatch");
+
+            tokens[i].addr = deployed;
+
+            // Mint initial supply
+            MockERC20(deployed).mint(TEST_ADDR, supply);
+
+            console2.log("  %s: %s", tokens[i].symbol, deployed);
+        }
+        console2.log("  Test address funded: %s\n", TEST_ADDR);
+    }
+
+    function deployModules() internal {
+        console2.log("=== Deploying Modules (CREATE) ===");
+        modules.exchange = address(new ExchangeV1());
+        modules.liquidity = address(new LiquidityV1());
+        modules.admin = address(new AdminV1());
+        modules.oracle = address(new InternalOracleV1());
+        console2.log("ExchangeV1: %s", modules.exchange);
+        console2.log("LiquidityV1: %s", modules.liquidity);
+        console2.log("AdminV1: %s", modules.admin);
+        console2.log("InternalOracleV1: %s\n", modules.oracle);
+    }
+
+    function deployPool(
+        string memory logName,
+        bytes32 salt,
+        address expectedAddr,
+        address base,
+        address wnative,
+        bool isPoolZero,
+        bool useCreate3
+    ) internal returns (address) {
+        console2.log("=== Deploying %s ===", logName);
+
+        address deployed;
+
+        if (useCreate3) {
+            // Deploy with CREATE3
+            bytes32 processedSalt = LibCast.hashFast(bytes32(uint256(uint160(deployer))), salt);
+            address predicted = createX.computeCreate3Address(processedSalt);
+
+            bytes memory initCode = abi.encodePacked(type(PoolProxyV1).creationCode);
+            deployed = createX.deployCreate3(processedSalt, initCode);
+
+            require(deployed == predicted, "CREATE3 computed address mismatch");
+            require(deployed == expectedAddr, "CREATE3 expected address mismatch");
+        } else {
+            // Deploy with normal CREATE
+            deployed = address(new PoolProxyV1());
+        }
+
+        console2.log("%s Proxy: %s", logName, deployed);
+
+        PoolProxyV1 pool = PoolProxyV1(payable(deployed));
+
+        // Initialize pool
         uint8[29] memory feePad;
-        IPoolV1.FeeParams memory feeParams = IPoolV1.FeeParams({
-            protoShare: 25,
-            flashFeeBps: 5,
-            _pad: feePad
-        });
+        pool.initialize(deployer, base, wnative, IPoolV1.FeeParams({protoShare: 25, flashFeeBps: 5, _pad: feePad}));
 
-        poolStable.initialize(deployer, USDC, WBNB, feeParams);
+        registerModules(address(pool));
 
-        // Register modules
-        registerModules(address(poolStable));
-
-        // Add USDC as root
-        addAssetPoolStable(USDC, DECIMALS_USDC, address(0));
-
-        // Add all other stablecoins anchored to USDC
-        addAssetPoolStable(USDT, DECIMALS_USDT, USDC);
-        addAssetPoolStable(DAI, DECIMALS_DAI, USDC);
-        addAssetPoolStable(USDP, DECIMALS_USDP, USDC);
-        addAssetPoolStable(lisUSD, DECIMALS_lisUSD, USDC);
-        addAssetPoolStable(AUSD, DECIMALS_AUSD, USDC);
-        addAssetPoolStable(TUSD, DECIMALS_TUSD, USDC);
-        addAssetPoolStable(USDD, DECIMALS_USDD, USDC);
-        addAssetPoolStable(FDUSD, DECIMALS_FDUSD, USDC);
-        addAssetPoolStable(crvUSD, DECIMALS_crvUSD, USDC);
-        addAssetPoolStable(frxUSD, DECIMALS_frxUSD, USDC);
-
-        console2.log("Pool Stable configured with 11 assets");
+        // Batch Add Assets
+        uint count = 0;
+        for (uint i = 0; i < tokens.length; i++) {
+            if (isPoolZero ? tokens[i].inPoolZero : tokens[i].inPoolStable) {
+                _addAsset(address(pool), tokens[i]);
+                count++;
+            }
+        }
+        console2.log("%s configured with %s assets\n", logName, count);
+        return deployed;
     }
 
-    function addAssetPoolStable(address token, uint8 decimals, address anchor) internal {
-        // Oracle config
+    function _addAsset(address pool, TokenDef memory t) internal {
         uint8[13] memory oraclePad;
-        IPoolV1.OracleConfig memory oracleCfg = IPoolV1.OracleConfig({
-            primary: address(poolStable),
-            secondary: address(0),
-            feedId: bytes32(0),
-            modeFlags: 0,
-            accDecimals: 6,  // All stablecoins use 6
-            _pad: oraclePad
-        });
-
-        // Risk config (same for all stables)
         uint8[18] memory riskPad;
-        IPoolV1.RiskConfig memory riskCfg = IPoolV1.RiskConfig({
-            decayStartRatioBps: 9800,
-            coverageFloor: 5000,
-            decaySlope: 31709791,
-            depthAmplifier: 20000,              // 2%
-            flags: C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT,
-            _pad: riskPad
-        });
 
-        // Concentrated profile for all stables
-        IPoolV1.LiquidityProfile memory profile = concentratedProfile();
+        uint8 accDec = t.isStable ? 6 : 12;
+        uint64 encodedPrice = LibMaths.encodeB64(t.price * 1e18, 18);
 
-        // $1.00 initial price for all stables
-        uint64 initialPrice = LibMaths.encodeB64(10 ** decimals, decimals);
-
-        // Request and execute
-        IPoolV1(address(poolStable)).requestAddAsset(
-            token,
-            oracleCfg,
-            riskCfg,
-            profile,
-            5,  // 0.0005% min fee
-            decimals,
-            initialPrice,
+        IAdminV1(pool).addAsset(
+            t.addr,
+            IPoolV1.OracleConfig({
+                primary: pool,
+                secondary: address(0),
+                feedId: bytes32(0),
+                modeFlags: 0,
+                accDecimals: accDec,
+                _pad: oraclePad
+            }),
+            IPoolV1.RiskConfig({
+                decayStartRatioBps: 9800,
+                coverageFloor: 5000,
+                decaySlope: 31709791,
+                depthAmplifier: 20000,
+                flags: C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT,
+                _pad: riskPad
+            }),
+            t.isStable ? concentratedProfile() : balancedProfile(),
+            t.isStable ? 5 : 100, // Slippage BPS
+            18, // Decimals
+            encodedPrice,
             10000,
             10000
         );
-
-        vm.warp(block.timestamp + C.LOW_TIMELOCK + 1);
-        IPoolV1(address(poolStable)).executeAddAsset(token);
-
-        if (anchor != address(0)) {
-            IAdminV1(address(poolStable)).setAnchor(token, anchor);
-        }
-
-        console2.log("Added stable:", token);
+        console2.log("  Added: %s", t.symbol);
     }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // MODULE REGISTRATION
-    // ═══════════════════════════════════════════════════════════════════════════
 
     function registerModules(address pool) internal {
-        // Core selectors
-        bytes4[] memory coreSelectors = new bytes4[](17);
-        coreSelectors[0] = ICoreV1.swap.selector;
-        coreSelectors[1] = ICoreV1.getSwapQuote.selector;
-        coreSelectors[2] = ICoreV1.deposit.selector;
-        coreSelectors[3] = ICoreV1.withdraw.selector;
-        coreSelectors[4] = ICoreV1.withdrawTo.selector;
-        coreSelectors[5] = ICoreV1.swapLiability.selector;
-        coreSelectors[6] = ICoreV1.donate.selector;
-        coreSelectors[7] = ICoreV1.owner.selector;
-        coreSelectors[8] = ICoreV1.baseToken.selector;
-        coreSelectors[9] = ICoreV1.wnative.selector;
-        coreSelectors[10] = ICoreV1.getAsset.selector;
-        coreSelectors[11] = ICoreV1.getLPBalance.selector;
-        coreSelectors[12] = ICoreV1.getProtocolFees.selector;
-        coreSelectors[13] = ICoreV1.getCoverageRatio.selector;
-        coreSelectors[14] = ICoreV1.getMidPrice.selector;
-        coreSelectors[15] = IPoolV1.getFeedConfig.selector;
-        coreSelectors[16] = IPoolV1.getRiskConfig.selector;
+        address[] memory impls = new address[](4);
+        impls[0] = modules.exchange;
+        impls[1] = modules.liquidity;
+        impls[2] = modules.admin;
+        impls[3] = modules.oracle;
 
-        updateModuleDirect(pool, address(coreModule), coreSelectors);
+        bytes4[][] memory selectors = new bytes4[][](4);
+        selectors[0] = getExchangeSelectors();
+        selectors[1] = getLiquiditySelectors();
+        selectors[2] = getAdminSelectors();
+        selectors[3] = getOracleSelectors();
 
-        // Admin selectors
-        bytes4[] memory adminSelectors = new bytes4[](20);
-        adminSelectors[0] = IAdminV1.freezeAsset.selector;
-        adminSelectors[1] = IAdminV1.unfreezeAsset.selector;
-        adminSelectors[2] = IAdminV1.requestAddAsset.selector;
-        adminSelectors[3] = IAdminV1.executeAddAsset.selector;
-        adminSelectors[4] = IAdminV1.requestUpdateRiskConfig.selector;
-        adminSelectors[5] = IAdminV1.executeUpdateRiskConfig.selector;
-        adminSelectors[6] = IAdminV1.requestUpdateFeeParams.selector;
-        adminSelectors[7] = IAdminV1.executeUpdateFeeParams.selector;
-        adminSelectors[8] = IAdminV1.collectProtocolFees.selector;
-        adminSelectors[9] = IAdminV1.requestOwnershipTransfer.selector;
-        adminSelectors[10] = IAdminV1.executeOwnershipTransfer.selector;
-        adminSelectors[11] = IAdminV1.requestBridgeUpdate.selector;
-        adminSelectors[12] = IAdminV1.executeBridgeUpdate.selector;
-        adminSelectors[13] = IAdminV1.requestTreasuryUpdate.selector;
-        adminSelectors[14] = IAdminV1.executeTreasuryUpdate.selector;
-        adminSelectors[15] = IAdminV1.requestModuleUpdate.selector;
-        adminSelectors[16] = IAdminV1.executeModuleUpdate.selector;
-        adminSelectors[17] = IAdminV1.cancelTimelock.selector;
-        adminSelectors[18] = IAdminV1.getModule.selector;
-        adminSelectors[19] = bytes4(keccak256("setAnchor(address,address)"));
-
-        updateModuleDirect(pool, address(adminModule), adminSelectors);
-
-        // Oracle selectors
-        bytes4[] memory oracleSelectors = new bytes4[](6);
-        oracleSelectors[0] = bytes4(keccak256("getFeed(address)"));
-        oracleSelectors[1] = bytes4(keccak256("updateFeed(address,uint64,uint8,uint32,uint32)"));
-        oracleSelectors[2] = bytes4(keccak256("pushFeedInternal(address,address,uint64,uint64)"));
-        oracleSelectors[3] = bytes4(keccak256("isFeedFresh(address,uint32)"));
-        oracleSelectors[4] = bytes4(keccak256("isFeedFresh(address)"));
-        oracleSelectors[5] = bytes4(keccak256("getFastTWAP(address)"));
-
-        updateModuleDirect(pool, address(oracleModule), oracleSelectors);
+        PoolProxyV1(payable(pool)).addModules(impls, selectors);
     }
 
-    function updateModuleDirect(address pool, address impl, bytes4[] memory selectors) internal {
-        // modules mapping is at offset 13 in PoolStorage from CORE_STORAGE_LOC
-        // (treasury + initialized pack into one slot, so 5 addresses + 8 mappings = 13)
-        bytes32 modulesSlot = bytes32(uint256(C.CORE_STORAGE_LOC) + 13);
-
-        for (uint256 i = 0; i < selectors.length; i++) {
-            // For mapping(bytes4 => address), slot = keccak256(abi.encode(key, mappingSlot))
-            // bytes4 is left-aligned and right-padded to 32 bytes in abi.encode
-            bytes32 slot = keccak256(abi.encode(selectors[i], modulesSlot));
-            vm.store(pool, slot, bytes32(uint256(uint160(impl))));
+    function refreshFeeds(address pool, bool isPoolZero) internal {
+        for (uint i = 0; i < tokens.length; i++) {
+            if (isPoolZero ? tokens[i].inPoolZero : tokens[i].inPoolStable) {
+                uint8 accDec = tokens[i].isStable ? 6 : 12;
+                uint64 price = LibMaths.encodeB64(tokens[i].price * 1e18, 18);
+                InternalOracleV1(pool).updateFeed(tokens[i].addr, price, accDec, 10000, 10000);
+            }
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // LIQUIDITY PROFILES
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
+    // CONFIG & HELPERS
+    // ─────────────────────────────────────────────────────────────────────────
 
-    function concentratedProfile() internal pure returns (IPoolV1.LiquidityProfile memory profile) {
-        // knots: [-50, -5, 5, 50]
-        // weights: [10, 180, 10] (sum=200, 3 segments)
-        profile.weights[0] = 10;
-        profile.weights[1] = 180;
-        profile.weights[2] = 10;
-
-        profile.knots[0] = -50;
-        profile.knots[1] = -5;
-        profile.knots[2] = 5;
-        profile.knots[3] = 50;
+    function initTokenDefs() internal {
+        // Salts from salts/bbbb_bb.txt
+        //              Name                        Sym        Price   Stable  Zero   Stable  Salt
+        _pushTok(
+            "Mock USD Coin",
+            "mUSDC",
+            1,
+            true,
+            true,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a3007f7376a3eb2fff03398e1e
+        );
+        _pushTok(
+            "Mock Tether USD",
+            "mUSDT",
+            1,
+            true,
+            true,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300bc1f715b7ef8ff03b100a2
+        );
+        _pushTok(
+            "Mock Wrapped Ether",
+            "mWETH",
+            3500,
+            false,
+            true,
+            false,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a3003ef9f4b604c0fd03d65b4d
+        );
+        _pushTok(
+            "Mock Wrapped Bitcoin",
+            "mWBTC",
+            95000,
+            false,
+            true,
+            false,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300557ce5d8a6dbfe038ec92b
+        );
+        _pushTok(
+            "Mock Wrapped BNB",
+            "mWBNB",
+            650,
+            false,
+            true,
+            false,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a3001720cb50c3cdfd03560672
+        );
+        _pushTok(
+            "Mock Solana",
+            "mSOL",
+            200,
+            false,
+            true,
+            false,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300bc8a0a155f83ff03facaba
+        );
+        _pushTok(
+            "Mock Zcash",
+            "mZEC",
+            45,
+            false,
+            true,
+            false,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300fab2bc8b8f2dfd0330eccc
+        );
+        _pushTok(
+            "Mock Paxos Gold",
+            "mPAXG",
+            2700,
+            false,
+            true,
+            false,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300629fcc7678ddff038a4e2a
+        );
+        _pushTok(
+            "Mock Dai Stablecoin",
+            "mDAI",
+            1,
+            true,
+            false,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300e4269b50f9dafc03541aa5
+        );
+        _pushTok(
+            "Mock TrueUSD",
+            "mTUSD",
+            1,
+            true,
+            false,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300876580efd47fff037051ca
+        );
+        _pushTok(
+            "Mock First Digital USD",
+            "mFDUSD",
+            1,
+            true,
+            false,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300d4e8e3af8766fe03565451
+        );
+        _pushTok(
+            "Mock Decentralized USD",
+            "mUSDD",
+            1,
+            true,
+            false,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a3008f1a371f9d77ff03242859
+        );
+        _pushTok(
+            "Mock Pax Dollar",
+            "mUSDP",
+            1,
+            true,
+            false,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a30056454b52d4a9fe0345facd
+        );
+        _pushTok(
+            "Mock Curve USD",
+            "mcrvUSD",
+            1,
+            true,
+            false,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300b45cdb609273ff03fade98
+        );
+        _pushTok(
+            "Mock Lista USD",
+            "mlisUSD",
+            1,
+            true,
+            false,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a3007f7376a3eb2fff03398e1e // Reuse salt
+        );
+        _pushTok(
+            "Mock Agora Dollar",
+            "mAUSD",
+            1,
+            true,
+            false,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a300bc1f715b7ef8ff03b100a2 // Reuse salt
+        );
+        _pushTok(
+            "Mock Frax USD",
+            "mfrxUSD",
+            1,
+            true,
+            false,
+            true,
+            0x0a37aec263cba0aabc09bac56a0f2074a22e69a3003ef9f4b604c0fd03d65b4d // Reuse salt
+        );
     }
 
-    function balancedProfile() internal pure returns (IPoolV1.LiquidityProfile memory profile) {
-        // knots: [-50, -15, 15, 50]
-        // weights: [50, 100, 50] (sum=200)
-        profile.weights[0] = 50;
-        profile.weights[1] = 100;
-        profile.weights[2] = 50;
-
-        profile.knots[0] = -50;
-        profile.knots[1] = -15;
-        profile.knots[2] = 15;
-        profile.knots[3] = 50;
+    function _pushTok(
+        string memory n,
+        string memory s,
+        uint p,
+        bool st,
+        bool z,
+        bool sp,
+        bytes32 salt
+    ) internal {
+        tokens.push(TokenDef(n, s, p, st, z, sp, salt, address(0)));
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // PRICE HELPERS
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    function getInitialPrice(address token, uint8 decimals) internal pure returns (uint64) {
-        // Stablecoins: $1.00
-        if (token == USDC || token == USDT) {
-            return LibMaths.encodeB64(10 ** decimals, decimals);
+    function getTokenAddr(string memory sym) internal view returns (address) {
+        for (uint i = 0; i < tokens.length; i++) {
+            if (keccak256(bytes(tokens[i].symbol)) == keccak256(bytes(sym))) return tokens[i].addr;
         }
-
-        // Major cryptos (rough BSC prices as of late 2024)
-        if (token == WETH) return LibMaths.encodeB64(3500 * (10 ** decimals), decimals);  // $3500
-        if (token == WBTC) return LibMaths.encodeB64(95000 * (10 ** decimals), decimals); // $95k
-        if (token == WBNB) return LibMaths.encodeB64(650 * (10 ** decimals), decimals);   // $650
-        if (token == SOL) return LibMaths.encodeB64(200 * (10 ** decimals), decimals);    // $200
-        if (token == ZEC) return LibMaths.encodeB64(45 * (10 ** decimals), decimals);     // $45
-        if (token == PAXG) return LibMaths.encodeB64(2700 * (10 ** decimals), decimals);  // $2700 (gold)
-
-        // Default: $1.00
-        return LibMaths.encodeB64(10 ** decimals, decimals);
+        revert("Token not found");
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // ORACLE REFRESH
-    // ═══════════════════════════════════════════════════════════════════════════
+    function exportDeployment(address pZero, address pStable, address btrToken, address treasury, address bridge) internal {
+        // Nested JSON structure as expected by frontend
+        string memory pools = "pools";
+        vm.serializeAddress(pools, "poolZero", pZero);
+        string memory poolsJson = vm.serializeAddress(pools, "poolStable", pStable);
 
-    /// @notice Refresh all oracle feeds to current timestamp
-    /// @dev Needed because vm.warp during asset addition makes feeds stale
-    function refreshOracleFeeds() internal {
-        console2.log("\n=== Refreshing Oracle Feeds ===");
+        string memory deployment = "deployment";
+        vm.serializeUint(deployment, "chainId", 31337);
+        vm.serializeString(deployment, "pools", poolsJson);
+        vm.serializeAddress(deployment, "btrToken", btrToken);
+        vm.serializeAddress(deployment, "treasury", treasury);
+        vm.serializeAddress(deployment, "bridge", bridge);
+        string memory finalJson = vm.serializeUint(deployment, "timestamp", block.timestamp);
 
-        // Pool Zero assets
-        address[8] memory poolZeroTokens = [USDC, USDT, WETH, WBTC, WBNB, SOL, ZEC, PAXG];
-        for (uint256 i = 0; i < poolZeroTokens.length; i++) {
-            refreshFeed(address(poolZero), poolZeroTokens[i]);
+        string memory path = "./front/public/deployment.json";
+        vm.writeJson(finalJson, path);
+        console2.log("
+Saved deployment to: %s", path);
+        console2.log("  Pool Zero: %s", pZero);
+        console2.log("  Pool Stable: %s", pStable);
+        console2.log("  BTR Token: %s", btrToken);
+        console2.log("  Treasury: %s", treasury);
+        console2.log("  Bridge: %s
+", bridge);
+    }
+        // Nested JSON structure as expected by frontend
+        string memory pools = "pools";
+        vm.serializeAddress(pools, "poolZero", pZero);
+        string memory poolsJson = vm.serializeAddress(pools, "poolStable", pStable);
+
+        string memory deployment = "deployment";
+        vm.serializeUint(deployment, "chainId", 31337);
+        vm.serializeString(deployment, "pools", poolsJson);
+        string memory finalJson = vm.serializeUint(deployment, "timestamp", block.timestamp);
+
+        string memory path = "./front/public/deployment.json";
+        vm.writeJson(finalJson, path);
+        console2.log("\nSaved deployment to: %s", path);
+        console2.log("  Pool Zero: %s", pZero);
+        console2.log("  Pool Stable: %s\n", pStable);
+    }
+
+    function exportMockTokens() internal {
+        // Export mock token addresses for frontend use
+        string memory tokens = "tokens";
+        for (uint i = 0; i < tokens.length; i++) {
+            vm.serializeAddress(tokens, tokens[i].symbol, tokens[i].addr);
         }
+        string memory tokensJson = vm.serializeAddress(tokens, "last", address(0));
 
-        // Pool Stable assets
-        address[11] memory poolStableTokens = [USDC, USDT, DAI, USDP, lisUSD, AUSD, TUSD, USDD, FDUSD, crvUSD, frxUSD];
-        for (uint256 i = 0; i < poolStableTokens.length; i++) {
-            refreshFeed(address(poolStable), poolStableTokens[i]);
-        }
+        string memory deployment = "deployment";
+        vm.serializeString(deployment, "tokens", tokensJson);
 
-        console2.log("All feeds refreshed");
+        string memory path = "./front/public/mock-tokens.json";
+        vm.writeJson(deployment, path);
+        console2.log("\nSaved mock tokens to: %s", path);
     }
 
-    function refreshFeed(address pool, address token) internal {
-        // Get current price and decimals
-        uint64 price = getInitialPrice(token, 18);
-        uint8 accDec = (token == USDC || token == USDT || token == DAI || token == TUSD ||
-                       token == FDUSD || token == USDD || token == USDP || token == crvUSD ||
-                       token == lisUSD || token == AUSD || token == frxUSD) ? 6 : 12;
+    // ─────────────────────────────────────────────────────────────────────────
+    // SELECTORS & PROFILES
+    // ─────────────────────────────────────────────────────────────────────────
 
-        // Call updateFeed via delegatecall through the pool
-        InternalOracleV1(pool).updateFeed(token, price, accDec, 10000, 10000);
+    function concentratedProfile() internal pure returns (IPoolV1.LiquidityProfile memory p) {
+        p.weights[0] = 10;
+        p.weights[1] = 180;
+        p.weights[2] = 10;
+        p.knots[0] = -50;
+        p.knots[1] = -5;
+        p.knots[2] = 5;
+        p.knots[3] = 50;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // SUMMARY
-    // ═══════════════════════════════════════════════════════════════════════════
+    function balancedProfile() internal pure returns (IPoolV1.LiquidityProfile memory p) {
+        p.weights[0] = 50;
+        p.weights[1] = 100;
+        p.weights[2] = 50;
+        p.knots[0] = -50;
+        p.knots[1] = -15;
+        p.knots[2] = 15;
+        p.knots[3] = 50;
+    }
 
-    function printDeploymentSummary() internal view {
-        console2.log("\n=== Deployment Summary ===");
-        console2.log("Deployer:", deployer);
-        console2.log("");
-        console2.log("Modules:");
-        console2.log("  CoreV1:", address(coreModule));
-        console2.log("  AdminV1:", address(adminModule));
-        console2.log("  InternalOracleV1:", address(oracleModule));
-        console2.log("");
-        console2.log("Pool Zero (Multi-Asset):", address(poolZero));
-        console2.log("  Base: USDC");
-        console2.log("  Assets: USDC, USDT, WETH, WBTC, WBNB, SOL, ZEC, PAXG");
-        console2.log("");
-        console2.log("Pool Stable (Stablecoins):", address(poolStable));
-        console2.log("  Base: USDC");
-        console2.log("  Assets: USDC, USDT, DAI, USDP, lisUSD, AUSD, TUSD, USDD, FDUSD, crvUSD, frxUSD");
+    function getExchangeSelectors() internal pure returns (bytes4[] memory s) {
+        s = new bytes4[](12);
+        s[0] = ICoreV1.swap.selector;
+        s[1] = ICoreV1.getSwapQuote.selector;
+        s[2] = ICoreV1.owner.selector;
+        s[3] = ICoreV1.baseToken.selector;
+        s[4] = ICoreV1.wnative.selector;
+        s[5] = ICoreV1.getAsset.selector;
+        s[6] = ICoreV1.getLPBalance.selector;
+        s[7] = ICoreV1.getProtocolFees.selector;
+        s[8] = ICoreV1.getCoverageRatio.selector;
+        s[9] = ICoreV1.getMidPrice.selector;
+        s[10] = IPoolV1.getFeedConfig.selector;
+        s[11] = IPoolV1.getRiskConfig.selector;
+    }
+
+    function getLiquiditySelectors() internal pure returns (bytes4[] memory s) {
+        s = new bytes4[](5);
+        s[0] = ICoreV1.deposit.selector;
+        s[1] = ICoreV1.withdraw.selector;
+        s[2] = ICoreV1.withdrawTo.selector;
+        s[3] = ICoreV1.swapLiability.selector;
+        s[4] = ICoreV1.donate.selector;
+    }
+
+    function getAdminSelectors() internal pure returns (bytes4[] memory s) {
+        s = new bytes4[](21);
+        s[0] = IAdminV1.freezeAsset.selector;
+        s[1] = IAdminV1.unfreezeAsset.selector;
+        s[2] = bytes4(keccak256("addAsset(address,(address,address,bytes32,uint16,uint8,uint8[13]),(uint16,uint16,uint32,uint16,uint16,uint8[18]),(uint8[16],int8[17]),uint16,uint8,uint64,uint32,uint32)"));
+        s[3] = IAdminV1.requestAddAsset.selector;
+        s[4] = IAdminV1.executeAddAsset.selector;
+        s[5] = IAdminV1.requestUpdateRiskConfig.selector;
+        s[6] = IAdminV1.executeUpdateRiskConfig.selector;
+        s[7] = IAdminV1.requestUpdateFeeParams.selector;
+        s[8] = IAdminV1.executeUpdateFeeParams.selector;
+        s[9] = IAdminV1.collectProtocolFees.selector;
+        s[10] = IAdminV1.requestOwnershipTransfer.selector;
+        s[11] = IAdminV1.executeOwnershipTransfer.selector;
+        s[12] = IAdminV1.requestBridgeUpdate.selector;
+        s[13] = IAdminV1.executeBridgeUpdate.selector;
+        s[14] = IAdminV1.requestTreasuryUpdate.selector;
+        s[15] = IAdminV1.executeTreasuryUpdate.selector;
+        s[16] = IAdminV1.requestModuleUpdate.selector;
+        s[17] = IAdminV1.executeModuleUpdate.selector;
+        s[18] = IAdminV1.cancelTimelock.selector;
+        s[19] = IAdminV1.getModule.selector;
+        s[20] = bytes4(keccak256("setAnchor(address,address)"));
+    }
+
+    function getOracleSelectors() internal pure returns (bytes4[] memory s) {
+        s = new bytes4[](6);
+        s[0] = bytes4(keccak256("getFeed(address)"));
+        s[1] = bytes4(keccak256("updateFeed(address,uint64,uint8,uint32,uint32)"));
+        s[2] = bytes4(keccak256("pushFeedInternal(address,address,uint64,uint64)"));
+        s[3] = bytes4(keccak256("isFeedFresh(address,uint32)"));
+        s[4] = bytes4(keccak256("isFeedFresh(address)"));
+        s[5] = bytes4(keccak256("getFastTWAP(address)"));
     }
 }

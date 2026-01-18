@@ -8,11 +8,14 @@ interface DocsPageProps {
   slug?: string;
 }
 
-export function DocsPage({ slug = 'overview' }: DocsPageProps) {
+export function DocsPage({ slug: slugProp }: DocsPageProps) {
   const [doc, setDoc] = useState<DocFile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { navigate } = useRouter();
+  const { navigate, path } = useRouter();
+
+  // Extract slug from URL path (e.g., /docs/2.5-emission-control -> 2.5-emission-control)
+  const slug = slugProp || path.replace(/^\/docs\/?/, '') || 'overview';
 
   useEffect(() => {
     if (slug) {

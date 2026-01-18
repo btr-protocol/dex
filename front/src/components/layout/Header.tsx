@@ -16,6 +16,7 @@ export function Header() {
   const [showSearch, setShowSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const toastNotifications = useNotifications();
   const logNotifications = useNotificationLog();
 
@@ -50,7 +51,7 @@ export function Header() {
   return (
     <>
       <header className="fixed top-0 w-full h-12 flex items-center z-50">
-        <nav className="max-w-7xl h-full mx-auto w-full flex items-center justify-between gap-6 px-3 border border-t-0 rounded-b-lg backdrop-blur-md bg-background/80 border-border">
+        <nav className="max-w-7xl h-full mx-auto w-full flex items-center justify-between gap-6 px-3 border border-t-0 rounded-b-lg backdrop-blur-md bg-bg-0/80 border-border">
           {/* Logo */}
           <div
             className="flex items-center gap-2 cursor-pointer"
@@ -65,7 +66,7 @@ export function Header() {
             />
           </div>
 
-          {/* Nav */}
+          {/* Nav - Desktop */}
           <nav className="hidden md:flex items-center gap-1">
             {headerNavigation.map((item) => (
               <Tooltip key={item.path} content={item.description || item.title} side="bottom">
@@ -83,8 +84,17 @@ export function Header() {
             ))}
           </nav>
 
-          {/* Actions - Single button group */}
-          <div className="flex items-center border border-border rounded-sm overflow-hidden bg-bg-1">
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2 text-muted-foreground hover:text-foreground hover:bg-bg-2 rounded-md transition-colors"
+            aria-label="Toggle menu"
+          >
+            <Icon name={mobileMenuOpen ? 'x' : 'bars-3'} className="w-5 h-5" />
+          </button>
+
+          {/* Actions - Desktop */}
+          <div className="hidden md:flex items-center border border-border rounded-sm overflow-hidden bg-bg-1">
             {/* Search button (fake input) */}
             <Tooltip content="Search (⌘K)" side="bottom">
               <button
@@ -104,11 +114,20 @@ export function Header() {
                 className="toolbar-btn border-r border-border relative"
               >
                 <Icon name="bell" className="w-4 h-4" />
-                {logNotifications.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-black text-[10px] font-bold rounded-full flex items-center justify-center">
-                    {logNotifications.length > 9 ? '9+' : logNotifications.length}
-                  </span>
-                )}
+                {(() => {
+                  const criticalCount = logNotifications.filter(n =>
+                    n.type === 'error' || n.type === 'warning'
+                  ).length;
+                  return criticalCount > 0 && (
+                    <span className={`absolute -top-1 -right-1 flex items-center justify-center rounded-full ${
+                      criticalCount > 99
+                        ? 'w-3 h-3 bg-destructive'
+                        : 'w-4 h-4 bg-primary text-black text-[10px] font-bold'
+                    }`}>
+                      {criticalCount <= 99 && criticalCount}
+                    </span>
+                  );
+                })()}
               </button>
             </Tooltip>
 
@@ -125,6 +144,30 @@ export function Header() {
             {/* Connect */}
             <WalletButton className="!rounded-none !rounded-r-sm" />
           </div>
+
+          {/* Mobile Menu */}
+          {mobileMenuOpen && (
+            <div className="md:hidden absolute top-12 left-0 right-0 bg-bg-0 border-b border-border shadow-lg z-50">
+              <nav className="flex flex-col p-2 space-y-1">
+                {headerNavigation.map((item) => (
+                  <button
+                    key={item.path}
+                    onClick={() => {
+                      navigate(item.path);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`px-4 py-2 text-left text-base font-medium font-title rounded-md transition-colors ${
+                      isActive(item.path)
+                        ? 'text-primary bg-primary/10'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                    }`}
+                  >
+                    {item.title}
+                  </button>
+                ))}
+              </nav>
+            </div>
+          )}
         </nav>
       </header>
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 
-const API_URL = import.meta.env.VITE_COLLECTOR_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_COLLECTOR_API || 'http://localhost:3001';
 const WS_URL = import.meta.env.VITE_COLLECTOR_WS || 'ws://localhost:3001/ws';
 
 export interface OHLC { time: number; open: number; high: number; low: number; close: number; }

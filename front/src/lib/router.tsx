@@ -13,7 +13,7 @@ const RouterCtx = createContext<any>(null);
 const updateMeta = (path: string) => {
     const r = getRouteByPath(path);
     document.title = r?.title ? `BTR | ${r.title}` : 'BTR';
-    document.querySelector('meta[name="description"]')?.setAttribute('content', r?.description || 'BTR - Next-generation decentralized exchange.');
+    document.querySelector('meta[name="description"]')?.setAttribute('content', r?.description || 'BTR - Decentralized Exchange.');
 };
 
 export function RouterProvider({ children }: { children: ComponentChildren }) {

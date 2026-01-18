@@ -7,12 +7,7 @@ import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { PairSymbol, OHLCCandle } from './types';
 import { STORAGE_CONFIG } from './config';
-import ccxt from 'ccxt';
-
-type SourceMap = Record<string, { weight: number }>;
-
-const log = (msg: string) => console.log(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
-const warn = (msg: string) => console.warn(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
+import { log, warn } from '../shared/logger.js';
 
 // ─────────────────────────────────────────────────────────────
 // Rate Limiter

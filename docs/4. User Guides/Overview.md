@@ -1,5 +1,5 @@
 # User Guides Overview
 
-> Step-by-step guides for using the BTR platform
+> Step-by-step guides for using BTR
 
 Coming soon.

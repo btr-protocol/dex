@@ -1,0 +1,26 @@
+name: technical-spec
+description: "Create a technical specification from requirements. Use this for features that need design before implementation."
+author: "BTR-MAD"
+
+config_source: "{project-root}/_btr/btrm/config.yaml"
+artifacts_root: "{config_source}:artifacts_root"
+architecture_artifacts: "{config_source}:architecture_artifacts"
+
+installed_path: "{project-root}/_btr/btrm/workflows/requirements/technical-spec"
+instructions: "{installed_path}/instructions.md"
+validation: "{installed_path}/checklist.md"
+
+output: "{architecture_artifacts}/specs/{spec-name}.md"
+
+standalone: true
+web_bundle: false
+
+# Spec Template
+template:
+  sections:
+    - "Overview & Objectives"
+    - "Functional Requirements"
+    - "Technical Approach"
+    - "Security Considerations"
+    - "Testing Requirements"
+    - "Acceptance Criteria"

@@ -50,13 +50,24 @@ const numToHex = (n: bigint | number | boolean) => BN(n).toString(16);
 const utf8 = new TextEncoder();
 const decUtf8 = new TextDecoder();
 
-// Common selectors
+// Common selectors (extracted from forge artifacts)
 const SELECTORS: Record<string, string> = {
-  'balanceOf(address)': '70a08231', 'allowance(address,address)': 'dd62ed3e', 
+  // ERC20
+  'balanceOf(address)': '70a08231', 'allowance(address,address)': 'dd62ed3e',
   'approve(address,uint256)': '095ea7b3', 'transfer(address,uint256)': 'a9059cbb',
-  'transferFrom(address,address,uint256)': '23b872dd', 'name()': '06fdde03', 
+  'transferFrom(address,address,uint256)': '23b872dd', 'name()': '06fdde03',
   'symbol()': '95d89b41', 'decimals()': '313ce567', 'totalSupply()': '18160ddd',
-  'aggregate3((address,bool,bytes)[])': '82ad56cb', 'aggregate((address,bytes)[])': '252dba42'
+  // Multicall
+  'aggregate3((address,bool,bytes)[])': '82ad56cb', 'aggregate((address,bytes)[])': '252dba42',
+  // Pool functions (from IPoolV1.sol)
+  'baseToken()': 'c55dae63',
+  'deposit(address,uint256)': '47e7ef24',
+  'getAsset(address)': '30b8b2c6',
+  'getCoverageRatio(address)': '2bb01437',
+  'getLPBalance(address,address)': 'a8f8278e',
+  'getSwapQuote(address,address,uint256)': '42606771',
+  'swap(address,address,uint256,uint256,address)': 'd5bcb9b5',
+  'withdraw(address,uint256,uint256)': 'b5c5f672',
 };
 
 export const getSelector = (sig: string): Hex =>
@@ -234,16 +245,21 @@ export function encodeFn({ abi, functionName, args = [] }: any): Hex {
 export function decodeFn({ abi, functionName, data }: any): any {
   const fn = abi.find((i: any) => i.name === functionName);
   if (!fn || !fn.outputs.length) return undefined;
-  const res = decode(fn.outputs.length > 1 ? 'tuple' : fn.outputs[0].type, data, 0, fn.outputs);
+  const res = decode(
+    fn.outputs.length > 1 ? 'tuple' : fn.outputs[0].type,
+    data,
+    0,
+    fn.outputs.length > 1 ? fn.outputs : fn.outputs[0].components
+  );
   return res.val;
 }
 
 // ─────────────────────────────────────────────────────────────
-// Viem-Compatible ABI Parameter Encoding/Decoding
+// ABI Parameter Encoding/Decoding
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Encode parameters to hex string (viem-compatible)
+ * Encode parameters to hex string
  * @example encodeAbiParameters([{type: 'address'}, {type: 'uint256'}], ['0x...', 123n])
  */
 export function encodeAbiParameters(params: AbiParameter[], values: any[]): Hex {
@@ -255,7 +271,7 @@ export function encodeAbiParameters(params: AbiParameter[], values: any[]): Hex 
 }
 
 /**
- * Decode parameters from hex string (viem-compatible)
+ * Decode parameters from hex string
  * @example decodeAbiParameters([{type: 'address'}, {type: 'uint256'}], '0x...')
  */
 export function decodeAbiParameters(params: AbiParameter[], data: string): any[] {

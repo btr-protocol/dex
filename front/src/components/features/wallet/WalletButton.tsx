@@ -6,6 +6,7 @@ import { Icon } from '@components/ui/Icon';
 import { cn } from '@utils/cn';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@components/ui/Dialog';
 import { CHAINS, getChainIcon } from '@sdk/eth';
+import { shortenAddress } from '@utils/format';
 
 interface WalletModalProps {
   isOpen: boolean;
@@ -45,10 +46,6 @@ export function WalletButton({ className }: WalletButtonProps) {
         []
     );
 
-    const formatAddress = (addr: string) => {
-        return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-    };
-
     const currentChain = supportedChains.find(c => c.id === chainId) || supportedChains[0];
 
     if (!isConnected || !address) {
@@ -81,7 +78,7 @@ export function WalletButton({ className }: WalletButtonProps) {
                 onClick={() => setShowAccountModal(true)}
                 leftIcon={<img src={currentChain.icon.replace('.svg', '-mono.svg')} alt={currentChain.name} className="w-4 h-4" />}
             >
-                {formatAddress(address)}
+                {shortenAddress(address)}
             </Button>
 
             <Dialog open={showAccountModal} onOpenChange={setShowAccountModal}>

@@ -59,8 +59,8 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
     ]
   },
   {
-    id: 'interface',
-    label: 'Interface',
+    id: 'theme',
+    label: 'Theme',
     icon: 'palette',
     settings: [
       {
@@ -172,6 +172,22 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
     icon: 'star',
     settings: [
       {
+        id: 'preferredChainId',
+        label: 'Preferred Network',
+        description: 'Auto-switch to this network after wallet connect',
+        config: {
+          type: 'select',
+          options: [
+            { value: '56', label: 'BNB Chain', icon: '/networks/bnb-chain.svg' },
+            { value: '1', label: 'Ethereum', icon: '/networks/ethereum.svg' },
+            { value: '8453', label: 'Base', icon: '/networks/base.svg' },
+            { value: '42161', label: 'Arbitrum One', icon: '/networks/arbitrum-one.svg' },
+            { value: '31337', label: 'Anvil (Local)', icon: '/networks/anvil.svg' }
+          ]
+        },
+        keywords: ['chain', 'network', 'preferred', 'default', 'auto-switch']
+      },
+      {
         id: 'swapTokenIn',
         label: 'Default Swap Input',
         description: 'Default token for swap input',
@@ -185,27 +201,6 @@ export const SETTINGS_SCHEMA: SettingCategory[] = [
         config: { type: 'select', options: [] },
         keywords: ['swap', 'token', 'output', 'default']
       },
-      {
-        id: 'chartBase',
-        label: 'Chart Base Asset',
-        description: 'Default base asset for price charts',
-        config: { type: 'select', options: [] },
-        keywords: ['chart', 'base', 'asset', 'pair']
-      },
-      {
-        id: 'chartQuote',
-        label: 'Chart Quote Asset',
-        description: 'Default quote asset for price charts',
-        config: { type: 'select', options: [] },
-        keywords: ['chart', 'quote', 'asset', 'pair']
-      }
-    ]
-  },
-  {
-    id: 'other',
-    label: 'Other',
-    icon: 'package',
-    settings: [
       {
         id: 'exportFormat',
         label: 'Export Format',
@@ -243,7 +238,7 @@ export interface AppSettings {
   // Execution
   maxSlippage: number;
   detailRoute: boolean;
-  // Interface
+  // Theme
   hideSmallBalances: boolean;
   hideUnsupportedTokens: boolean;
   showTestNetworks: boolean;
@@ -255,11 +250,9 @@ export interface AppSettings {
   currency: string;
   language: string;
   // Preferences
+  preferredChainId: string;
   swapTokenIn: string;
   swapTokenOut: string;
-  chartBase: string;
-  chartQuote: string;
-  // Other
   exportFormat: string;
 }
 
@@ -274,5 +267,10 @@ export function getDefaultSettings(): AppSettings {
       else if (cfg.type === 'multiselect') defaults[setting.id] = [];
     }
   }
+
+  // Override preferredChainId based on environment
+  // Dev: Anvil (31337), Prod: BNB Chain (56)
+  defaults.preferredChainId = import.meta.env.DEV ? '31337' : '56';
+
   return defaults as AppSettings;
 }

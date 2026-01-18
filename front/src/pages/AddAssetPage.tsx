@@ -3,6 +3,7 @@ import { Icon } from '@components/ui/Icon';
 import { Button } from '@components/ui/Button';
 import { Input } from '@components/ui/Input';
 import { Stepper, type Step } from '@components/ui/Stepper';
+import { Card } from '@components/ui/Card';
 import { useRouter } from '@lib/router';
 import { LiquidityShaper } from '@components/features/liquidity';
 import { ParameterShaper } from '@components/shared/ui-utilities';
@@ -58,7 +59,7 @@ export function AddAssetPage() {
 
             {/* Content Area */}
             <div className="w-full mx-auto">
-                    <div className="bg-bg-1 border border-border rounded-2xl p-8 shadow-sm min-h-[600px]">
+                    <Card className="p-8 min-h-[600px]">
 
                         {/* General Info */}
                         {activeTab === 0 && (
@@ -238,7 +239,7 @@ export function AddAssetPage() {
                             </div>
                         </div>
 
-                    </div>
+                    </Card>
                 </div>
         </div>
     );

@@ -36,7 +36,7 @@ interface IERC7575 is IERC165 {
      * - MUST NOT reflect slippage or other on-chain conditions, when performing the actual exchange.
      * - MUST NOT revert.
      *
-     * NOTE: This calculation MAY NOT reflect the “per-user” price-per-share, and instead should reflect the
+     * NB: This calculation MAY NOT reflect the “per-user” price-per-share, and instead should reflect the
      * “average-user’s” price-per-share, meaning what the average user should expect to see when exchanging to and
      * from.
      */
@@ -51,7 +51,7 @@ interface IERC7575 is IERC165 {
      * - MUST NOT reflect slippage or other on-chain conditions, when performing the actual exchange.
      * - MUST NOT revert.
      *
-     * NOTE: This calculation MAY NOT reflect the “per-user” price-per-share, and instead should reflect the
+     * NB: This calculation MAY NOT reflect the “per-user” price-per-share, and instead should reflect the
      * “average-user’s” price-per-share, meaning what the average user should expect to see when exchanging to and
      * from.
      */
@@ -88,7 +88,7 @@ interface IERC7575 is IERC165 {
      * - MUST be inclusive of deposit fees. Integrators should be aware of the existence of deposit fees.
      * - MUST NOT revert.
      *
-     * NOTE: any unfavorable discrepancy between convertToShares and previewDeposit SHOULD be considered slippage in
+     * NB: any unfavorable discrepancy between convertToShares and previewDeposit SHOULD be considered slippage in
      * share price or some other type of condition, meaning the depositor will lose assets by depositing.
      */
     function previewDeposit(uint256 assets) external view returns (uint256 shares);
@@ -102,7 +102,7 @@ interface IERC7575 is IERC165 {
      * - MUST revert if all of assets cannot be deposited (due to deposit limit being reached, slippage, the user not
      *   approving enough underlying tokens to the Vault contract, etc).
      *
-     * NOTE: most implementations will require pre-approval of the Vault with the Vault’s underlying asset token.
+     * NB: most implementations will require pre-approval of the Vault with the Vault’s underlying asset token.
      */
     function deposit(uint256 assets, address receiver) external returns (uint256 shares);
 
@@ -126,7 +126,7 @@ interface IERC7575 is IERC165 {
      * - MUST be inclusive of deposit fees. Integrators should be aware of the existence of deposit fees.
      * - MUST NOT revert.
      *
-     * NOTE: any unfavorable discrepancy between convertToAssets and previewMint SHOULD be considered slippage in
+     * NB: any unfavorable discrepancy between convertToAssets and previewMint SHOULD be considered slippage in
      * share price or some other type of condition, meaning the depositor will lose assets by minting.
      */
     function previewMint(uint256 shares) external view returns (uint256 assets);
@@ -140,7 +140,7 @@ interface IERC7575 is IERC165 {
      * - MUST revert if all of shares cannot be minted (due to deposit limit being reached, slippage, the user not
      *   approving enough underlying tokens to the Vault contract, etc).
      *
-     * NOTE: most implementations will require pre-approval of the Vault with the Vault’s underlying asset token.
+     * NB: most implementations will require pre-approval of the Vault with the Vault’s underlying asset token.
      */
     function mint(uint256 shares, address receiver) external returns (uint256 assets);
 
@@ -166,7 +166,7 @@ interface IERC7575 is IERC165 {
      * - MUST be inclusive of withdrawal fees. Integrators should be aware of the existence of withdrawal fees.
      * - MUST NOT revert.
      *
-     * NOTE: any unfavorable discrepancy between convertToShares and previewWithdraw SHOULD be considered slippage in
+     * NB: any unfavorable discrepancy between convertToShares and previewWithdraw SHOULD be considered slippage in
      * share price or some other type of condition, meaning the depositor will lose assets by depositing.
      */
     function previewWithdraw(uint256 assets) external view returns (uint256 shares);
@@ -207,7 +207,7 @@ interface IERC7575 is IERC165 {
      * - MUST be inclusive of withdrawal fees. Integrators should be aware of the existence of withdrawal fees.
      * - MUST NOT revert.
      *
-     * NOTE: any unfavorable discrepancy between convertToAssets and previewRedeem SHOULD be considered slippage in
+     * NB: any unfavorable discrepancy between convertToAssets and previewRedeem SHOULD be considered slippage in
      * share price or some other type of condition, meaning the depositor will lose assets by redeeming.
      */
     function previewRedeem(uint256 shares) external view returns (uint256 assets);
@@ -221,7 +221,7 @@ interface IERC7575 is IERC165 {
      * - MUST revert if all of shares cannot be redeemed (due to withdrawal limit being reached, slippage, the owner
      *   not having enough shares, etc).
      *
-     * NOTE: some implementations will require pre-requesting to the Vault before a withdrawal may be performed.
+     * NB: some implementations will require pre-requesting to the Vault before a withdrawal may be performed.
      * Those methods should be performed separately.
      */
     function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);

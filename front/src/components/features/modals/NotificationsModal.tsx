@@ -7,6 +7,9 @@ import { DownloadModal } from '@components/features/modals';
 import { Tooltip, ButtonGroup } from '@components/ui';
 import { Notification } from '@components/Notification';
 import { INotification, LogLevel, ICON_BY_LOG_LEVEL } from '@/types/notification';
+import { useNotificationActions } from '@/hooks/useNotificationActions';
+import { formatDayHeader } from '@sdk/utils/format';
+import { useFilters } from '@hooks/useFilters';
 
 interface NotificationsModalProps {
   isOpen: boolean;
@@ -29,32 +32,36 @@ export function NotificationsModal({
   notifications,
   onClearAll,
 }: NotificationsModalProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedLevels, setSelectedLevels] = useState<string[]>(
-    logLevelFilterOptions.map((opt) => opt.id)
-  );
+  const initialFilters = {
+    searchQuery: '',
+    selectedLevels: logLevelFilterOptions.map((opt) => opt.id),
+  };
+
+  const { filters, resetFilters, updateFilter, hasActiveFilters } = useFilters(initialFilters, () => {
+    // Additional reset callback
+  });
   const [isLevelFilterOpen, setIsLevelFilterOpen] = useState(false);
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+  const { copy, download, report } = useNotificationActions();
 
   // Reset state when dialog opens
   useEffect(() => {
     if (isOpen) {
-      setSearchQuery('');
-      setSelectedLevels(logLevelFilterOptions.map((opt) => opt.id));
+      resetFilters();
     }
-  }, [isOpen]);
+  }, [isOpen, resetFilters]);
 
   // Filter notifications
   const filteredNotifications = useMemo(() => {
-    const query = searchQuery?.toLowerCase() || '';
+    const query = filters.searchQuery?.toLowerCase() || '';
 
     return notifications
       .filter((n) =>
-        (!searchQuery || n.message.toLowerCase().includes(query)) &&
-        (selectedLevels.length === 0 || selectedLevels.includes(n.level))
+        (!filters.searchQuery || n.message.toLowerCase().includes(query)) &&
+        (filters.selectedLevels.length === 0 || filters.selectedLevels.includes(n.level))
       )
       .sort((a, b) => b.timestamp - a.timestamp);
-  }, [notifications, searchQuery, selectedLevels]);
+  }, [notifications, filters.searchQuery, filters.selectedLevels]);
 
   // Group notifications by day and message
   const groupedNotifications = useMemo(() => {
@@ -96,54 +103,14 @@ export function NotificationsModal({
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [filteredNotifications]);
 
-  const formatDayHeader = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    today.setHours(0, 0, 0, 0);
-    yesterday.setHours(0, 0, 0, 0);
-    date.setHours(0, 0, 0, 0);
-
-    if (date.getTime() === today.getTime()) return 'TODAY';
-    if (date.getTime() === yesterday.getTime()) return 'YESTERDAY';
-
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    }).toUpperCase();
-  };
-
-  const copyAll = () => {
-    navigator.clipboard.writeText(JSON.stringify(filteredNotifications, null, 2));
-  };
-
-  const saveAll = () => {
-    const blob = new Blob([JSON.stringify(filteredNotifications, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'btr-logs.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
+  const copyAll = () => copy(filteredNotifications);
+  const saveAll = () => download(filteredNotifications, 'btr-logs.json');
   const reportAll = () => {
     const body = filteredNotifications.map((n) => `${n.timestamp}: [${n.level}] ${n.message}`).join('\n');
-    const subject = encodeURIComponent('Notification Report');
-    const encodedBody = encodeURIComponent(body);
-    window.location.href = `mailto:tech@btr.supply?subject=${subject}&body=${encodedBody}`;
+    report(body);
   };
 
-  const resetFilters = () => {
-    setSearchQuery('');
-    setSelectedLevels(logLevelFilterOptions.map((opt) => opt.id));
-  };
-
-  const allLevelsSelected = selectedLevels.length === logLevelFilterOptions.length;
-  const hasActiveFilters = !!searchQuery || !allLevelsSelected;
+  const allLevelsSelected = filters.selectedLevels.length === logLevelFilterOptions.length;
 
   return (
     <>
@@ -153,44 +120,39 @@ export function NotificationsModal({
         title="Notifications"
         headerType="input"
         placeholder="Search notifications..."
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
+        searchValue={filters.searchQuery}
+        onSearchChange={(v) => updateFilter('searchQuery', v)}
         maxWidth="max-w-3xl"
         headerRight={
-          <ButtonGroup variant="compact">
-            <FilterButton
-              label="Filter"
-              options={logLevelFilterOptions}
-              selected={selectedLevels}
-              onClick={() => setIsLevelFilterOpen(true)}
-            />
-            {hasActiveFilters && (
-              <Tooltip content="Clear filters" side="bottom">
+          <div className="flex items-center gap-3">
+            <ButtonGroup variant="compact">
+              <FilterButton
+                label="Filter"
+                options={logLevelFilterOptions}
+                selected={filters.selectedLevels}
+                onClick={() => setIsLevelFilterOpen(true)}
+                onClear={hasActiveFilters ? resetFilters : undefined}
+              />
+            </ButtonGroup>
+            <ButtonGroup variant="compact">
+              <Tooltip content="Download notifications" side="bottom">
                 <button
-                  onClick={resetFilters}
+                  onClick={() => setIsDownloadModalOpen(true)}
                   className="p-1.5 hover:bg-bg-3 transition-colors text-muted-foreground hover:text-foreground"
                 >
-                  <Icon name="x" className="w-4 h-4" />
+                  <Icon name="download" className="w-4 h-4" />
                 </button>
               </Tooltip>
-            )}
-            <Tooltip content="Download notifications" side="bottom">
-              <button
-                onClick={() => setIsDownloadModalOpen(true)}
-                className="p-1.5 hover:bg-bg-3 transition-colors text-muted-foreground hover:text-foreground"
-              >
-                <Icon name="download" className="w-4 h-4" />
-              </button>
-            </Tooltip>
-            <Tooltip content="Delete all notifications" side="bottom">
-              <button
-                onClick={onClearAll}
-                className="p-1.5 hover:bg-red/10 transition-colors text-muted-foreground hover:text-red"
-              >
-                <Icon name="trash" className="w-4 h-4" />
-              </button>
-            </Tooltip>
-          </ButtonGroup>
+              <Tooltip content="Delete all notifications" side="bottom">
+                <button
+                  onClick={onClearAll}
+                  className="p-1.5 hover:bg-red/10 transition-colors text-muted-foreground hover:text-red"
+                >
+                  <Icon name="trash" className="w-4 h-4" />
+                </button>
+              </Tooltip>
+            </ButtonGroup>
+          </div>
         }
       >
         <div className="divide-y divide-border">
@@ -212,7 +174,7 @@ export function NotificationsModal({
             ))
           ) : (
             <EmptyState
-              query={searchQuery}
+              query={filters.searchQuery}
               message="No notifications found"
               action={hasActiveFilters ? {
                 label: 'Reset filters',
@@ -229,8 +191,8 @@ export function NotificationsModal({
         title="Filter by Level"
         searchPlaceholder="Search log levels..."
         items={logLevelFilterOptions}
-        selectedIds={selectedLevels}
-        onSelect={(selected) => setSelectedLevels(Array.isArray(selected) ? selected : [selected])}
+        selectedIds={filters.selectedLevels}
+        onSelect={(selected) => updateFilter('selectedLevels', Array.isArray(selected) ? selected : [selected])}
         multiSelect={true}
         minSelect={1}
       />

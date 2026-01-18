@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
+import {LibConstants as C} from "../libraries/LibConstants.sol";
 
 /// @title ExternalOracle
 /// @notice Push-based external oracle with dual TWAP (fast/slow) and volatility tracking
@@ -19,14 +20,11 @@ contract ExternalOracle is IOracleV1 {
 
     // ========== CONSTANTS ==========
 
-    /// @notice Maximum allowed volatility (100% = 100_000_000 in 1e6 base)
-    uint32 public constant MAX_VOLATILITY = 100_000_000;
+    /// @notice Maximum allowed volatility (100% = 100 * C.PBPS)
+    uint32 public constant MAX_VOLATILITY = 100 * uint32(C.PBPS);
 
-    /// @notice Maximum deviation threshold (6.5% = 65_000 in 0.0001% precision)
+    /// @notice Maximum deviation threshold (6.5% = 65_000 in C.BPS precision)
     uint16 public constant MAX_DEV_THRESHOLD = 65_000;
-
-    /// @notice Deviation precision (0.0001% units: 10_000 = 1%)
-    uint256 public constant DEV_PRECISION = 1_000_000;
 
     /// @notice Default TTL for feeds (1 hour)
     uint16 public constant DEFAULT_TTL = 3600;

@@ -7,8 +7,10 @@ import { KeyboardShortcutGroup } from '@components/ui/KeyboardShortcut';
 import { EmptyState } from '@components/ui/EmptyState';
 import { WalletItemButton } from '@components/ui/WalletItemButton';
 import { ModalSection } from '@components/ui/ModalSection';
+import { Spinner } from '@components/ui/Spinner';
 import { useWallet } from '@lib/wallet';
 import { useWalletConnection } from '@hooks/useWalletConnection';
+import { useExternalLink } from '@/lib/external-links';
 import {
     useInjectedWallets,
     getWalletDownloadUrl,
@@ -38,6 +40,7 @@ interface WalletModalProps {
 export function WalletModal({ isOpen, onClose }: WalletModalProps) {
     const { connectWithProvider } = useWallet();
     const detectedWallets = useInjectedWallets();
+    const { openExternalLink } = useExternalLink();
     const {
         agreedToTerms,
         connectingWallet,
@@ -221,7 +224,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
         const walletName = getWalletName(walletId);
         if (downloadUrl) {
             addNotification('info', `Download ${walletName} at ${downloadUrl}`);
-            window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+            openExternalLink(downloadUrl);
         }
     };
 
@@ -385,7 +388,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                             {isLoadingWC ? (
                                 <div className="w-[280px] h-[280px] bg-bg-2 rounded-lg flex items-center justify-center">
                                     <div className="flex flex-col items-center gap-3">
-                                        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                                        <Spinner size="md" />
                                         <span className="text-sm text-muted-foreground">Generating QR code...</span>
                                     </div>
                                 </div>
@@ -470,7 +473,7 @@ function WalletConnectButton({ disabled, isLoading, onClick, isHighlighted = fal
             }`}>
                 {isLoading ? (
                     <div className="flex items-center gap-3">
-                        <div className="w-5 h-5 border-2 border-fg-1 border-t-transparent rounded-full animate-spin" />
+                        <Spinner size="sm" color="foreground" />
                         <span className="text-fg-1 font-title text-sm">Loading WalletConnect...</span>
                     </div>
                 ) : (
