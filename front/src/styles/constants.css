@@ -172,6 +172,38 @@
     --chart-watermark: var(--bg-2); /* Watermark - slightly darker */
 }
 
+/* Sparkline - hide all axes and labels */
+.sparkline .ct-axis,
+.sparkline .ct-labels,
+.sparkline .ct-label,
+.sparkline .ct-grid {
+  display: none !important;
+  opacity: 0 !important;
+}
+
+.sparkline .ct-line {
+  stroke-width: 1.5px;
+}
+
+.sparkline .ct-point {
+  stroke-width: 1px;
+  r: 2;
+}
+
+/* Chart container styling for markdown */
+.markdown-content .chart-container {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+}
+
+.markdown-content .chart-container .ct-chart {
+  width: 100%;
+  height: auto;
+}
+
 /* Light theme overrides */
 .light {
     /* Alpha-based foregrounds - adapt naturally to any background color */

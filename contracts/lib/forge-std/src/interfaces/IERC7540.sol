@@ -52,7 +52,7 @@ interface IERC7540Deposit is IERC7540Operator {
      * @param controller the controller of the request who will be able to operate the request
      * @param owner the source of the deposit assets
      *
-     * NOTE: most implementations will require pre-approval of the Vault with the Vault's underlying asset token.
+     * NB: most implementations will require pre-approval of the Vault with the Vault's underlying asset token.
      */
 
     function requestDeposit(uint256 assets, address controller, address owner) external returns (uint256 requestId);
@@ -116,7 +116,7 @@ interface IERC7540Redeem is IERC7540Operator {
      * @param controller the controller of the request who will be able to operate the request
      * @param owner the source of the shares to be redeemed
      *
-     * NOTE: most implementations will require pre-approval of the Vault with the Vault's share token.
+     * NB: most implementations will require pre-approval of the Vault with the Vault's share token.
      */
     function requestRedeem(uint256 shares, address controller, address owner) external returns (uint256 requestId);
 

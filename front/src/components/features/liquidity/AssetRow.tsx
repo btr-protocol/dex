@@ -2,24 +2,11 @@ import { useMemo } from 'preact/hooks';
 import { Sparkline } from '@components/shared/metrics';
 import { CoverageGauge } from '@components/shared/metrics';
 import { Button } from '@components/ui/Button';
+import { Spinner } from '@components/ui/Spinner';
 import { useSparklineData } from '@/hooks/useSparklineData';
-import { AssetData, formatUsd, formatPercent } from '@/hooks/useLiquidityData';
+import { AssetData } from '@/hooks/useLiquidityData';
 import { liquidityStore } from '@/lib/liquidity/LiquidityStore';
-
-function formatPrice(price: number): string {
-    if (price >= 10000) return '$' + price.toLocaleString(undefined, { maximumFractionDigits: 0 });
-    if (price >= 100) return '$' + price.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    if (price >= 1) return '$' + price.toFixed(2);
-    return '$' + price.toFixed(4);
-}
-
-function calc24hPriceChange(prices: number[]): number {
-    if (prices.length < 2) return 0;
-    const oldPrice = prices[0];
-    const newPrice = prices[prices.length - 1];
-    if (oldPrice === 0) return 0;
-    return ((newPrice - oldPrice) / oldPrice) * 100;
-}
+import { formatPrice, formatPercent, calcPercentChange, formatCurrencyCompact } from '@/utils/format';
 
 interface AssetRowProps {
     poolName: string;
@@ -31,7 +18,10 @@ export function AssetRow({ poolName, asset, feedSymbol }: AssetRowProps) {
     const { prices, lastPrice, loading: sparklineLoading } = useSparklineData(feedSymbol);
     const assetId = `${poolName}-${asset.symbol}`;
 
-    const priceChange = useMemo(() => calc24hPriceChange(prices), [prices]);
+    const priceChange = useMemo(() => {
+        if (prices.length < 2) return 0;
+        return calcPercentChange(prices[0], prices[prices.length - 1]);
+    }, [prices]);
     const sparklineColor = priceChange >= 0 ? '#10b981' : '#ef4444';
     const displayPrice = feedSymbol === null ? 1.0 : (lastPrice ?? asset.price);
 
@@ -60,11 +50,13 @@ export function AssetRow({ poolName, asset, feedSymbol }: AssetRowProps) {
                     </div>
                 </div>
                 <div className="w-[120px] text-right">
-                    <span className="font-numeric text-foreground">{formatUsd(asset.volume24h)}</span>
+                    <span className="font-numeric text-foreground">{formatCurrencyCompact(asset.volume24h)}</span>
                 </div>
                 <div className="w-[180px] flex items-center gap-2">
                     {sparklineLoading ? (
-                        <div className="w-[60px] h-[24px] bg-bg-2 animate-pulse rounded" />
+                        <div className="w-[60px] h-[24px] flex items-center justify-center">
+                            <Spinner size="xs" variant="border-b" color="foreground" />
+                        </div>
                     ) : (
                         <Sparkline data={prices} width={60} height={24} color={sparklineColor} />
                     )}
@@ -84,8 +76,8 @@ export function AssetRow({ poolName, asset, feedSymbol }: AssetRowProps) {
                     <CoverageGauge ratio={coverage / 100} />
                 </div>
                 <div className="flex-1 text-right">
-                    <div className="font-numeric text-foreground">{formatUsd(reservesUsd)}</div>
-                    <div className="text-xs font-numeric text-muted-foreground">{formatUsd(liabilitiesUsd)} debt</div>
+                    <div className="font-numeric text-foreground">{formatCurrencyCompact(reservesUsd)}</div>
+                    <div className="text-xs font-numeric text-muted-foreground">{formatCurrencyCompact(liabilitiesUsd)} debt</div>
                 </div>
             </div>
 

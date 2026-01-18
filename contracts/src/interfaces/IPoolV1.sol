@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {IErrors} from "./IErrors.sol";
-import {ICoreV1} from "./modules/ICoreV1.sol";
+import {IExchangeV1} from "./modules/IExchangeV1.sol";
+import {ILiquidityV1} from "./modules/ILiquidityV1.sol";
 import {IAdminV1} from "./modules/IAdminV1.sol";
 import {IFlashV1} from "./modules/IFlashV1.sol";
 import {ILendV1} from "./modules/ILendV1.sol";
@@ -14,7 +15,7 @@ import {IRescueV1} from "./modules/IRescueV1.sol";
 /// @title IPoolV1
 /// @notice Adaptive Inventory Market Maker - Complete interface
 /// @dev Consolidates structs, events, errors, and all module function signatures
-interface IPoolV1 is IErrors, ICoreV1, IAdminV1, IFlashV1, ILendV1, IStakingV1, IDistributorV1, IOracleV1, IRescueV1 {
+interface IPoolV1 is IErrors, IExchangeV1, ILiquidityV1, IAdminV1, IFlashV1, ILendV1, IStakingV1, IDistributorV1, IOracleV1, IRescueV1 {
     // ========== STRUCTS ==========
 
     struct Asset {
@@ -79,12 +80,13 @@ interface IPoolV1 is IErrors, ICoreV1, IAdminV1, IFlashV1, ILendV1, IStakingV1, 
         uint256 amountOut;
         uint256 amountIn;
         uint16 spreadBps;             // Bid-ask spread (0.0001% units)
-        uint256 protoFee;             // Protocol fee portion
-        uint256 lpFee;                // LP fee portion
-        int8 skewIn;                  // Input asset inventory skew
-        int8 skewOut;                 // Output asset inventory skew
-        address[] routeHops;          // Full routing path for multi-hop swaps
-        uint256[] hopAmounts;         // Amount at each hop (for oracle updates)
+        uint256 protoFee;             // Protocol fee
+        uint256 lpFee;                // LP fee
+        int8 skewIn;                  // Input inventory skew
+        int8 skewOut;                 // Output inventory skew
+        address[] routeHops;          // Routing path
+        uint256[] hopAmounts;         // Amount at each hop
+        uint64[] hopPrices;           // Execution price per hop (B64)
     }
 
     struct DepositResult {

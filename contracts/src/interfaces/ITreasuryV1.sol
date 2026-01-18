@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {IErrors} from "./IErrors.sol";
 
@@ -58,7 +58,7 @@ interface ITreasuryV1 is IErrors {
     function mintEmissionsToDistributor(uint256 amount) external;
 
     /// @notice Bridge emissions to remote chain distributor (owner only)
-    /// @dev NOTE: Currently single-chain only - all user claim rights encoded in main chain merkle tree
+    /// @dev NB: Currently single-chain only - all user claim rights encoded in main chain merkle tree
     /// @dev Users can claim rewards from all chains on the main chain via unified merkle proofs
     /// @param dstEid Destination endpoint ID
     /// @param amount Amount to bridge

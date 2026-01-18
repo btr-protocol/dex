@@ -5,9 +5,9 @@
 import { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { Icon } from '@components/ui/Icon';
+import { MaskIcon } from '@components/ui/MaskIcon';
 import type { IChartApi, PriceScaleMode } from 'lightweight-charts';
 import { Tooltip } from '@components/ui/Tooltip';
-import { MaskIcon } from '@components/ui/MaskIcon';
 import { Dropdown } from '@components/ui/Dropdown';
 import { ANALYSIS_PRESETS } from '@utils/indicators';
 import { addNotification } from '@lib/notifications';

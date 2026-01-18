@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {LibPricing as P} from "../../src/libraries/LibPricing.sol";
@@ -152,7 +152,7 @@ contract LibPricingTest is BaseTestSetup {
         uint16 coverageFloor = 50000; // 50%
 
         // Test with different gamma values
-        // NOTE: gamma is now the EXPONENT, not a multiplier
+        // NB: gamma is now the EXPONENT, not a multiplier
         // At 150% coverage (over-collateralized):
         // - progress = (1.5 - 1.0) / (2.0 - 1.0) = 0.5
         // - skew = -100 × 0.5^(gamma/10000)

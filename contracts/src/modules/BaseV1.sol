@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
@@ -10,7 +10,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
 import {LibTransientCache as TCache} from "../libraries/LibTransientCache.sol";
-import {LibPricing as Pricing} from "../libraries/LibPricing.sol";
+// NB: LibPricing intentionally NOT imported here to keep BaseV1 lean
+// Modules needing pricing import it directly; decay calculation is inlined below
 
 /// @title Base
 /// @notice Base contract for all AIMM modules with shared storage access
@@ -225,45 +226,6 @@ abstract contract BaseV1 {
         }
     }
 
-    function _validateProfile(IPoolV1.LiquidityProfile calldata profile) internal pure virtual {
-        // First weight must be non-zero
-        if (profile.weights[0] == 0) revert IErrors.InvalidInput();
-
-        // Find end of profile (first zero weight)
-        uint256 sum = 0;
-        uint256 segmentCount = 0;
-        unchecked {
-            for (uint256 i = 0; i < 16; ++i) {
-                if (profile.weights[i] == 0) {
-                    segmentCount = i;
-                    break;
-                }
-                sum += profile.weights[i];
-                if (i == 15) segmentCount = 16;
-            }
-        }
-
-        if (segmentCount == 0) revert IErrors.InvalidInput();
-        // Weights must sum to 200 (200 = 100%, 1 unit = 0.5%)
-        if (sum != 200) revert IErrors.InvalidInput();
-
-        // Validate knots are monotonically increasing (for N segments, we have N+1 knots)
-        uint256 knotCount = segmentCount + 1;
-        unchecked {
-            for (uint256 i = 1; i < knotCount; ++i) {
-                if (profile.knots[i] < profile.knots[i - 1]) {
-                    revert IErrors.InvalidInput();
-                }
-            }
-        }
-
-        // Validate dispersion constraint: max(knots) - min(knots) == 100
-        // Since knots are monotonically increasing: min = knots[0], max = knots[knotCount-1]
-        if (int16(profile.knots[knotCount - 1]) - int16(profile.knots[0]) != 100) {
-            revert IErrors.InvalidInput();
-        }
-    }
-
     /// @dev Helper to read internal oracle with conditional configuration check
     function _readInternalOracle(
         IPoolV1.PoolStorage storage /* $ */,
@@ -431,12 +393,9 @@ abstract contract BaseV1 {
         uint32 dt = uint32(block.timestamp) - asset.lastUpdate;
         if (dt == 0) return;
 
-        uint128 decayAmount = Pricing.calculateDecay(
-            asset.liabilities,
-            asset.reserves,
-            rc.decayStartRatioBps,
-            rc.decaySlope,
-            dt
+        // Inlined decay calculation (avoids importing LibPricing into BaseV1)
+        uint128 decayAmount = _calculateDecay(
+            asset.liabilities, asset.reserves, rc.decayStartRatioBps, rc.decaySlope, dt
         );
 
         if (decayAmount > 0) {
@@ -444,6 +403,31 @@ abstract contract BaseV1 {
         }
 
         asset.lastUpdate = uint32(block.timestamp);
+    }
+
+    /// @dev Inlined from LibPricing to avoid pulling entire pricing lib into all modules
+    function _calculateDecay(
+        uint128 liabilities,
+        uint128 reserves,
+        uint16 decayStartRatioBps,
+        uint32 decaySlope,
+        uint32 dt
+    ) private pure returns (uint128) {
+        if (dt == 0 || decaySlope == 0 || liabilities == 0) return 0;
+
+        // Calculate coverage ratio (WAD units)
+        uint256 coverage = liabilities == 0 ? type(uint256).max : (uint256(reserves) * 1e18) / uint256(liabilities);
+        uint256 threshold = (uint256(decayStartRatioBps) * 1e18) / 1_000_000;
+
+        // Only decay if coverage below threshold
+        if (coverage >= threshold) return 0;
+
+        // Linear decay: liabilities × decaySlope × dt / WAD
+        uint256 rawDecay = (uint256(liabilities) * uint256(decaySlope) * uint256(dt)) / 1e18;
+
+        // Cap at (liabilities - reserves) to maintain liabilities >= reserves
+        uint256 maxDecay = liabilities > reserves ? liabilities - reserves : 0;
+        return uint128(rawDecay > maxDecay ? maxDecay : rawDecay);
     }
 
     /// @notice Get asset price in base token units (with fallback)

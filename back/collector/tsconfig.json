@@ -13,8 +13,12 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "paths": {
+      "@sdk": ["../../sdk/src/index.ts"],
+      "@sdk/*": ["../../sdk/src/*"]
+    }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "../../sdk/src"],
   "exclude": ["node_modules"]
 }

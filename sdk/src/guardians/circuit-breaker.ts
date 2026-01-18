@@ -164,12 +164,10 @@ export class CircuitBreakerGuardian {
     console.log(`   Threshold: ${asset.maxDivergence}bps`);
 
     try {
-      // Note: Full transaction execution requires either:
-      // 1. Viem library for contract encoding/simulation
-      // 2. Manual ABI encoding for eth_call and eth_sendTransaction
-      // For now, log the action that would be taken
-      console.log(`   Action: Would call checkCircuitBreaker(${asset.address})`);
-      console.log(`   ❌ Transaction sending requires viem or contract encoder`);
+      // Use SDK eth client for transaction execution
+      // See @btr/dex-sdk/eth for encodeFn, createPrivateKeyClient
+      console.log(`   Action: Would call freezeAsset(${asset.address})`);
+      console.log(`   Note: Implement with createPrivateKeyClient and encodeFn from @btr/dex-sdk/eth`);
     } catch (error) {
       console.error(`   ❌ Failed to trigger circuit breaker:`, error);
       throw error;
@@ -177,11 +175,10 @@ export class CircuitBreakerGuardian {
   }
 
   private async getAssetData(asset: Address): Promise<any> {
-    // Note: Full contract calls require either:
-    // 1. Viem library for ABI encoding
-    // 2. Manual ABI encoding with eth_call RPC method
-    // This is example code; actual implementation needs contract encoder
-    console.warn('getAssetData: Requires contract ABI encoder');
+    // Use ethCall and encodeFn from @btr/dex-sdk/eth for contract reads
+    // Example: const data = encodeFn({ abi: POOL_ABI, functionName: 'getAsset', args: [asset] });
+    //          const result = await ethCall(provider, poolAddress, data);
+    console.warn('getAssetData: Implement with ethCall and encodeFn from @btr/dex-sdk/eth');
     return null;
   }
 

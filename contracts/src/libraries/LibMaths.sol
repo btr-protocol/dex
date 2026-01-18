@@ -1,22 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {FixedPointMathLib as FPMath} from "solady/utils/FixedPointMathLib.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 
 /// @title LibMaths
 /// @notice Optimized library for mathematical operations and B64 (52/5/7) floating point encoding
+/// @dev For unified precision constants (WAD, PBPS), see LibConstants.sol
 library LibMaths {
     // ========== CONSTANTS ==========
-
-    /// @notice Fee precision: 1,000,000 base (1 unit = 0.0001% = 0.01 bps)
-    uint256 internal constant BPS_PRECISION = 1_000_000;
-    uint256 internal constant MAX_FEE_BPS = 65_000; // 6.5% hard cap
-    uint256 internal constant PRECISION = 1e18;
-    uint256 internal constant PRICE_PRECISION = 1e18;
-
-    /// @notice Liquidity index initial value (lower than PRECISION for overflow protection)
-    uint256 internal constant INDEX_PRECISION = 1e12;
 
     uint256 internal constant B64_MANTISSA_BITS = 52;
     uint256 internal constant B64_EXPONENT_BITS = 5;
@@ -39,8 +31,6 @@ library LibMaths {
 
     uint256 internal constant MIN_SEGMENTS = 3;
     uint256 internal constant MAX_SEGMENTS = 32;
-
-    uint256 internal constant WEIGHT_SUM = 255;
 
     uint8 internal constant BREADTH_PRECISION_DECIMALS = 2;
 

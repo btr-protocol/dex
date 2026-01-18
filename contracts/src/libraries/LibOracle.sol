@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {LibMaths as M} from "./LibMaths.sol";
+import {LibConstants as C} from "./LibConstants.sol";
 
 /// @title LibOracle - Pure oracle math and decoding
 /// @notice Handles conversion between spot prices + offsets ↔ EMAs
@@ -10,29 +11,31 @@ import {LibMaths as M} from "./LibMaths.sol";
 ///      Caching is handled by LibTransientCache at higher layers
 library LibOracle {
 
-    /// @notice Offset precision: 0.0001% = 1 unit
-    uint256 public constant OFFSET_PRECISION = 10_000_000;
+    /// @notice Oracle offset precision: 0.00001% = 1 unit (10x finer than PBPS)
+    /// @dev Stored as int32 in FeedData, giving ±21,474% range
+    ///      Kept separate from C.PBPS for backward compatibility with deployed contracts
+    uint256 public constant ORACLE_PBPS = 10_000_000;
 
     // ========== EFFICIENT 1E18 DECODING (NO REDUNDANT CONVERSIONS) ==========
 
     /// @notice Apply offset to decoded price directly in 1e18
     /// @dev Avoids redundant B64 encode/decode cycle
     /// @param price1e18 Decoded current price in 1e18
-    /// @param offset EMA offset (0.0001% precision, signed)
+    /// @param offset EMA offset (ORACLE_PBPS precision, signed)
     /// @return ema1e18 EMA price in 1e18 format
     function _applyOffset(uint256 price1e18, int32 offset) private pure returns (uint256 ema1e18) {
         // Short-circuit for zero offset
         if (offset == 0) return price1e18;
 
-        // Apply offset: ema = current * (1 + offset/OFFSET_PRECISION)
-        // ema = current * (OFFSET_PRECISION + offset) / OFFSET_PRECISION
-        int256 multiplier = int256(OFFSET_PRECISION) + int256(offset);
+        // Apply offset: ema = current * (1 + offset/ORACLE_PBPS)
+        // ema = current * (ORACLE_PBPS + offset) / ORACLE_PBPS
+        int256 multiplier = int256(ORACLE_PBPS) + int256(offset);
 
         // Handle extreme negative offsets (EMA would be <= 0)
         if (multiplier <= 0) return 1; // Minimum representable price in 1e18
 
         // Apply offset in 1e18 space
-        return (price1e18 * uint256(multiplier)) / OFFSET_PRECISION;
+        return (price1e18 * uint256(multiplier)) / ORACLE_PBPS;
     }
 
     /// @notice Decode feed data to 1e18 prices efficiently
@@ -80,11 +83,11 @@ library LibOracle {
     // ========== OFFSET ENCODING ==========
 
     /// @notice Encode offset from current price and EMA
-    /// @dev offset = ((ema / current) - 1) * OFFSET_PRECISION
+    /// @dev offset = ((ema / current) - 1) * ORACLE_PBPS
     ///      Correctly handles B64 format: decode both → compute ratio → encode offset
     /// @param current Current price (b64)
     /// @param ema EMA price (b64)
-    /// @return offset Encoded offset (0.0001% precision, signed)
+    /// @return offset Encoded offset (ORACLE_PBPS precision, signed)
     function encodeOffset(uint64 current, uint64 ema) internal pure returns (int32 offset) {
         if (current == 0) return 0;
 
@@ -92,11 +95,11 @@ library LibOracle {
         uint256 currentPrice = M.b64To1e18(current);
         uint256 emaPrice = M.b64To1e18(ema);
 
-        // Compute ratio in high precision: (ema * OFFSET_PRECISION) / current
-        uint256 ratio = (emaPrice * OFFSET_PRECISION) / currentPrice;
+        // Compute ratio in high precision: (ema * ORACLE_PBPS) / current
+        uint256 ratio = (emaPrice * ORACLE_PBPS) / currentPrice;
 
-        // Subtract base (OFFSET_PRECISION represents 100%)
-        int256 offset256 = int256(ratio) - int256(OFFSET_PRECISION);
+        // Subtract base (ORACLE_PBPS represents 100%)
+        int256 offset256 = int256(ratio) - int256(ORACLE_PBPS);
 
         // Clamp to int32 range [-2,147,483,648, 2,147,483,647]
         // This covers ±214,748% range in 0.0001% units
@@ -107,18 +110,18 @@ library LibOracle {
     }
 
     /// @notice Encode offset from 1e18 prices (avoids redundant decoding)
-    /// @dev offset = ((ema / current) - 1) * OFFSET_PRECISION
+    /// @dev offset = ((ema / current) - 1) * ORACLE_PBPS
     /// @param currentPrice Current price in 1e18
     /// @param emaPrice EMA price in 1e18
-    /// @return offset Encoded offset (0.0001% precision, signed)
+    /// @return offset Encoded offset (ORACLE_PBPS precision, signed)
     function encodeOffset1e18(uint256 currentPrice, uint256 emaPrice) internal pure returns (int32 offset) {
         if (currentPrice == 0) return 0;
 
-        // Compute ratio in high precision: (ema * OFFSET_PRECISION) / current
-        uint256 ratio = (emaPrice * OFFSET_PRECISION) / currentPrice;
+        // Compute ratio in high precision: (ema * ORACLE_PBPS) / current
+        uint256 ratio = (emaPrice * ORACLE_PBPS) / currentPrice;
 
-        // Subtract base (OFFSET_PRECISION represents 100%)
-        int256 offset256 = int256(ratio) - int256(OFFSET_PRECISION);
+        // Subtract base (ORACLE_PBPS represents 100%)
+        int256 offset256 = int256(ratio) - int256(ORACLE_PBPS);
 
         // Clamp to int32 range
         if (offset256 > int256(int32(type(int32).max))) return type(int32).max;
@@ -174,14 +177,14 @@ library LibOracle {
     /// @dev Used by CoreV1 and LibPricing to avoid duplication
     /// @return feed Synthetic FeedData for base token at 1e18 price
     function getBaseFeed() internal view returns (IOracleV1.FeedData memory feed) {
-        uint64 oneB64 = M.encodeB64(1e18, 18); // 1.0 in b64 format
+        uint64 oneB64 = M.encodeB64(C.WAD, 18); // 1.0 in b64 format
 
         return IOracleV1.FeedData({
             lastPriceB64: oneB64,
             fastOffset: 0,
             slowOffset: 0,
-            fastVolEMA: 10_000,  // 0.01% baseline volatility
-            slowVolEMA: 10_000,
+            fastVolEMA: C.ONE_PCT_PBPS,  // 0.01% baseline volatility
+            slowVolEMA: C.ONE_PCT_PBPS,
             updatedAt: uint32(block.timestamp),
             ttl: type(uint16).max, // Never expires
             confidence: 100

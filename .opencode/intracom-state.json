@@ -1,0 +1,29 @@
+{
+  "agents": {
+    "flynn": {
+      "agentId": "flynn",
+      "capabilities": {
+        "role": "On-Chain Tech Lead",
+        "domains": [
+          "smart-contracts",
+          "security",
+          "architecture"
+        ],
+        "skills": [
+          "solidity",
+          "foundry",
+          "gas-optimization",
+          "security-audit"
+        ]
+      },
+      "allowlist": [
+        "vulcan",
+        "clu",
+        "flynn"
+      ]
+    }
+  },
+  "mailboxes": {
+    "flynn": []
+  }
+}

@@ -37,13 +37,13 @@ graph LR
 
 | Module | Purpose | Key Functions |
 |--------|---------|---------------|
-| **[CoreV1](/docs/1.2.1-Core)** | Main AMM operations | `swap`, `deposit`, `withdraw`, `liabilitySwap`, `donate` |
-| **[InternalOracleV1](/docs/1.2.2-Internal-Oracle)** | TWAP tracking | Auto-updated on swaps, dual-window EMAs |
-| **[AdminV1](/docs/1.2.3-Admin)** | Configuration | Asset management, fee params, timelocks |
-| **[FlashV1](/docs/1.2.6-Flash)** | Flash loans | ERC-3156 compliant |
-| **[StakingV1](/docs/1.2.4-Staking)** | Governance staking | LP + gov token staking, voting power |
-| **[DistributorV1](/docs/1.2.5-Distributor)** | Rewards | Accumulator-based distribution |
-| **[RescueV1](/docs/1.2.7-Rescue)** | Emergency | Token rescue, admin recovery |
+| **[CoreV1](/docs/1.2.1-core)** | Main AMM operations | `swap`, `deposit`, `withdraw`, `liabilitySwap`, `donate` |
+| **[InternalOracleV1](/docs/1.2.2-internal-oracle)** | TWAP tracking | Auto-updated on swaps, dual-window EMAs |
+| **[AdminV1](/docs/1.2.3-admin)** | Configuration | Asset management, fee params, timelocks |
+| **[FlashV1](/docs/1.2.6-flash)** | Flash loans | ERC-3156 compliant |
+| **[StakingV1](/docs/1.2.4-staking)** | Governance staking | LP + gov token staking, voting power |
+| **[DistributorV1](/docs/1.2.5-distributor)** | Rewards | Accumulator-based distribution |
+| **[RescueV1](/docs/1.2.7-rescue)** | Emergency | Token rescue, admin recovery |
 
 ---
 
@@ -85,9 +85,9 @@ graph TB
 - **Spline Traversal**: Price impact via liquidity profile integration
 
 See:
-- [Inventory Management](/docs/1.1.1-Inventory-Management) — Coverage, skew, withdrawal haircuts
-- [Spread & Fees](/docs/1.1.4-Spread-&-Fees) — Fee calculation
-- [Liquidity Shaping](/docs/1.1.2-Liquidity-Shaping) — Spline profiles
+- [Inventory Management](/docs/1.1.1-inventory-management) — Coverage, skew, withdrawal haircuts
+- [Spread & Fees](/docs/1.1.4-spread-fees) — Fee calculation
+- [Liquidity Shaping](/docs/1.1.2-liquidity-shaping) — Spline profiles
 
 ---
 
@@ -122,7 +122,7 @@ graph LR
 - Max path length: 6 hops (2 × MAX_DEPTH)
 - No cycles allowed
 
-See: [Anchor Path Pricing](/docs/1.1.3-Anchor-Path-Pricing)
+See: [Anchor Path Pricing](/docs/1.1.3-anchor-path-pricing)
 
 ---
 
@@ -135,7 +135,7 @@ Auto-updated on every swap with:
 - **Dual volatility EMAs**: Responsive + Stable
 - **B64 encoding**: Compact 64-bit price storage
 
-See: [Internal Oracle](/docs/1.2.2-Internal-Oracle) for full details.
+See: [Internal Oracle](/docs/1.2.2-internal-oracle) for full details.
 
 ### 6.2. Gas Optimization
 
@@ -157,7 +157,7 @@ Asset-Liability Management (ALM) tracks reserves vs LP claims per asset:
 - Withdrawal haircuts protect remaining LPs when `c < 100%`
 - Liability decay gradually restores coverage in emergencies
 
-See: [Inventory Management](/docs/1.1.1-Inventory-Management) for formulas and details.
+See: [Inventory Management](/docs/1.1.1-inventory-management) for formulas and details.
 
 ---
 
@@ -169,7 +169,7 @@ Catmull-Rom spline profiles define liquidity distribution across the depth curve
 - **Exact analytical integration** for price impact calculation
 - **Customizable shapes**: Concentrated, uniform, multimodal
 
-See: [Liquidity Shaping](/docs/1.1.2-Liquidity-Shaping) for profile design and examples.
+See: [Liquidity Shaping](/docs/1.1.2-liquidity-shaping) for profile design and examples.
 
 ---
 
@@ -298,6 +298,6 @@ See: `contracts/src/interfaces/IErrors.sol`
 
 ## 15. Related Documentation
 
-- [Inventory Management](/docs/1.1.1-Inventory-Management) — Pricing mechanics
-- [Core Module](/docs/1.2.1-Core) — Module documentation
-- [Parametrization](/docs/1.1.7-Parametrization) — Parameter reference
+- [Inventory Management](/docs/1.1.1-inventory-management) — Pricing mechanics
+- [Core Module](/docs/1.2.1-core) — Module documentation
+- [Parametrization](/docs/1.1.7-parametrization) — Parameter reference

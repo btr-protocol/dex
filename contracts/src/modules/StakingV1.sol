@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
@@ -34,51 +34,41 @@ contract StakingV1 is BaseV1, IStakingV1 {
     // ========== GOVERNANCE TOKEN STAKING ==========
 
     /// @inheritdoc IStakingV1
-    function stakeGov(uint256 amount) external whenNotPaused {
+    function stakeGov(uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) revert IErrors.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         StakingStorage storage ss = _ss();
 
-        // Transfer governance token and mint staked governance token
         $.govToken.safeTransferFrom(msg.sender, address(this), amount);
         IMintable($.sGovToken).mint(msg.sender, amount);
 
-        // Update stake balances (off-chain snapshots use these directly)
         ss.govStaked[msg.sender] += amount;
         ss.totalGovStaked += amount;
 
-        // Update unlock time
         uint48 newUnlock = uint48(block.timestamp) + $.stakingConfig.stakeLockDuration;
         if (newUnlock > ss.govUnlockTime[msg.sender]) {
             ss.govUnlockTime[msg.sender] = newUnlock;
         }
 
-        // Record stake time for flow guard (JIT protection)
         _recordGovStake(msg.sender);
 
         emit GovStaked(msg.sender, amount, ss.govUnlockTime[msg.sender]);
     }
 
     /// @inheritdoc IStakingV1
-    function unstakeGov(uint256 amount) external whenNotPaused {
+    function unstakeGov(uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) revert IErrors.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         StakingStorage storage ss = _ss();
 
-        // Check flow guard cooldown (JIT protection)
         _checkGovUnstakeCooldown(msg.sender);
+        if (block.timestamp < ss.govUnlockTime[msg.sender]) revert IErrors.InvalidState();
 
-        // Check stake lock
-        uint48 unlock = ss.govUnlockTime[msg.sender];
-        if (block.timestamp < unlock) revert IErrors.InvalidState();
-
-        // Update stake balances (off-chain snapshots use these directly)
         ss.govStaked[msg.sender] -= amount;
         ss.totalGovStaked -= amount;
 
-        // Burn staked governance token and return governance token
         IMintable($.sGovToken).burn(msg.sender, amount);
         $.govToken.safeTransfer(msg.sender, amount);
 
@@ -124,7 +114,7 @@ contract StakingV1 is BaseV1, IStakingV1 {
     }
 
     /// @inheritdoc IStakingV1
-    function stakeLP(address lpToken, uint256 amount) external whenNotPaused {
+    function stakeLP(address lpToken, uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) revert IErrors.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
@@ -133,7 +123,6 @@ contract StakingV1 is BaseV1, IStakingV1 {
         address sLP = ss.sLPTokens[lpToken];
         if (sLP == address(0)) revert IErrors.NotConfigured(IErrors.Resource.STAKING, lpToken);
 
-        // Verify stakeable and sufficient balance
         address tokenNorm = _wrap($, lpToken);
         if (($.riskConfigs[tokenNorm].flags & C.STAKEABLE_BIT) == 0) revert IErrors.InvalidInput();
 
@@ -141,27 +130,23 @@ contract StakingV1 is BaseV1, IStakingV1 {
         uint256 available = $.lpBalances[msg.sender][tokenNorm];
         if (available < alreadyStaked + amount) revert IErrors.InsufficientAmount(available, alreadyStaked + amount);
 
-        // Mint sLP
         IMintable(sLP).mint(msg.sender, amount);
 
-        // Update staked amounts (off-chain snapshots use these directly)
         $.lpStaked[msg.sender][lpToken] += amount;
         $.totalLPStaked[lpToken] += amount;
 
-        // Update unlock time
         uint48 newUnlock = uint48(block.timestamp) + $.stakingConfig.stakeLockDuration;
         if (newUnlock > ss.lpUnlockTime[msg.sender][lpToken]) {
             ss.lpUnlockTime[msg.sender][lpToken] = newUnlock;
         }
 
-        // Record stake time for flow guard (JIT protection)
         _recordLPStake(msg.sender, lpToken);
 
         emit LPStaked(msg.sender, lpToken, amount, ss.lpUnlockTime[msg.sender][lpToken]);
     }
 
     /// @inheritdoc IStakingV1
-    function unstakeLP(address lpToken, uint256 amount) external whenNotPaused {
+    function unstakeLP(address lpToken, uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) revert IErrors.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
@@ -170,21 +155,14 @@ contract StakingV1 is BaseV1, IStakingV1 {
         address sLP = ss.sLPTokens[lpToken];
         if (sLP == address(0)) revert IErrors.NotConfigured(IErrors.Resource.STAKING, lpToken);
 
-        // Check flow guard cooldown (JIT protection)
         _checkLPUnstakeCooldown(msg.sender, lpToken);
+        if (block.timestamp < ss.lpUnlockTime[msg.sender][lpToken]) revert IErrors.InvalidState();
 
-        // Check timelock
-        uint48 unlock = ss.lpUnlockTime[msg.sender][lpToken];
-        if (block.timestamp < unlock) revert IErrors.InvalidState();
-
-        // Check balance
         uint256 available = $.lpStaked[msg.sender][lpToken];
         if (available < amount) revert IErrors.InsufficientAmount(available, amount);
 
-        // Burn sLP
         IMintable(sLP).burn(msg.sender, amount);
 
-        // Update staked amounts (off-chain snapshots use these directly)
         $.lpStaked[msg.sender][lpToken] -= amount;
         $.totalLPStaked[lpToken] -= amount;
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 /// @title IMintable
 /// @notice Interface for tokens with mint and burn capabilities

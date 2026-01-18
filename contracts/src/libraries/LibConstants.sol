@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 /// @title LibConstants
 /// @notice Shared constants for AIMM
@@ -113,4 +113,61 @@ library LibConstants {
 
     /// @dev keccak256("UPDATE_TREASURY")
     bytes32 internal constant TIMELOCK_ID_TREASURY = 0x7c5d1f6de8c0b8f9c4a6d5b3e2a1c9f8d7e6b5a4c3d2e1f0a9b8c7d6e5f4a3b2;
+
+    // ========== PRECISION CONSTANTS ==========
+
+    /// @notice 18-decimal fixed-point (EIP-1706 standard)
+    /// @dev Used for: coverage ratios, prices, decay rates, exponentiation
+    ///      - Coverage: 1e18 = 100%, 0.5e18 = 50%
+    ///      - Prices: 1e18 = 1 unit of base currency (e.g., $1 for USD-pegged)
+    ///      - Decay: WAD per second (e.g., WAD/31536000 ≈ 100% per year)
+    uint256 constant WAD = 1e18;
+
+    /// @notice 0.0001% precision (1 unit = 0.0001% = 0.001 bps)
+    /// @dev Used for: fees, spreads, volatility, oracle offsets, sensitivity multipliers
+    ///      - Fees/spreads: 5,000 = 0.5%, 100 = 0.01%
+    ///      - Volatility: 1,000,000 = 1%, 10,000,000 = 10%
+    ///      - Multipliers (γ, ν, λ): 100,000 = 100% = 1.0x sensitivity
+    ///      - Oracle offsets: 100,000 = 10% deviation from TWAP
+    ///      - Coverage bounds: 500,000 = 50% floor, 2,000,000 = 200% ceiling
+    uint256 constant PBPS = 1_000_000;
+
+    /// @notice Half of PBPS for 50/50 fee splits
+    /// @dev fee = (amount * spread) / (2 * PBPS) = (amount * spread) / HALF_PBPS
+    uint256 constant HALF_PBPS = 500_000;
+
+    /// @notice One percent in PBPS units
+    /// @dev Used for percentage calculations
+    uint256 constant ONE_PCT_PBPS = 10_000;
+
+    /// @notice Hundred percent in PBPS units (for multiplier interpretation)
+    /// @dev gamma/vega/lambda = 100,000 means 100% = 1.0x
+    uint256 constant HUNDRED_PCT_PBPS = 100_000;
+
+    /// @notice Standard BPS (0.01% per unit, 0-10000 for 0-100%)
+    /// @dev Used for: user-facing portfolio weights, slippage tolerance
+    ///      Different from PBPS (0.0001% per unit) which is for internal precision
+    ///      Required because uint16 max (65,535) can't represent 100% at PBPS scale (1,000,000)
+    uint256 constant BPS = 10_000;
+
+    // ========== GREEK VARIABLE REFERENCE (for auditors) ==========
+    /*
+    | Symbol | Code Variable | PBPS Value | Meaning |
+    |--------|---------------|------------|---------|
+    | ψ (psi) | inventorySkew | - | Inventory skew, [-100, +100] |
+    | π (pi)  | progress      | - | Progress toward boundary, [0,1] |
+    | γ (gamma) | gamma       | 100,000 | 100% = 1.0x sensitivity |
+    | ν (nu)   | vega        | 100,000 | 100% = 1.0x sensitivity |
+    | λ (lambda)| lambda      | 100,000 | 100% = 1.0x sensitivity |
+    | η (eta)   | haircutSuppressor | 100,000 | 100% = p=2 exponent |
+    | σ (sigma) | volatility  | 1,000,000 | 1% volatility |
+    | Δ (Delta) | delta       | - | Oracle deviation (PBPS units) |
+    | κ (kappa) | dispersion  | - | Liquidity dispersion (PBPS units) |
+
+    Formula scaling examples:
+    - Coverage: c = (R * WAD) / L
+    - Spread: S = 100 + (σ × ν) / 100  (result in PBPS)
+    - Skew: ψ = sign × γ × π / 100  (γ in PBPS as %, divide by 100 for multiplier)
+    - Fee: φ = (x × S) / (2 × PBPS)
+    */
 }

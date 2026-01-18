@@ -120,6 +120,7 @@ interface DialogContentProps {
   className?: string
   children: ComponentChildren
   closable?: boolean
+  closeOnEscape?: boolean
   variant?: 'default' | 'flush'
 }
 
@@ -127,6 +128,7 @@ const DialogContent: FunctionalComponent<DialogContentProps> = ({
   className,
   children,
   closable = true,
+  closeOnEscape = true,
   variant = 'default',
 }) => {
   const { isOpen, setIsOpen, contentRef } = useDialogContext()
@@ -156,7 +158,7 @@ const DialogContent: FunctionalComponent<DialogContentProps> = ({
     // Handle keyboard
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (closable) {
+        if (closeOnEscape) {
           setIsOpen(false)
         }
         return
@@ -193,7 +195,7 @@ const DialogContent: FunctionalComponent<DialogContentProps> = ({
       contentRef.current?.removeEventListener('keydown', handleKeyDown)
       document.body.style.overflow = originalOverflow
     }
-  }, [isOpen, setIsOpen, closable])
+  }, [isOpen, setIsOpen, closeOnEscape])
 
   // Don't render anything when dialog is closed
   if (!isOpen) return null

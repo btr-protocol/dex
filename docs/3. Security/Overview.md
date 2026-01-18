@@ -98,7 +98,7 @@ FLASH_ENABLED_BIT     = 1 << 4   // Flash loans
 ### 3.4. Layer 4: Code Security
 
 **Development Practices:**
-- Solidity 0.8.28 with overflow checks
+- Solidity ^0.8.33 with overflow checks
 - Extensive natspec documentation
 - Custom error types (gas efficient)
 - Modular architecture (isolated concerns)

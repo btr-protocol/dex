@@ -27,7 +27,7 @@ export function PriceChart(props: PriceChartProps) {
 
   return (
     <div
-      className={`relative ${props.className || ''}`}
+      className={`relative`}
       style={{ height: props.height || '100%', width: '100%' }}
     >
       {!Component ? (

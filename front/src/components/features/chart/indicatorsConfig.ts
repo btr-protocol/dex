@@ -155,6 +155,11 @@ export function formatSeriesWithParams(label: string, params: IndicatorParams): 
   return label;
 }
 
+/**
+ * Chart-specific price formatter with explicit decimal control
+ * Differs from SDK formatPrice() which auto-calculates decimals based on price magnitude.
+ * Charts need precise control over decimal places for OHLC values, axis labels, etc.
+ */
 export function formatChartPrice(price: number, decimals: number): string {
   if (!isFinite(price)) return '0';
   const absPrice = Math.abs(price);

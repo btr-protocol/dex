@@ -1,13 +1,13 @@
 # AIMM DEX Frontend
 
-Lightweight frontend for the Balanced Automated Market Maker (AIMM) DEX built with Preact, Viem, and Chakra UI.
+Lightweight frontend for the Balanced Automated Market Maker (AIMM) DEX built with Preact + Tailwind.
 
 ## Stack
 
-- **Framework**: Preact (3KB alternative to React)
-- **UI**: Chakra UI v2 with custom BTR theme
-- **Web3**: Wagmi + Viem (lightweight, tree-shakeable)
-- **Charts**: Chart.js + TradingView Lightweight Charts
+- **Framework**: Preact (light alternative to React)
+- **UI**: Tailwind with custom BTR theme and components
+- **Web3**: Custom lightweight RPC client, multicall etc
+- **Charts**: Chartist.js + TradingView Lightweight Charts for time series
 - **Router**: Homemade virtual router (no dependencies)
 - **Build**: Vite + TypeScript
 

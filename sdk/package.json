@@ -29,6 +29,14 @@
     "./flows": {
       "types": "./src/flows/index.ts",
       "default": "./src/flows/index.ts"
+    },
+    "./pool": {
+      "types": "./src/pool/index.ts",
+      "default": "./src/pool/index.ts"
+    },
+    "./eth": {
+      "types": "./src/eth/index.ts",
+      "default": "./src/eth/index.ts"
     }
   },
   "scripts": {

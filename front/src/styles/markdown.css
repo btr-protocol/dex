@@ -25,20 +25,20 @@
 }
 
 .markdown-content h1 {
-  font-size: 3.6em;
-  border-bottom: var(--border);
+  font-size: 3.2em;
+  /* border-bottom: var(--border); */
 }
 
 .markdown-content h2 {
-  font-size: 2.7em;
+  font-size: 2.4em;
 }
 
 .markdown-content h3 {
-  font-size: 2em;
+  font-size: 1.8em;
 }
 
 .markdown-content h4 {
-  font-size: 1.5em;
+  font-size: 1.4em;
 }
 
 .markdown-content h5 {
@@ -94,7 +94,6 @@
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 0.9em;
-  line-height: 0.8em;
 }
 
 .markdown-content pre {
@@ -121,7 +120,6 @@
 
 /* Line numbers */
 .markdown-content pre code .line {
-  display: block;
   padding-left: 3.5em;
   position: relative;
 }
@@ -441,22 +439,36 @@
   color: var(--fg-0);
 }
 
-/* Multi-line math blocks */
+/* Multi-line math blocks - vertical spacing between formulas */
 .markdown-content .math-block.math-multiline {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.75em;
+  gap: 0;
 }
 
 .markdown-content .math-block.math-multiline math {
-  margin: 0;
+  margin: 0.5em 0;
+  display: block;
+}
+
+.markdown-content .math-block.math-multiline math:first-child {
+  margin-top: 0;
+}
+
+.markdown-content .math-block.math-multiline math:last-child {
+  margin-bottom: 0;
 }
 
 .markdown-content .math-inline {
-  display: inline;
-  vertical-align: middle;
-  margin: 0 0.2em;
+  display: inline !important;
+  vertical-align: baseline;
+  margin: 0 0.15em;
+}
+
+.markdown-content .math-inline,
+.markdown-content .math-inline * {
+  display: inline !important;
 }
 
 .markdown-content .math-inline math {
@@ -464,67 +476,76 @@
   color: var(--fg-0);
 }
 
-/* WHERE blocks - outlined secondary card with math variables */
+/* Inline math in lists (where blocks) - no block styling */
+.markdown-content li .math-inline,
+.markdown-content li .math-inline * {
+  display: inline !important;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  vertical-align: baseline;
+}
+
+.markdown-content li .math-inline {
+  margin: 0 0.15em 0 0;
+}
+
+.markdown-content li .math-inline math {
+  font-size: 1em;
+}
+
+/* WHERE blocks - styled container attached below math blocks */
 .markdown-content .where-block {
-  background-color: transparent;
+  /* background-color: var(--bg-2); */
   border: var(--border);
   border-radius: var(--radius-sm);
   border-top: none;
   border-top-left-radius: 0;
   border-top-right-radius: 0;
-  padding: 1.5em 1em 1em 1em;
-  margin: -1.5em 0 0.75rem 0;
+  padding: 1.5em 1.25em 1em 1.25em;
+  margin: -1.5em 0 1.5em 0;
 }
 
 .markdown-content .where-header {
   font-weight: 600;
-  font-size: 0.9em;
-  color: var(--fg-1);
-  margin-bottom: 0.5em;
-  letter-spacing: 0.02em;
+  font-size: 0.8em;
+  color: var(--fg-2);
+  margin-bottom: 0.4em;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .markdown-content .where-line {
-  padding: 0.15em 0;
+  color: var(--fg-1);
+  font-weight: 300;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
 }
 
 .markdown-content .where-line .math-inline {
   margin: 0;
   padding: 0;
-  display: inline;
+  display: inline !important;
   border: none;
   vertical-align: baseline;
+  flex-shrink: 0;
+}
+
+.markdown-content .where-line .math-inline,
+.markdown-content .where-line .math-inline * {
+  display: inline !important;
 }
 
 .markdown-content .where-line .math-inline math {
-  font-size: 1em;
+  font-size: 1.1em;
   color: var(--fg-0);
-}
-
-/* Description text in math font */
-.markdown-content .where-line .where-desc-math {
-  margin-left: 0.5em;
-}
-
-.markdown-content .where-line .where-desc-math math {
-  color: var(--fg-1);
 }
 
 .markdown-content .where-var {
   font-style: italic;
   color: var(--fg-0);
-}
-
-.markdown-content .where-eq {
-  color: var(--fg-2);
-  margin: 0 0.15em;
-}
-
-.markdown-content .where-desc {
-  color: var(--fg-1);
-  font-family: var(--font-body);
-  font-weight: 300;
-  margin-left: 0.5em;
 }
 
 /* Mermaid Diagrams - Theme-aware display */

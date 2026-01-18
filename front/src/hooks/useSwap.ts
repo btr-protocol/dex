@@ -1,17 +1,11 @@
 import { useState, useCallback, useEffect } from 'preact/hooks';
 import { useWallet } from '@/lib/wallet';
-import { formatUnits, parseUnits, type Address, POOL_ABI, ERC20_ABI, MOCK_PRICES, getTokenAddress, encodeFn, decodeFn } from '@sdk/eth';
+import { formatUnits, parseUnits, type Address, ERC20_ABI, MOCK_PRICES, getTokenAddress, encodeFn, decodeFn } from '@sdk';
+import { swap as sdkSwap } from '@sdk/pool';
+import { getSwapQuote as apiGetSwapQuote } from './usePoolsAPI';
+import { usePoolsAPI } from './usePoolsAPI';
 
-/**
- * Pool addresses by chain ID
- * For Anvil BSC fork: deploy with `forge test --match-test "test_swap" --fork-url http://localhost:8545`
- */
-const POOL_ADDRESSES: Record<number, Address> = {
-  // Anvil (BSC fork) - address from forge test deployment
-  31337: (import.meta.env.VITE_POOL_ADDRESS as Address) || '0x0000000000000000000000000000000000000000',
-  // BSC mainnet - not deployed yet
-  56: '0x0000000000000000000000000000000000000000',
-};
+const API_URL = import.meta.env.VITE_COLLECTOR_API || 'http://localhost:3001';
 
 export interface SwapQuote {
   amountOut: bigint;
@@ -45,6 +39,7 @@ export function useSwap(
   slippageBps: number = 50 // 0.5% default
 ): UseSwapResult {
   const { address, chainId, provider } = useWallet();
+  const { pools } = usePoolsAPI();
 
   const [quote, setQuote] = useState<SwapQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -56,12 +51,13 @@ export function useSwap(
   const [needsApproval, setNeedsApproval] = useState(false);
   const [approveLoading, setApproveLoading] = useState(false);
 
-  const poolAddress = chainId ? POOL_ADDRESSES[chainId] : undefined;
+  // Get pool address from API data
+  const poolAddress = pools.length > 0 ? pools[0].address as Address : undefined;
   const tokenIn = chainId ? getTokenAddress(tokenInSymbol, chainId) : undefined;
   const tokenOut = chainId ? getTokenAddress(tokenOutSymbol, chainId) : undefined;
 
-  // Check if we should use mock mode (no deployed contract)
-  const useMockMode = !poolAddress || poolAddress === '0x0000000000000000000000000000000000000000';
+  // Check if we should use mock mode (no pool data from API)
+  const useMockMode = pools.length === 0;
 
   // Fetch quote when inputs change
   useEffect(() => {
@@ -75,7 +71,7 @@ export function useSwap(
       return;
     }
 
-    // Use mock quotes when no pool is deployed
+    // Use mock quotes when no pool is available from backend
     if (useMockMode) {
       const priceIn = MOCK_PRICES[tokenInSymbol.toUpperCase()] || 1;
       const priceOut = MOCK_PRICES[tokenOutSymbol.toUpperCase()] || 1;
@@ -104,8 +100,8 @@ export function useSwap(
       return;
     }
 
-    if (!provider) {
-      setQuoteError('No provider');
+    if (!poolAddress) {
+      setQuoteError('No pool address');
       return;
     }
 
@@ -117,27 +113,26 @@ export function useSwap(
         // Parse amount (assume 18 decimals for now)
         const amountInWei = parseUnits(amountIn, 18);
 
-        // Encode call data for getSwapQuote
-        const callData = encodeFn({
-          abi: POOL_ABI,
-          functionName: 'getSwapQuote',
-          args: [tokenIn, tokenOut, amountInWei],
+        // Fetch quote from backend API
+        const apiQuote = await apiGetSwapQuote(
+          poolAddress,
+          tokenIn,
+          tokenOut,
+          amountInWei.toString()
+        );
+
+        // Convert API response to SwapQuote format
+        setQuote({
+          amountOut: BigInt(apiQuote.amountOut),
+          amountIn: BigInt(apiQuote.amountIn),
+          spreadBps: apiQuote.spreadBps,
+          protoFee: BigInt(apiQuote.protoFee),
+          lpFee: BigInt(apiQuote.lpFee),
+          skewIn: apiQuote.skewIn,
+          skewOut: apiQuote.skewOut,
+          routeHops: apiQuote.routeHops as Address[],
+          hopAmounts: apiQuote.hopAmounts.map((a) => BigInt(a)),
         });
-
-        // Make eth_call
-        const result = await provider.request({
-          method: 'eth_call',
-          params: [{ to: poolAddress, data: callData }, 'latest'],
-        });
-
-        // Decode result
-        const decoded = decodeFn({
-          abi: POOL_ABI,
-          functionName: 'getSwapQuote',
-          data: result as `0x${string}`,
-        }) as SwapQuote;
-
-        setQuote(decoded);
       } catch (err: unknown) {
         console.error('Quote error:', err);
         let errorMessage = 'Failed to get quote';
@@ -153,7 +148,7 @@ export function useSwap(
 
     const debounceTimer = setTimeout(fetchQuote, 300);
     return () => clearTimeout(debounceTimer);
-  }, [poolAddress, tokenIn, tokenOut, amountIn, provider, useMockMode, tokenInSymbol, tokenOutSymbol]);
+  }, [poolAddress, tokenIn, tokenOut, amountIn, useMockMode, tokenInSymbol, tokenOutSymbol]);
 
   // Check allowance when quote changes (skip in mock mode)
   useEffect(() => {
@@ -251,22 +246,16 @@ export function useSwap(
       // Calculate minAmountOut with slippage
       const minAmountOut = (quote.amountOut * BigInt(10000 - slippageBps)) / 10000n;
 
-      const callData = encodeFn({
-        abi: POOL_ABI,
-        functionName: 'swap',
-        args: [tokenIn, tokenOut, quote.amountIn, minAmountOut, address],
+      // Use SDK swap function
+      const txHash = await sdkSwap(provider, poolAddress, {
+        tokenIn: tokenIn as Address,
+        tokenOut: tokenOut as Address,
+        amountIn: quote.amountIn,
+        minAmountOut,
+        recipient: address as Address,
       });
 
-      const txHash = await provider.request({
-        method: 'eth_sendTransaction',
-        params: [{
-          from: address,
-          to: poolAddress,
-          data: callData,
-        }],
-      });
-
-      return txHash as string;
+      return txHash;
     } catch (err: unknown) {
       console.error('Swap error:', err);
       let errorMessage = 'Swap failed';

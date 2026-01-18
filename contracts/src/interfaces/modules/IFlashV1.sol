@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {IERC3156FlashLender} from "../external/IERC3156FlashLender.sol";
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 /// @title IOracle
 /// @notice Shared interface for all oracle types (internal and external)
@@ -45,7 +45,7 @@ interface IOracleV1 {
 
     /// @notice Offset precision: represents 100% when multiplied by price
     /// @dev 0.0001% = 1 unit, so OFFSET_PRECISION = 10,000,000
-    /// Note: Actual constant defined in LibOracle (interfaces cannot have constants in 0.8.28+)
+    /// Note: Actual constant defined in LibOracle (interfaces cannot have constants in 0.8.33+)
 
     // ========== EVENTS ==========
 

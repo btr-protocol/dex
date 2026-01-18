@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {IPoolV1} from "../IPoolV1.sol";
 
@@ -23,6 +23,19 @@ interface IAdminV1 {
     // ========== EMERGENCY FUNCTIONS (NO TIMELOCK) ==========
     function freezeAsset(address token) external;
     function unfreezeAsset(address token) external;
+
+    // ========== DIRECT ASSET ADDITION (NO TIMELOCK) ==========
+    function addAsset(
+        address token,
+        IPoolV1.OracleConfig calldata oracleCfg,
+        IPoolV1.RiskConfig calldata riskCfg,
+        IPoolV1.LiquidityProfile calldata profile,
+        uint16 minFeeBps,
+        uint8 decimals,
+        uint64 initialPrice,
+        uint32 initialFastVolEMA,
+        uint32 initialSlowVolEMA
+    ) external;
 
     // ========== TIMELOCKED ADMIN FUNCTIONS ==========
     function requestAddAsset(

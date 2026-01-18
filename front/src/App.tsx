@@ -47,6 +47,7 @@ const MetricsPageLazy = () => <LazyPage load={() => import('@/pages/MetricsPage'
 const AddAssetPageLazy = () => <LazyPage load={() => import('@/pages/AddAssetPage')} componentName="AddAssetPage" />;
 const DocsPageLazy = () => <LazyPage load={() => import('@/pages/DocsPage')} componentName="DocsPage" />;
 const ChartPageLazy = () => <LazyPage load={() => import('@/pages/ChartPage')} componentName="ChartPage" />;
+const ArchivistPageLazy = () => <LazyPage load={() => import('@/pages/ArchivistPage')} componentName="ArchivistPage" />;
 
 // Detect if user agent is a bot/crawler
 function isBot(): boolean {
@@ -88,6 +89,10 @@ function AppContent() {
       return <DocsPageLazy />;
     }
 
+    if (path === ROUTES.ARCHIVIST) {
+      return <ArchivistPageLazy />;
+    }
+
     switch (path) {
       case ROUTES.HOME:
       case ROUTES.SWAP:
@@ -111,7 +116,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col relative">
+    <div className="min-h-screen bg-bg-0 text-foreground flex flex-col relative">
       {shouldRenderBackground && <BgRenderer />}
 
       {!disclaimerAccepted ? (

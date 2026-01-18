@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
+import { usePoolsAPI } from './usePoolsAPI';
 
-// Mock asset data for development when no contract is available
+// Asset data for display
 export interface AssetData {
   symbol: string;
   name: string;
@@ -8,8 +9,8 @@ export interface AssetData {
   reserves: number;      // Amount in asset units
   liabilities: number;   // Amount in asset units
   price: number;         // USD price
-  volume24h: number;     // USD
-  apy: number;           // Percentage
+  volume24h: number;     // USD (mocked for now)
+  apy: number;           // Percentage (mocked for now)
 }
 
 export interface PoolData {
@@ -106,30 +107,71 @@ export interface UseLiquidityDataResult {
   isMockMode: boolean;
 }
 
+/**
+ * Hook to get real-time liquidity pool data
+ * Fetches from backend API (single source of truth)
+ */
 export function useLiquidityData(): UseLiquidityDataResult {
+  const { pools, loading: apiLoading, error: apiError } = usePoolsAPI();
   const [pool, setPool] = useState<PoolData | null>(null);
-  const [loading, setLoading] = useState(true);
+
+  // Use backend API data if available, otherwise fall back to mock
+  const isMockMode = pools.length === 0 && !apiLoading;
 
   useEffect(() => {
-    // Simulate loading delay
-    const timer = setTimeout(() => {
-      // Calculate aggregate metrics
+    if (isMockMode && !apiLoading) {
+      // Use mock data when backend not available
       const metrics = calculatePoolMetrics(MOCK_POOL_DATA.assets);
       setPool({
         ...MOCK_POOL_DATA,
         ...metrics,
       });
-      setLoading(false);
-    }, 100);
+      return;
+    }
 
-    return () => clearTimeout(timer);
-  }, []);
+    if (pools.length === 0) {
+      return;
+    }
+
+    // Use the first pool (Pool Zero) for now
+    // TODO: Add pool selection UI
+    const poolData = pools[0];
+
+    // Convert API data to UI format
+    const assets: AssetData[] = poolData.assets.map((asset) => {
+      const reserves = Number(asset.reserves) / 10 ** asset.decimals;
+      const liabilities = Number(asset.liabilities) / 10 ** asset.decimals;
+
+      // Use mock prices for now (will be enriched with external feeds from collector)
+      const price = MOCK_PRICES[asset.symbol] ?? 1;
+
+      return {
+        symbol: asset.symbol,
+        name: asset.name,
+        address: asset.token,
+        reserves,
+        liabilities,
+        price,
+        volume24h: 0, // TODO: Calculate from on-chain events
+        apy: 0, // TODO: Calculate from fees and utilization
+      };
+    });
+
+    // Calculate aggregate metrics
+    const metrics = calculatePoolMetrics(assets);
+
+    setPool({
+      name: poolData.name,
+      assets,
+      ...metrics,
+    });
+  }, [pools, apiLoading, isMockMode]);
 
   return {
     pool,
-    loading,
-    error: null,
-    isMockMode: true,
+    loading: apiLoading,
+    error: apiError,
+    isMockMode,
   };
 }
 
@@ -138,20 +180,4 @@ export function useAssetData(symbol: string): AssetData | null {
   const { pool } = useLiquidityData();
   if (!pool) return null;
   return pool.assets.find(a => a.symbol === symbol) || null;
-}
-
-// Format helpers
-export function formatUsd(value: number): string {
-  if (value >= 1000000) return `$${(value / 1000000).toFixed(2)}M`;
-  if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `$${value.toFixed(2)}`;
-}
-
-export function formatPercent(value: number): string {
-  return `${value.toFixed(1)}%`;
-}
-
-export function formatCoverage(reservesUsd: number, liabilitiesUsd: number): number {
-  if (liabilitiesUsd === 0) return 100;
-  return (reservesUsd / liabilitiesUsd) * 100;
 }

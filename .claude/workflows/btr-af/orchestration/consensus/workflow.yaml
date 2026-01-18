@@ -1,0 +1,101 @@
+# Consensus Workflow - BTR-AF Elite Team
+# Multi-agent consensus-driven response workflow
+
+workflow:
+  metadata:
+    id: "consensus"
+    name: "Consensus Workflow"
+    description: "Multi-agent coordination with challenge, validation, and consensual output"
+    trigger: "CONSENSUS"
+    lead: "CEO"
+
+  # Phase 1: Problem Formalization
+  formalization:
+    description: "Understand and narrow the scope of the user's request"
+    actions:
+      - "Analyze user request: identify domains, complexity, and potential ambiguity"
+      - "WEBSEARCH: Verify current best practices, documentation, state-of-the-art"
+      - "Ask clarifying questions to narrow scope (if needed)"
+      - "Identify primary domain: frontend, contracts, backend, research, security, docs, marketing"
+      - "Determine decision type: MAJOR (5 reviewers) or MINOR (2 reviewers)"
+
+  # Phase 2: Agent Selection
+  agent_selection:
+    description: "Select relevant agents and assign domain lead"
+    criteria:
+      frontend: ["Neo (lead)", "Edna", "Leonardo"]
+      contracts: ["Flynn (lead)", "Vulcan", "Clu"]
+      backend: ["Krennic (lead)", "Scotty", "Han"]
+      research: ["Seldon (lead)", "Vulcan", "Watson"]
+      security: ["Elliot (lead)", "Moriarty", "Lupin", "Holmes", "Poirot"]
+      documentation: ["Watson (lead)", "Draper"]
+      marketing: ["Draper (lead)", "Watson"]
+      cross_stack: ["Neo (lead)", "Flynn", "Krennic"]
+
+  # Phase 3: Independent Analysis
+  independent_analysis:
+    description: "Each selected agent provides independent deep-thought response"
+    rules:
+      - "Each agent MUST run WebSearch before responding on technical/conceptual topics"
+      - "Agents provide analysis WITHOUT modifying files"
+      - "For code changes: propose edits as response text, not actual file changes"
+      - "Each response should be: lean, clean, well-reasoned, cite sources"
+      - "Flag uncertainties explicitly"
+
+  # Phase 4: Lead Consolidation
+  consolidation:
+    description: "Domain lead consolidates agent responses"
+    actions:
+      - "Collect all agent responses"
+      - "Identify conflicts, overlaps, and gaps"
+      - "Challenge individual responses: Is it correct? Elegant? DRY? Modern? Minimal?"
+      - "Request clarifications from agents if needed"
+      - "Synthesize into consolidated proposal"
+
+  # Phase 5: Agent Confirmation
+  confirmation:
+    description: "All involved agents confirm the consolidated response"
+    checklist:
+      - "Conceptually sound"
+      - "Technically correct"
+      - "Elegant and minimal"
+      - "DRY (no duplication)"
+      - "Modern (current best practices)"
+      - "Idiomatic (follows project conventions)"
+      - "Aligned with CONTRIBUTING.md"
+    consensus_rule: "All involved agents must confirm before proceeding"
+
+  # Phase 6: Implementation (if code changes)
+  implementation:
+    description: "Implement consensual code changes"
+    rules:
+      - "Only proceed after consensus is reached"
+      - "Assign developer (Vulcan for contracts, Edna/Leonardo for frontend, Scotty/Han for backend)"
+      - "Developer implements exactly the consensual proposal"
+      - "Use atomic commits per CONTRIBUTING.md"
+      - "No AI mentions in commits"
+
+  # Phase 7: Final Review
+  final_review:
+    description: "All involved agents review implemented code"
+    checklist:
+      - "Code matches consensual proposal"
+      - "Relevant to the task"
+      - "Optimized (no unnecessary complexity)"
+      - "DRY (no duplication)"
+      - "Minimal (no over-engineering)"
+      - "Elegant (clean, readable)"
+      - "Idiomatic (follows project patterns)"
+      - "Well-structured (proper separation of concerns)"
+      - "Aligned with CONTRIBUTING.md"
+      - "No dead code, unused imports, or TODOs"
+    lead_enforcement: "Lead enforces CONTRIBUTING.md practices"
+
+  # Phase 8: Delivery
+  delivery:
+    description: "Deliver final consensual response to user"
+    format:
+      - "Brief summary of what was done"
+      - "Key decisions and rationale"
+      - "Code changes (if applicable)"
+      - "Any follow-up recommendations"

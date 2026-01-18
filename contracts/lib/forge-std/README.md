@@ -113,7 +113,7 @@ contract TestContract is Test {
 
     // If the target is a struct, you can specify the field depth:
     function testFindStruct() public {
-        // NOTE: see the depth parameter - 0 means 0th field, 1 means 1st field, etc.
+        // NB: see the depth parameter - 0 means 0th field, 1 means 1st field, etc.
         uint256 slot_for_a_field = stdstore
             .target(address(test))
             .sig(test.basicStruct.selector)

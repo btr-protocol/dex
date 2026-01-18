@@ -10,6 +10,7 @@ import { addNotification } from '@lib/notifications';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
 import { renderIcon, isStringIcon, isSvgPath } from '@utils/iconHelpers';
 import { SelectionItem } from '@/types/ui';
+import { useDebounce } from '@/hooks/useDebounce';
 
 export type { SelectionItem } from '@/types/ui';
 
@@ -55,6 +56,9 @@ export function SelectionModal({
   const [search, setSearch] = useState('');
   const [tempSelected, setTempSelected] = useState<string[]>(selectedIds);
 
+  // Debounce search to prevent excessive filtering on every keystroke
+  const debouncedSearch = useDebounce(search, 300);
+
   // Derive selection constraints
   const isMulti = multiSelect || (maxSelect !== undefined && maxSelect !== 1);
   const minSelections = minSelect ?? (isMulti ? 1 : 0);
@@ -65,7 +69,7 @@ export function SelectionModal({
       setTempSelected(selectedIds);
       setSearch('');
     }
-  }, [isOpen, selectedIds]);
+  }, [isOpen]);
 
   // Default filter function
   const defaultFilterFn = (item: SelectionItem, searchQuery: string): boolean => {
@@ -80,10 +84,10 @@ export function SelectionModal({
 
   const filterFunction = filterFn || defaultFilterFn;
 
-  // Filtered items
+  // Filtered items (use debounced search for performance)
   const filteredItems = useMemo(() => {
-    return items.filter((item) => filterFunction(item, search));
-  }, [items, search, filterFunction]);
+    return items.filter((item) => filterFunction(item, debouncedSearch));
+  }, [items, debouncedSearch, filterFunction]);
 
   // Keyboard navigation
   const { selectedIndex, handleKeyDown } = useKeyboardNav({
@@ -244,6 +248,7 @@ interface FilterButtonProps {
   maxVisible?: number;
   onClick: () => void;
   partialFilter?: boolean; // Use 50% opacity overlay instead of full mask (for colorful icons)
+  onClear?: () => void; // Optional: clear filter action (renders x icon inside button)
 }
 
 export function FilterButton({
@@ -253,6 +258,7 @@ export function FilterButton({
   maxVisible = 3,
   onClick,
   partialFilter = false,
+  onClear,
 }: FilterButtonProps) {
   const selectedOptions = options.filter((opt) => selected.includes(opt.id));
   const visibleOptions = selectedOptions.slice(0, maxVisible);
@@ -313,6 +319,19 @@ export function FilterButton({
               <span className="text-sm text-primary font-bold pl-0.5">
                 +{remainingCount}
               </span>
+            )}
+            {onClear && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClear();
+                }}
+                className="ml-0.5 flex items-center justify-center w-4 h-4 hover:bg-bg-3 rounded-sm text-primary transition-colors"
+                title="Clear filter"
+              >
+                <Icon name="x" className="w-3 h-3" />
+              </button>
             )}
           </>
         )}

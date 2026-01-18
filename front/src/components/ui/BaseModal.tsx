@@ -64,7 +64,7 @@ export function BaseModal({
       <DialogPortal>
         <DialogOverlay />
         {/* @ts-ignore - variant prop is custom extension */}
-        <DialogContent variant="flush" closable={false} className={cn(maxWidth, 'flex flex-col max-h-[min(50rem,80vh)] font-title')}>
+        <DialogContent variant="flush" closable={false} closeOnEscape={true} className={cn(maxWidth, 'flex flex-col max-h-[min(50rem,80vh)] overflow-hidden font-title')}>
           {/* Visually hidden title for accessibility */}
           <VisuallyHidden>
             <DialogTitle>{title}</DialogTitle>
@@ -86,7 +86,7 @@ export function BaseModal({
           />
 
           {/* Scrollable Body */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">{children as any}</div>
+          <div className="min-h-0 max-h-m flex-1 overflow-y-auto">{children as any}</div>
 
           {/* Footer */}
           <ModalFooter

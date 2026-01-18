@@ -1,16 +1,23 @@
-# AIMM Documentation
+# BTR Protocol Documentation
 
-> Adaptive Inventory Market Maker — Technical Documentation
+> **BTR** is a decentralized exchange protocol powered by **AIMM** (Adaptive Inventory Market Maker) — a novel approach to automated market making that achieves extreme capital efficiency through asset-specific liquidity profiling and anchor path pricing.
+
+## Core Technical Features
+
+BTR's AIMM protocol introduces several breakthrough innovations:
+
+| Feature | Technical Innovation |
+|---------|---------------------|
+| **AIMM** | Adaptive Inventory Market Maker — dynamically manages inventory risk through coverage ratios and skew-aware pricing |
+| **Anchor Path Pricing** | Multi-asset routing via LCA (Lowest Common Ancestor) algorithm on an anchor tree topology |
+| **Asset-Specific Liquidity Profiling** | Liquidity can be extremely concentrated around historical price density using Catmull-Rom spline profiles |
+| **N-Asset Pooling** | No limit to the number of assets in a single pool — any-to-any swaps via anchor tree routing |
+| **Coverage-Based IL Protection** | Reserves and liabilities tracked separately; LPs withdraw the same token count deposited |
+| **Cooperative Arbitrage** | Whitelisted arbitrageurs compete for rebates, proceeds donated to LPs |
+
+Unlike traditional AMMs that use pair-based pools (Uniswap) or stablecoin-specific curves (Curve), BTR's anchor tree allows unlimited assets with capital efficiency that scales with liquidity depth.
 
 ---
-
-## Quick Links by Role
-
-<x-component data-react-component="DocsQuickLinks"></x-component>
-
----
-
-## Getting Started
 
 <!-- no-header -->
 | | |
@@ -82,6 +89,15 @@ AIMM introduces several innovations not found in existing AMMs:
 | [**Oracles**](/docs/3.5-Oracles) | Oracle security and fallback mechanisms |
 
 ---
+
+## Developer Integration
+
+<!-- no-header -->
+| | |
+|---|---|
+| [**AMM Integration**](/docs/1.3-Integration) | Swaps, liquidity, pool deployment, hooks |
+| [**Developer Guides**](/docs/5-Developer-Guides) | Treasury, bridging, white-labelling |
+| [**Contributing**](/docs/6-Contributing) | Internal development practices |
 
 ## Developer Reference
 

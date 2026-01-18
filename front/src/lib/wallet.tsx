@@ -18,6 +18,7 @@ import {
   waitForTransaction,
   getChain,
 } from '@sdk/eth';
+import { useSettings } from './settings';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -69,6 +70,7 @@ export function WalletProvider({ children }: { children: ComponentChildren }) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [provider, setProvider] = useState<Eip1193Provider>();
   const [chainId, setChainId] = useState<number>(1);
+  const { settings } = useSettings();
 
   // Check if already connected on mount
   useEffect(() => {
@@ -137,13 +139,34 @@ export function WalletProvider({ children }: { children: ComponentChildren }) {
       // Get current chain
       const currentChainId = await getChainId(newProvider);
       setChainId(currentChainId);
+
+      // Auto-switch to preferred chain if different
+      const preferredChainId = parseInt(settings.preferredChainId || '56', 10);
+      if (currentChainId !== preferredChainId) {
+        try {
+          await rpcSwitchChain(newProvider, preferredChainId);
+          setChainId(preferredChainId);
+        } catch (error) {
+          // If chain not added, try to add it
+          const errMsg = error instanceof Error ? error.message : String(error);
+          if (errMsg.includes('not added') || (error as { code?: number })?.code === 4902) {
+            const config = getChainConfig(preferredChainId);
+            if (config) {
+              await addChain(newProvider, config);
+              await rpcSwitchChain(newProvider, preferredChainId);
+              setChainId(preferredChainId);
+            }
+          }
+          // Ignore other errors - user stays on current chain
+        }
+      }
     } catch (error) {
       console.error('Failed to connect', error);
       throw error;
     } finally {
       setIsConnecting(false);
     }
-  }, []);
+  }, [settings.preferredChainId]);
 
   const disconnect = useCallback(() => {
     setAddress(undefined);

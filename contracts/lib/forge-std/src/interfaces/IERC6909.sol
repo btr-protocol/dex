@@ -21,7 +21,7 @@ interface IERC6909 is IERC165 {
     function balanceOf(address owner, uint256 id) external view returns (uint256);
 
     /// @dev Returns the amount of tokens of type `id` that `spender` is allowed to spend on behalf of `owner`.
-    /// NOTE: Does not include operator allowances.
+    /// NB: Does not include operator allowances.
     function allowance(address owner, address spender, uint256 id) external view returns (uint256);
 
     /// @dev Returns true if `spender` is set as an operator for `owner`.

@@ -279,7 +279,7 @@ abstract contract StdCheatsSafe {
 
     // This function checks whether an address, `addr`, is payable. It works by sending 1 wei to
     // `addr` and checking the `success` return value.
-    // NOTE: This function may result in state changes depending on the fallback/receive logic
+    // NB: This function may result in state changes depending on the fallback/receive logic
     // implemented by `addr`, which should be taken into account when this function is used.
     function _isPayable(address addr) private returns (bool) {
         require(
@@ -299,7 +299,7 @@ abstract contract StdCheatsSafe {
         return success;
     }
 
-    // NOTE: This function may result in state changes depending on the fallback/receive logic
+    // NB: This function may result in state changes depending on the fallback/receive logic
     // implemented by `addr`, which should be taken into account when this function is used. See the
     // `_isPayable` method for more information.
     function assumePayable(address addr) internal virtual {

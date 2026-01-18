@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { Icon } from './Icon';
+import { formatPercent } from '@/utils/format';
 
 interface PercentageChangeProps {
   value: number; // percentage change (e.g., 5 for 5%)
@@ -17,7 +18,7 @@ export function PercentageChange({ value, label }: PercentageChangeProps) {
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
         className="flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-2 transition-colors"
-        aria-label={`${label || 'Change'}: ${isPositive ? '+' : '-'}${absValue.toFixed(2)}%`}
+        aria-label={`${label || 'Change'}: ${isPositive ? '+' : '-'}${formatPercent(absValue)}`}
       >
         {isPositive ? (
           <Icon name="trend-up" className="w-4 h-4 text-green" />
@@ -30,7 +31,7 @@ export function PercentageChange({ value, label }: PercentageChangeProps) {
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-10">
           <div className="bg-bg-2 border border-border rounded px-3 py-2 text-xs whitespace-nowrap shadow-lg">
             <span className={isPositive ? 'text-green' : 'text-red'}>
-              {isPositive ? '+' : '-'}{absValue.toFixed(2)}%
+              {isPositive ? '+' : '-'}{formatPercent(absValue)}
             </span>
             {label && <div className="text-fg-2 text-xs mt-1">{label}</div>}
           </div>

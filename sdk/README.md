@@ -9,19 +9,16 @@ Modular TypeScript SDK for interacting with BTR DEX. Supports AMM flows, oracle 
 - 🛡️ **Guardians**: Circuit breaker monitoring and protection
 - 🔐 **Privacy**: zkSNARK-based private transactions (DarkPool)
 - 🌳 **Tree-shakeable**: Use only what you need (light frontend bundle)
-- ⚡ **Viem-powered**: Built on top of viem for type safety and performance
+- ⚡ **Zero Dependencies**: Custom lightweight eth client (no viem/ethers)
 
 ## Installation
 
 ```bash
 # Using bun
-bun add @btr/dex-sdk viem
+bun add @btr/dex-sdk
 
 # Using npm
-npm install @btr/dex-sdk viem
-
-# Using pnpm
-pnpm add @btr/dex-sdk viem
+npm install @btr/dex-sdk
 ```
 
 ## Quick Start
@@ -31,32 +28,48 @@ pnpm add @btr/dex-sdk viem
 Only import what you need - tree-shaking ensures you don't bundle oracle/guardian code:
 
 ```typescript
-import { deposit, swap, withdraw } from '@btr/dex-sdk/flows';
-import { AIMM_ABI } from '@btr/dex-sdk/abis';
-import { createPublicClient, createWalletClient, http } from 'viem';
-import { mainnet } from 'viem/chains';
+import { createWalletClient, ethCall, sendTransaction, getChainId } from '@btr/dex-sdk/eth';
+import { encodeFn, decodeFn } from '@btr/dex-sdk/eth';
+import type { Address, Hex } from '@btr/dex-sdk/eth';
 
-// Setup clients
-const publicClient = createPublicClient({
-  chain: mainnet,
-  transport: http(),
-});
+// Use injected wallet provider
+const provider = window.ethereum;
+const [account] = await provider.request({ method: 'eth_requestAccounts' });
 
-const walletClient = createWalletClient({
-  chain: mainnet,
-  transport: http(),
-});
+// Create client
+const client = createWalletClient(provider, account as Address);
 
 // Execute a swap
-const result = await swap(publicClient, walletClient, AIMM_ABI, {
-  poolAddress: '0x...',
-  tokenIn: '0x...', // USDC
-  tokenOut: '0x...', // ETH
-  amountIn: 1000_000_000n, // 1000 USDC (6 decimals)
-  slippageBps: 50, // 0.5% slippage tolerance
+const swapData = encodeFn({
+  abi: POOL_ABI,
+  functionName: 'swap',
+  args: [tokenIn, tokenOut, amountIn, minAmountOut, recipient],
 });
 
-console.log(`Swap executed: ${result.hash}`);
+const txHash = await client.sendTransaction({
+  to: poolAddress,
+  data: swapData,
+});
+
+console.log(`Swap executed: ${txHash}`);
+```
+
+### Backend Integration (Private Key Client)
+
+```typescript
+import { createPrivateKeyClient } from '@btr/dex-sdk/eth';
+
+const client = createPrivateKeyClient(
+  'http://localhost:8545', // RPC URL
+  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' // Private key
+);
+
+// Sign and send transaction without user approval
+const txHash = await client.sendTransaction({
+  to: poolAddress,
+  data: swapData,
+  value: 0n,
+});
 ```
 
 ### Oracle Keeper
@@ -65,24 +78,12 @@ Run a price oracle keeper that monitors Binance and updates on-chain prices:
 
 ```typescript
 import { BinanceOracle } from '@btr/dex-sdk/oracles';
-import { AIMM_ABI } from '@btr/dex-sdk/abis';
-import { createPublicClient, createWalletClient, http } from 'viem';
-import { mainnet } from 'viem/chains';
+import { createPrivateKeyClient } from '@btr/dex-sdk/eth';
 
-const publicClient = createPublicClient({
-  chain: mainnet,
-  transport: http(),
-});
-
-const walletClient = createWalletClient({
-  chain: mainnet,
-  transport: http(),
-  account: privateKeyToAccount(process.env.KEEPER_PRIVATE_KEY),
-});
+const client = createPrivateKeyClient(rpcUrl, process.env.KEEPER_PRIVATE_KEY!);
 
 const oracle = new BinanceOracle(
-  publicClient,
-  walletClient,
+  client.provider,
   {
     poolAddress: '0x...', // Your AIMM pool
     assets: [
@@ -93,7 +94,7 @@ const oracle = new BinanceOracle(
     updateInterval: 60000, // Check every minute
     divergenceThreshold: 50, // Update if price diverges by 0.5%
   },
-  AIMM_ABI
+  POOL_ABI
 );
 
 // Start monitoring (runs indefinitely)
@@ -106,11 +107,9 @@ Monitor for de-pegging events and trigger circuit breakers:
 
 ```typescript
 import { CircuitBreakerGuardian } from '@btr/dex-sdk/guardians';
-import { AIMM_ABI } from '@btr/dex-sdk/abis';
 
 const guardian = new CircuitBreakerGuardian(
-  publicClient,
-  walletClient,
+  client.provider,
   {
     poolAddress: '0x...',
     assets: [
@@ -130,7 +129,7 @@ const guardian = new CircuitBreakerGuardian(
     checkInterval: 300000, // Check every 5 minutes
     cooldownPeriod: 3600, // 1 hour cooldown
   },
-  AIMM_ABI,
+  POOL_ABI,
   oracleProvider // Implement OracleProvider interface
 );
 
@@ -143,7 +142,6 @@ Create private deposits and withdrawals using zkSNARKs:
 
 ```typescript
 import { Note, MerkleTree, ProofBuilder } from '@btr/dex-sdk/darkpool';
-import { DARKPOOL_ABI } from '@btr/dex-sdk/abis';
 
 // Create a private note
 const amount = 1000000000000000000n; // 1 ETH
@@ -153,11 +151,15 @@ const note = Note.createRandom(amount);
 const commitment = note.getCommitment();
 const encryptedNote = note.encrypt();
 
-await walletClient.writeContract({
-  address: '0x...', // DarkPool address
+const depositData = encodeFn({
   abi: DARKPOOL_ABI,
   functionName: 'deposit',
   args: [commitment, encryptedNote],
+});
+
+await client.sendTransaction({
+  to: darkPoolAddress,
+  data: depositData,
   value: amount,
 });
 
@@ -172,8 +174,7 @@ const proof = await ProofBuilder.buildWithdrawProof({
   merkleTree,
 });
 
-await walletClient.writeContract({
-  address: '0x...', // DarkPool address
+const withdrawData = encodeFn({
   abi: DARKPOOL_ABI,
   functionName: 'withdraw',
   args: [
@@ -186,6 +187,11 @@ await walletClient.writeContract({
     proof.refund,
   ],
 });
+
+await client.sendTransaction({
+  to: darkPoolAddress,
+  data: withdrawData,
+});
 ```
 
 ## Module Structure
@@ -194,8 +200,9 @@ The SDK is organized into tree-shakeable modules:
 
 ```
 @btr/dex-sdk/
-├── /abis        - Contract ABIs (AIMM, DarkPool)
-├── /common      - Shared types, constants, utilities
+├── /eth         - Custom eth client, ABI encoder/decoder, RPC utils
+├── /pool        - Pool interaction utilities
+├── /utils       - Shared types, constants, utilities
 ├── /flows       - Transaction builders (deposit, swap, withdraw)
 ├── /oracles     - Price oracle implementations (Binance, extensible)
 ├── /guardians   - Circuit breaker and monitoring
@@ -207,12 +214,12 @@ The SDK is organized into tree-shakeable modules:
 
 Frontend (light bundle):
 ```typescript
-import { swap } from '@btr/dex-sdk/flows';
-import { AIMM_ABI } from '@btr/dex-sdk/abis';
+import { createWalletClient, encodeFn, decodeFn } from '@btr/dex-sdk/eth';
 ```
 
 Backend keeper:
 ```typescript
+import { createPrivateKeyClient } from '@btr/dex-sdk/eth';
 import { BinanceOracle } from '@btr/dex-sdk/oracles';
 import { CircuitBreakerGuardian } from '@btr/dex-sdk/guardians';
 ```
@@ -222,133 +229,66 @@ Privacy features:
 import { Note, MerkleTree, ProofBuilder } from '@btr/dex-sdk/darkpool';
 ```
 
-## API Reference
+## Eth Client API
 
-### Flows
+The SDK includes a lightweight, zero-dependency Ethereum client:
 
-#### `deposit(publicClient, walletClient, poolAbi, params)`
-
-Deposit tokens into a AIMM pool and receive LP tokens.
-
-**Parameters:**
-- `publicClient`: viem PublicClient
-- `walletClient`: viem WalletClient
-- `poolAbi`: AIMM contract ABI
-- `params`:
-  - `poolAddress`: Pool contract address
-  - `token`: Token to deposit
-  - `amount`: Amount to deposit (in wei)
-  - `minLpTokens?`: Minimum LP tokens to receive (optional, calculated from slippage)
-  - `slippageBps?`: Slippage tolerance in basis points (e.g., 50 = 0.5%)
-
-**Returns:** `Promise<{ hash: Hash }>`
-
-#### `swap(publicClient, walletClient, poolAbi, params)`
-
-Swap one token for another in a AIMM pool.
-
-**Parameters:**
-- `params`:
-  - `poolAddress`: Pool contract address
-  - `tokenIn`: Input token address
-  - `tokenOut`: Output token address
-  - `amountIn`: Input amount (in wei)
-  - `minAmountOut?`: Minimum output amount (optional, calculated from slippage)
-  - `slippageBps?`: Slippage tolerance in basis points
-
-**Returns:** `Promise<{ hash: Hash }>`
-
-#### `withdraw(publicClient, walletClient, poolAbi, params)`
-
-Withdraw tokens from a AIMM pool by burning LP tokens.
-
-**Parameters:**
-- `params`:
-  - `poolAddress`: Pool contract address
-  - `token`: Token to withdraw
-  - `lpTokens`: LP tokens to burn
-  - `minAmount?`: Minimum tokens to receive (optional, calculated from slippage)
-  - `slippageBps?`: Slippage tolerance in basis points
-
-**Returns:** `Promise<{ hash: Hash }>`
-
-### Oracles
-
-#### `BinanceOracle`
-
-Real-time price oracle using Binance WebSocket streams.
+### Client Types
 
 ```typescript
-const oracle = new BinanceOracle(publicClient, walletClient, config, poolAbi);
-await oracle.start();
+// Browser: Uses injected wallet (MetaMask, etc.)
+const client = createWalletClient(window.ethereum, accountAddress);
+
+// Backend: Uses private key for signing
+const client = createPrivateKeyClient(rpcUrl, privateKey);
+
+// Read-only: No signing capability
+const client = createPublicClient(rpcUrl);
 ```
 
-**Config:**
-- `poolAddress`: AIMM pool to update
-- `assets`: Array of assets to monitor
-- `updateInterval`: How often to check prices (ms)
-- `divergenceThreshold`: Trigger update if price diverges by this many bps
-- `wsEndpoint?`: Custom Binance WebSocket endpoint
-- `restEndpoint?`: Custom Binance REST API endpoint
-
-### Guardians
-
-#### `CircuitBreakerGuardian`
-
-Monitor for de-pegging and trigger circuit breakers.
+### ABI Encoding
 
 ```typescript
-const guardian = new CircuitBreakerGuardian(
-  publicClient,
-  walletClient,
-  config,
-  poolAbi,
-  oracleProvider
-);
-await guardian.start();
-```
+import { encodeFn, decodeFn, encodeAbiParameters, decodeAbiParameters } from '@btr/dex-sdk/eth';
 
-**Config:**
-- `poolAddress`: AIMM pool to monitor
-- `assets`: Array of assets with circuit breaker configs
-- `checkInterval`: How often to check (ms)
-- `cooldownPeriod`: Cooldown after triggering (seconds)
-
-### DarkPool
-
-#### `Note`
-
-Create and manage private notes for anonymous transactions.
-
-```typescript
-const note = Note.createRandom(amount);
-const commitment = note.getCommitment();
-const nullifier = note.getNullifier();
-```
-
-#### `MerkleTree`
-
-Manage commitment Merkle tree.
-
-```typescript
-const tree = new MerkleTree(levels);
-tree.insert(commitment);
-const { root, pathElements, pathIndices } = tree.path(index);
-```
-
-#### `ProofBuilder`
-
-Generate zkSNARK proofs for private transactions.
-
-```typescript
-const proof = await ProofBuilder.buildWithdrawProof({
-  note,
-  recipient,
-  merkleTree,
-  relayer,
-  fee,
-  refund,
+// Encode function call
+const data = encodeFn({
+  abi: POOL_ABI,
+  functionName: 'swap',
+  args: [tokenIn, tokenOut, amountIn, minOut, recipient],
 });
+
+// Decode function result
+const result = decodeFn({
+  abi: POOL_ABI,
+  functionName: 'getSwapQuote',
+  data: resultHex,
+});
+```
+
+### RPC Methods
+
+```typescript
+import {
+  ethCall,
+  sendTransaction,
+  getNativeBalance,
+  getChainId,
+  switchChain,
+  waitForTransaction,
+} from '@btr/dex-sdk/eth';
+
+// Read contract state
+const result = await ethCall(provider, contractAddress, calldata);
+
+// Get balance
+const balance = await getNativeBalance(provider, address);
+
+// Send transaction (requires connected wallet)
+const hash = await sendTransaction(provider, { to, data, value });
+
+// Wait for confirmation
+const receipt = await waitForTransaction(provider, hash);
 ```
 
 ## Development

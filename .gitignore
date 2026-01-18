@@ -138,3 +138,6 @@ private/
 .local/
 local/
 dev/
+
+# Anvil state persistence
+.anvil/

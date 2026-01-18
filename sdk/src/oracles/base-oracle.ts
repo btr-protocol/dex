@@ -100,13 +100,11 @@ export abstract class BaseOracle {
     console.log(`📡 Updating ${asset.symbol} price on-chain to ${price.price}`);
 
     try {
-      // Note: Full transaction execution requires either:
-      // 1. Viem library for contract encoding/simulation
-      // 2. Manual ABI encoding for eth_call and eth_sendTransaction
-      // For now, log the action that would be taken
+      // Use SDK eth client for transaction execution
+      // See @btr/dex-sdk/eth for encodeFn, createPrivateKeyClient
       const encodedPrice = price.price / (10n ** BigInt(18 - 8)); // Convert to 1e8
       console.log(`   Action: Would call push(${asset.address}, ${encodedPrice}, 0)`);
-      console.log(`   ❌ Transaction sending requires viem or contract encoder`);
+      console.log(`   Note: Implement with createPrivateKeyClient and encodeFn from @btr/dex-sdk/eth`);
     } catch (error) {
       console.error(`   ❌ Failed to update price:`, error);
       throw error;

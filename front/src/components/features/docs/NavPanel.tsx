@@ -90,6 +90,39 @@ export function NavPanel({ type, slug }: NavPanelProps) {
     return () => clearTimeout(timer);
   }, [type, slug]);
 
+  // Add scroll tracking for TOC
+  useEffect(() => {
+    if (type !== 'toc') return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && entry.target.id) {
+            navStore.setActiveId(entry.target.id);
+          }
+        });
+      },
+      {
+        rootMargin: '-100px 0px -66% 0px',
+        threshold: 0,
+      }
+    );
+
+    // Observe all headings after a short delay to ensure DOM is ready
+    const setupObserver = () => {
+      const headings = document.querySelectorAll('main .prose h1[id], main .prose h2[id], main .prose h3[id], main .prose h4[id]');
+      headings.forEach((heading) => observer.observe(heading));
+    };
+
+    setupObserver();
+    const delayedSetup = setTimeout(setupObserver, 500);
+
+    return () => {
+      observer.disconnect();
+      clearTimeout(delayedSetup);
+    };
+  }, [type, slug]);
+
   const scrollToHeading = useCallback((id: string) => {
     const element = document.getElementById(id);
     if (element) {

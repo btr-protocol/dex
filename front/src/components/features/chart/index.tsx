@@ -3,7 +3,7 @@
  */
 import { useState, useMemo, useEffect } from 'preact/hooks';
 import type { PriceScaleMode } from 'lightweight-charts';
-import { precision } from '@utils/format';
+import { precision, formatNumber } from '@utils/format';
 import {
   usePriceStream,
   fetchAvailableTickers,
@@ -321,7 +321,7 @@ export function PriceChart({
                 </span></span>
                 {engine.spread && (
                   <span className="text-fg-3">
-                    spread <span className="text-fg-2">{((engine.spread.ask - engine.spread.bid) / engine.spread.mid * 10000).toFixed(1)}bps</span>
+                    spread <span className="text-fg-2">{formatNumber((engine.spread.ask - engine.spread.bid) / engine.spread.mid * 10000, 1)}bps</span>
                   </span>
                 )}
               </div>

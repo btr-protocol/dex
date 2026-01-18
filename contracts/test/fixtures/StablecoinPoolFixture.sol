@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {IPoolV1} from "../../src/interfaces/IPoolV1.sol";
@@ -17,7 +17,8 @@ interface IERC20 {
 }
 
 import {PoolProxyV1} from "../../src/PoolProxyV1.sol";
-import {CoreV1} from "../../src/modules/CoreV1.sol";
+import {ExchangeV1} from "../../src/modules/ExchangeV1.sol";
+import {LiquidityV1} from "../../src/modules/LiquidityV1.sol";
 import {AdminV1} from "../../src/modules/AdminV1.sol";
 import {BaseV1} from "../../src/modules/BaseV1.sol";
 import {InternalOracleV1} from "../../src/modules/InternalOracleV1.sol";
@@ -62,7 +63,8 @@ abstract contract StablecoinPoolFixture is Test {
     // ═══════════════════════════════════════════════════════════════════════════
 
     PoolProxyV1 pool;
-    CoreV1 coreModule;
+    ExchangeV1 exchangeModule;
+    LiquidityV1 liquidityModule;
     AdminV1 adminModule;
     InternalOracleV1 oracleModule;
 
@@ -81,7 +83,8 @@ abstract contract StablecoinPoolFixture is Test {
         vm.startPrank(owner);
 
         // Deploy modules
-        coreModule = new CoreV1();
+        exchangeModule = new ExchangeV1();
+        liquidityModule = new LiquidityV1();
         adminModule = new AdminV1();
         oracleModule = new InternalOracleV1();
 
@@ -115,25 +118,28 @@ abstract contract StablecoinPoolFixture is Test {
     // ═══════════════════════════════════════════════════════════════════════════
 
     function _registerModules() internal {
-        // Core module selectors (from ICoreV1)
-        bytes4[] memory coreSelectors = new bytes4[](15);
-        coreSelectors[0] = ICoreV1.swap.selector;
-        coreSelectors[1] = ICoreV1.getSwapQuote.selector;
-        coreSelectors[2] = ICoreV1.deposit.selector;
-        coreSelectors[3] = ICoreV1.withdraw.selector;
-        coreSelectors[4] = ICoreV1.withdrawTo.selector;
-        coreSelectors[5] = ICoreV1.swapLiability.selector;
-        coreSelectors[6] = ICoreV1.donate.selector;
-        coreSelectors[7] = ICoreV1.owner.selector;
-        coreSelectors[8] = ICoreV1.baseToken.selector;
-        coreSelectors[9] = ICoreV1.wnative.selector;
-        coreSelectors[10] = ICoreV1.getAsset.selector;
-        coreSelectors[11] = ICoreV1.getLPBalance.selector;
-        coreSelectors[12] = ICoreV1.getProtocolFees.selector;
-        coreSelectors[13] = ICoreV1.getCoverageRatio.selector;
-        coreSelectors[14] = ICoreV1.getMidPrice.selector;
+        // Exchange module selectors (swap + views)
+        bytes4[] memory exchangeSelectors = new bytes4[](10);
+        exchangeSelectors[0] = ICoreV1.swap.selector;
+        exchangeSelectors[1] = ICoreV1.getSwapQuote.selector;
+        exchangeSelectors[2] = ICoreV1.owner.selector;
+        exchangeSelectors[3] = ICoreV1.baseToken.selector;
+        exchangeSelectors[4] = ICoreV1.wnative.selector;
+        exchangeSelectors[5] = ICoreV1.getAsset.selector;
+        exchangeSelectors[6] = ICoreV1.getLPBalance.selector;
+        exchangeSelectors[7] = ICoreV1.getProtocolFees.selector;
+        exchangeSelectors[8] = ICoreV1.getCoverageRatio.selector;
+        exchangeSelectors[9] = ICoreV1.getMidPrice.selector;
+        _updateModuleDirect(address(exchangeModule), exchangeSelectors);
 
-        _updateModuleDirect(address(coreModule), coreSelectors);
+        // Liquidity module selectors (deposit/withdraw/donate)
+        bytes4[] memory liquiditySelectors = new bytes4[](5);
+        liquiditySelectors[0] = ICoreV1.deposit.selector;
+        liquiditySelectors[1] = ICoreV1.withdraw.selector;
+        liquiditySelectors[2] = ICoreV1.withdrawTo.selector;
+        liquiditySelectors[3] = ICoreV1.swapLiability.selector;
+        liquiditySelectors[4] = ICoreV1.donate.selector;
+        _updateModuleDirect(address(liquidityModule), liquiditySelectors);
 
         // Admin module selectors (from IAdminV1)
         bytes4[] memory adminSelectors = new bytes4[](20);
@@ -161,11 +167,11 @@ abstract contract StablecoinPoolFixture is Test {
 
         _updateModuleDirect(address(adminModule), adminSelectors);
 
-        // Add view functions that are in IPoolV1 directly but routed to core
+        // Add view functions that are in IPoolV1 directly but routed to exchange
         bytes4[] memory viewSelectors = new bytes4[](2);
         viewSelectors[0] = IPoolV1.getFeedConfig.selector;
         viewSelectors[1] = IPoolV1.getRiskConfig.selector;
-        _updateModuleDirect(address(coreModule), viewSelectors);
+        _updateModuleDirect(address(exchangeModule), viewSelectors);
 
         // Oracle module selectors (computed manually since InternalOracleV1 has different signatures)
         // InternalOracleV1 functions:

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {LibAnchorTree as T} from "../../src/libraries/LibAnchorTree.sol";

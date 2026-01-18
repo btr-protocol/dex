@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.33;
 
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 import {LibMaths as M} from "./LibMaths.sol";
 import {LibPricing as Pricing} from "./LibPricing.sol";
+import {LibConstants as C} from "./LibConstants.sol";
 
 /// @title LibBatchPricing
 /// @notice Batch swap quoting and calldata unpacking
@@ -12,8 +13,6 @@ import {LibPricing as Pricing} from "./LibPricing.sol";
 /// @dev Output (quote): [address(20) | uint16 weightBps(2) | uint16 slippageBps(2) | reserved(8)]
 /// @dev Output (swap):  [address(20) | uint16 weightBps(2) | reserved(2) | uint64 minOutB64(8)]
 library LibBatchPricing {
-    uint256 internal constant WAD = 1e18;
-    uint256 internal constant BPS_BASE = 10000;
     uint256 internal constant MAX_TOKENS = 8;
 
     /// @notice Batch quote result
@@ -128,7 +127,7 @@ library LibBatchPricing {
             weightSum += weightBps;
 
             // Target base value for this output
-            uint256 targetBaseValue = (totalBaseValue * weightBps) / BPS_BASE;
+            uint256 targetBaseValue = (totalBaseValue * weightBps) / C.BPS;
 
             // Quote buy: base → token (with full anchor path traversal)
             uint256 amountOut;
@@ -147,7 +146,7 @@ library LibBatchPricing {
 
             // Apply slippage (default 50 = 0.5%)
             if (slippageBps == 0) slippageBps = 50;
-            quote.minAmountsOut[j] = (amountOut * (BPS_BASE - slippageBps)) / BPS_BASE;
+            quote.minAmountsOut[j] = (amountOut * (C.BPS - slippageBps)) / C.BPS;
 
             // Accumulate weighted spread
             weightedSpread += spreadBps * weightBps;
@@ -155,8 +154,8 @@ library LibBatchPricing {
             unchecked { ++j; }
         }
 
-        if (weightSum != BPS_BASE) revert IErrors.InvalidInput();
+        if (weightSum != C.BPS) revert IErrors.InvalidInput();
 
-        quote.avgSpreadBps = weightedSpread / BPS_BASE;
+        quote.avgSpreadBps = weightedSpread / C.BPS;
     }
 }

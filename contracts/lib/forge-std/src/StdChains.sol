@@ -51,7 +51,7 @@ abstract contract StdChains {
         // The chain's alias. (i.e. what gets specified in `foundry.toml`).
         string chainAlias;
         // A default RPC endpoint for this chain.
-        // NOTE: This default RPC URL is included for convenience to facilitate quick tests and
+        // NB: This default RPC URL is included for convenience to facilitate quick tests and
         // experimentation. Do not use this RPC URL for production test suites, CI, or other heavy
         // usage as you will be throttled and this is a disservice to others who need this endpoint.
         string rpcUrl;
