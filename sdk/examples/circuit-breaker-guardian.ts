@@ -6,6 +6,9 @@
 import { CircuitBreakerGuardian, type OracleProvider, type PricePoint } from '../src/guardians/circuit-breaker.js';
 import { AIMM_ABI } from '../src/abis/AIMM.js';
 import type { Address, Eip1193Provider } from '../src/eth/types.js';
+import { logger } from '../src/utils/logger.js';
+
+const log = logger.withContext('circuitBreakerGuardian');
 
 // Simple oracle provider implementation using Binance
 class BinanceOracleProvider implements OracleProvider {
@@ -64,7 +67,7 @@ class BinanceOracleProvider implements OracleProvider {
 }
 
 async function main() {
-  console.log('Starting Circuit Breaker Guardian...\n');
+  log.info('Starting Circuit Breaker Guardian...\n');
 
   // Setup EIP-1193 provider
   const rpcUrl = process.env.RPC_URL || 'https://eth.llamarpc.com';
@@ -125,13 +128,13 @@ async function main() {
 
   // Graceful shutdown on SIGINT
   process.on('SIGINT', () => {
-    console.log('\nShutting down guardian...');
+    log.info('\nShutting down guardian...');
     guardian.stop();
     process.exit(0);
   });
 }
 
 main().catch((error) => {
-  console.error('Fatal error:', error);
+  log.error('Fatal error:', error);
   process.exit(1);
 });

@@ -1,6 +1,6 @@
 /**
  * Swap flow for AIMM pools with batch support
- * @module @btr/dex-sdk/flows
+ * @module @btr/sdk/flows
  */
 
 import type { Address, Hex, Eip1193Provider, Abi } from '../eth/index.js';
@@ -8,6 +8,9 @@ import { Contract, ERC20_ABI, waitForTransaction } from '../eth/index.js';
 import type { SwapQuote } from '../utils/constants.js';
 import { applySlippage, calculatePriceImpact } from '../utils/business.js';
 import { encodeB64, concat, pad, toHex } from '../utils/encoding.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.withContext('swap');
 
 export interface SwapParams {
   poolAddress: Address;
@@ -55,8 +58,8 @@ export async function swap(
     params.amountIn,
   );
 
-  console.log(`Swap quote: ${quote.amountOut} ${params.tokenOut}`);
-  console.log(`Price impact: ${quote.priceImpact.toFixed(2)}%`);
+  log.info(`Swap quote: ${quote.amountOut} ${params.tokenOut}`);
+  log.info(`Price impact: ${quote.priceImpact.toFixed(2)}%`);
 
   // 2. Calculate minAmountOut if not provided
   let minAmountOut = params.minAmountOut;
@@ -78,10 +81,10 @@ export async function swap(
 
   // 4. Approve if needed
   if (allowance < params.amountIn) {
-    console.log('Approving token...');
+    log.info('Approving token...');
     const approveHash = await tokenContract.write('approve', [params.poolAddress, params.amountIn]);
     await waitForTransaction(provider, approveHash);
-    console.log('Approval confirmed');
+    log.info('Approval confirmed');
   }
 
   // 5. Execute swap
@@ -90,12 +93,12 @@ export async function swap(
     : [params.tokenIn, params.tokenOut, params.amountIn, minAmountOut];
 
   const hash = await poolContract.write('swap', swapArgs);
-  console.log(`Swap transaction: ${hash}`);
+  log.info(`Swap transaction: ${hash}`);
 
   // Wait for confirmation
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const receipt = await waitForTransaction(provider, hash) as any;
-  console.log(`Swap confirmed. Gas used: ${receipt.gasUsed}`);
+  log.info(`Swap confirmed. Gas used: ${receipt.gasUsed}`);
 
   // TODO: Parse logs to extract actual amountOut
   return { hash };

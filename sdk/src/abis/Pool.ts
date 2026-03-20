@@ -1,6 +1,6 @@
 /**
  * Pool Contract ABI
- * @module @btr/dex-sdk/abis
+ * @module @btr/sdk/abis
  *
  * Minimal ABI for swap operations - only includes required functions
  */

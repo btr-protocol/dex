@@ -3,7 +3,7 @@
  * Ethereum's serialization format for transactions
  */
 
-import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
+import { hexToBytes, bytesToHex } from '@noble/hashes/utils.js';
 
 // ─────────────────────────────────────────────────────────────
 // RLP Encoding

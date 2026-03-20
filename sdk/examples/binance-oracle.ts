@@ -5,6 +5,9 @@
 
 import { BinanceOracle } from '../src/oracles/binance-oracle.js';
 import type { Eip1193Provider } from '../src/eth/types.js';
+import { logger } from '../src/utils/logger.js';
+
+const log = logger.withContext('binanceOracle');
 
 // ExternalOracle ABI (simplified - only what we need)
 const EXTERNAL_ORACLE_ABI = [
@@ -37,7 +40,7 @@ const EXTERNAL_ORACLE_ABI = [
 ] as const;
 
 async function main() {
-  console.log('Starting Binance Oracle Bot...\n');
+  log.info('Starting Binance Oracle Bot...\n');
 
   // Setup EIP-1193 provider
   const rpcUrl = process.env.RPC_URL || 'https://eth.llamarpc.com';
@@ -99,12 +102,12 @@ async function main() {
     EXTERNAL_ORACLE_ABI
   );
 
-  console.log('Oracle Bot Configuration:');
-  console.log(`- External Oracle: ${externalOracleAddress}`);
-  console.log(`- Update Interval: ${oracle.config.updateInterval}ms`);
-  console.log(`- Divergence Threshold: ${oracle.config.divergenceThreshold / 100}%`);
-  console.log(`- Assets Monitored: ${oracle.config.assets.length}`);
-  console.log('');
+  log.info('Oracle Bot Configuration:');
+  log.info(`- External Oracle: ${externalOracleAddress}`);
+  log.info(`- Update Interval: ${oracle.config.updateInterval}ms`);
+  log.info(`- Divergence Threshold: ${oracle.config.divergenceThreshold / 100}%`);
+  log.info(`- Assets Monitored: ${oracle.config.assets.length}`);
+  log.info('');
 
   // Start monitoring (runs indefinitely)
   // The oracle will:
@@ -117,13 +120,13 @@ async function main() {
 
   // Graceful shutdown on SIGINT
   process.on('SIGINT', () => {
-    console.log('\nShutting down oracle...');
+    log.info('\nShutting down oracle...');
     oracle.stop();
     process.exit(0);
   });
 }
 
 main().catch((error) => {
-  console.error('Fatal error:', error);
+  log.error('Fatal error:', error);
   process.exit(1);
 });

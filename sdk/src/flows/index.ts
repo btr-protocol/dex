@@ -1,6 +1,6 @@
 /**
  * Transaction flows for interacting with AIMM pools
- * @module @btr/dex-sdk/flows
+ * @module @btr/sdk/flows
  */
 
 export * from './deposit.js';

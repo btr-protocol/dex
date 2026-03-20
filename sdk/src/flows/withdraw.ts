@@ -1,11 +1,14 @@
 /**
  * Withdraw flow for AIMM pools
- * @module @btr/dex-sdk/flows
+ * @module @btr/sdk/flows
  */
 
 import type { Address, Hex, Eip1193Provider, Abi } from '../eth/index.js';
 import { Contract, waitForTransaction } from '../eth/index.js';
 import { applySlippage } from '../utils/business.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.withContext('withdraw');
 
 export interface WithdrawParams {
   poolAddress: Address;
@@ -50,7 +53,7 @@ export async function withdraw(
     params.lpTokens,
   );
 
-  console.log(`Withdraw quote: ${expectedAmount} ${params.token}`);
+  log.info(`Withdraw quote: ${expectedAmount} ${params.token}`);
 
   // 2. Calculate minAmount if not provided
   let minAmount = params.minAmount;
@@ -69,12 +72,12 @@ export async function withdraw(
 
   // 4. Execute withdrawal
   const hash = await poolContract.write('withdraw', [params.token, params.lpTokens, minAmount]);
-  console.log(`Withdraw transaction: ${hash}`);
+  log.info(`Withdraw transaction: ${hash}`);
 
   // Wait for confirmation
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const receipt = await waitForTransaction(provider, hash) as any;
-  console.log(`Withdraw confirmed. Gas used: ${receipt.gasUsed}`);
+  log.info(`Withdraw confirmed. Gas used: ${receipt.gasUsed}`);
 
   // TODO: Parse logs to extract actual amount received
   return { hash };

@@ -10,13 +10,16 @@
  *   Example: If WETH +5% over week and wstETH +2%, deviation = 3%
  * - Volatile assets: Same relative change methodology with higher thresholds
  *
- * @module @btr/dex-sdk/guardians
+ * @module @btr/sdk/guardians
  */
 
 import type { Address, Eip1193Provider } from '../eth/index.js';
 import { BaseGuardian, type OracleProvider, type PricePoint } from './base-guardian.js';
 import type { GuardianConfig } from '../utils/constants.js';
 import { BPS_PRECISION, ONE_DAY } from '../utils/constants.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.withContext('circuitBreaker');
 
 export interface CircuitBreakerAssetConfig {
   address: Address;
@@ -104,7 +107,7 @@ export class CircuitBreakerGuardian {
     // Check if asset is already frozen
     const assetData = await this.getAssetData(asset.address);
     if (assetData.isFrozen) {
-      console.log(`Asset ${asset.name} already frozen, skipping`);
+      log.info(`Asset ${asset.name} already frozen, skipping`);
       return;
     }
 
@@ -120,7 +123,7 @@ export class CircuitBreakerGuardian {
         deviationBps = await this.checkCorrelated(asset.address, asset.referenceAsset);
       }
 
-      console.log(
+      log.info(
         `${asset.name}: deviation ${deviationBps}bps, threshold ${asset.maxDivergence}bps`
       );
 
@@ -129,7 +132,7 @@ export class CircuitBreakerGuardian {
         await this.triggerCircuitBreaker(asset, deviationBps);
       }
     } catch (error) {
-      console.error(`Error checking ${asset.name}:`, error);
+      log.error(`Error checking ${asset.name}`, error);
       throw error;
     }
   }
@@ -159,53 +162,53 @@ export class CircuitBreakerGuardian {
     asset: CircuitBreakerAssetConfig,
     deviationBps: number,
   ): Promise<void> {
-    console.log(`🚨 CIRCUIT BREAKER TRIGGERED for ${asset.name}!`);
-    console.log(`   Deviation: ${deviationBps}bps`);
-    console.log(`   Threshold: ${asset.maxDivergence}bps`);
+    log.warn(`CIRCUIT BREAKER TRIGGERED for ${asset.name}!`);
+    log.warn(`   Deviation: ${deviationBps}bps`);
+    log.warn(`   Threshold: ${asset.maxDivergence}bps`);
 
     try {
       // Use SDK eth client for transaction execution
-      // See @btr/dex-sdk/eth for encodeFn, createPrivateKeyClient
-      console.log(`   Action: Would call freezeAsset(${asset.address})`);
-      console.log(`   Note: Implement with createPrivateKeyClient and encodeFn from @btr/dex-sdk/eth`);
+      // See @btr/sdk/eth for encodeFn, createPrivateKeyClient
+      log.info(`   Action: Would call freezeAsset(${asset.address})`);
+      log.info(`   NB: Implement with createPrivateKeyClient and encodeFn from @btr/sdk/eth`);
     } catch (error) {
-      console.error(`   ❌ Failed to trigger circuit breaker:`, error);
+      log.error(`   Failed to trigger circuit breaker`, error);
       throw error;
     }
   }
 
   private async getAssetData(asset: Address): Promise<any> {
-    // Use ethCall and encodeFn from @btr/dex-sdk/eth for contract reads
+    // Use ethCall and encodeFn from @btr/sdk/eth for contract reads
     // Example: const data = encodeFn({ abi: POOL_ABI, functionName: 'getAsset', args: [asset] });
     //          const result = await ethCall(provider, poolAddress, data);
-    console.warn('getAssetData: Implement with ethCall and encodeFn from @btr/dex-sdk/eth');
+    log.warn('getAssetData: Implement with ethCall and encodeFn from @btr/sdk/eth');
     return null;
   }
 
   async checkAllAssets(): Promise<void> {
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] Checking ${this.config.assets.length} assets...`);
+    log.info(`[${timestamp}] Checking ${this.config.assets.length} assets...`);
 
     for (const asset of this.config.assets) {
       try {
         await this.checkAsset(asset.address);
       } catch (error) {
-        console.error(`Error checking asset ${asset.name}:`, error);
+        log.error(`Error checking asset ${asset.name}`, error);
       }
     }
   }
 
   async start(): Promise<void> {
     if (this.isRunning) {
-      console.warn('Guardian is already running');
+      log.warn('Guardian is already running');
       return;
     }
 
     this.isRunning = true;
-    console.log('Circuit Breaker Guardian started');
-    console.log(`Check interval: ${this.config.checkInterval / 1000}s`);
-    console.log(`Monitoring pool: ${this.config.poolAddress}`);
-    console.log(`Assets: ${this.config.assets.length}\n`);
+    log.info('Circuit Breaker Guardian started');
+    log.info(`Check interval: ${this.config.checkInterval / 1000}s`);
+    log.info(`Monitoring pool: ${this.config.poolAddress}`);
+    log.info(`Assets: ${this.config.assets.length}\n`);
 
     // Run immediately
     await this.checkAllAssets();
@@ -219,6 +222,6 @@ export class CircuitBreakerGuardian {
 
   stop(): void {
     this.isRunning = false;
-    console.log('Guardian stopped');
+    log.info('Guardian stopped');
   }
 }

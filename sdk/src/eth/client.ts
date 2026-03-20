@@ -6,7 +6,7 @@
 import type { Address, Hex, Eip1193Provider, TransactionRequest, TransactionReceipt } from './types';
 import { ethCall, sendTransaction as rpcSendTransaction, getNonce, getChainId, estimateGas, getGasPrice } from './rpc';
 import { keccak256 } from './index';
-import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
+import { hexToBytes, bytesToHex } from '@noble/hashes/utils.js';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { rlpEncode } from './rlp';
 

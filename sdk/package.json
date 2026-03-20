@@ -1,5 +1,5 @@
 {
-  "name": "@btr/dex-sdk",
+  "name": "@btr/sdk",
   "version": "1.0.0",
   "description": "Modular SDK for BTR DEX - supports AMM flows, oracles, and guardians",
   "type": "module",
@@ -17,6 +17,10 @@
     "./utils": {
       "types": "./src/utils/index.ts",
       "default": "./src/utils/index.ts"
+    },
+    "./utils/logger": {
+      "types": "./src/utils/logger.ts",
+      "default": "./src/utils/logger.ts"
     },
     "./guardians": {
       "types": "./src/guardians/index.ts",

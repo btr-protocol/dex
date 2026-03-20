@@ -1,12 +1,15 @@
 /**
  * Base Oracle for price feeds
- * @module @btr/dex-sdk/oracles
+ * @module @btr/sdk/oracles
  */
 
 import type { Address, Eip1193Provider } from '../eth/index.js';
 import type { OraclePrice } from '../utils/constants.js';
 import { calculateDivergenceBps } from '../utils/business.js';
 import { sleep } from '../utils/safe.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.withContext('oracle');
 
 export interface OracleConfig {
   poolAddress: Address;
@@ -48,13 +51,13 @@ export abstract class BaseOracle {
    */
   protected async checkAndUpdatePrices(): Promise<void> {
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] Checking prices for ${this.config.assets.length} assets...`);
+    log.info(`[${timestamp}] Checking prices for ${this.config.assets.length} assets...`);
 
     for (const asset of this.config.assets) {
       try {
         await this.checkAssetPrice(asset);
       } catch (error) {
-        console.error(`Error checking price for ${asset.symbol}:`, error);
+        log.error(`Error checking price for ${asset.symbol}`, error);
       }
     }
   }
@@ -72,14 +75,14 @@ export abstract class BaseOracle {
     if (!lastPrice) {
       // First time - just store it
       this.lastPrices.set(asset.address, currentPrice.price);
-      console.log(`${asset.symbol}: Initial price ${currentPrice.price}`);
+      log.info(`${asset.symbol}: Initial price ${currentPrice.price}`);
       return;
     }
 
     // Calculate divergence
     const divergenceBps = calculateDivergenceBps(currentPrice.price, lastPrice);
 
-    console.log(
+    log.info(
       `${asset.symbol}: price ${currentPrice.price}, divergence ${divergenceBps}bps, threshold ${this.config.divergenceThreshold}bps`
     );
 
@@ -97,16 +100,16 @@ export abstract class BaseOracle {
     asset: AssetOracleConfig,
     price: OraclePrice,
   ): Promise<void> {
-    console.log(`📡 Updating ${asset.symbol} price on-chain to ${price.price}`);
+    log.info(`Updating ${asset.symbol} price on-chain to ${price.price}`);
 
     try {
       // Use SDK eth client for transaction execution
-      // See @btr/dex-sdk/eth for encodeFn, createPrivateKeyClient
+      // See @btr/sdk/eth for encodeFn, createPrivateKeyClient
       const encodedPrice = price.price / (10n ** BigInt(18 - 8)); // Convert to 1e8
-      console.log(`   Action: Would call push(${asset.address}, ${encodedPrice}, 0)`);
-      console.log(`   Note: Implement with createPrivateKeyClient and encodeFn from @btr/dex-sdk/eth`);
+      log.info(`   Action: Would call push(${asset.address}, ${encodedPrice}, 0)`);
+      log.info(`   NB: Implement with createPrivateKeyClient and encodeFn from @btr/sdk/eth`);
     } catch (error) {
-      console.error(`   ❌ Failed to update price:`, error);
+      log.error(`   Failed to update price`, error);
       throw error;
     }
   }
@@ -116,16 +119,16 @@ export abstract class BaseOracle {
    */
   async start(): Promise<void> {
     if (this.isRunning) {
-      console.warn('Oracle is already running');
+      log.warn('Oracle is already running');
       return;
     }
 
     this.isRunning = true;
-    console.log('Oracle started');
-    console.log(`Update interval: ${this.config.updateInterval / 1000}s`);
-    console.log(`Divergence threshold: ${this.config.divergenceThreshold}bps`);
-    console.log(`Monitoring pool: ${this.config.poolAddress}`);
-    console.log(`Assets: ${this.config.assets.length}\n`);
+    log.info('Oracle started');
+    log.info(`Update interval: ${this.config.updateInterval / 1000}s`);
+    log.info(`Divergence threshold: ${this.config.divergenceThreshold}bps`);
+    log.info(`Monitoring pool: ${this.config.poolAddress}`);
+    log.info(`Assets: ${this.config.assets.length}\n`);
 
     // Initialize last prices
     for (const asset of this.config.assets) {
@@ -133,7 +136,7 @@ export abstract class BaseOracle {
         const price = await this.fetchPrice(asset);
         this.lastPrices.set(asset.address, price.price);
       } catch (error) {
-        console.error(`Failed to initialize price for ${asset.symbol}:`, error);
+        log.error(`Failed to initialize price for ${asset.symbol}`, error);
       }
     }
 
@@ -149,6 +152,6 @@ export abstract class BaseOracle {
    */
   stop(): void {
     this.isRunning = false;
-    console.log('Oracle stopped');
+    log.info('Oracle stopped');
   }
 }

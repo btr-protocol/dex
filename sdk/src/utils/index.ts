@@ -1,6 +1,6 @@
 /**
  * SDK utilities - shared across all packages
- * @module @btr/dex-sdk/utils
+ * @module @btr/sdk/utils
  */
 
 export * from './typing.js';
@@ -11,3 +11,4 @@ export * from './maths.js';
 export * from './format.js';
 export * from './constants.js';
 export * from './encoding.js';
+export * from './logger.js';

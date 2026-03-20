@@ -7,6 +7,9 @@ import { swap, getSwapQuote } from '../src/flows/swap.js';
 import { AIMM_ABI } from '../src/abis/AIMM.js';
 import { formatTokenAmount, parseTokenAmount } from '../src/utils/business.js';
 import type { Eip1193Provider } from '../src/eth/types.js';
+import { logger } from '../src/utils/logger.js';
+
+const log = logger.withContext('frontendSwap');
 
 async function main() {
   // Setup EIP-1193 provider (works with MetaMask, WalletConnect, Anvil, etc.)
@@ -38,7 +41,7 @@ async function main() {
   // User wants to swap 1000 USDC for WETH
   const amountIn = parseTokenAmount('1000', 6); // 1000 USDC (6 decimals)
 
-  console.log('Getting swap quote...');
+  log.info('Getting swap quote...');
   const quote = await getSwapQuote(
     provider,
     poolAddress,
@@ -48,14 +51,14 @@ async function main() {
     amountIn
   );
 
-  console.log(`Quote:`);
-  console.log(`  Input: ${formatTokenAmount(quote.amountIn, 6)} USDC`);
-  console.log(`  Output: ${formatTokenAmount(quote.amountOut, 18)} WETH`);
-  console.log(`  Price impact: ${quote.priceImpact.toFixed(2)}%`);
-  console.log(`  Fee: ${formatTokenAmount(quote.fee, 6)} USDC`);
+  log.info(`Quote:`);
+  log.info(`  Input: ${formatTokenAmount(quote.amountIn, 6)} USDC`);
+  log.info(`  Output: ${formatTokenAmount(quote.amountOut, 18)} WETH`);
+  log.info(`  Price impact: ${quote.priceImpact.toFixed(2)}%`);
+  log.info(`  Fee: ${formatTokenAmount(quote.fee, 6)} USDC`);
 
   // Execute swap with 0.5% slippage tolerance
-  console.log('\nExecuting swap...');
+  log.info('\nExecuting swap...');
   const result = await swap(provider, AIMM_ABI, {
     poolAddress,
     tokenIn: USDC,
@@ -65,8 +68,8 @@ async function main() {
     userAddress,
   });
 
-  console.log(`✅ Swap executed!`);
-  console.log(`   Transaction: ${result}`);
+  log.info(`✅ Swap executed!`);
+  log.info(`   Transaction: ${result}`);
 }
 
 main().catch(console.error);

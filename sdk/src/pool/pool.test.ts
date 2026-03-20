@@ -7,6 +7,9 @@ import { describe, test, expect } from 'bun:test';
 import { createHttpProvider } from '../eth/client';
 import { getAsset, getCoverageRatio, getPoolData, getSwapQuote } from './index';
 import type { Address } from '../eth/types';
+import { logger } from '../utils/logger';
+
+const log = logger.withContext('pool-test');
 
 // Local Anvil BSC fork
 const RPC_URL = 'http://localhost:8545';
@@ -143,7 +146,7 @@ describe('Swap Simulation', () => {
     } catch (error) {
       // Expected to fail with no liquidity - test passes if we get here
       expect(error).toBeDefined();
-      console.log('Note: Swap quote requires pool liquidity to succeed');
+      log.info('Note: Swap quote requires pool liquidity to succeed');
     }
   });
 

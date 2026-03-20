@@ -9,16 +9,16 @@ Modular TypeScript SDK for interacting with BTR DEX. Supports AMM flows, oracle 
 - 🛡️ **Guardians**: Circuit breaker monitoring and protection
 - 🔐 **Privacy**: zkSNARK-based private transactions (DarkPool)
 - 🌳 **Tree-shakeable**: Use only what you need (light frontend bundle)
-- ⚡ **Zero Dependencies**: Custom lightweight eth client (no viem/ethers)
+- ⚡ **Zero Dependencies**: Custom lightweight eth client (no viem/ethers dependency)
 
 ## Installation
 
 ```bash
 # Using bun
-bun add @btr/dex-sdk
+bun add @btr/sdk
 
 # Using npm
-npm install @btr/dex-sdk
+npm install @btr/sdk
 ```
 
 ## Quick Start
@@ -28,9 +28,9 @@ npm install @btr/dex-sdk
 Only import what you need - tree-shaking ensures you don't bundle oracle/guardian code:
 
 ```typescript
-import { createWalletClient, ethCall, sendTransaction, getChainId } from '@btr/dex-sdk/eth';
-import { encodeFn, decodeFn } from '@btr/dex-sdk/eth';
-import type { Address, Hex } from '@btr/dex-sdk/eth';
+import { createWalletClient, ethCall, sendTransaction, getChainId } from '@btr/sdk/eth';
+import { encodeFn, decodeFn } from '@btr/sdk/eth';
+import type { Address, Hex } from '@btr/sdk/eth';
 
 // Use injected wallet provider
 const provider = window.ethereum;
@@ -57,7 +57,7 @@ console.log(`Swap executed: ${txHash}`);
 ### Backend Integration (Private Key Client)
 
 ```typescript
-import { createPrivateKeyClient } from '@btr/dex-sdk/eth';
+import { createPrivateKeyClient } from '@btr/sdk/eth';
 
 const client = createPrivateKeyClient(
   'http://localhost:8545', // RPC URL
@@ -77,8 +77,8 @@ const txHash = await client.sendTransaction({
 Run a price oracle keeper that monitors Binance and updates on-chain prices:
 
 ```typescript
-import { BinanceOracle } from '@btr/dex-sdk/oracles';
-import { createPrivateKeyClient } from '@btr/dex-sdk/eth';
+import { BinanceOracle } from '@btr/sdk/oracles';
+import { createPrivateKeyClient } from '@btr/sdk/eth';
 
 const client = createPrivateKeyClient(rpcUrl, process.env.KEEPER_PRIVATE_KEY!);
 
@@ -106,7 +106,7 @@ await oracle.start();
 Monitor for de-pegging events and trigger circuit breakers:
 
 ```typescript
-import { CircuitBreakerGuardian } from '@btr/dex-sdk/guardians';
+import { CircuitBreakerGuardian } from '@btr/sdk/guardians';
 
 const guardian = new CircuitBreakerGuardian(
   client.provider,
@@ -141,7 +141,7 @@ await guardian.start();
 Create private deposits and withdrawals using zkSNARKs:
 
 ```typescript
-import { Note, MerkleTree, ProofBuilder } from '@btr/dex-sdk/darkpool';
+import { Note, MerkleTree, ProofBuilder } from '@btr/sdk/darkpool';
 
 // Create a private note
 const amount = 1000000000000000000n; // 1 ETH
@@ -199,7 +199,7 @@ await client.sendTransaction({
 The SDK is organized into tree-shakeable modules:
 
 ```
-@btr/dex-sdk/
+@btr/sdk/
 ├── /eth         - Custom eth client, ABI encoder/decoder, RPC utils
 ├── /pool        - Pool interaction utilities
 ├── /utils       - Shared types, constants, utilities
@@ -214,19 +214,19 @@ The SDK is organized into tree-shakeable modules:
 
 Frontend (light bundle):
 ```typescript
-import { createWalletClient, encodeFn, decodeFn } from '@btr/dex-sdk/eth';
+import { createWalletClient, encodeFn, decodeFn } from '@btr/sdk/eth';
 ```
 
 Backend keeper:
 ```typescript
-import { createPrivateKeyClient } from '@btr/dex-sdk/eth';
-import { BinanceOracle } from '@btr/dex-sdk/oracles';
-import { CircuitBreakerGuardian } from '@btr/dex-sdk/guardians';
+import { createPrivateKeyClient } from '@btr/sdk/eth';
+import { BinanceOracle } from '@btr/sdk/oracles';
+import { CircuitBreakerGuardian } from '@btr/sdk/guardians';
 ```
 
 Privacy features:
 ```typescript
-import { Note, MerkleTree, ProofBuilder } from '@btr/dex-sdk/darkpool';
+import { Note, MerkleTree, ProofBuilder } from '@btr/sdk/darkpool';
 ```
 
 ## Eth Client API
@@ -249,7 +249,7 @@ const client = createPublicClient(rpcUrl);
 ### ABI Encoding
 
 ```typescript
-import { encodeFn, decodeFn, encodeAbiParameters, decodeAbiParameters } from '@btr/dex-sdk/eth';
+import { encodeFn, decodeFn, encodeAbiParameters, decodeAbiParameters } from '@btr/sdk/eth';
 
 // Encode function call
 const data = encodeFn({
@@ -276,7 +276,7 @@ import {
   getChainId,
   switchChain,
   waitForTransaction,
-} from '@btr/dex-sdk/eth';
+} from '@btr/sdk/eth';
 
 // Read contract state
 const result = await ethCall(provider, contractAddress, calldata);

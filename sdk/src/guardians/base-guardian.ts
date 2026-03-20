@@ -1,6 +1,6 @@
 /**
  * Base Guardian for monitoring AIMM pools
- * @module @btr/dex-sdk/guardians
+ * @module @btr/sdk/guardians
  */
 
 import type {
@@ -12,6 +12,9 @@ import type {
 import { waitForTransaction as waitForTx } from '../eth/index.js';
 import type { GuardianConfig } from '../utils/constants.js';
 import { sleep } from '../utils/safe.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.withContext('guardian');
 
 export interface PricePoint {
   timestamp: number;
@@ -50,13 +53,13 @@ export abstract class BaseGuardian {
    */
   async checkAllAssets(): Promise<void> {
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] Checking ${this.config.assets.length} assets...`);
+    log.info(`[${timestamp}] Checking ${this.config.assets.length} assets...`);
 
     for (const asset of this.config.assets) {
       try {
         await this.checkAsset(asset);
       } catch (error) {
-        console.error(`Error checking asset ${asset}:`, error);
+        log.error(`Error checking asset ${asset}`, error);
       }
     }
   }
@@ -66,15 +69,15 @@ export abstract class BaseGuardian {
    */
   async start(): Promise<void> {
     if (this.isRunning) {
-      console.warn('Guardian is already running');
+      log.warn('Guardian is already running');
       return;
     }
 
     this.isRunning = true;
-    console.log('Guardian started');
-    console.log(`Check interval: ${this.config.checkInterval / 1000}s`);
-    console.log(`Monitoring pool: ${this.config.poolAddress}`);
-    console.log(`Assets: ${this.config.assets.length}\n`);
+    log.info('Guardian started');
+    log.info(`Check interval: ${this.config.checkInterval / 1000}s`);
+    log.info(`Monitoring pool: ${this.config.poolAddress}`);
+    log.info(`Assets: ${this.config.assets.length}\n`);
 
     // Run immediately
     await this.checkAllAssets();
@@ -91,7 +94,7 @@ export abstract class BaseGuardian {
    */
   stop(): void {
     this.isRunning = false;
-    console.log('Guardian stopped');
+    log.info('Guardian stopped');
   }
 
   /**
