@@ -1,0 +1,13 @@
+node_modules
+.git
+.gitignore
+.env
+*.log
+.cache
+dist
+build
+.next
+out
+.DS_Store
+*.test.ts
+*.spec.ts
