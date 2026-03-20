@@ -295,7 +295,7 @@ library ECDSA {
     /// This produces a hash corresponding to the one signed with the
     /// [`eth_sign`](https://ethereum.org/en/developers/docs/apis/json-rpc/#eth_sign)
     /// JSON-RPC method as part of EIP-191.
-    /// Note: Supports lengths of `s` up to 999999 bytes.
+    /// NB: Supports lengths of `s` up to 999999 bytes.
     function toEthSignedMessageHash(bytes memory s) internal pure returns (bytes32 result) {
         /// @solidity memory-safe-assembly
         assembly {

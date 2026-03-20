@@ -96,7 +96,7 @@ abstract contract EIP712 {
     ///     }
     /// ```
     ///
-    /// Note: If the returned result may change after the contract has been deployed,
+    /// NB: If the returned result may change after the contract has been deployed,
     /// you must override `_domainNameAndVersionMayChange()` to return true.
     function _domainNameAndVersion()
         internal

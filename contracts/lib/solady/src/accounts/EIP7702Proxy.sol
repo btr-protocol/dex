@@ -5,7 +5,7 @@ pragma solidity ^0.8.24;
 /// @notice Relay proxy for EIP7702 delegations.
 /// @author Solady (https://github.com/vectorized/solady/blob/main/src/accounts/EIP7702Proxy.sol)
 ///
-/// @dev Note: This relay proxy is useful for upgradeable EIP7702 accounts
+/// @dev NB: This relay proxy is useful for upgradeable EIP7702 accounts
 /// without the need for redelegation.
 ///
 /// EOA -> EIP7702Proxy (relay) -> EIP7702 account implementation.

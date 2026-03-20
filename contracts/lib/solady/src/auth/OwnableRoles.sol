@@ -38,7 +38,7 @@ abstract contract OwnableRoles is Ownable {
     /// This automatically ignores the upper bits of the `user` in case
     /// they are not clean, as well as keep the `keccak256` under 32-bytes.
     ///
-    /// Note: This is equivalent to `uint32(bytes4(keccak256("_OWNER_SLOT_NOT")))`.
+    /// NB: This is equivalent to `uint32(bytes4(keccak256("_OWNER_SLOT_NOT")))`.
     uint256 private constant _ROLE_SLOT_SEED = 0x8b78c6d8;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -117,7 +117,7 @@ abstract contract OwnableRoles is Ownable {
         /// @solidity memory-safe-assembly
         assembly {
             // If the caller is not the stored owner.
-            // Note: `_ROLE_SLOT_SEED` is equal to `_OWNER_SLOT_NOT`.
+            // NB: `_ROLE_SLOT_SEED` is equal to `_OWNER_SLOT_NOT`.
             if iszero(eq(caller(), sload(not(_ROLE_SLOT_SEED)))) {
                 // Compute the role slot.
                 mstore(0x0c, _ROLE_SLOT_SEED)
@@ -145,7 +145,7 @@ abstract contract OwnableRoles is Ownable {
             // of the value and `roles` is zero, revert.
             if iszero(and(sload(keccak256(0x0c, 0x20)), roles)) {
                 // If the caller is not the stored owner.
-                // Note: `_ROLE_SLOT_SEED` is equal to `_OWNER_SLOT_NOT`.
+                // NB: `_ROLE_SLOT_SEED` is equal to `_OWNER_SLOT_NOT`.
                 if iszero(eq(caller(), sload(not(_ROLE_SLOT_SEED)))) {
                     mstore(0x00, 0x82b42900) // `Unauthorized()`.
                     revert(0x1c, 0x04)

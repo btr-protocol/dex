@@ -84,6 +84,7 @@ library LibConstants {
     uint48 internal constant HIGH_TIMELOCK = 3 days; // High risk eg. ownership transfer
     uint48 internal constant BASE_TIMELOCK = 2 days; // Medium risk eg. oracle change
     uint48 internal constant LOW_TIMELOCK = 1 days; // Low risk eg. add asset, update fees
+    uint48 internal constant UPGRADE_TIMELOCK = 7 days; // UUPS contract upgrades
     uint48 internal constant GRACE_PERIOD = 7 days; // H-01 FIX: Execution window after timelock expires
 
     // ========== TIMELOCK IDS (Precomputed) ==========
@@ -124,12 +125,13 @@ library LibConstants {
     uint256 constant WAD = 1e18;
 
     /// @notice 0.0001% precision (1 unit = 0.0001% = 0.001 bps)
-    /// @dev Used for: fees, spreads, volatility, oracle offsets, sensitivity multipliers
+    /// @dev Used for: fees, spreads, volatility, oracle offsets
     ///      - Fees/spreads: 5,000 = 0.5%, 100 = 0.01%
     ///      - Volatility: 1,000,000 = 1%, 10,000,000 = 10%
-    ///      - Multipliers (γ, ν, λ): 100,000 = 100% = 1.0x sensitivity
     ///      - Oracle offsets: 100,000 = 10% deviation from TWAP
-    ///      - Coverage bounds: 500,000 = 50% floor, 2,000,000 = 200% ceiling
+    ///      - Dispersion (min/max): 0.0001% units
+    ///      - decayStartRatioBps: 0.0001% units (e.g., 980000 = 98%)
+    /// NOTE: Coverage bounds (coverageMin/Max) and multipliers (gamma/vega/lambda) use C.BPS (0.01% units) instead
     uint256 constant PBPS = 1_000_000;
 
     /// @notice Half of PBPS for 50/50 fee splits
@@ -140,34 +142,37 @@ library LibConstants {
     /// @dev Used for percentage calculations
     uint256 constant ONE_PCT_PBPS = 10_000;
 
-    /// @notice Hundred percent in PBPS units (for multiplier interpretation)
-    /// @dev gamma/vega/lambda = 100,000 means 100% = 1.0x
+    /// @notice Hundred percent in PBPS units (legacy, use C.BPS for uint16 params)
+    /// @dev DEPRECATED: gamma/vega/lambda now use C.BPS scale (10000 = 100%)
     uint256 constant HUNDRED_PCT_PBPS = 100_000;
 
-    /// @notice Standard BPS (0.01% per unit, 0-10000 for 0-100%)
-    /// @dev Used for: user-facing portfolio weights, slippage tolerance
+    /// @notice Standard BPS (0.01% per unit, 10000 = 100%)
+    /// @dev Used for uint16 percentage parameters that must fit in 16 bits:
+    ///      - coverageMin/Max (max 655%)
+    ///      - gamma/vega/lambda sensitivity multipliers (10000 = 1.0x)
+    ///      - depth/position x-axis (0-10000 = 0-100%)
     ///      Different from PBPS (0.0001% per unit) which is for internal precision
     ///      Required because uint16 max (65,535) can't represent 100% at PBPS scale (1,000,000)
     uint256 constant BPS = 10_000;
 
     // ========== GREEK VARIABLE REFERENCE (for auditors) ==========
     /*
-    | Symbol | Code Variable | PBPS Value | Meaning |
-    |--------|---------------|------------|---------|
+    | Symbol | Code Variable | BPS Value | Meaning |
+    |--------|---------------|-----------|---------|
     | ψ (psi) | inventorySkew | - | Inventory skew, [-100, +100] |
     | π (pi)  | progress      | - | Progress toward boundary, [0,1] |
-    | γ (gamma) | gamma       | 100,000 | 100% = 1.0x sensitivity |
-    | ν (nu)   | vega        | 100,000 | 100% = 1.0x sensitivity |
-    | λ (lambda)| lambda      | 100,000 | 100% = 1.0x sensitivity |
-    | η (eta)   | haircutSuppressor | 100,000 | 100% = p=2 exponent |
-    | σ (sigma) | volatility  | 1,000,000 | 1% volatility |
+    | γ (gamma) | gamma       | 10,000 | 100% = 1.0x sensitivity (0.01% BPS) |
+    | ν (nu)   | vega        | 10,000 | 100% = 1.0x sensitivity (0.01% BPS) |
+    | λ (lambda)| lambda      | 10,000 | 100% = 1.0x sensitivity (0.01% BPS) |
+    | η (eta)   | haircutSuppressor | 10,000 | 100% = p=2 exponent (0.01% BPS) |
+    | σ (sigma) | volatility  | 1,000,000 | 1% volatility (PBPS) |
     | Δ (Delta) | delta       | - | Oracle deviation (PBPS units) |
     | κ (kappa) | dispersion  | - | Liquidity dispersion (PBPS units) |
 
     Formula scaling examples:
     - Coverage: c = (R * WAD) / L
-    - Spread: S = 100 + (σ × ν) / 100  (result in PBPS)
-    - Skew: ψ = sign × γ × π / 100  (γ in PBPS as %, divide by 100 for multiplier)
+    - Spread: S = 100 + (σ × ν) / 100  (result in PBPS, ν in BPS so divide by 100)
+    - Skew: ψ = sign × γ × π / 100  (γ in BPS as %, divide by 100 for multiplier)
     - Fee: φ = (x × S) / (2 × PBPS)
     */
 }

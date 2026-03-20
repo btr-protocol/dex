@@ -152,7 +152,7 @@ library SSTORE2 {
 
     /// @dev Returns the CREATE2 address of the storage contract for `data`
     /// deployed with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictCounterfactualAddress(bytes memory data, bytes32 salt, address deployer)
         internal
         pure

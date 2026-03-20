@@ -60,7 +60,7 @@ library DateTimeLib {
 
     /// @dev Returns the number of days since 1970-01-01 from (`year`,`month`,`day`).
     /// See: https://howardhinnant.github.io/date_algorithms.html
-    /// Note: Inputs outside the supported ranges result in undefined behavior.
+    /// NB: Inputs outside the supported ranges result in undefined behavior.
     /// Use {isSupportedDate} to check if the inputs are supported.
     function dateToEpochDay(uint256 year, uint256 month, uint256 day)
         internal
@@ -78,7 +78,7 @@ library DateTimeLib {
     }
 
     /// @dev Returns (`year`,`month`,`day`) from the number of days since 1970-01-01.
-    /// Note: Inputs outside the supported ranges result in undefined behavior.
+    /// NB: Inputs outside the supported ranges result in undefined behavior.
     /// Use {isSupportedDays} to check if the inputs is supported.
     function epochDayToDate(uint256 epochDay)
         internal
@@ -100,7 +100,7 @@ library DateTimeLib {
     }
 
     /// @dev Returns the unix timestamp from (`year`,`month`,`day`).
-    /// Note: Inputs outside the supported ranges result in undefined behavior.
+    /// NB: Inputs outside the supported ranges result in undefined behavior.
     /// Use {isSupportedDate} to check if the inputs are supported.
     function dateToTimestamp(uint256 year, uint256 month, uint256 day)
         internal
@@ -113,7 +113,7 @@ library DateTimeLib {
     }
 
     /// @dev Returns (`year`,`month`,`day`) from the given unix timestamp.
-    /// Note: Inputs outside the supported ranges result in undefined behavior.
+    /// NB: Inputs outside the supported ranges result in undefined behavior.
     /// Use {isSupportedTimestamp} to check if the inputs are supported.
     function timestampToDate(uint256 timestamp)
         internal
@@ -125,7 +125,7 @@ library DateTimeLib {
 
     /// @dev Returns the unix timestamp from
     /// (`year`,`month`,`day`,`hour`,`minute`,`second`).
-    /// Note: Inputs outside the supported ranges result in undefined behavior.
+    /// NB: Inputs outside the supported ranges result in undefined behavior.
     /// Use {isSupportedDateTime} to check if the inputs are supported.
     function dateTimeToTimestamp(
         uint256 year,
@@ -142,7 +142,7 @@ library DateTimeLib {
 
     /// @dev Returns (`year`,`month`,`day`,`hour`,`minute`,`second`)
     /// from the given unix timestamp.
-    /// Note: Inputs outside the supported ranges result in undefined behavior.
+    /// NB: Inputs outside the supported ranges result in undefined behavior.
     /// Use {isSupportedTimestamp} to check if the inputs are supported.
     function timestampToDateTime(uint256 timestamp)
         internal
@@ -253,7 +253,7 @@ library DateTimeLib {
 
     /// @dev Returns the unix timestamp of the given `n`th weekday `wd`, in `month` of `year`.
     /// Example: 3rd Friday of Feb 2022 is `nthWeekdayInMonthOfYearTimestamp(2022, 2, 3, 5)`
-    /// Note: `n` is 1-indexed for traditional consistency.
+    /// NB: `n` is 1-indexed for traditional consistency.
     /// Invalid weekdays (i.e. `wd == 0 || wd > 7`) result in undefined behavior.
     function nthWeekdayInMonthOfYearTimestamp(uint256 year, uint256 month, uint256 n, uint256 wd)
         internal
@@ -291,7 +291,7 @@ library DateTimeLib {
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /// @dev Adds `numYears` to the unix timestamp, and returns the result.
-    /// Note: The result will share the same Gregorian calendar month,
+    /// NB: The result will share the same Gregorian calendar month,
     /// but different Gregorian calendar years for non-zero `numYears`.
     /// If the Gregorian calendar month of the result has less days
     /// than the Gregorian calendar month day of the `timestamp`,
@@ -303,7 +303,7 @@ library DateTimeLib {
     }
 
     /// @dev Adds `numMonths` to the unix timestamp, and returns the result.
-    /// Note: If the Gregorian calendar month of the result has less days
+    /// NB: If the Gregorian calendar month of the result has less days
     /// than the Gregorian calendar month day of the `timestamp`,
     /// the result's month day will be the maximum possible value for the month.
     /// (e.g. from 29th Feb to 28th Feb)
@@ -346,7 +346,7 @@ library DateTimeLib {
     }
 
     /// @dev Subtracts `numYears` from the unix timestamp, and returns the result.
-    /// Note: The result will share the same Gregorian calendar month,
+    /// NB: The result will share the same Gregorian calendar month,
     /// but different Gregorian calendar years for non-zero `numYears`.
     /// If the Gregorian calendar month of the result has less days
     /// than the Gregorian calendar month day of the `timestamp`,
@@ -358,7 +358,7 @@ library DateTimeLib {
     }
 
     /// @dev Subtracts `numYears` from the unix timestamp, and returns the result.
-    /// Note: If the Gregorian calendar month of the result has less days
+    /// NB: If the Gregorian calendar month of the result has less days
     /// than the Gregorian calendar month day of the `timestamp`,
     /// the result's month day will be the maximum possible value for the month.
     /// (e.g. from 29th Feb to 28th Feb)
@@ -402,7 +402,7 @@ library DateTimeLib {
 
     /// @dev Returns the difference in Gregorian calendar years
     /// between `fromTimestamp` and `toTimestamp`.
-    /// Note: Even if the true time difference is less than a year,
+    /// NB: Even if the true time difference is less than a year,
     /// the difference can be non-zero is the timestamps are
     /// from different Gregorian calendar years
     function diffYears(uint256 fromTimestamp, uint256 toTimestamp)
@@ -418,7 +418,7 @@ library DateTimeLib {
 
     /// @dev Returns the difference in Gregorian calendar months
     /// between `fromTimestamp` and `toTimestamp`.
-    /// Note: Even if the true time difference is less than a month,
+    /// NB: Even if the true time difference is less than a month,
     /// the difference can be non-zero is the timestamps are
     /// from different Gregorian calendar months.
     function diffMonths(uint256 fromTimestamp, uint256 toTimestamp)

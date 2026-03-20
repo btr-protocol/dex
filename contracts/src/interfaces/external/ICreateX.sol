@@ -25,6 +25,7 @@ interface ICreateX {
         external
         pure
         returns (address computedAddress);
+    function computeCreate3Address(bytes32 salt, address deployer, bytes32 initCodeHash) external pure returns (address computedAddress);
     function computeCreate3Address(bytes32 salt, address deployer) external pure returns (address computedAddress);
     function computeCreate3Address(bytes32 salt) external view returns (address computedAddress);
     function computeCreateAddress(uint256 nonce) external view returns (address computedAddress);

@@ -5,7 +5,7 @@ pragma solidity ^0.8.4;
 /// @author Solady (https://github.com/vectorized/solady/blob/main/src/utils/LibTransient.sol)
 /// @author Modified from Transient Goodies by Philogy (https://github.com/Philogy/transient-goodies/blob/main/src/TransientBytesLib.sol)
 ///
-/// @dev Note: The functions postfixed with `Compat` will only use transient storage on L1.
+/// @dev NB: The functions postfixed with `Compat` will only use transient storage on L1.
 /// L2s are super cheap anyway.
 /// For best safety, always clear the storage after use.
 library LibTransient {
@@ -741,7 +741,7 @@ library LibTransient {
     }
 
     /// @dev Clears the stack at `ptr`.
-    /// Note: Future usage of the stack will point to a fresh transient storage region.
+    /// NB: Future usage of the stack will point to a fresh transient storage region.
     function clear(TStack storage ptr) internal {
         /// @solidity memory-safe-assembly
         assembly {
@@ -752,7 +752,7 @@ library LibTransient {
 
     /// @dev Increments the stack length by 1, and returns a pointer to the top element.
     /// We don't want to call this `push` as it does not take in an element value.
-    /// Note: The value pointed to might not be cleared from previous usage.
+    /// NB: The value pointed to might not be cleared from previous usage.
     function place(TStack storage ptr) internal returns (bytes32 topPtr) {
         /// @solidity memory-safe-assembly
         assembly {
@@ -788,7 +788,7 @@ library LibTransient {
 
     /// @dev Decrements the stack length by 1, returns a pointer to the top element
     /// before the popping. Reverts if the stack is empty.
-    /// Note: Popping from the stack does NOT auto-clear the top value.
+    /// NB: Popping from the stack does NOT auto-clear the top value.
     function pop(TStack storage ptr) internal returns (bytes32 lastTopPtr) {
         /// @solidity memory-safe-assembly
         assembly {

@@ -6,6 +6,7 @@ import {IErrors} from "../interfaces/IErrors.sol";
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {IERC20} from "../interfaces/external/IERC20.sol";
 import {IWETH9} from "../interfaces/external/IWETH9.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
@@ -13,9 +14,10 @@ import {LibTransientCache as TCache} from "../libraries/LibTransientCache.sol";
 // NB: LibPricing intentionally NOT imported here to keep BaseV1 lean
 // Modules needing pricing import it directly; decay calculation is inlined below
 
-/// @title Base
+/// @title BaseV1
 /// @notice Base contract for all AIMM modules with shared storage access
 /// @dev All modules inherit from this to access PoolStorage via ERC-7201
+///      Storage location: LibConstants.CORE_STORAGE_LOC
 abstract contract BaseV1 {
     using {M.b64To1e18} for uint64;
 
@@ -43,10 +45,8 @@ abstract contract BaseV1 {
         }
     }
 
-    error Unauthorized();
-
     modifier onlyOwner() virtual {
-        if (msg.sender != _s().owner) revert Unauthorized();
+        if (msg.sender != _s().owner) revert Ownable.Unauthorized();
         _;
     }
 

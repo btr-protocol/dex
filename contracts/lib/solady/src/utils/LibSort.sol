@@ -449,7 +449,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set difference of `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function difference(uint256[] memory a, uint256[] memory b)
         internal
         pure
@@ -459,7 +459,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set difference between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function difference(int256[] memory a, int256[] memory b)
         internal
         pure
@@ -469,7 +469,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set difference between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function difference(address[] memory a, address[] memory b)
         internal
         pure
@@ -479,7 +479,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set difference between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function difference(bytes32[] memory a, bytes32[] memory b)
         internal
         pure
@@ -489,7 +489,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set intersection between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function intersection(uint256[] memory a, uint256[] memory b)
         internal
         pure
@@ -499,7 +499,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set intersection between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function intersection(int256[] memory a, int256[] memory b)
         internal
         pure
@@ -509,7 +509,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set intersection between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function intersection(address[] memory a, address[] memory b)
         internal
         pure
@@ -519,7 +519,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set intersection between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function intersection(bytes32[] memory a, bytes32[] memory b)
         internal
         pure
@@ -529,7 +529,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set union of `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function union(uint256[] memory a, uint256[] memory b)
         internal
         pure
@@ -539,7 +539,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set union of `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function union(int256[] memory a, int256[] memory b)
         internal
         pure
@@ -549,7 +549,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set union between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function union(address[] memory a, address[] memory b)
         internal
         pure
@@ -559,7 +559,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set union between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function union(bytes32[] memory a, bytes32[] memory b)
         internal
         pure
@@ -811,7 +811,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set difference of `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function _difference(uint256[] memory a, uint256[] memory b, uint256 signed)
         private
         pure
@@ -853,7 +853,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set intersection between `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function _intersection(uint256[] memory a, uint256[] memory b, uint256 signed)
         private
         pure
@@ -890,7 +890,7 @@ library LibSort {
     }
 
     /// @dev Returns the sorted set union of `a` and `b`.
-    /// Note: Behaviour is undefined if inputs are not sorted and uniquified.
+    /// NB: Behaviour is undefined if inputs are not sorted and uniquified.
     function _union(uint256[] memory a, uint256[] memory b, uint256 signed)
         private
         pure

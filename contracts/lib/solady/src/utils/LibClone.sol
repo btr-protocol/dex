@@ -251,7 +251,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the clone of `implementation`, with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddress(address implementation, bytes32 salt, address deployer)
         internal
         pure
@@ -401,7 +401,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the PUSH0 clone of `implementation`, with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddress_PUSH0(
         address implementation,
         bytes32 salt,
@@ -638,7 +638,7 @@ library LibClone {
 
     /// @dev Returns the address of the clone of
     /// `implementation` using immutable arguments encoded in `args`, with `salt`, by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddress(
         address implementation,
         bytes memory data,
@@ -708,7 +708,7 @@ library LibClone {
     /*              MINIMAL ERC1967 PROXY OPERATIONS              */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    // Note: The ERC1967 proxy here is intended to be upgraded with UUPS.
+    // NB: The ERC1967 proxy here is intended to be upgraded with UUPS.
     // This is NOT the same as ERC1967Factory's transparent proxy, which includes admin logic.
 
     /// @dev Deploys a minimal ERC1967 proxy with `implementation`.
@@ -834,7 +834,7 @@ library LibClone {
     }
 
     /// @dev Creates a deterministic minimal ERC1967 proxy with `implementation` and `salt`.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967(address implementation, bytes32 salt)
         internal
@@ -845,7 +845,7 @@ library LibClone {
 
     /// @dev Creates a deterministic minimal ERC1967 proxy with `implementation` and `salt`.
     /// Deposits `value` ETH during deployment.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967(uint256 value, address implementation, bytes32 salt)
         internal
@@ -918,7 +918,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the ERC1967 proxy of `implementation`, with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddressERC1967(
         address implementation,
         bytes32 salt,
@@ -1003,7 +1003,7 @@ library LibClone {
     }
 
     /// @dev Creates a deterministic minimal ERC1967 proxy with `implementation`, `args` and `salt`.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967(address implementation, bytes memory args, bytes32 salt)
         internal
@@ -1014,7 +1014,7 @@ library LibClone {
 
     /// @dev Creates a deterministic minimal ERC1967 proxy with `implementation`, `args` and `salt`.
     /// Deposits `value` ETH during deployment.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967(
         uint256 value,
@@ -1113,7 +1113,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the ERC1967 proxy of `implementation`, `args`, with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddressERC1967(
         address implementation,
         bytes memory args,
@@ -1183,7 +1183,7 @@ library LibClone {
     /*                 ERC1967I PROXY OPERATIONS                  */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    // Note: This proxy has a special code path that activates if `calldatasize() == 1`.
+    // NB: This proxy has a special code path that activates if `calldatasize() == 1`.
     // This code path skips the delegatecall and directly returns the `implementation` address.
     // The returned implementation is guaranteed to be valid if the keccak256 of the
     // proxy's code is equal to `ERC1967I_CODE_HASH`.
@@ -1331,7 +1331,7 @@ library LibClone {
     }
 
     /// @dev Creates a deterministic ERC1967I proxy with `implementation` and `salt`.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967I(address implementation, bytes32 salt)
         internal
@@ -1342,7 +1342,7 @@ library LibClone {
 
     /// @dev Creates a deterministic ERC1967I proxy with `implementation` and `salt`.
     /// Deposits `value` ETH during deployment.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967I(uint256 value, address implementation, bytes32 salt)
         internal
@@ -1415,7 +1415,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the ERC1967I proxy of `implementation`, with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddressERC1967I(
         address implementation,
         bytes32 salt,
@@ -1499,7 +1499,7 @@ library LibClone {
     }
 
     /// @dev Creates a deterministic ERC1967I proxy with `implementation`, `args` and `salt`.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967I(address implementation, bytes memory args, bytes32 salt)
         internal
@@ -1510,7 +1510,7 @@ library LibClone {
 
     /// @dev Creates a deterministic ERC1967I proxy with `implementation`, `args` and `salt`.
     /// Deposits `value` ETH during deployment.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967I(
         uint256 value,
@@ -1614,7 +1614,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the ERC1967I proxy of `implementation`, `args` with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddressERC1967I(
         address implementation,
         bytes memory args,
@@ -1791,7 +1791,7 @@ library LibClone {
     /*          MINIMAL ERC1967 BEACON PROXY OPERATIONS           */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    // Note: If you use this proxy, you MUST make sure that the beacon is a
+    // NB: If you use this proxy, you MUST make sure that the beacon is a
     // valid ERC1967 beacon. This means that the beacon must always return a valid
     // address upon a staticcall to `implementation()`, given sufficient gas.
     // For performance, the deployment operations and the proxy assumes that the
@@ -1935,7 +1935,7 @@ library LibClone {
     }
 
     /// @dev Creates a deterministic minimal ERC1967 beacon proxy with `salt`.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967BeaconProxy(address beacon, bytes32 salt)
         internal
@@ -1946,7 +1946,7 @@ library LibClone {
 
     /// @dev Creates a deterministic minimal ERC1967 beacon proxy with `salt`.
     /// Deposits `value` ETH during deployment.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967BeaconProxy(uint256 value, address beacon, bytes32 salt)
         internal
@@ -2019,7 +2019,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the ERC1967 beacon proxy, with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddressERC1967BeaconProxy(
         address beacon,
         bytes32 salt,
@@ -2102,7 +2102,7 @@ library LibClone {
     }
 
     /// @dev Creates a deterministic minimal ERC1967 beacon proxy with `args` and `salt`.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967BeaconProxy(address beacon, bytes memory args, bytes32 salt)
         internal
@@ -2113,7 +2113,7 @@ library LibClone {
 
     /// @dev Creates a deterministic minimal ERC1967 beacon proxy with `args` and `salt`.
     /// Deposits `value` ETH during deployment.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967BeaconProxy(
         uint256 value,
@@ -2210,7 +2210,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the ERC1967 beacon proxy with `args`, with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddressERC1967BeaconProxy(
         address beacon,
         bytes memory args,
@@ -2280,7 +2280,7 @@ library LibClone {
     /*              ERC1967I BEACON PROXY OPERATIONS              */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    // Note: This proxy has a special code path that activates if `calldatasize() == 1`.
+    // NB: This proxy has a special code path that activates if `calldatasize() == 1`.
     // This code path skips the delegatecall and directly returns the `implementation` address.
     // The returned implementation is guaranteed to be valid if the keccak256 of the
     // proxy's code is equal to `ERC1967_BEACON_PROXY_CODE_HASH`.
@@ -2434,7 +2434,7 @@ library LibClone {
     }
 
     /// @dev Creates a deterministic ERC1967I beacon proxy with `salt`.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967IBeaconProxy(address beacon, bytes32 salt)
         internal
@@ -2445,7 +2445,7 @@ library LibClone {
 
     /// @dev Creates a deterministic ERC1967I beacon proxy with `salt`.
     /// Deposits `value` ETH during deployment.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967IBeaconProxy(uint256 value, address beacon, bytes32 salt)
         internal
@@ -2518,7 +2518,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the ERC1967I beacon proxy, with `salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddressERC1967IBeaconProxy(
         address beacon,
         bytes32 salt,
@@ -2601,7 +2601,7 @@ library LibClone {
     }
 
     /// @dev Creates a deterministic ERC1967I beacon proxy with `args` and `salt`.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967IBeaconProxy(address beacon, bytes memory args, bytes32 salt)
         internal
@@ -2612,7 +2612,7 @@ library LibClone {
 
     /// @dev Creates a deterministic ERC1967I beacon proxy with `args` and `salt`.
     /// Deposits `value` ETH during deployment.
-    /// Note: This method is intended for use in ERC4337 factories,
+    /// NB: This method is intended for use in ERC4337 factories,
     /// which are expected to NOT revert if the proxy is already deployed.
     function createDeterministicERC1967IBeaconProxy(
         uint256 value,
@@ -2709,7 +2709,7 @@ library LibClone {
     }
 
     /// @dev Returns the address of the ERC1967I beacon proxy, with  `args` and salt` by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddressERC1967IBeaconProxy(
         address beacon,
         bytes memory args,
@@ -2822,7 +2822,7 @@ library LibClone {
 
     /// @dev Returns the address when a contract with initialization code hash,
     /// `hash`, is deployed with `salt`, by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddress(bytes32 hash, bytes32 salt, address deployer)
         internal
         pure

@@ -17,29 +17,28 @@ import {LibConstants as C} from "./LibConstants.sol";
 ///
 /// ========== UNITS REFERENCE ==========
 ///
-/// All pricing and fee calculations use LibConstants for unified precision:
+/// All percentage-based parameters use unified 0.01% BPS scale (10000 = 100%):
 ///
-/// **Price & Coverage (C.WAD = 1e18):**
-/// - Oracle prices: base-per-token in WAD units (1e18 scale)
-/// - Coverage ratio: reserves/liabilities in WAD units (1e18 = 100%)
-/// - Decay slopes: WAD units per second (1e18 scale)
+/// **Primary BPS Scale (C.BPS = 10,000, 0.01% per unit, max uint16 = 655%):**
+/// - coverageMin/Max: 5000 = 50%, 10000 = 100%, 20000 = 200%
+/// - gamma/vega/lambda: 10000 = 1.0x (100% sensitivity), 5000 = 0.5x
+/// - depth/position (x-axis): 0 to 10000 = 0% to 100% cumulative depth
+/// - knots: percentage of dispersion range (-100 to +100)
 ///
-/// **Fees, Spreads, Volatility (C.PBPS = 1,000,000):**
-/// - Fee rates: 5,000 = 0.5%, 100 = 0.01% (0.0001% precision)
+/// **PBPS Scale (C.PBPS = 1,000,000, 0.0001% per unit):**
+/// - Fee rates: 5,000 = 0.5%, 100 = 0.01%
 /// - Spline offsets: in PBPS units
 /// - Volatility EMAs: 1,000,000 = 1%, 10,000,000 = 10%
 /// - Oracle offsets: 100,000 = 10% deviation from TWAP
-/// - Sensitivity multipliers (γ, ν, λ): 100,000 = 100% = 1.0x
-/// - Coverage bounds: 500,000 = 50% floor, 2,000,000 = 200% ceiling
+/// - dispersion (min/max): 0.0001% units
+/// - depthAmplifier: 0.0001% units
 ///
-/// **Liquidity Profile:**
-/// - WEIGHT_SUM = 200: Profile weights must sum to 200 (1 unit = 0.5% of depth)
-/// - X-axis domain: [0, 10000] representing 0% to 100% cumulative depth
+/// **WAD Scale (C.WAD = 1e18):**
+/// - Oracle prices: base-per-token in WAD units
+/// - Coverage ratio: reserves/liabilities in WAD units (1e18 = 100%)
+/// - Decay slopes: WAD units per second
 ///
-/// **Depth Curve:**
-/// - depthAmplifier: C.PBPS basis (1 unit = 0.0001%), higher = more depth at low coverage
-/// - Converted to WAD: k = (depthAmplifier * C.WAD) / C.PBPS
-///
+
 library LibPricing {
     using {M.b64To1e18} for uint64;
 
@@ -63,21 +62,23 @@ library LibPricing {
     /// - gamma is a MULTIPLIER (basis 10000): 10000 = 1.0x, 5000 = 0.5x, 20000 = 2.0x
     ///
     /// Key properties:
-    /// - At critical_min (50%): skew = +gamma×100 (max premium, pool buying)
+    /// - At coverageMin (e.g., 5000 = 50%): skew = +gamma×100 (max premium, pool buying)
     /// - At target (100%): skew = 0 (equilibrium)
-    /// - At critical_max (200%): skew = -gamma×100 (max discount, pool selling)
+    /// - At coverageMax (e.g., 20000 = 200%): skew = -gamma×100 (max discount, pool selling)
     /// - Linear interpolation - predictable, matches Avellaneda-Stoikov theory
     /// - Gamma as multiplier, NOT exponent - controls steepness linearly
     ///
     /// @param reserves Asset reserves
     /// @param liabilities Asset liabilities
-    /// @param coverageFloor Critical coverage floor (0.0001% units, e.g., 500000 = 50%)
+    /// @param coverageMin Critical coverage floor (0.01% units, e.g., 5000 = 50%, max uint16 = 655%)
+    /// @param coverageMax Critical coverage ceiling (0.01% units, e.g., 20000 = 200%)
     /// @param gamma Inventory sensitivity multiplier (basis 10000, e.g., 10000 = 1.0x, 5000 = 0.5x)
     /// @return inventorySkew Directional bias from inventory imbalance (-100 to +100)
     function computeInventorySkew(
         uint128 reserves,
         uint128 liabilities,
-        uint16 coverageFloor,
+        uint16 coverageMin,
+        uint16 coverageMax,
         uint16 gamma
     ) internal pure returns (int8 inventorySkew) {
         // Edge case: zero liabilities = infinite coverage, treat as maximally over-collateralized
@@ -86,9 +87,10 @@ library LibPricing {
         // Calculate coverage ratio
         uint256 coverage = calculateCoverage(reserves, liabilities);
 
-        // Critical bounds (fixed for now, could be parameterized)
-        uint256 critMin = (uint256(coverageFloor) * C.WAD) / C.PBPS;  // e.g., 50%
-        uint256 critMax = 2 * C.WAD;  // 200% critical max
+        // Critical bounds (parametric for flexibility across different pool types)
+        // coverageMin/Max use 0.01% units: 10000 = 100%, 5000 = 50%, 20000 = 200%
+        uint256 critMin = (uint256(coverageMin) * C.WAD) / 10000;  // e.g., 5000 → 50%
+        uint256 critMax = (uint256(coverageMax) * C.WAD) / 10000;  // e.g., 20000 → 200%
         uint256 target = C.WAD;       // 100% target
 
         // At or below critical min: max premium (capped at +100)
@@ -108,8 +110,8 @@ library LibPricing {
             uint256 posUnder = target - coverage;
             progress = (posUnder * C.WAD) / rangeUnder;
 
-            // Linear: skew = gamma × 100 × progress / 100 (gamma is % in PBPS, so divide by 100)
-            skew = (uint256(gamma) * 100 * progress) / (C.HUNDRED_PCT_PBPS * C.WAD);
+            // Linear: skew = gamma × 100 × progress / 100 (gamma is % in BPS, so divide by 100)
+            skew = (uint256(gamma) * 100 * progress) / (C.BPS * C.WAD);
 
             if (skew > 100) return 100;
             return int8(int256(skew));
@@ -122,8 +124,8 @@ library LibPricing {
         uint256 posOver = coverage - target;
         progress = (posOver * C.WAD) / rangeOver;
 
-        // Linear: skew = -gamma × 100 × progress / 100 (gamma is % in PBPS, so divide by 100)
-        skew = (uint256(gamma) * 100 * progress) / (C.HUNDRED_PCT_PBPS * C.WAD);
+        // Linear: skew = -gamma × 100 × progress / 100 (gamma is % in BPS, so divide by 100)
+        skew = (uint256(gamma) * 100 * progress) / (C.BPS * C.WAD);
 
         if (skew > 100) return -100;
         return int8(-int256(skew));
@@ -244,8 +246,8 @@ library LibPricing {
     ) internal pure returns (uint32 dispersion) {
         // Linear mapping: dispersion increases with volatility
         // Base dispersion + volatility scaled by vega
-        // Vega controls sensitivity: 100,000 (100%=1x) means vol/1000, 50,000 (50%=0.5x) means vol/2000
-        uint256 scaledVol = (uint256(volatility) * uint256(vega)) / (1000 * C.HUNDRED_PCT_PBPS);
+        // Vega controls sensitivity: 10000 (100%=1x) means vol/1000, 5000 (50%=0.5x) means vol/2000
+        uint256 scaledVol = (uint256(volatility) * uint256(vega)) / (1000 * C.BPS);
         uint256 raw = 1000 + scaledVol;
 
         // Clamp to [minDispersion, maxDispersion]
@@ -488,7 +490,8 @@ library LibPricing {
         uint16 vega;
         uint16 lambda;
         uint16 gamma;
-        uint16 coverageFloor;
+        uint16 coverageMin;
+        uint16 coverageMax;
         uint256 price;  // 1e18 format
     }
 
@@ -550,8 +553,8 @@ library LibPricing {
         (quote.protoFee, quote.lpFee) = splitFee(feeOut + (feeIn * acc.currentAmount) / amountIn, $.feeParams.protoShare);
         quote.amountOut = acc.currentAmount - feeOut;
 
-        quote.skewIn = computeInventorySkew(cacheIn.reserves, cacheIn.liabilities, cacheIn.coverageFloor, cacheIn.gamma);
-        quote.skewOut = computeInventorySkew(cacheOut.reserves, cacheOut.liabilities, cacheOut.coverageFloor, cacheOut.gamma);
+        quote.skewIn = computeInventorySkew(cacheIn.reserves, cacheIn.liabilities, cacheIn.coverageMin, cacheIn.coverageMax, cacheIn.gamma);
+        quote.skewOut = computeInventorySkew(cacheOut.reserves, cacheOut.liabilities, cacheOut.coverageMin, cacheOut.coverageMax, cacheOut.gamma);
     }
 
     /// @notice Cache endpoint data to avoid redundant SLOADs
@@ -569,7 +572,8 @@ library LibPricing {
         cache.vega = asset.vega;
         cache.lambda = asset.lambda;
         cache.gamma = asset.gamma;
-        cache.coverageFloor = rc.coverageFloor;
+        cache.coverageMin = rc.coverageMin;
+        cache.coverageMax = rc.coverageMax;
 
         // Cache price (oracle read with transient cache)
         if (token == $.baseToken) {
@@ -647,6 +651,14 @@ library LibPricing {
             amountOut = amountOut * (10 ** uint256(decimalsTo - decimalsFrom));
         }
 
+        // Cap output by available reserves
+        // Note: minLiquidity enforcement happens at execution time (ExchangeV1)
+        // Inventory skew naturally creates exponential pricing as reserves deplete
+        IPoolV1.Asset storage toAsset = $.assets[to];
+        if (amountOut > toAsset.reserves) {
+            amountOut = toAsset.reserves;
+        }
+
         // Calculate execution price for oracle (price of "to" in terms of "from")
         // Use actual executed amounts, adjusted to 18 decimals for precision
         uint256 price18 = (amountOut * 1e18 * (10 ** uint256(18 - decimalsTo))) /
@@ -668,7 +680,7 @@ library LibPricing {
         bool selling,
         address profileAsset
     ) private view returns (uint256 amountOut) {
-        int8 skew = computeInventorySkew(asset.reserves, asset.liabilities, rc.coverageFloor, asset.gamma);
+        int8 skew = computeInventorySkew(asset.reserves, asset.liabilities, rc.coverageMin, rc.coverageMax, asset.gamma);
 
         if (selling) {
             (amountOut,) = quoteSwap(
@@ -694,7 +706,7 @@ library LibPricing {
         uint32 sigma,
         address profileAsset
     ) private view returns (uint256 midPrice) {
-        int8 skew = computeInventorySkew(asset.reserves, asset.liabilities, rc.coverageFloor, asset.gamma);
+        int8 skew = computeInventorySkew(asset.reserves, asset.liabilities, rc.coverageMin, rc.coverageMax, asset.gamma);
         uint32 dispersion = _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
 
         return _getMidPriceFromProfile(twap, skew, dispersion, $.profiles[profileAsset]);
@@ -730,11 +742,11 @@ library LibPricing {
 
         bool improvesCoverage = impact < 0;
 
-        // Symmetric volatility band: S_vol = 100 + (σ_pair × vega_spread) / 100 (vega is % in PBPS)
-        uint256 sVol = 100 + (uint256(sigmaPair) * uint256(vegaSpread)) / (100 * C.HUNDRED_PCT_PBPS);
+        // Symmetric volatility band: S_vol = 100 + (σ_pair × vega_spread) / 100 (vega is % in BPS)
+        uint256 sVol = 100 + (uint256(sigmaPair) * uint256(vegaSpread)) / (100 * C.BPS);
 
-        // Directional deviation surcharge: U = Δ_pair × lambda_spread / 100 (lambda is % in PBPS)
-        uint256 u = (uint256(deltaPair) * uint256(lambdaSpread)) / C.HUNDRED_PCT_PBPS;
+        // Directional deviation surcharge: U = Δ_pair × lambda_spread / 100 (lambda is % in BPS)
+        uint256 u = (uint256(deltaPair) * uint256(lambdaSpread)) / C.BPS;
 
         uint256 rawSpread = improvesCoverage ? sVol : sVol + u;
 
@@ -930,6 +942,8 @@ library LibPricing {
             return 1; // Minimal depth - effectively blocks pricing
         }
 
+        // When liabilities = 0, depth = reserves (no virtual depth, no amplification)
+        // Reserve caps in _executeLeg prevent quotes exceeding available reserves
         if (liabilities == 0) return uint256(reserves);
 
         // Calculate coverage ratio
@@ -1066,10 +1080,10 @@ library LibPricing {
         // Compute deficit = 1 - coverage
         uint256 deficit = C.WAD - coverage;
 
-        // Exponent p = 1 + (suppression / 100) in WAD scale (suppression is % in PBPS)
-        // For WAD precision: p_wad = (100 + suppression/10000) * (1e18 / 100)
-        // = (C.HUNDRED_PCT_PBPS + suppression/100) * (C.WAD / 100)
-        uint256 pWad = (C.HUNDRED_PCT_PBPS + uint256(suppression) / 100) * (C.WAD / 100);
+        // Exponent p = 1 + (suppression / 10000) where suppression is in PBPS
+        // For WAD precision: p_wad = C.WAD + (suppression * C.WAD) / 10000
+        // suppression=10000 → p=2, suppression=0 → p=1
+        uint256 pWad = C.WAD + (uint256(suppression) * C.WAD) / C.PBPS;
 
         // Compute deficit^p using logarithmic exponentiation
         // deficit^p = exp(p * ln(deficit))
@@ -1108,7 +1122,7 @@ library LibPricing {
 
         // For power law haircut: x in [0, 1], so we use:
         // x^y = exp(y * ln(x))
-        // Note: y is in C.WAD units, so we scale appropriately
+        // NB: y is in C.WAD units, so we scale appropriately
 
         // Use a simple Newton iteration or binary approximation for coverage in [0,1]
         // Fallback: for practical purposes with reasonable y values, use:

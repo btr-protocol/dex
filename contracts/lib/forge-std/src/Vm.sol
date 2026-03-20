@@ -1753,7 +1753,7 @@ interface VmSafe {
     /// Returns the Foundry version.
     /// Format: <cargo_version>-<tag>+<git_sha_short>.<unix_build_timestamp>.<profile>
     /// Sample output: 0.3.0-nightly+3cb96bde9b.1737036656.debug
-    /// Note: Build timestamps may vary slightly across platforms due to separate CI jobs.
+    /// NB: Build timestamps may vary slightly across platforms due to separate CI jobs.
     /// For reliable version comparisons, use UNIX format (e.g., >= 1700000000)
     /// to compare timestamps while ignoring minor time differences.
     function getFoundryVersion() external view returns (string memory version);
@@ -1887,7 +1887,7 @@ interface VmSafe {
     /// * requires previous binding generation with `forge bind-json`.
     /// * bindings will be retrieved from the path configured in `foundry.toml`.
     /// 2. String representation of the type (i.e. "Foo(Bar bar) Bar(uint256 baz)").
-    /// * Note: the cheatcode will use the canonical type even if the input is malformated
+    /// * NB: the cheatcode will use the canonical type even if the input is malformated
     /// with the wrong order of elements or with extra whitespaces.
     function eip712HashStruct(string calldata typeNameOrDefinition, bytes calldata abiEncodedData)
         external
@@ -1911,7 +1911,7 @@ interface VmSafe {
     /// * requires previous binding generation with `forge bind-json`.
     /// * bindings will be retrieved from the path configured in `foundry.toml`.
     /// 2. String representation of the type (i.e. "Foo(Bar bar) Bar(uint256 baz)").
-    /// * Note: the cheatcode will output the canonical type even if the input is malformated
+    /// * NB: the cheatcode will output the canonical type even if the input is malformated
     /// with the wrong order of elements or with extra whitespaces.
     function eip712HashType(string calldata typeNameOrDefinition) external pure returns (bytes32 typeHash);
 

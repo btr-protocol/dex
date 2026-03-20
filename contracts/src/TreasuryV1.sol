@@ -12,6 +12,7 @@ import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
 import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
 import {LibRescue} from "./libraries/LibRescue.sol";
+import {LibConstants as C} from "./libraries/LibConstants.sol";
 
 /// @title TreasuryV1
 /// @notice Standalone treasury for governance token management, TGE, vesting, and protocol fee collection
@@ -21,10 +22,10 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
     // CONSTANTS
     // ═══════════════════════════════════════════════════════════════════════════
 
-    uint48 constant OWNERSHIP_TIMELOCK = 7 days;
-    uint48 constant GRACE_PERIOD = 7 days;
+    // Timelock constants from LibConstants: C.CRITICAL_TIMELOCK, C.GRACE_PERIOD, C.UPGRADE_TIMELOCK
 
     // Vesting parameters (5yr linear, 6mo cliff, 15% at cliff)
+    // Treasury-specific: kept local as vesting is Treasury-specific logic
     uint48 constant CLIFF_DURATION = 180 days;
     uint48 constant VESTING_DURATION = 5 * 365 days;
     uint16 constant CLIFF_PERCENT = 1500; // 15% in basis points
@@ -63,8 +64,6 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
     uint96 public pendingUpgradeOp;
     bytes32 public pendingUpgrade;
     address public pendingImplementation;
-    uint48 constant UPGRADE_TIMELOCK = 7 days;
-    uint48 constant UPGRADE_GRACE = 3 days;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // INITIALIZATION
@@ -287,7 +286,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
         if (newOwner == address(0)) revert IErrors.ZeroValue();
         if (pendingOwnershipOp != 0) revert IErrors.PendingTimelock(uint48(block.timestamp));
 
-        pendingOwnershipOp = TL.pack(OWNERSHIP_TIMELOCK, GRACE_PERIOD);
+        pendingOwnershipOp = TL.pack(C.CRITICAL_TIMELOCK, C.GRACE_PERIOD);
         pendingOwner = newOwner;
     }
 
@@ -340,7 +339,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
         if (newCap < es.claimed) revert IErrors.InvalidInput();
         if (pendingEmissionsCapOp != 0) revert IErrors.PendingTimelock(uint48(block.timestamp));
 
-        pendingEmissionsCapOp = TL.pack(OWNERSHIP_TIMELOCK, GRACE_PERIOD);
+        pendingEmissionsCapOp = TL.pack(C.CRITICAL_TIMELOCK, C.GRACE_PERIOD);
         pendingEmissionsCap = newCap;
     }
 
@@ -388,7 +387,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
         pendingUpgrade = keccak256(abi.encode(newImplementation, block.timestamp));
         pendingImplementation = newImplementation;
 
-        uint96 timelock = TL.pack(UPGRADE_TIMELOCK, UPGRADE_GRACE);
+        uint96 timelock = TL.pack(C.UPGRADE_TIMELOCK, C.GRACE_PERIOD);
         pendingUpgradeOp = timelock;
 
         emit UpgradeAuthorized(pendingUpgrade, newImplementation, uint48(timelock >> 48));

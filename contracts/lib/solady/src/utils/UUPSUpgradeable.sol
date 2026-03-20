@@ -55,7 +55,7 @@ abstract contract UUPSUpgradeable is CallContextChecker {
     /// @dev Returns the storage slot used by the implementation,
     /// as specified in [ERC1822](https://eips.ethereum.org/EIPS/eip-1822).
     ///
-    /// Note: The `notDelegated` modifier prevents accidental upgrades to
+    /// NB: The `notDelegated` modifier prevents accidental upgrades to
     /// an implementation that is a proxy contract.
     function proxiableUUID() public view virtual notDelegated returns (bytes32) {
         // This function must always return `_ERC1967_IMPLEMENTATION_SLOT` to comply with ERC1967.
@@ -65,7 +65,7 @@ abstract contract UUPSUpgradeable is CallContextChecker {
     /// @dev Upgrades the proxy's implementation to `newImplementation`.
     /// Emits a {Upgraded} event.
     ///
-    /// Note: Passing in empty `data` skips the delegatecall to `newImplementation`.
+    /// NB: Passing in empty `data` skips the delegatecall to `newImplementation`.
     function upgradeToAndCall(address newImplementation, bytes calldata data)
         public
         payable

@@ -209,7 +209,7 @@ library SignatureCheckerLib {
     /*                     ERC1271 OPERATIONS                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    // Note: These ERC1271 operations do NOT have an ECDSA fallback.
+    // NB: These ERC1271 operations do NOT have an ECDSA fallback.
 
     /// @dev Returns whether `signature` is valid for `hash` for an ERC1271 `signer` contract.
     function isValidERC1271SignatureNow(address signer, bytes32 hash, bytes memory signature)
@@ -329,7 +329,7 @@ library SignatureCheckerLib {
     /// This produces a hash corresponding to the one signed with the
     /// [`eth_sign`](https://eth.wiki/json-rpc/API#eth_sign)
     /// JSON-RPC method as part of EIP-191.
-    /// Note: Supports lengths of `s` up to 999999 bytes.
+    /// NB: Supports lengths of `s` up to 999999 bytes.
     function toEthSignedMessageHash(bytes memory s) internal pure returns (bytes32 result) {
         /// @solidity memory-safe-assembly
         assembly {

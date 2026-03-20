@@ -6,6 +6,45 @@ import {IPoolV1} from "../IPoolV1.sol";
 /// @title IExchangeV1
 /// @notice Trading operations: swap, batchSwap, quotes
 interface IExchangeV1 {
+    // ========== STRUCTS ==========
+
+    /// @notice Swap quote result
+    struct SwapQuote {
+        uint256 amountOut;
+        uint256 amountIn;
+        uint16 spreadBps; // Bid-ask spread (0.0001% units)
+        uint256 protoFee; // Protocol fee
+        uint256 lpFee; // LP fee
+        int8 skewIn; // Input inventory skew
+        int8 skewOut; // Output inventory skew
+        address[] routeHops; // Routing path
+        uint256[] hopAmounts; // Amount at each hop
+        uint64[] hopPrices; // Execution price per hop (B64)
+    }
+
+    // ========== COMMON VIEW FUNCTIONS ==========
+
+    /// @notice Get pool owner
+    function owner() external view returns (address);
+
+    /// @notice Get pool base token (price anchor)
+    function baseToken() external view returns (address);
+
+    /// @notice Get wrapped native token address
+    function wnative() external view returns (address);
+
+    /// @notice Get asset configuration
+    function getAsset(address token) external view returns (IPoolV1.Asset memory);
+
+    /// @notice Get risk configuration
+    function getRiskConfig(address token) external view returns (IPoolV1.RiskConfig memory);
+
+    /// @notice Get LP token balance
+    function getLPBalance(address user, address token) external view returns (uint256);
+
+    /// @notice Get coverage ratio
+    function getCoverageRatio(address token) external view returns (uint256);
+
     // ========== WRITE FUNCTIONS ==========
 
     /// @notice Swap tokenIn for tokenOut with anchor path pricing
@@ -31,40 +70,19 @@ interface IExchangeV1 {
         address tokenIn,
         address tokenOut,
         uint256 amountIn
-    ) external returns (IPoolV1.SwapQuote memory quote);
-
-    /// @notice Get asset configuration
-    function getAsset(address token) external view returns (IPoolV1.Asset memory);
+    ) external view returns (SwapQuote memory quote);
 
     /// @notice Get oracle feed configuration
     function getFeedConfig(address token) external view returns (IPoolV1.OracleConfig memory);
 
-    /// @notice Get risk configuration
-    function getRiskConfig(address token) external view returns (IPoolV1.RiskConfig memory);
-
     /// @notice Get liquidity profile
     function getLiquidityProfile(address token) external view returns (IPoolV1.LiquidityProfile memory);
-
-    /// @notice Get LP token balance
-    function getLPBalance(address user, address token) external view returns (uint256);
 
     /// @notice Get accumulated protocol fees
     function getProtocolFees(address token) external view returns (uint256);
 
-    /// @notice Get coverage ratio (reserves/liabilities * 1e18)
-    function getCoverageRatio(address token) external view returns (uint256);
-
     /// @notice Get current mid price from oracle
-    function getMidPrice(address token) external returns (uint256);
-
-    /// @notice Pool owner
-    function owner() external view returns (address);
-
-    /// @notice Base token address
-    function baseToken() external view returns (address);
-
-    /// @notice Wrapped native token address
-    function wnative() external view returns (address);
+    function getMidPrice(address token) external view returns (uint256);
 
     // ========== EVENTS ==========
 

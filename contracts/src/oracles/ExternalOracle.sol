@@ -2,6 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
@@ -14,7 +15,6 @@ contract ExternalOracle is IOracleV1 {
     // Common errors inherited from IErrors:
     // - ZeroPrice(), VolatilityTooHigh(), InvalidDeviation()
 
-    error Unauthorized();
     error FeedNotFound(bytes32 feedId);
     error FeedAlreadyExists(bytes32 feedId);
 
@@ -72,19 +72,19 @@ contract ExternalOracle is IOracleV1 {
     // ========== MODIFIERS ==========
 
     modifier onlyOwner() {
-        if (msg.sender != owner) revert Unauthorized();
+        if (msg.sender != owner) revert Ownable.Unauthorized();
         _;
     }
 
     modifier onlyOracle() {
-        if (!oracles[msg.sender]) revert Unauthorized();
+        if (!oracles[msg.sender]) revert Ownable.Unauthorized();
         _;
     }
 
     // ========== CONSTRUCTOR ==========
 
     constructor(address _owner, address _oracle) {
-        if (_owner == address(0) || _oracle == address(0)) revert Unauthorized();
+        if (_owner == address(0) || _oracle == address(0)) revert IErrors.ZeroValue();
         owner = _owner;
         oracles[_oracle] = true;
         emit OracleGranted(_oracle);
@@ -111,13 +111,13 @@ contract ExternalOracle is IOracleV1 {
         uint16 maxDeviation,
         uint16 ttl
     ) external onlyOwner {
-        if (base == address(0) || quote == address(0)) revert Unauthorized();
+        if (base == address(0) || quote == address(0)) revert IErrors.ZeroValue();
         if (fastEMA == 0 || slowEMA == 0) revert IErrors.ZeroValue();
         if (fastVolEMA > MAX_VOLATILITY || slowVolEMA > MAX_VOLATILITY) {
             revert IErrors.ThresholdViolation(fastVolEMA > slowVolEMA ? fastVolEMA : slowVolEMA, MAX_VOLATILITY);
         }
         if (maxDeviation > MAX_DEV_THRESHOLD) revert IErrors.InvalidInput();
-        if (ttl == 0) revert Unauthorized();
+        if (ttl == 0) revert IErrors.InvalidInput();
 
         bytes32 feedId = keccak256(abi.encodePacked(base, quote));
         if (feeds[feedId].updatedAt != 0) revert FeedAlreadyExists(feedId);
@@ -158,10 +158,10 @@ contract ExternalOracle is IOracleV1 {
     ) external onlyOwner {
         if (feeds[feedId].updatedAt == 0) revert FeedNotFound(feedId);
         if (maxDeviation > MAX_DEV_THRESHOLD) revert IErrors.InvalidInput();
-        if (ttl == 0) revert Unauthorized();
+        if (ttl == 0) revert IErrors.InvalidInput();
 
         feeds[feedId].ttl = ttl;
-        // Note: maxDeviation not stored in FeedData (removed from struct)
+        // NB: maxDeviation not stored in FeedData (removed from struct)
         // Deviation checks can be done off-chain before push
 
         emit FeedUpdated(feedId, maxDeviation, ttl);
@@ -170,7 +170,7 @@ contract ExternalOracle is IOracleV1 {
     /// @notice Grant oracle role
     /// @param oracle Address to grant role
     function grantOracle(address oracle) external onlyOwner {
-        if (oracle == address(0)) revert Unauthorized();
+        if (oracle == address(0)) revert IErrors.ZeroValue();
         oracles[oracle] = true;
         emit OracleGranted(oracle);
     }
@@ -184,7 +184,7 @@ contract ExternalOracle is IOracleV1 {
 
     /// @notice Transfer ownership
     function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert Unauthorized();
+        if (newOwner == address(0)) revert IErrors.ZeroValue();
         owner = newOwner;
     }
 
@@ -227,7 +227,7 @@ contract ExternalOracle is IOracleV1 {
             slowEMAs.length != length ||
             fastVolEMAs.length != length ||
             slowVolEMAs.length != length
-        ) revert Unauthorized();
+        ) revert IErrors.InvalidInput();
 
         for (uint256 i = 0; i < length; i++) {
             _pushInternal(

@@ -29,7 +29,7 @@ library LibCWIA {
     /*           CLONES WITH IMMUTABLE ARGS OPERATIONS            */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    // Note: This implementation of CWIA differs from the original implementation.
+    // NB: This implementation of CWIA differs from the original implementation.
     // If the calldata is empty, it will emit a `ReceiveETH(uint256)` event and skip the `DELEGATECALL`.
 
     /// @dev Deploys a clone of `implementation` with immutable arguments encoded in `data`.
@@ -338,7 +338,7 @@ library LibCWIA {
 
     /// @dev Returns the address of the deterministic clone of
     /// `implementation` using immutable arguments encoded in `data`, with `salt`, by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddress(
         address implementation,
         bytes memory data,
@@ -355,7 +355,7 @@ library LibCWIA {
 
     /// @dev Returns the address when a contract with initialization code hash,
     /// `hash`, is deployed with `salt`, by `deployer`.
-    /// Note: The returned result has dirty upper 96 bits. Please clean if used in assembly.
+    /// NB: The returned result has dirty upper 96 bits. Please clean if used in assembly.
     function predictDeterministicAddress(bytes32 hash, bytes32 salt, address deployer)
         internal
         pure

@@ -76,10 +76,10 @@ contract LibPricingTest is BaseTestSetup {
     function test_computeInventorySkew_zero_liabilities_max_negative() public pure {
         uint128 reserves = 1000;
         uint128 liabilities = 0;
-        uint16 coverageFloor = 50000; // 50%
+        uint16 coverageMin = 5000; // 50% (0.01% units)
         uint16 gamma = 10000; // 1x
 
-        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageFloor, gamma);
+        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, gamma);
 
         assertEq(skew, -100); // Max discount
     }
@@ -87,10 +87,10 @@ contract LibPricingTest is BaseTestSetup {
     function test_computeInventorySkew_over_collateralized_negative() public pure {
         uint128 reserves = 150;
         uint128 liabilities = 100;
-        uint16 coverageFloor = 50000; // 50%
+        uint16 coverageMin = 5000; // 50% (0.01% units)
         uint16 gamma = 10000; // 1x
 
-        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageFloor, gamma);
+        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, gamma);
 
         // Over-collateralized (c=1.5) should give negative skew
         assertLt(skew, 0);
@@ -100,10 +100,10 @@ contract LibPricingTest is BaseTestSetup {
     function test_computeInventorySkew_100_percent_coverage_zero() public pure {
         uint128 reserves = 100;
         uint128 liabilities = 100;
-        uint16 coverageFloor = 50000; // 50%
+        uint16 coverageMin = 5000; // 50% (0.01% units)
         uint16 gamma = 10000; // 1x
 
-        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageFloor, gamma);
+        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, gamma);
 
         // At exactly 100% coverage, skew should be 0
         assertEq(skew, 0);
@@ -112,10 +112,10 @@ contract LibPricingTest is BaseTestSetup {
     function test_computeInventorySkew_under_collateralized_positive() public pure {
         uint128 reserves = 80;
         uint128 liabilities = 100;
-        uint16 coverageFloor = 50000; // 50%
+        uint16 coverageMin = 5000; // 50% (0.01% units)
         uint16 gamma = 10000; // 1x
 
-        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageFloor, gamma);
+        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, gamma);
 
         // Under-collateralized (c=0.8) should give positive skew
         assertGt(skew, 0);
@@ -125,22 +125,22 @@ contract LibPricingTest is BaseTestSetup {
     function test_computeInventorySkew_at_critical_floor_max_positive() public pure {
         uint128 reserves = 5;
         uint128 liabilities = 100;
-        uint16 coverageFloor = 50000; // 5% coverage floor (50000 * 1e18 / 1_000_000 = 0.05e18)
+        uint16 coverageMin = 500; // 5% coverage floor (0.01% units)
         uint16 gamma = 10000; // 1x
 
-        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageFloor, gamma);
+        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, gamma);
 
-        // At critical floor (c=0.05), should return max positive skew
+        // At critical floor (c=5%), should return max positive skew
         assertEq(skew, 100);
     }
 
     function test_computeInventorySkew_below_critical_floor_max_positive() public pure {
         uint128 reserves = 3;
         uint128 liabilities = 100;
-        uint16 coverageFloor = 50000; // 5% coverage floor
+        uint16 coverageMin = 500; // 5% coverage floor (0.01% units)
         uint16 gamma = 10000; // 1x
 
-        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageFloor, gamma);
+        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, gamma);
 
         // Below critical floor, should return max positive skew
         assertEq(skew, 100);
@@ -149,38 +149,36 @@ contract LibPricingTest is BaseTestSetup {
     function test_computeInventorySkew_gamma_scaling() public pure {
         uint128 reserves = 150;
         uint128 liabilities = 100;
-        uint16 coverageFloor = 50000; // 50%
+        uint16 coverageMin = 5000; // 50% (0.01% units)
 
-        // Test with different gamma values
-        // NB: gamma is now the EXPONENT, not a multiplier
+        // Test with different gamma values (LINEAR MULTIPLIER per docs)
         // At 150% coverage (over-collateralized):
         // - progress = (1.5 - 1.0) / (2.0 - 1.0) = 0.5
-        // - skew = -100 × 0.5^(gamma/10000)
-        // - gamma=5000 (exp=0.5): skew = -100 × 0.5^0.5 = -70.7
-        // - gamma=10000 (exp=1.0): skew = -100 × 0.5^1.0 = -50
-        // - gamma=20000 (exp=2.0): skew = -100 × 0.5^2.0 = -25
-        int8 skew1x = P.computeInventorySkew(reserves, liabilities, coverageFloor, 10000); // 1x
-        int8 skew05x = P.computeInventorySkew(reserves, liabilities, coverageFloor, 5000);  // 0.5x
-        int8 skew2x = P.computeInventorySkew(reserves, liabilities, coverageFloor, 20000); // 2x
+        // - skew = -(gamma / 10000) × 100 × progress
+        // - gamma=5000 (0.5x):  skew = -50 × 0.5 = -25
+        // - gamma=10000 (1.0x): skew = -100 × 0.5 = -50
+        // - gamma=20000 (2.0x): skew = -200 × 0.5 = -100 (capped)
+        int8 skew1x = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, 10000); // 1x
+        int8 skew05x = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, 5000);  // 0.5x
+        int8 skew2x = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, 20000); // 2x
 
-        // With gamma as exponent: lower exp = steeper curve = more negative skew
-        // Higher gamma (larger exponent) = flatter curve = less extreme skew
-        assertLt(skew05x, skew1x); // 0.5x exponent is steeper
-        assertGt(skew2x, skew1x);  // 2x exponent is flatter
+        // With linear multiplier: higher gamma = more extreme (more negative) skew
+        assertGt(skew05x, skew1x, "0.5x should be less extreme than 1x"); // -25 > -50
+        assertGt(skew1x, skew2x, "1x should be less extreme than 2x");  // -50 > -100
     }
 
-    function test_computeInventorySkew_exponential_curve() public pure {
+    function test_computeInventorySkew_linear_curve() public pure {
         uint128 liabilities = 1000;
-        uint16 coverageFloor = 50000; // 50% floor (50000 * WAD / 1_000_000 = 0.05 WAD but it's scaled)
-        uint16 gamma = 10000; // 1x exponent
+        uint16 coverageMin = 5000; // 50% (0.01% units) floor
+        uint16 gamma = 10000; // 1.0x multiplier
 
         // Test at different coverage levels in under-collateralized zone
-        // With gamma=1.0x (linear exponent), skew should increase monotonically
-        int8 skew900 = P.computeInventorySkew(900, liabilities, coverageFloor, gamma); // 90%
-        int8 skew700 = P.computeInventorySkew(700, liabilities, coverageFloor, gamma); // 70%
-        int8 skew550 = P.computeInventorySkew(550, liabilities, coverageFloor, gamma); // 55%
+        // With gamma=1.0x (linear multiplier), skew should increase monotonically
+        int8 skew900 = P.computeInventorySkew(900, liabilities, coverageMin, 20000, gamma); // 90%
+        int8 skew700 = P.computeInventorySkew(700, liabilities, coverageMin, 20000, gamma); // 70%
+        int8 skew550 = P.computeInventorySkew(550, liabilities, coverageMin, 20000, gamma); // 55%
 
-        // With linear exponent, curve should be monotonically increasing
+        // With linear multiplier, skew increases linearly as coverage drops (positive skew = premium)
         assertGt(skew700, skew900, "Skew should increase as coverage drops");
         assertGt(skew550, skew700, "Skew should continue increasing");
     }
@@ -589,11 +587,11 @@ contract LibPricingTest is BaseTestSetup {
     function test_coverage_and_skew_consistency() public pure {
         uint128 reserves = 150;
         uint128 liabilities = 100;
-        uint16 coverageFloor = 50000;
+        uint16 coverageMin = 5000; // 50% (0.01% units)
         uint16 gamma = 10000;
 
         uint256 coverage = P.calculateCoverage(reserves, liabilities);
-        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageFloor, gamma);
+        int8 skew = P.computeInventorySkew(reserves, liabilities, coverageMin, 20000, gamma);
 
         // Over-collateralized should have coverage > 1.0 and negative skew
         assertGt(coverage, WAD);
