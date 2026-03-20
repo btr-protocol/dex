@@ -10,12 +10,13 @@ Read the guide for your task:
 
 | Role | Guide |
 |------|-------|
-| **Frontend** | [`docs/5. Contributing/FRONTEND.md`](docs/5. Contributing/FRONTEND.md) |
-| **Backend** | [`docs/5. Contributing/BACKEND.md`](docs/5. Contributing/BACKEND.md) |
-| **Smart Contracts** | [`docs/5. Contributing/SMART_CONTRACTS.md`](docs/5. Contributing/SMART_CONTRACTS.md) |
-| **Security/Audit** | [`docs/5. Contributing/SECURITY.md`](docs/5. Contributing/SECURITY.md) |
-| **Quant/Research** | [`docs/5. Contributing/QUANT.md`](docs/5. Contributing/QUANT.md) |
-| **Git Workflow** | [`docs/5. Contributing/GIT.md`](docs/5. Contributing/GIT.md) |
+| **Frontend** | [`docs/6. Contributing/FRONTEND.md`](docs/6. Contributing/FRONTEND.md) |
+| **Backend** | [`docs/6. Contributing/BACKEND.md`](docs/6. Contributing/BACKEND.md) |
+| **Smart Contracts** | [`docs/6. Contributing/SMART_CONTRACTS.md`](docs/6. Contributing/SMART_CONTRACTS.md) |
+| **Security/Audit** | [`docs/6. Contributing/SECURITY.md`](docs/6. Contributing/SECURITY.md) |
+| **Quant/Research** | [`docs/6. Contributing/QUANT.md`](docs/6. Contributing/QUANT.md) |
+| **Git Workflow** | [`docs/6. Contributing/GIT.md`](docs/6. Contributing/GIT.md) |
+| **Markdown/Tables** | [`docs/6. Contributing/HEADLESS_TABLES.md`](docs/6. Contributing/HEADLESS_TABLES.md) |
 
 ---
 
