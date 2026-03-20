@@ -16,7 +16,7 @@ export function DocsLayout({ children, currentSlug, loading = false }: DocsLayou
 
   return (
     <ThreeColumnLayout
-      leftHeader={<div className="text-sm font-semibold">Contents</div>}
+      leftHeader={<div className="text-sm font-semibold pl-4">Contents</div>}
       leftContent={<NavPanel type="files" />}
       rightHeader={<div className="text-sm font-semibold">On This Page</div>}
       rightContent={currentSlug ? <NavPanel type="toc" slug={currentSlug} /> : <div className="text-xs text-muted-foreground">No headings found</div>}

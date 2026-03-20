@@ -1,4 +1,5 @@
 import { Icon } from '@components/ui/Icon';
+import { Button } from '@components/ui/Button';
 import { useState, useEffect } from 'preact/hooks';
 import { useRouter } from '@lib/router';
 import { MaskIcon } from '@components/ui/MaskIcon';
@@ -6,19 +7,29 @@ import { WalletButton } from '@components/features/wallet';
 import { SearchModal } from '@components/features/search';
 import { SettingsModal, NotificationsModal } from '@components/features/modals';
 import { Badge } from '@components/ui/Badge';
-import { Tooltip } from '@components/ui/Tooltip';
+import { Tooltip } from '@components/ui/FloatingPanel';
 import { useNotifications, useNotificationLog, clearLog } from '@lib/notifications';
+import { useAuth } from '@lib/auth';
 import { LogLevel, type INotification } from '@/types/notification';
 import { headerNavigation, ROUTES } from '@/constants/navigation';
 
 export function Header() {
   const { path, navigate } = useRouter();
+  const { user, isAuthenticated } = useAuth();
   const [showSearch, setShowSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const toastNotifications = useNotifications();
   const logNotifications = useNotificationLog();
+
+  const isAdmin = user?.role === 'admin';
+  const isGuardedMode = import.meta.env.VITE_GUARDED === 'true';
+
+  // Filter navigation based on auth status when in guarded mode
+  const navigationItems = isGuardedMode && !isAuthenticated
+    ? headerNavigation.filter(item => item.path.startsWith('/docs'))
+    : headerNavigation;
 
   // Cmd+K / Ctrl+K to open search
   useEffect(() => {
@@ -68,14 +79,14 @@ export function Header() {
 
           {/* Nav - Desktop */}
           <nav className="hidden md:flex items-center gap-1">
-            {headerNavigation.map((item) => (
+            {navigationItems.map((item) => (
               <Tooltip key={item.path} content={item.description || item.title} side="bottom">
                 <button
                   onClick={() => navigate(item.path)}
                   className={`px-3 py-1.5 text-base font-medium font-title rounded-md transition-colors ${
                     isActive(item.path)
                       ? 'text-primary bg-primary/10'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                      : 'text-fg-2 hover:text-foreground hover:bg-muted/50'
                   }`}
                 >
                   {item.title}
@@ -87,7 +98,7 @@ export function Header() {
           {/* Mobile Menu Button */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-muted-foreground hover:text-foreground hover:bg-bg-2 rounded-md transition-colors"
+            className="md:hidden p-2 text-fg-2 hover:text-foreground hover:bg-bg-2 rounded-md transition-colors"
             aria-label="Toggle menu"
           >
             <Icon name={mobileMenuOpen ? 'x' : 'bars-3'} className="w-5 h-5" />
@@ -99,7 +110,7 @@ export function Header() {
             <Tooltip content="Search (⌘K)" side="bottom">
               <button
                 onClick={() => setShowSearch(true)}
-                className="hidden md:flex toolbar-btn flex-center-gap-2 px-3 min-w-[200px] justify-start text-muted-foreground border-r border-border rounded-l-sm"
+                className="hidden md:flex toolbar-btn flex-center-gap-2 px-3 min-w-[200px] justify-start text-fg-2 border-r border-border rounded-l-sm"
               >
                 <Icon name="magnifying-glass" className="w-4 h-4" />
                 <span className="text-sm">Search</span>
@@ -107,11 +118,39 @@ export function Header() {
               </button>
             </Tooltip>
 
+            {/* Archivist */}
+            <Tooltip content="Archivist" side="bottom">
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => navigate(ROUTES.ARCHIVIST)}
+                className="!rounded-none h-full"
+              >
+                <Icon name="robot" className="w-4 h-4" />
+              </Button>
+            </Tooltip>
+
+            {/* Admin - only visible to admins */}
+            {isAdmin && (
+              <Tooltip content="Admin Panel" side="bottom">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => navigate(ROUTES.ADMIN)}
+                  className="!rounded-none h-full"
+                >
+                  <Icon name="shield" className="w-4 h-4" />
+                </Button>
+              </Tooltip>
+            )}
+
             {/* Notifications */}
             <Tooltip content="Notifications" side="bottom">
-              <button
+              <Button
+                variant="ghost"
+                size="xs"
                 onClick={() => setShowNotifications(true)}
-                className="toolbar-btn border-r border-border relative"
+                className="!rounded-none relative h-full"
               >
                 <Icon name="bell" className="w-4 h-4" />
                 {(() => {
@@ -128,17 +167,19 @@ export function Header() {
                     </span>
                   );
                 })()}
-              </button>
+              </Button>
             </Tooltip>
 
             {/* Settings */}
             <Tooltip content="Settings" side="bottom">
-              <button
+              <Button
+                variant="ghost"
+                size="xs"
                 onClick={() => setShowSettings(true)}
-                className="toolbar-btn border-r border-border"
+                className="!rounded-none h-full"
               >
                 <Icon name="gear" className="w-4 h-4" />
-              </button>
+              </Button>
             </Tooltip>
 
             {/* Connect */}
@@ -149,7 +190,7 @@ export function Header() {
           {mobileMenuOpen && (
             <div className="md:hidden absolute top-12 left-0 right-0 bg-bg-0 border-b border-border shadow-lg z-50">
               <nav className="flex flex-col p-2 space-y-1">
-                {headerNavigation.map((item) => (
+                {navigationItems.map((item) => (
                   <button
                     key={item.path}
                     onClick={() => {
@@ -159,7 +200,7 @@ export function Header() {
                     className={`px-4 py-2 text-left text-base font-medium font-title rounded-md transition-colors ${
                       isActive(item.path)
                         ? 'text-primary bg-primary/10'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                        : 'text-fg-2 hover:text-foreground hover:bg-muted/50'
                     }`}
                   >
                     {item.title}

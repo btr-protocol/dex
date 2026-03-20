@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'preact/hooks';
 import { FlexCol } from '@components/ui/Flex';
 import { Icon } from '@components/ui/Icon';
-import { formatTimeAgo } from '@/utils/format';
-import type { ArchivistSession } from '@/types/archivist';
+import { formatTimeAgo } from '@sdk/utils/format';
+import { getAllSessions, deleteSession as deleteSessionFromStorage } from '@/utils/sessionStorage';
+
+interface SessionsPanelProps {
+  currentSessionId: string;
+  onNewSession: () => void;
+  onSelectSession: (sessionId: string) => void;
+}
 
 interface SessionsPanelProps {
   currentSessionId: string;
@@ -15,37 +21,18 @@ export function SessionsPanel({
   onNewSession,
   onSelectSession
 }: SessionsPanelProps) {
-  const [sessions, setSessions] = useState<ArchivistSession[]>([]);
+  const [sessions, setSessions] = useState(getAllSessions());
 
+  // Refresh sessions whenever currentSessionId changes (to catch new sessions being created)
   useEffect(() => {
-    const stored = localStorage.getItem('archivist-sessions');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as ArchivistSession[];
-        const migrated = parsed.map(s => ({
-          ...s,
-          createdAt: s.createdAt || s.lastActive,
-          name: s.name || s.lastMessage
-        }));
-        setSessions(migrated.sort((a, b) => b.lastActive - a.lastActive));
-      } catch (error) {
-        console.error('Failed to load sessions:', error);
-      }
-    }
+    setSessions(getAllSessions());
   }, [currentSessionId]);
 
   const handleDeleteSession = (sessionId: string, e: Event) => {
     e.stopPropagation();
 
-    const updated = sessions.filter(s => s.sessionId !== sessionId);
-    setSessions(updated);
-
-    try {
-      localStorage.setItem('archivist-sessions', JSON.stringify(updated));
-      localStorage.removeItem(`archivist-messages-${sessionId}`);
-    } catch (error) {
-      console.error('Failed to delete session:', error);
-    }
+    deleteSessionFromStorage(sessionId);
+    setSessions(getAllSessions());
 
     if (sessionId === currentSessionId) {
       onNewSession();
@@ -55,7 +42,7 @@ export function SessionsPanel({
   return (
     <>
       {sessions.length === 0 ? (
-        <div className="text-xs text-fg-3 py-4">
+        <div className="text-xs text-fg-3 py-3">
           No previous chats
         </div>
       ) : (
@@ -76,7 +63,13 @@ export function SessionsPanel({
 }
 
 interface SessionItemProps {
-  session: ArchivistSession;
+  session: {
+    sessionId: string;
+    name?: string;
+    lastMessage?: string;
+    lastActive: number;
+    messageCount: number;
+  };
   isActive: boolean;
   onSelect: () => void;
   onDelete: (e: Event) => void;
@@ -99,7 +92,7 @@ function SessionItem({ session, isActive, onSelect, onDelete }: SessionItemProps
             {sessionName}
           </div>
           <div className="text-xs text-fg-3">
-            {session.messageCount} messages · {timeAgo}
+            {session.messageCount} message{session.messageCount !== 1 ? 's' : ''} · {timeAgo}
           </div>
         </FlexCol>
       </button>
@@ -113,4 +106,3 @@ function SessionItem({ session, isActive, onSelect, onDelete }: SessionItemProps
     </div>
   );
 }
-

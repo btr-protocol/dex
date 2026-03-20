@@ -49,7 +49,7 @@ export interface EmptyStateProps extends HTMLAttributes<HTMLDivElement> {
 const emptyStateVariants = cva('', {
   variants: {
     layout: {
-      fullscreen: 'min-h-screen bg-bg-0 flex items-center justify-center',
+      fullscreen: 'h-screen bg-bg-0 flex items-center justify-center',
       default: 'bg-bg-1 p-6',
       inline: 'p-4',
     },

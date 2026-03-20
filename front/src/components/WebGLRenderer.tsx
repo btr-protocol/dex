@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { getGPUInfo } from '@utils/gpu-detection';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('WebGLRenderer');
 
 interface WebGLRendererProps {
   shaders: string[];
@@ -45,7 +48,7 @@ function createShader(gl: WebGLRenderingContext, type: number, source: string): 
   gl.compileShader(shader);
 
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+    log.error('Shader compile error', gl.getShaderInfoLog(shader));
     gl.deleteShader(shader);
     return null;
   }
@@ -66,8 +69,8 @@ function createProgram(
   gl.linkProgram(program);
 
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.error('Program link error:', gl.getProgramInfoLog(program));
-    gl.deleteProgram(program);
+    log.error('Program link error', gl.getProgramInfoLog(program));
+    gl.deleteShader(program);
     return null;
   }
 
@@ -157,7 +160,7 @@ export function WebGLRenderer({
 
       const gl = canvas.getContext('webgl');
       if (!gl) {
-        console.error('WebGL not supported');
+        log.error('WebGL not supported');
         return;
       }
 

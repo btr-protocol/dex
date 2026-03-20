@@ -4,14 +4,7 @@
  * for smoother signals with better memory
  */
 import { EMA, RSI, ADX } from 'technicalindicators';
-
-export interface OHLC {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
+import type { OHLC } from '@/types/market';
 
 // Configurable periods
 export interface IndicatorParams {

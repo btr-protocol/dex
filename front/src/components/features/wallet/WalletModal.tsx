@@ -11,6 +11,9 @@ import { Spinner } from '@components/ui/Spinner';
 import { useWallet } from '@lib/wallet';
 import { useWalletConnection } from '@hooks/useWalletConnection';
 import { useExternalLink } from '@/lib/external-links';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('walletModal');
 import {
     useInjectedWallets,
     getWalletDownloadUrl,
@@ -25,7 +28,7 @@ import {
 import { getName as getWalletName } from '@sdk/eth/wallets';
 import { addNotification } from '@lib/notifications';
 import { Icon } from '@components/ui/Icon';
-import { Tooltip } from '@components/ui/Tooltip';
+import { Tooltip } from '@components/ui/FloatingPanel';
 import { Button } from '@components/ui/Button';
 import { useKeyboardNav } from '@hooks/useKeyboardNav';
 import { legalRoutes } from '@/constants/navigation';
@@ -196,7 +199,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                 },
             });
         } catch (e: unknown) {
-            console.error('WalletConnect error:', e);
+            log.error('WalletConnect error', e);
             if (typeof e === 'object' && e !== null && 'message' in e && typeof (e as Record<string, unknown>).message === 'string') {
                 const msg = (e as Record<string, unknown>).message as string;
                 if (msg.includes('User rejected') || msg.includes('cancelled')) {

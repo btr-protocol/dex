@@ -1,23 +1,13 @@
-import { useState, useCallback, useEffect } from 'preact/hooks';
+import { useCallback, useEffect } from 'preact/hooks';
+import { withContext } from '@/lib/logger';
 import { useWallet } from '@/lib/wallet';
 import { formatUnits, parseUnits, type Address, ERC20_ABI, MOCK_PRICES, getTokenAddress, encodeFn, decodeFn } from '@sdk';
 import { swap as sdkSwap } from '@sdk/pool';
 import { getSwapQuote as apiGetSwapQuote } from './usePoolsAPI';
 import { usePoolsAPI } from './usePoolsAPI';
+import { quoteStore, type SwapQuote } from '@/lib/swap/QuoteStore';
 
-const API_URL = import.meta.env.VITE_COLLECTOR_API || 'http://localhost:3001';
-
-export interface SwapQuote {
-  amountOut: bigint;
-  amountIn: bigint;
-  spreadBps: number;
-  protoFee: bigint;
-  lpFee: bigint;
-  skewIn: number;
-  skewOut: number;
-  routeHops: Address[];
-  hopAmounts: bigint[];
-}
+const log = withContext('useSwap');
 
 export interface UseSwapResult {
   quote: SwapQuote | null;
@@ -41,16 +31,6 @@ export function useSwap(
   const { address, chainId, provider } = useWallet();
   const { pools } = usePoolsAPI();
 
-  const [quote, setQuote] = useState<SwapQuote | null>(null);
-  const [quoteLoading, setQuoteLoading] = useState(false);
-  const [quoteError, setQuoteError] = useState<string | null>(null);
-
-  const [swapLoading, setSwapLoading] = useState(false);
-  const [swapError, setSwapError] = useState<string | null>(null);
-
-  const [needsApproval, setNeedsApproval] = useState(false);
-  const [approveLoading, setApproveLoading] = useState(false);
-
   // Get pool address from API data
   const poolAddress = pools.length > 0 ? pools[0].address as Address : undefined;
   const tokenIn = chainId ? getTokenAddress(tokenInSymbol, chainId) : undefined;
@@ -59,15 +39,14 @@ export function useSwap(
   // Check if we should use mock mode (no pool data from API)
   const useMockMode = pools.length === 0;
 
-  // Fetch quote when inputs change
-  useEffect(() => {
+    // Fetch quote when inputs change
+    useEffect(() => {
     if (!tokenIn || !tokenOut) {
-      setQuoteError('Unknown token');
+      quoteStore.setQuoteError('Unknown token');
       return;
     }
     if (!amountIn || parseFloat(amountIn) <= 0) {
-      setQuote(null);
-      setQuoteError(null);
+      quoteStore.clearQuote();
       return;
     }
 
@@ -84,7 +63,7 @@ export function useSwap(
       const amountOutWei = parseUnits(amountOutNum.toFixed(18), 18);
       const feeWei = parseUnits((amountOutNum * 0.001).toFixed(18), 18); // 0.1% total fees
 
-      setQuote({
+      quoteStore.setQuoteSuccess({
         amountOut: amountOutWei,
         amountIn: amountInWei,
         spreadBps,
@@ -95,19 +74,16 @@ export function useSwap(
         routeHops: [],
         hopAmounts: [],
       });
-      setQuoteError(null);
-      setQuoteLoading(false);
       return;
     }
 
     if (!poolAddress) {
-      setQuoteError('No pool address');
+      quoteStore.setQuoteError('No pool address');
       return;
     }
 
     const fetchQuote = async () => {
-      setQuoteLoading(true);
-      setQuoteError(null);
+      quoteStore.startQuoteLoading();
 
       try {
         // Parse amount (assume 18 decimals for now)
@@ -121,8 +97,8 @@ export function useSwap(
           amountInWei.toString()
         );
 
-        // Convert API response to SwapQuote format
-        setQuote({
+        // Convert API response to SwapQuote format - use batched update
+        quoteStore.setQuoteSuccess({
           amountOut: BigInt(apiQuote.amountOut),
           amountIn: BigInt(apiQuote.amountIn),
           spreadBps: apiQuote.spreadBps,
@@ -134,15 +110,12 @@ export function useSwap(
           hopAmounts: apiQuote.hopAmounts.map((a) => BigInt(a)),
         });
       } catch (err: unknown) {
-        console.error('Quote error:', err);
+        log.error('Quote error:', err);
         let errorMessage = 'Failed to get quote';
         if (typeof err === 'object' && err !== null && 'message' in err && typeof (err as Record<string, unknown>).message === 'string') {
           errorMessage = (err as Record<string, unknown>).message as string;
         }
-        setQuoteError(errorMessage);
-        setQuote(null);
-      } finally {
-        setQuoteLoading(false);
+        quoteStore.setQuoteError(errorMessage);
       }
     };
 
@@ -153,11 +126,12 @@ export function useSwap(
   // Check allowance when quote changes (skip in mock mode)
   useEffect(() => {
     if (useMockMode) {
-      setNeedsApproval(false);
+      quoteStore.setNeedsApproval(false);
       return;
     }
+    const quote = quoteStore.quote.value;
     if (!quote || !address || !provider || !tokenIn || !poolAddress) {
-      setNeedsApproval(false);
+      quoteStore.setNeedsApproval(false);
       return;
     }
 
@@ -180,23 +154,24 @@ export function useSwap(
           data: result as `0x${string}`,
         }) as bigint;
 
-        setNeedsApproval(allowance < quote.amountIn);
+        quoteStore.setNeedsApproval(allowance < quote.amountIn);
       } catch (err) {
-        console.error('Allowance check error:', err);
+        log.error('Allowance check error:', err);
       }
     };
 
     checkAllowance();
-  }, [quote, address, provider, tokenIn, poolAddress, useMockMode]);
+  }, [quoteStore.quote.value, address, provider, tokenIn, poolAddress, useMockMode]);
 
   const approve = useCallback(async () => {
     if (useMockMode) {
-      console.log('[MOCK] Approval simulated');
+      log.debug('[MOCK] Approval simulated');
       return;
     }
+    const quote = quoteStore.quote.value;
     if (!provider || !tokenIn || !poolAddress || !quote) return;
 
-    setApproveLoading(true);
+    quoteStore.startApproval();
     try {
       const callData = encodeFn({
         abi: ERC20_ABI,
@@ -219,28 +194,27 @@ export function useSwap(
         params: [txHash],
       });
 
-      setNeedsApproval(false);
+      quoteStore.completeApproval(true);
     } catch (err: unknown) {
-      console.error('Approve error:', err);
+      log.error('Approve error:', err);
+      quoteStore.completeApproval(false);
       throw err;
-    } finally {
-      setApproveLoading(false);
     }
-  }, [provider, tokenIn, poolAddress, quote, address, useMockMode]);
+  }, [provider, tokenIn, poolAddress, address, useMockMode]);
 
   const executeSwap = useCallback(async (): Promise<string> => {
     if (useMockMode) {
-      console.log('[MOCK] Swap simulated:', { tokenInSymbol, tokenOutSymbol, amountIn });
+      log.debug('[MOCK] Swap simulated:', { tokenInSymbol, tokenOutSymbol, amountIn });
       // Return a fake tx hash for mock mode
       return '0x' + '0'.repeat(64);
     }
 
+    const quote = quoteStore.quote.value;
     if (!provider || !poolAddress || !quote || !address || !tokenIn || !tokenOut) {
       throw new Error('Missing required params');
     }
 
-    setSwapLoading(true);
-    setSwapError(null);
+    quoteStore.startSwapExecution();
 
     try {
       // Calculate minAmountOut with slippage
@@ -255,30 +229,29 @@ export function useSwap(
         recipient: address as Address,
       });
 
+      quoteStore.completeSwapExecution();
       return txHash;
     } catch (err: unknown) {
-      console.error('Swap error:', err);
+      log.error('Swap error:', err);
       let errorMessage = 'Swap failed';
       if (typeof err === 'object' && err !== null && 'message' in err && typeof (err as Record<string, unknown>).message === 'string') {
         errorMessage = (err as Record<string, unknown>).message as string;
       }
-      setSwapError(errorMessage);
+      quoteStore.setSwapError(errorMessage);
       throw err;
-    } finally {
-      setSwapLoading(false);
     }
-  }, [provider, poolAddress, quote, address, tokenIn, tokenOut, slippageBps, useMockMode, tokenInSymbol, tokenOutSymbol, amountIn]);
+  }, [provider, poolAddress, address, tokenIn, tokenOut, slippageBps, useMockMode, tokenInSymbol, tokenOutSymbol, amountIn]);
 
   return {
-    quote,
-    quoteLoading,
-    quoteError,
+    quote: quoteStore.quote.value,
+    quoteLoading: quoteStore.quoteLoading.value,
+    quoteError: quoteStore.quoteError.value,
     executeSwap,
-    swapLoading,
-    swapError,
-    needsApproval,
+    swapLoading: quoteStore.swapLoading.value,
+    swapError: quoteStore.swapError.value,
+    needsApproval: quoteStore.needsApproval.value,
     approve,
-    approveLoading,
+    approveLoading: quoteStore.approveLoading.value,
     isMockMode: useMockMode,
   };
 }

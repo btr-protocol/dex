@@ -56,7 +56,7 @@ export const SIZE_ICONS = {
   sm: 'w-3.5 h-3.5',
   default: 'w-4 h-4',
   lg: 'w-5 h-5',
-  xl: 'w-6 h-6',
+  xl: 'w-7 h-7',
   'compact-xl': 'w-6 h-6',
 } as const;
 

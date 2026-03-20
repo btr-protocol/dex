@@ -1,5 +1,5 @@
 import { Icon } from '@components/ui/Icon';
-import { Tooltip } from '@components/ui/Tooltip';
+import { Tooltip } from '@components/ui/FloatingPanel';
 
 interface HeaderButtonProps {
   iconName: string;

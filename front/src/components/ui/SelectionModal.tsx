@@ -11,6 +11,7 @@ import { useKeyboardNav } from '@hooks/useKeyboardNav';
 import { renderIcon, isStringIcon, isSvgPath } from '@utils/iconHelpers';
 import { SelectionItem } from '@/types/ui';
 import { useDebounce } from '@/hooks/useDebounce';
+import { cn } from '@utils/cn';
 
 export type { SelectionItem } from '@/types/ui';
 
@@ -196,16 +197,17 @@ export function SelectionModal({
             <button
               key={item.id}
               onClick={() => handleToggle(item.id)}
-              className={`w-full flex items-center gap-3 ${MODAL_PADDING} py-2 transition-colors ${
-                isHighlighted ? 'bg-bg-2' : 'hover:bg-bg-2'
-              }`}
-              style={isSelected ? { backgroundColor: 'var(--bg-primary)' } : undefined}
+              className={cn(
+                `w-full flex items-center gap-3 ${MODAL_PADDING} py-2 transition-colors`,
+                isHighlighted ? 'bg-bg-2' : 'hover:bg-bg-2',
+                isSelected ? 'bg-bg-primary' : ''
+              )}
             >
               {item.icon && (
                 isStringIcon(item.icon) ? (
                   <img src={item.icon} alt={item.label} className="w-8 h-8 rounded-xs" />
                 ) : (
-                  <div className={`w-10 h-8 flex items-center justify-center ${isSelected ? 'text-primary' : 'text-muted-foreground'}`}>
+                  <div className={`w-10 h-8 flex items-center justify-center ${isSelected ? 'text-primary' : 'text-fg-2'}`}>
                     {renderIcon(item.icon, 'w-5 h-5')}
                   </div>
                 )
@@ -267,11 +269,8 @@ export function FilterButton({
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1.5 h-8 px-2.5 rounded-sm transition-colors"
-      style={{
-        backgroundColor: 'var(--bg-primary)',
-        border: '1px solid color-mix(in srgb, var(--primary) 50%, transparent)',
-      }}
+      className="flex items-center gap-1.5 h-8 px-2.5 rounded-sm transition-colors bg-bg-primary border"
+      style={{ border: '1px solid color-mix(in srgb, var(--primary) 50%, transparent)' }}
     >
       <span className="text-sm text-primary font-medium">{label}</span>
       <div className="flex items-center gap-0.5">
@@ -287,12 +286,8 @@ export function FilterButton({
                   <div key={opt.id} className="relative w-5 h-5" title={opt.label}>
                     <img src={iconSrc} alt={opt.label} className="w-5 h-5 rounded-full" />
                     <div
-                      className="absolute inset-0 rounded-full pointer-events-none"
-                      style={{
-                        backgroundColor: 'var(--primary)',
-                        opacity: 0.5,
-                        mixBlendMode: 'multiply'
-                      }}
+                      className="absolute inset-0 rounded-full pointer-events-none bg-primary opacity-50"
+                      style={{ mixBlendMode: 'multiply' }}
                     />
                   </div>
                 ) : (

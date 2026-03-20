@@ -138,6 +138,15 @@
     fill: var(--primary);
 }
 
+/* MaskIcon hover effect - uses CSS custom property for hover color */
+.mask-icon-hover {
+    transition: background-color 0.15s ease;
+}
+
+.mask-icon-hover:hover {
+    background-color: var(--mask-icon-hover-color) !important;
+}
+
 /* Enforce font-title on all interactive UI elements */
 .toolbar-btn,
 .toolbar-btn span,

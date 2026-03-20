@@ -3,14 +3,18 @@ import { RouterProvider, useRouter } from '@lib/router';
 import { ThemeProvider } from '@lib/theme';
 import { SettingsProvider } from '@lib/settings';
 import { ExternalLinkProvider } from '@lib/external-links';
-import { enableConsoleIntegration, addNotification } from '@lib/notifications';
+import { addNotification } from '@lib/notifications';
 import { Notifications } from '@components/Notifications';
 import { BgRenderer } from '@components/BgRenderer';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { DisclaimerPage, useDisclaimer } from '@/pages/DisclaimerPage';
+import { useAuth } from '@lib/auth';
 import { useEffect, useState } from 'preact/hooks';
 import { ROUTES } from '@/constants/navigation';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('App');
 
 // Lazy loading helper for route pages
 function LazyPage({ load, componentName = 'default' }: { load: () => Promise<any>; componentName?: string }) {
@@ -27,15 +31,15 @@ function LazyPage({ load, componentName = 'default' }: { load: () => Promise<any
       }
     }).catch(e => {
       if (active) {
-        console.error('Failed to load page:', e);
+        log.error('Failed to load page', e);
         setLoading(false);
       }
     });
     return () => { active = false; };
   }, [load, componentName]);
 
-  if (loading) return <div className="flex-center min-h-screen"><div className="animate-spin">Loading...</div></div>;
-  if (!Component) return <div className="flex-center min-h-screen text-red-500">Failed to load page</div>;
+  if (loading) return <div className="flex-center h-screen"><div className="animate-spin">Loading...</div></div>;
+  if (!Component) return <div className="flex-center h-screen text-red-500">Failed to load page</div>;
   return <Component />;
 }
 
@@ -48,6 +52,7 @@ const AddAssetPageLazy = () => <LazyPage load={() => import('@/pages/AddAssetPag
 const DocsPageLazy = () => <LazyPage load={() => import('@/pages/DocsPage')} componentName="DocsPage" />;
 const ChartPageLazy = () => <LazyPage load={() => import('@/pages/ChartPage')} componentName="ChartPage" />;
 const ArchivistPageLazy = () => <LazyPage load={() => import('@/pages/ArchivistPage')} componentName="ArchivistPage" />;
+const AdminPageLazy = () => <LazyPage load={() => import('@/pages/AdminPage')} componentName="AdminPage" />;
 
 // Detect if user agent is a bot/crawler
 function isBot(): boolean {
@@ -56,10 +61,19 @@ function isBot(): boolean {
   return botPattern.test(navigator.userAgent);
 }
 
+// Check if route should be publicly accessible without authentication
+function isPublicRoute(path: string): boolean {
+  const publicRoutes = ['/docs', '/legal'];
+  return publicRoutes.some(route => path.startsWith(route));
+}
+
 function AppContent() {
   const { accepted: disclaimerAccepted, accept: acceptDisclaimer } = useDisclaimer();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { path } = useRouter();
   const [shouldRenderBackground, setShouldRenderBackground] = useState(true);
+
+  const isGuardedMode = import.meta.env.VITE_GUARDED === 'true';
 
   useEffect(() => {
     // Check if user is a bot - skip background rendering for bots
@@ -69,9 +83,6 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    // Enable console integration
-    enableConsoleIntegration();
-
     // Show welcome notification
     if (disclaimerAccepted) {
       addNotification('info', 'This app stores no cookies nor tracks your data. Stay safe, anon.');
@@ -91,6 +102,10 @@ function AppContent() {
 
     if (path === ROUTES.ARCHIVIST) {
       return <ArchivistPageLazy />;
+    }
+
+    if (path === ROUTES.ADMIN) {
+      return <AdminPageLazy />;
     }
 
     switch (path) {
@@ -115,22 +130,32 @@ function AppContent() {
     return <ChartPageLazy />;
   }
 
-  return (
-    <div className="min-h-screen bg-bg-0 text-foreground flex flex-col relative">
-      {shouldRenderBackground && <BgRenderer />}
+  // Guarded mode: show disclaimer if not authenticated OR not accepted (wait for auth check)
+  // Normal mode: show disclaimer only if not accepted
+  // Public routes (/docs, /legal) bypass the guard entirely
+  const shouldShowDisclaimer = isGuardedMode
+    ? (!isAuthenticated || !disclaimerAccepted) && !authLoading && !isPublicRoute(path)
+    : !disclaimerAccepted && !isPublicRoute(path);
 
-      {!disclaimerAccepted ? (
+  if (shouldShowDisclaimer) {
+    return (
+      <div className="h-screen bg-bg-0 text-foreground flex flex-col relative">
+        {shouldRenderBackground && <BgRenderer />}
         <DisclaimerPage onAccept={acceptDisclaimer} />
-      ) : (
-        <>
-          <Header />
-          <main className="flex-1 relative z-10 pt-12 pb-10">
-            {renderPage()}
-          </main>
-          <Footer />
-        </>
-      )}
+        <Notifications />
+      </div>
+    );
+  }
 
+  // Main app
+  return (
+    <div className="h-screen bg-bg-0 text-foreground flex flex-col relative">
+      {shouldRenderBackground && <BgRenderer />}
+      <Header />
+      <main className="flex-1 relative z-10 pt-12 pb-8 h-full">
+        {renderPage()}
+      </main>
+      <Footer />
       <Notifications />
     </div>
   );

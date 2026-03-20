@@ -6,7 +6,7 @@ import type { ComponentChildren } from 'preact';
 import { Icon } from './Icon';
 import { Badge } from './Badge';
 import { ImageWithFallback } from './ImageWithFallback';
-import { Tooltip } from './Tooltip';
+import { Tooltip } from './FloatingPanel';
 
 type WalletItemVariant = 'detected' | 'discover' | 'default';
 

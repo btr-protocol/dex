@@ -6,23 +6,25 @@ import { useWallet } from '@lib/wallet';
 import { getChain } from '@sdk/eth';
 import { HealthPopover } from '@components/shared/metrics';
 import { MaskIcon } from '@components/ui/MaskIcon';
-import { Tooltip } from '@components/ui/Tooltip';
+import { Tooltip } from '@components/ui/FloatingPanel';
 import { footerNavigation } from '@/constants/navigation';
+import { cn } from '@utils/cn';
 
 function StatusBeacon({ status }: { status: 'healthy' | 'degraded' | 'down' }) {
-  const color = status === 'healthy' ? 'var(--green)' : status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
+  const colorClass = status === 'healthy' ? 'bg-green' : status === 'degraded' ? 'bg-yellow' : 'bg-red';
+  const bgVar = status === 'healthy' ? 'var(--green)' : status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
 
   return (
     <div className="relative w-3 h-3 shrink-0">
       {/* Pulsing animation */}
       <div
-        className="absolute inset-0 rounded-full animate-ping opacity-75"
-        style={{ backgroundColor: color }}
+        className={cn('absolute inset-0 rounded-full animate-ping opacity-75', colorClass)}
+        style={{ backgroundColor: bgVar }}
       />
       {/* Static dot */}
       <div
-        className="absolute inset-0 rounded-full"
-        style={{ backgroundColor: color }}
+        className={cn('absolute inset-0 rounded-full', colorClass)}
+        style={{ backgroundColor: bgVar }}
       />
     </div>
   );
@@ -30,6 +32,10 @@ function StatusBeacon({ status }: { status: 'healthy' | 'degraded' | 'down' }) {
 
 function getStatusColor(status: 'healthy' | 'degraded' | 'down'): string {
   return status === 'healthy' ? 'var(--green)' : status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
+}
+
+function getStatusColorClass(status: 'healthy' | 'degraded' | 'down'): string {
+  return status === 'healthy' ? 'text-green' : status === 'degraded' ? 'text-yellow' : 'text-red';
 }
 
 export function Footer() {
@@ -55,7 +61,7 @@ export function Footer() {
   };
 
   return (
-    <footer className="fixed bottom-0 w-full h-10 flex items-center z-50 font-light text-sm">
+    <footer className="fixed bottom-0 w-full h-8 flex items-center z-50 font-light text-sm">
       <nav className="px-3 max-w-7xl h-full mx-auto flex items-center justify-between border border-b-0 rounded-t-lg backdrop-blur-md bg-bg-0/80 border-border w-full">
         {/* Left: Social Links + Health Status */}
         <div className="flex items-center gap-3">
@@ -78,7 +84,7 @@ export function Footer() {
           <HealthPopover api={health.api} static={health.static} rpc={health.rpc} chainName={chainName}>
             <button className="flex items-center gap-1.5 text-xs transition-colors font-mono">
               <StatusBeacon status={health.api.status} />
-              <span style={{ color: getStatusColor(health.api.status) }}>
+              <span className={getStatusColorClass(health.api.status)}>
                 {health.api.latency !== null ? `${health.api.latency}ms` : '—'}
               </span>
             </button>
@@ -115,7 +121,7 @@ export function Footer() {
           >
             <MaskIcon
               src="/brand/logo.svg"
-              width="5rem"
+              width="4rem"
               height="1.8rem"
               color={logoHover ? 'var(--fg-1)' : 'var(--fg-3)'}
               aria-label="Logo"

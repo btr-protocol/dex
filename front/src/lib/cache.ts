@@ -2,6 +2,10 @@
  * Minimal IndexedDB Cache Wrapper
  */
 
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('cache');
+
 const DB_NAME = 'btr-cache';
 const VER = 1;
 
@@ -64,7 +68,7 @@ export async function cacheSet<T>(store: string, key: string, val: T, ttl?: numb
   try {
     const s = await tx(store, 'readwrite');
     await req(s.put({ k: key, v: val, e: Date.now() + (ttl || TTLS[store] || 0) }));
-  } catch (e) { console.error(e); }
+  } catch (e) { log.error('cacheSet failed', e); }
 }
 
 export async function cacheDel(store: string, key: string) {

@@ -3,7 +3,7 @@ import { Button } from '@components/ui/Button';
 import { Knot, Makima } from '@/utils/spline';
 import { getColors } from '@/styles/theme';
 import * as Chartist from 'chartist';
-import { formatNumber, formatPercent } from '@utils/format';
+import { formatNumber, formatPercent } from '@sdk/utils/format';
 
 const { computeMakimaSlopes, interpolateCurve, knotsToProfile, encodeProfile } = Makima;
 

@@ -1,17 +1,24 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useMemo } from 'preact/hooks';
+import { withContext } from '@/lib/logger';
 
-const API_URL = import.meta.env.VITE_COLLECTOR_API || 'http://localhost:3001';
-const WS_URL = import.meta.env.VITE_COLLECTOR_WS || 'ws://localhost:3001/ws';
+const log = withContext('usePriceFeed');
+import { getCandleStore } from '@/lib/price/CandleStore';
+import type { OHLC, PriceData } from '@/types/market';
 
-export interface OHLC { time: number; open: number; high: number; low: number; close: number; }
+// Re-export for backward compatibility
+export type { OHLC, PriceData };
 
-interface Candle {
+// Candle type for backend collector compatibility (different from OHLC)
+export interface Candle {
   timestamp: number;
   open: number;
   high: number;
   low: number;
   close: number;
 }
+
+const API_URL = import.meta.env.VITE_COLLECTOR_API || 'http://localhost:3001';
+const WS_URL = import.meta.env.VITE_COLLECTOR_WS || 'ws://localhost:3001/ws';
 
 // Quote priority: higher index = higher priority as quote currency
 const QUOTE_PRIORITY = ['ETH', 'BTC', 'USD1', 'RLUSD', 'PYUSD', 'DAI', 'USDS', 'USDE', 'USDT', 'USDC'];
@@ -55,7 +62,6 @@ export function invertPriceData(data: PriceData): PriceData {
 // WebSocket Manager (Singleton, Throttled)
 // ─────────────────────────────────────────────────────────────
 
-interface PriceData { mid: number; bid: number; ask: number; }
 const listeners = new Map<string, Set<(p: PriceData) => void>>();
 const candleListeners = new Map<string, Set<(c: Candle) => void>>();
 const prices = new Map<string, PriceData>();
@@ -179,12 +185,10 @@ function subscribeCandles(pair: string, timeframe: number, cb: (c: Candle) => vo
 }
 
 // ─────────────────────────────────────────────────────────────
-// Hooks
-// ─────────────────────────────────────────────────────────────
+  // Hooks
+  // ─────────────────────────────────────────────────────────────
 
-export { type PriceData };
-
-export function usePriceStream(symbol: string): PriceData | null {
+  export function usePriceStream(symbol: string): PriceData | null {
   const [priceData, setPriceData] = useState<PriceData | null>(null);
   useEffect(() => {
     // Reset stale price from previous symbol immediately
@@ -196,17 +200,14 @@ export function usePriceStream(symbol: string): PriceData | null {
 }
 
 export function useCandles(symbol: string, tf = 60, limit = 200) {
-  const [data, setData] = useState<OHLC[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Use signal-based CandleStore instead of 3 useState calls
+  const store = useMemo(() => getCandleStore(symbol, tf), [symbol, tf]);
 
   // Fetch candles when symbol or timeframe changes
   useEffect(() => {
     if (!symbol) return; // Skip if no symbol yet
     let active = true;
-    setData([]); // Clear old data immediately on change
-    setLoading(true);
-    setError(null);
+    store.startLoading();
 
     fetch(`${API_URL}/api/candles?symbol=${symbol}&timeframe=${tf}&limit=${limit}`)
       .then(r => {
@@ -220,87 +221,52 @@ export function useCandles(symbol: string, tf = 60, limit = 200) {
           ...c,
           time: c.timestamp / 1000
         }));
-        setData(candles);
-        setLoading(false);
+        store.setCandles(candles);
       })
       .catch(e => {
         if (!active) return;
         // Only log in production or if it's not an HTML response (API not available)
         if (!e?.message?.includes('Unexpected token')) {
-          console.error('[useCandles] Fetch error:', e);
+          log.error('[useCandles] Fetch error:', e);
         }
-        setError(e?.message || 'Failed to load candles');
-        setLoading(false);
+        store.setError(e?.message || 'Failed to load candles');
       });
 
     return () => { active = false; };
-  }, [symbol, tf, limit]);
+  }, [symbol, tf, limit, store]);
 
   // Listen to candle completion events (primary update mechanism)
   useEffect(() => {
-    if (!symbol || !data.length) return;
+    if (!symbol || !store.candles.value.length) return;
 
     return subscribeCandles(symbol, tf, (candle: Candle) => {
-      setData(prev => {
-        if (!prev.length) return prev;
+      const newCandle: OHLC = {
+        time: candle.timestamp / 1000,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close
+      };
 
-        const newCandle: OHLC = {
-          time: candle.timestamp / 1000,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close
-        };
-
-        // Find where this candle belongs (it's a completed candle, may not be the latest)
-        const idx = prev.findIndex(c => c.time === newCandle.time);
-        if (idx >= 0) {
-          // Replace existing candle at this time
-          const updated = [...prev];
-          updated[idx] = newCandle;
-          return updated;
-        }
-
-        // Insert in correct position to maintain ascending order
-        const last = prev[prev.length - 1];
-        if (newCandle.time > last.time) {
-          // Append (most common case - new candle)
-          return [...prev.slice(-(limit - 1)), newCandle];
-        }
-
-        // Candle is older than last - insert in sorted position
-        const insertIdx = prev.findIndex(c => c.time > newCandle.time);
-        if (insertIdx === -1) return prev; // Shouldn't happen
-        const result = [...prev.slice(0, insertIdx), newCandle, ...prev.slice(insertIdx)];
-        return result.slice(-limit);
-      });
+      store.updateCandle(newCandle, limit);
     });
-  }, [symbol, tf, limit, data.length > 0]);
+  }, [symbol, tf, limit, store, store.candles.value.length > 0]);
 
   // Live tick updates for current candle (fallback between candle completions)
   useEffect(() => {
-    if (!data.length) return;
+    if (!store.candles.value.length) return;
+
     return subscribe(`agg:spot:${symbol}`, (priceData) => {
       const price = priceData.mid; // Use mid price for OHLC
-      setData(prev => {
-        if (!prev.length) return prev;
-        const last = prev[prev.length - 1];
-        const bucket = Math.floor(Date.now() / 1000 / tf) * tf;
-
-        if (bucket === last.time) {
-          // Update current candle
-          return [...prev.slice(0, -1), { ...last, close: price, high: Math.max(last.high, price), low: Math.min(last.low, price) }];
-        }
-        if (bucket > last.time) {
-          // Start new candle (will be replaced by candle completion event)
-          return [...prev.slice(-(limit - 1)), { time: bucket, open: price, high: price, low: price, close: price }];
-        }
-        return prev;
-      });
+      store.updateLiveTick(price, tf, limit);
     });
-  }, [data.length > 0, symbol, tf, limit]);
+  }, [store.candles.value.length > 0, symbol, tf, limit, store]);
 
-  return { candles: data, loading, error };
+  return {
+    candles: store.candles.value,
+    loading: store.loading.value,
+    error: store.error.value,
+  };
 }
 
 // Fetch available tickers

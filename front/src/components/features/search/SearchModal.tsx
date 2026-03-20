@@ -48,7 +48,7 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
   const archivistResult = {
     id: 'archivist-special',
     title: "Archivist",
-    desc: 'Chat with BTR AI about the protocol, docs, and codebase',
+    desc: 'The only AI that knows everything about BTR: concepts, code, docs...',
     path: '/archivist',
     cat: 'Features' as const,
   };
@@ -136,7 +136,7 @@ export function SearchModal({ isOpen, onClose, onOpenSettings }: SearchModalProp
                 onClick={() => handleSelect('/archivist', undefined)}
                 icon={<Icon name="bot" className="w-4 h-4" />}
                 title="Archivist"
-                description="Chat with BTR AI about the protocol, docs, and codebase"
+                description="The only AI that knows everything about BTR: concepts, code, docs..."
                 rightIcon={<Icon name="arrow-right" className="w-4 h-4" />}
               />
             </ModalSection>

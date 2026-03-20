@@ -1,4 +1,8 @@
 // Dynamic docs utilities that load JSON data at runtime
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('docs');
+
 export interface DocFile {
   slug: string;
   title: string;
@@ -35,7 +39,7 @@ export async function getDocStructure(): Promise<DocStructure[]> {
     docsStructureCache = await response.json();
     return docsStructureCache || [];
   } catch (error) {
-    console.error("Error loading docs structure:", error);
+    log.error("Error loading docs structure", error);
     return [];
   }
 }
@@ -50,7 +54,7 @@ export async function getDocBySlug(slug: string): Promise<DocFile | null> {
     // Load from compiled docs.json
     const response = await fetch('/compiled-docs/docs.json');
     if (!response.ok) {
-      console.error('Failed to load compiled docs');
+      log.error('Failed to load compiled docs');
       return null;
     }
 
@@ -58,7 +62,7 @@ export async function getDocBySlug(slug: string): Promise<DocFile | null> {
     const doc = allDocs[slug];
 
     if (!doc) {
-      console.error(`Doc not found: ${slug}`);
+      log.error(`Doc not found: ${slug}`);
       return null;
     }
 
@@ -77,7 +81,7 @@ export async function getDocBySlug(slug: string): Promise<DocFile | null> {
 
     return docFile;
   } catch (error) {
-    console.error("Error loading doc:", error);
+    log.error("Error loading doc", error);
     return null;
   }
 }
@@ -105,7 +109,7 @@ export async function getAllDocs(): Promise<DocFile[]> {
       next: doc.next || null,
     }));
   } catch (error) {
-    console.error("Error loading all docs:", error);
+    log.error("Error loading all docs", error);
     return [];
   }
 }

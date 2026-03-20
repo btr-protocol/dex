@@ -8,6 +8,9 @@ import { CHAINS, getAllTokensForChain } from '@sdk/eth';
 import { PriceChartLazy } from '@components/features/chart';
 import { SwapStore } from '@/lib/swap/SwapStore';
 import { getCanonicalPair } from '@hooks/usePriceFeed';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('swapPage');
 
 export function SwapPage() {
   const { isConnected, connect, chainId: walletChainId } = useWallet();
@@ -97,7 +100,7 @@ export function SwapPage() {
   const chainInfo = { name: chainConfig.name, icon: chainConfig.icon || `/networks/${chainConfig.name.toLowerCase()}.svg` };
 
   const handleSwap = () => {
-    console.log('Swap initiated');
+    log.info('Swap initiated');
   };
 
   return (

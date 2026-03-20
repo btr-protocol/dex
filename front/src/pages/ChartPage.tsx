@@ -2,10 +2,11 @@
  * Standalone Chart Page - Ultra-lightweight route for popup/sharing
  * URL format: /chart?pair=ETHUSDC&tf=60&type=candles&ta=ema-trend(10,20,14)&ta=rsima(10,20,14)
  */
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo } from 'preact/hooks';
 import { useRouter } from '@lib/router';
 import { PriceChartLazy } from '@components/features/chart';
 import { PairSelector } from '@components/shared/token';
+import { ChartPageStore } from '@/lib/chart/ChartPageStore';
 import type { IndicatorParams } from '@utils/indicators';
 import type { IndicatorKey, ChartType } from '@components/features/chart/indicatorsConfig';
 import type { InitialIndicator } from '@components/features/chart/useIndicatorParams';
@@ -46,13 +47,9 @@ export function buildChartUrl(
 
 export function ChartPage() {
   const { queryParams, navigate } = useRouter();
-  const [ready, setReady] = useState(false);
-  const [pairSelectorOpen, setPairSelectorOpen] = useState(false);
 
-  // Track current chart state to preserve on pair inversion
-  const [currentTimeframe, setCurrentTimeframe] = useState<number | null>(null);
-  const [currentChartType, setCurrentChartType] = useState<string | null>(null);
-  const [currentIndicators, setCurrentIndicators] = useState<InitialIndicator[] | null>(null);
+  // Use signal-based ChartPageStore instead of 5 useState calls
+  const store = useMemo(() => new ChartPageStore(), []);
 
   // Parse URL params - priority: URL > defaults
   const urlPair = queryParams.get('pair');
@@ -70,10 +67,8 @@ export function ChartPage() {
 
   // Initialize current state from URL on first load
   useEffect(() => {
-    if (currentTimeframe === null) setCurrentTimeframe(tf);
-    if (currentChartType === null) setCurrentChartType(type);
-    if (currentIndicators === null) setCurrentIndicators(indicators);
-  }, [tf, type, indicators, currentTimeframe, currentChartType, currentIndicators]);
+    store.initializeChartState(tf, type, indicators);
+  }, [tf, type, indicators, store]);
 
   // Extract base/quote from pair (assume last 3-4 chars are quote)
   let base = pair;
@@ -95,9 +90,9 @@ export function ChartPage() {
     const parts: string[] = [`pair=${newBase}${newQuote}`];
 
     // Use current chart state (which may have been changed by user)
-    const timeframeToUse = currentTimeframe ?? tf;
-    const chartTypeToUse = currentChartType ?? type;
-    const indicatorsToUse = currentIndicators ?? indicators;
+    const timeframeToUse = store.currentTimeframe.value ?? tf;
+    const chartTypeToUse = store.currentChartType.value ?? type;
+    const indicatorsToUse = store.currentIndicators.value ?? indicators;
 
     parts.push(`tf=${timeframeToUse}`);
     parts.push(`type=${chartTypeToUse}`);
@@ -116,23 +111,23 @@ export function ChartPage() {
   // Set document title
   useEffect(() => {
     document.title = `${base}/${quote} Chart`;
-    setReady(true);
-  }, [base, quote]);
+    store.setReady();
+  }, [base, quote, store]);
 
   // Keyboard shortcut: Cmd+K to open pair selector
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        setPairSelectorOpen(true);
+        store.openPairSelector();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [store]);
 
-  if (!ready) return null;
+  if (!store.ready.value) return null;
 
   // Toolbar height is 32px (h-8), account for it in chart height
   const TOOLBAR_HEIGHT = 32;
@@ -151,13 +146,13 @@ export function ChartPage() {
         standalone
         onChangePair={handleChangePair}
         onInvertPair={handleInvertPair}
-        onTimeframeChange={(tf: number) => setCurrentTimeframe(tf)}
-        onChartTypeChange={(type: ChartType) => setCurrentChartType(type)}
-        onIndicatorsChange={(indicators: InitialIndicator[]) => setCurrentIndicators(indicators)}
+        onTimeframeChange={(tf: number) => store.setTimeframe(tf)}
+        onChartTypeChange={(type: ChartType) => store.setChartType(type)}
+        onIndicatorsChange={(indicators: InitialIndicator[]) => store.setIndicators(indicators)}
       />
       <PairSelector
-        isOpen={pairSelectorOpen}
-        onClose={() => setPairSelectorOpen(false)}
+        isOpen={store.pairSelectorOpen.value}
+        onClose={() => store.closePairSelector()}
         onSelect={handleChangePair}
         currentBase={base}
         currentQuote={quote}

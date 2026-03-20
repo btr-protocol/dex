@@ -2,7 +2,10 @@ import { useState, useEffect } from 'preact/hooks';
 import { useWallet } from '@lib/wallet';
 import { POOL_V1_ABI, type AssetData } from '@/contracts/PoolV1.abi';
 import type { Address, Hex } from '@sdk/eth';
-import { encodeFn, decodeFn } from '@sdk/eth/abi';
+import { encodeFn, decodeFn, getContractAddress } from '@sdk/eth';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('poolContracts');
 
 // Pool configurations - addresses will be loaded from localStorage after deployment
 export interface PoolConfig {
@@ -137,71 +140,44 @@ export function usePoolContracts(): PoolContractData[] {
   const [pools, setPools] = useState<PoolContractData[]>([]);
 
   useEffect(() => {
-    // Only fetch on Anvil (31337), BNB Chain (56), or other supported chains
-    if (!provider) {
+    if (!provider || !chainId) {
       setPools([]);
       return;
     }
 
-    // Load pool addresses from deployment info
-    const loadDeploymentInfo = async () => {
-      try {
-        const response = await fetch('/deployment.json');
-        if (!response.ok) {
-          console.warn('Deployment info not found. Run `bun run dev` to deploy contracts.');
-          setPools([]);
-          return;
-        }
+    const poolZeroAddr = getContractAddress(chainId, 'POOL_ZERO');
+    const poolStableAddr = getContractAddress(chainId, 'POOL_STABLE');
 
-        const deployInfo = await response.json();
-        if (deployInfo.chainId !== chainId) {
-          console.warn(`Deployment is for chain ${deployInfo.chainId}, but connected to ${chainId}`);
-          setPools([]);
-          return;
-        }
+    if (!poolZeroAddr || !poolStableAddr) {
+      log.warn('Pool addresses not found for chain', { chainId });
+      setPools([]);
+      return;
+    }
 
-        const poolZeroAddr = deployInfo.pools.poolZero as Address;
-        const poolStableAddr = deployInfo.pools.poolStable as Address;
+    // Determine which token addresses to use based on chain
+    const useMockTokens = chainId === 31337;
+    const tokenMap = useMockTokens ? ANVIL_TOKENS : BSC_TOKENS;
 
-        if (!poolZeroAddr || !poolStableAddr) {
-          console.warn('Pool addresses not found in deployment info');
-          setPools([]);
-          return;
-        }
+    const poolConfigs: PoolConfig[] = [
+      {
+        ...DEFAULT_POOLS[0],
+        address: poolZeroAddr,
+        tokens: DEFAULT_POOLS[0].tokens.map(t => ({
+          ...t,
+          address: tokenMap[t.symbol] || ('' as Address),
+        })),
+      },
+      {
+        ...DEFAULT_POOLS[1],
+        address: poolStableAddr,
+        tokens: DEFAULT_POOLS[1].tokens.map(t => ({
+          ...t,
+          address: tokenMap[t.symbol] || ('' as Address),
+        })),
+      },
+    ];
 
-        // Determine which token addresses to use based on chain
-        const useMockTokens = chainId === 31337; // Anvil uses mock tokens
-        const tokenMap = useMockTokens ? ANVIL_TOKENS : BSC_TOKENS;
-
-        // Update token addresses in pool configs
-        const poolConfigs: PoolConfig[] = [
-          {
-            ...DEFAULT_POOLS[0],
-            address: poolZeroAddr,
-            tokens: DEFAULT_POOLS[0].tokens.map(t => ({
-              ...t,
-              address: tokenMap[t.symbol] || ('' as Address),
-            })),
-          },
-          {
-            ...DEFAULT_POOLS[1],
-            address: poolStableAddr,
-            tokens: DEFAULT_POOLS[1].tokens.map(t => ({
-              ...t,
-              address: tokenMap[t.symbol] || ('' as Address),
-            })),
-          },
-        ];
-
-        // Fetch data for each pool
-        await fetchPoolDataInner(poolConfigs, provider, setPools);
-      } catch (error) {
-        console.error('Failed to load deployment info:', error);
-        setPools([]);
-      }
-    };
-
-    loadDeploymentInfo();
+    fetchPoolDataInner(poolConfigs, provider, setPools);
   }, [provider, chainId]);
 
   return pools;
@@ -259,7 +235,7 @@ async function fetchPoolDataInner(
 
           poolData.loading = false;
         } catch (error) {
-          console.error(`Failed to fetch pool data for ${config.name}:`, error);
+          log.error(`Failed to fetch pool data for ${config.name}`, error);
           poolData.error = error instanceof Error ? error.message : 'Unknown error';
           poolData.loading = false;
         }

@@ -3,25 +3,12 @@
  * Backend is the single source of truth for pool data
  */
 
-import { useState, useEffect } from 'preact/hooks';
+import { useEffect } from 'preact/hooks';
+import { poolsStore, type Pool, type PoolAssetAPI } from '@/lib/pool/PoolsStore';
+
+export type { Pool, PoolAssetAPI };
 
 const API_URL = import.meta.env.VITE_COLLECTOR_API || 'http://localhost:3001';
-
-export interface PoolAsset {
-  token: string;
-  symbol: string;
-  name: string;
-  decimals: number;
-  reserves: string;
-  liabilities: string;
-  coverage: string;
-}
-
-export interface Pool {
-  name: string;
-  address: string;
-  assets: PoolAsset[];
-}
 
 export interface PoolsResponse {
   pools: Pool[];
@@ -40,13 +27,10 @@ export interface SwapQuote {
 }
 
 /**
- * Fetch pool data from backend
+ * Fetch pool data from backend using signal-based PoolsStore
+ * Uses singleton store for shared state across components
  */
 export function usePoolsAPI() {
-  const [pools, setPools] = useState<Pool[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
     let active = true;
 
@@ -60,13 +44,16 @@ export function usePoolsAPI() {
         const data: PoolsResponse = await response.json();
 
         if (active) {
-          setPools(data.pools);
-          setLoading(false);
+          // Use updatePools for background refresh (doesn't set loading)
+          if (poolsStore.hasPools.value) {
+            poolsStore.updatePools(data.pools);
+          } else {
+            poolsStore.setPools(data.pools);
+          }
         }
       } catch (err) {
         if (active) {
-          setError(err instanceof Error ? err.message : 'Failed to fetch pools');
-          setLoading(false);
+          poolsStore.setError(err instanceof Error ? err.message : 'Failed to fetch pools');
         }
       }
     };
@@ -82,7 +69,11 @@ export function usePoolsAPI() {
     };
   }, []);
 
-  return { pools, loading, error };
+  return {
+    pools: poolsStore.pools.value,
+    loading: poolsStore.loading.value,
+    error: poolsStore.error.value,
+  };
 }
 
 /**

@@ -1,5 +1,8 @@
 import { useState, useCallback } from 'preact/hooks';
 import { addNotification } from '@lib/notifications';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('clipboard');
 
 export function useClipboard() {
   const [copied, setCopied] = useState(false);
@@ -14,7 +17,7 @@ export function useClipboard() {
       setTimeout(() => setCopied(false), 2000);
       return true;
     } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
+      log.error('Failed to copy to clipboard', error);
       return false;
     }
   }, []);

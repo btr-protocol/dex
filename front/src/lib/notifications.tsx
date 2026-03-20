@@ -88,19 +88,3 @@ export function clearLog() {
     logState = [];
     emitLog();
 }
-
-// Console Integration
-const _orig = { warn: console.warn, error: console.error };
-
-export function enableConsoleIntegration() {
-    (['warn', 'error'] as const).forEach(key => {
-        console[key] = (...args: any[]) => {
-            _orig[key](...args);
-            addNotification(key === 'warn' ? 'warning' : 'error', args.join(' '));
-        };
-    });
-}
-
-export function disableConsoleIntegration() {
-    Object.assign(console, _orig);
-}

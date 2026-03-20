@@ -6,7 +6,7 @@ import { Icon } from '@components/ui/Icon';
 import { cn } from '@utils/cn';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@components/ui/Dialog';
 import { CHAINS, getChainIcon } from '@sdk/eth';
-import { shortenAddress } from '@utils/format';
+import { shortenAddress } from '@sdk/utils/format';
 
 interface WalletModalProps {
   isOpen: boolean;

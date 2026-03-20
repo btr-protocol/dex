@@ -1,4 +1,4 @@
-import { Tooltip } from '@components/ui/Tooltip';
+import { Tooltip } from '@components/ui/FloatingPanel';
 
 interface HeroMetricProps {
   label: string;

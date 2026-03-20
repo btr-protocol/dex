@@ -1,4 +1,4 @@
-import { Popover } from '@components/ui/Popover';
+import { Popover } from '@components/ui/FloatingPanel';
 import type { HealthStatus } from '@/hooks/useHealthMonitor';
 
 interface HealthPopoverProps {

@@ -1,9 +1,9 @@
 {
-  "name": "@btr/dex-front",
+  "name": "@btr/front",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true && vite --port 3000",
+    "dev": "vite --port ${PORT:-3000}",
     "build": "bun run build:search-index && bun run build:markdown && vite build",
     "build:search-index": "bun ../scripts/build-search-index.ts",
     "build:markdown": "bun ../scripts/precompile-markdown.ts",
@@ -31,7 +31,6 @@
     "@types/node": "^20.14.2",
     "@types/qrcode": "^1.5.6",
     "@typescript/native-preview": "^7.0.0-dev.20251227.1",
-    "@vitejs/plugin-react": "^4.3.5",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
     "pwa-asset-generator": "^8.1.2",

@@ -4,6 +4,9 @@
  */
 
 import type { Address, Eip1193Provider } from '@sdk/eth';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('walletConnect');
 
 // WalletConnect Project ID - get one from https://cloud.reown.com
 const WC_PROJECT_ID = import.meta.env.VITE_WC_PROJECT_ID || ''; // TODO: Add to env
@@ -131,7 +134,7 @@ export async function connectWithWalletConnect(
           reason: { code: 6000, message: 'User disconnected' },
         });
       } catch (e) {
-        console.warn('WalletConnect disconnect error:', e);
+        log.warn('WalletConnect disconnect error', e);
       }
       activeSession = null;
     }

@@ -3,7 +3,7 @@ import { formatUnits, Address } from '@sdk/eth';
 import { useRegisteredAssets, useAssetState, useOraclePrice, useCoverageRatio } from '@/hooks/usePoolState';
 import { useTokenInfo } from '@/hooks/useTokenInfo';
 import { Badge } from '@components/ui/Badge';
-import { formatNumber } from '@utils/format';
+import { formatNumber } from '@sdk/utils/format';
 
 interface AssetRowProps {
   address: Address;

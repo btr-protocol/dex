@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useEffect, useCallback } from 'preact/hooks';
 import { useWallet } from '@lib/wallet';
 import type { Eip1193Provider } from '@sdk/eth';
+import { healthStore, type HealthStatus } from '@/lib/health/HealthStore';
 
-export interface HealthStatus {
-  latency: number | null;
-  status: 'healthy' | 'degraded' | 'down';
-}
+// Re-export for backward compatibility
+export type { HealthStatus };
 
 interface HealthMonitorState {
   api: HealthStatus;
@@ -129,25 +128,20 @@ async function checkRPC(provider: Eip1193Provider | undefined, fallbackChainId?:
 export function useHealthMonitor() {
   const { provider, chainId } = useWallet();
 
-  const [health, setHealth] = useState<HealthMonitorState>({
-    api: { latency: null, status: 'down' },
-    static: { latency: null, status: 'down' },
-    rpc: { latency: null, status: 'down' },
-  });
-
+  // Use signal-based HealthStore for fine-grained updates (each endpoint updates independently)
   const checkAPI = useCallback(async () => {
     const result = await checkEndpoint(API_URL);
-    setHealth(prev => ({ ...prev, api: result }));
+    healthStore.setApiHealth(result);
   }, []);
 
   const checkStatic = useCallback(async () => {
     const result = await checkEndpoint(STATIC_URL);
-    setHealth(prev => ({ ...prev, static: result }));
+    healthStore.setStaticHealth(result);
   }, []);
 
   const checkRPCHealth = useCallback(async () => {
     const result = await checkRPC(provider, chainId);
-    setHealth(prev => ({ ...prev, rpc: result }));
+    healthStore.setRpcHealth(result);
   }, [provider, chainId]);
 
   useEffect(() => {
@@ -173,5 +167,6 @@ export function useHealthMonitor() {
     checkRPCHealth();
   }, [chainId, provider, checkRPCHealth]);
 
-  return health;
+  // Return signal values for backward compatibility
+  return healthStore.getState();
 }

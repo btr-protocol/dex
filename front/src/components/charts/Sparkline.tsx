@@ -1,4 +1,4 @@
-import type { SparklineProps } from './types';
+import type { LineChartProps } from './types';
 import { LineChart } from './LineChart';
 
 /**
@@ -34,15 +34,17 @@ import { LineChart } from './LineChart';
  * />
  * ```
  */
-export function Sparkline(props: SparklineProps) {
+export function Sparkline(props: LineChartProps) {
+  // Sparkline is just a LineChart with specific defaults:
+  // - No axes (hidden via CSS)
+  // - Always shows area (default true)
+  // - Hides points by default
+  // Inherits all LineChart props including tension
   return (
     <LineChart
       {...props}
-      // Sparkline-specific overrides
       showPoint={props.showPoint ?? false}
       showArea={props.showArea ?? true}
-      // We'll hide axes via CSS styling in LineChart
-      className={`${props.className || ''} sparkline`}
     />
   );
 }

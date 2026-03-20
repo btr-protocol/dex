@@ -1,4 +1,7 @@
 import { useState, useCallback, useEffect } from 'preact/hooks';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('localStorage');
 
 export function useLocalStorage<T>(key: string, defaultValue: T) {
   const [value, setValue] = useState<T>(() => {
@@ -15,7 +18,7 @@ export function useLocalStorage<T>(key: string, defaultValue: T) {
       setValue(newValue);
       localStorage.setItem(key, JSON.stringify(newValue));
     } catch (error) {
-      console.error(`Failed to save ${key}:`, error);
+      log.error(`Failed to save ${key}`, error);
     }
   }, [key, setValue]);
 
@@ -24,7 +27,7 @@ export function useLocalStorage<T>(key: string, defaultValue: T) {
       localStorage.removeItem(key);
       setValue(defaultValue);
     } catch (error) {
-      console.error(`Failed to remove ${key}:`, error);
+      log.error(`Failed to remove ${key}`, error);
     }
   }, [key, setValue, defaultValue]);
 

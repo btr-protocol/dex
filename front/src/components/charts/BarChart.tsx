@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'preact/hooks';
-import { BarChart as ChartistBar } from 'chartist';
 import type { BarChartProps } from './types';
+import type { ChartConfig } from './types';
+import * as Chartist from 'chartist';
+import 'chartist/dist/index.css';
 
 /**
  * Bar chart component using Chartist.js
@@ -29,34 +31,35 @@ import type { BarChartProps } from './types';
  * />
  * ```
  */
-export function BarChart({
-  data,
-  labels,
-  width = 300,
-  height = 200,
-  color,
-  className = '',
-  horizontal = false,
-  stacked = false,
-}: BarChartProps) {
+export function BarChart(props: BarChartProps & { config?: ChartConfig }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const styleRef = useRef<HTMLStyleElement | null>(null);
 
+  // Extract config if provided
+  const config = props.config;
+
   useEffect(() => {
-    if (!chartRef.current || !Array.isArray(data) || data.length === 0) return;
+    if (!chartRef.current) return;
+
+    const data = config?.data ?? props.data;
+
+    if (!Array.isArray(data) || data.length === 0) return;
 
     // Prepare data format - normalize to multi-series format for BarChart
     const isMultiSeries = Array.isArray(data[0]);
     const series = isMultiSeries ? (data as number[][]) : [data as number[]];
 
     const chartData = {
-      labels: labels || series[0].map((_: number, i: number) => i.toString()),
+      labels: (config?.labels ?? props.labels) || series[0].map((_: number, i: number) => i.toString()),
       series,
     };
 
+    const horizontal = config?.horizontal ?? props.horizontal ?? false;
+    const stacked = config?.stacked ?? props.stacked ?? false;
+
     const options = {
-      width,
-      height,
+      width: config?.width ?? props.width ?? 300,
+      height: config?.height ?? props.height ?? 200,
       axisX: {
         showGrid: true,
         showLabel: true,
@@ -80,11 +83,13 @@ export function BarChart({
     chartRef.current.innerHTML = '';
 
     // Create new chart (type assertion for Chartist.js types)
-    const chart = new ChartistBar(chartRef.current, chartData as any, options as any);
+    const ChartistLib = Chartist;
+    const chart = new (ChartistLib as any).Bar(chartRef.current, chartData as any, options as any);
 
     // Apply custom styling
     const styleId = Math.random().toString(36).substr(2, 9);
-    const colors = Array.isArray(color) ? color : color ? [color] : undefined;
+    const configColor = config?.color ?? props.color;
+    const colors = Array.isArray(configColor) ? configColor : configColor ? [configColor] : undefined;
 
     const cssRules: string[] = [];
 
@@ -132,13 +137,13 @@ export function BarChart({
       }
       chart.detach();
     };
-  }, [data, labels, width, height, color, horizontal, stacked]);
+  }, [props]);
 
   return (
     <div
       ref={chartRef}
-      className={`ct-chart ${className}`}
-      style={{ width, height }}
+      className={`ct-chart ${(props.className ?? props.config?.className)}`}
+      style={{ width: props.config?.width ?? props.width ?? 300, height: props.config?.height ?? props.height ?? 200 }}
     />
   );
 }

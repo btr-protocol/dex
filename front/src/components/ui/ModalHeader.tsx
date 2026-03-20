@@ -7,7 +7,7 @@ import { JSX } from 'preact';
 import { type ComponentChildren } from 'preact';
 import { Icon } from '@components/ui/Icon';
 import { CloseButton } from './CloseButton';
-import { Tooltip } from './Tooltip';
+import { Tooltip } from './FloatingPanel';
 
 interface ModalHeaderProps {
   title: string;
@@ -87,7 +87,7 @@ export function ModalHeader({
                       onSearchChange?.('');
                       inputRef.current?.focus();
                     }}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 p-1 hover:bg-bg-3 rounded-sm text-muted-foreground hover:text-foreground transition-colors"
+                    className="absolute right-0 top-1/2 -translate-y-1/2 p-1 hover:bg-bg-3 rounded-sm text-fg-2 hover:text-foreground transition-colors"
                   >
                     <Icon name="x" className="w-3 h-3" />
                   </button>

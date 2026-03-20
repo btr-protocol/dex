@@ -28,7 +28,7 @@ export function DocNavigation({ prev, next, onNavigate }: DocNavigationProps) {
           <FlexRow gap="2">
             <Icon name="caret-left" className="w-5 h-5 shrink-0" />
             <div>
-              <div className="leading-none text-xs text-muted-foreground">Previous</div>
+              <div className="leading-none text-xs text-fg-2">Previous</div>
               <div className="font-medium">{prev.label}</div>
             </div>
           </FlexRow>
@@ -44,7 +44,7 @@ export function DocNavigation({ prev, next, onNavigate }: DocNavigationProps) {
         >
           <FlexRow gap="2" className="justify-end">
             <div>
-              <div className="leading-none text-xs text-muted-foreground">Next</div>
+              <div className="leading-none text-xs text-fg-2">Next</div>
               <div className="font-medium">{next.label}</div>
             </div>
             <Icon name="caret-right" className="w-5 h-5 shrink-0" />

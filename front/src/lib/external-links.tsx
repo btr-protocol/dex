@@ -2,6 +2,9 @@ import { createContext, JSX } from 'preact';
 import { useContext, useState } from 'preact/hooks';
 import { ComponentChildren } from 'preact';
 import { ExternalLinkModal } from '@components/features/modals';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('externalLinks');
 
 const ExternalLinkCtx = createContext<{ openExternalLink: (url: string) => void }>({ openExternalLink: () => {} });
 
@@ -18,7 +21,7 @@ export function ExternalLinkProvider({ children }: { children: ComponentChildren
       } else {
         window.open(target, '_blank', 'noopener,noreferrer');
       }
-    } catch { console.warn('Invalid URL', target); }
+    } catch { log.warn('Invalid URL', target); }
   };
 
   return (
