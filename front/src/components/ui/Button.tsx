@@ -29,7 +29,7 @@ const buttonVariants = cva(
         default: "bg-muted hover:bg-muted/80 text-fg-1",
         primary: "bg-primary text-black hover:bg-primary/90 font-semibold",
         outlined: "bg-transparent border border-fg-2 hover:border-primary/60 hover:bg-primary/10 text-fg-1",
-        ghost: "bg-transparent hover:bg-accent hover:text-accent-foreground",
+        ghost: "bg-transparent text-fg-2 hover:bg-accent hover:text-accent-foreground",
         glass: "bg-white/5 border border-white/10 hover:bg-white/10 text-fg-2",
       },
       size: SIZE_HEIGHTS,
@@ -43,6 +43,10 @@ const buttonVariants = cva(
         variant: "primary",
         size: "lg",
         className: "text-xl",
+      },
+      {
+        size: "xl",
+        className: "p-2",
       },
     ],
   }

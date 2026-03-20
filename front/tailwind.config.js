@@ -307,7 +307,7 @@ export default {
           color: 'var(--fg-2)',
         },
 
-        // Note: btn-group styles are in index.css (need nested selectors)
+        // NB: btn-group styles are in index.css (need nested selectors)
       };
       addUtilities(customUtilities, ['responsive', 'hover']);
     }

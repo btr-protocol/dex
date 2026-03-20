@@ -6,6 +6,9 @@
  * const { data, loading, error } = useAsync(fetchFunction, dependencies);
  */
 import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('useAsync');
 
 export interface AsyncState<T> {
   data: T | null;
@@ -78,7 +81,7 @@ export function useAsyncEffect(
         await effect();
       } catch (error) {
         if (isMounted) {
-          console.error('useAsyncEffect error:', error);
+          log.error('useAsyncEffect error', error);
         }
       }
     })();

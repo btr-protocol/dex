@@ -62,7 +62,7 @@ export function Expandable({ header, children, defaultExpanded = false, id, clas
       <button
         onClick={toggle}
         className={`w-full px-4 py-3 flex items-center justify-between cursor-pointer transition-colors hover:bg-bg-2 ${
-          isExpanded ? 'text-foreground' : 'text-muted-foreground'
+          isExpanded ? 'text-foreground' : 'text-fg-2'
         }`}
       >
         <div className="flex items-center gap-2">

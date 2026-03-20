@@ -3,15 +3,12 @@ import { FlexCol, FlexRow } from '@components/ui/Flex';
 import { Icon } from '@components/ui/Icon';
 import type { ArchivistMessage } from '@/types/archivist';
 import { useClipboard } from '@/hooks/useClipboard';
-import { addNotification } from '@lib/notifications';
 import { formatTime } from '@sdk/utils/format';
-import { formatTimeAgo } from '@/utils/date';
 
  interface ChatInterfaceProps {
   messages: ArchivistMessage[];
   loading: boolean;
   onSendMessage: (message: string) => Promise<void>;
-  lastUserMessage?: string;
   initialInput?: string;
 }
 
@@ -23,7 +20,9 @@ const LOADING_MESSAGES = [
   'exploring memories...',
 ] as const;
 
-export function ChatInterface({ messages, loading, onSendMessage, lastUserMessage, initialInput }: ChatInterfaceProps) {
+export function ChatInterface({ messages, loading, onSendMessage, initialInput }: ChatInterfaceProps) {
+  // Derive last user message from messages array for regeneration
+  const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content;
   // Add animation keyframes for fade-in effect
   useEffect(() => {
     if (typeof document !== 'undefined' && !document.getElementById('archivist-animations')) {
@@ -150,7 +149,7 @@ export function ChatInterface({ messages, loading, onSendMessage, lastUserMessag
   };
 
   return (
-    <FlexCol className="h-[calc(100vh-5.5rem)] min-h-0 pb-4">
+    <FlexCol className="h-full min-h-0 pb-4">
       {/* Messages Container */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {messages.length === 0 ? (
@@ -158,8 +157,8 @@ export function ChatInterface({ messages, loading, onSendMessage, lastUserMessag
             <FlexCol gap="4" className="text-center max-w-md">
               <div className="text-lg font-semibold">Ask the Archivist</div>
               <div className="text-sm text-fg-3">
-                I can help you understand BTR protocol, smart contracts, and documentation.
-                Ask me anything about how BTR works!
+                I can help you understand BTR, decentralized exchanges, and broader DeFi.
+                Ask me anything about the protocol!
               </div>
             </FlexCol>
           </div>
@@ -253,11 +252,11 @@ function ChatMessage({ message, copy, onRegenerate, isRendered }: ChatMessagePro
       {isUser ? (
         <div className="flex flex-col items-end max-w-[80%]">
           <div className="text-xs text-fg-3 mb-1 font-title">You</div>
-          <div className="px-4 py-3 rounded-sm bg-bg-primary text-primary w-full">
+          <div className="px-4 py-3 rounded-sm bg-bg-primary text-primary border border-primary w-full">
             <div className="text-sm whitespace-pre-wrap break-words">
               {message.content}
             </div>
-            <div className="text-xs opacity-60 mt-1 font-title">
+            <div className="text-xs opacity-60 mt-0.5 font-title">
               {formatTime(message.timestamp)}
             </div>
           </div>
@@ -270,12 +269,12 @@ function ChatMessage({ message, copy, onRegenerate, isRendered }: ChatMessagePro
           }}
         >
           <div className="text-xs text-fg-3 mb-1 font-title">Archivist</div>
-          <div className="bg-bg-1 px-4 py-3 rounded-sm w-full">
+          <div className="bg-bg-1 px-4 py-3 rounded-sm border border-border w-full">
             <div
               className="text-sm prose prose-invert max-w-none markdown-content"
               dangerouslySetInnerHTML={{ __html: message.html || message.content }}
             />
-            <div className="flex items-center mt-2 justify-end">
+            <div className="flex items-center mt-0.5 justify-end">
               <div className="text-xs opacity-60 font-title">
                 {formatTime(message.timestamp)}
               </div>

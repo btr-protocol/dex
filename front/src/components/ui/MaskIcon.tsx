@@ -8,8 +8,11 @@ interface MaskIconProps {
   /** Custom height (e.g., 'h-7', '1.75rem', 'auto') - overrides size */
   height?: string;
   color?: string;
+  /** Hover color - icon lightens on hover */
+  hoverColor?: string;
   className?: string;
   'aria-label'?: string;
+  onClick?: () => void;
 }
 
 const SIZE_MAP = {
@@ -26,8 +29,10 @@ export function MaskIcon({
   width,
   height,
   color = 'var(--fg-2)',
+  hoverColor,
   className,
-  'aria-label': ariaLabel
+  'aria-label': ariaLabel,
+  onClick
 }: MaskIconProps) {
   // Build custom size styles if width, height or numeric size is provided
   const isNumericSize = typeof size === 'number';
@@ -38,10 +43,17 @@ export function MaskIcon({
 
   return (
     <div
-      className={cn(!customSize && typeof size === 'string' && SIZE_MAP[size as keyof typeof SIZE_MAP], className)}
+      className={cn(
+        !customSize && typeof size === 'string' && SIZE_MAP[size as keyof typeof SIZE_MAP],
+        hoverColor && 'mask-icon-hover cursor-pointer',
+        className
+      )}
       style={{
         ...customSize,
         backgroundColor: color,
+        ...(hoverColor && {
+          '--mask-icon-hover-color': hoverColor,
+        } as any),
         WebkitMaskImage: `url(${src})`,
         WebkitMaskSize: 'contain',
         WebkitMaskRepeat: 'no-repeat',
@@ -52,6 +64,7 @@ export function MaskIcon({
         maskPosition: 'center',
       }}
       aria-label={ariaLabel}
+      onClick={onClick}
     />
   );
 }

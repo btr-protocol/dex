@@ -63,6 +63,7 @@ export const specialRoutes = {
   chart: '/chart',
   settings: '/settings',
   archivist: '/archivist',
+  admin: '/admin',
 } as const
 
 // ============================================================================
@@ -192,5 +193,6 @@ export const ROUTES = {
   CHART: specialRoutes.chart,
   SETTINGS: specialRoutes.settings,
   ARCHIVIST: specialRoutes.archivist,
+  ADMIN: specialRoutes.admin,
 } as const
 

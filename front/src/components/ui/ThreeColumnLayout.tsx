@@ -24,7 +24,7 @@ export function ThreeColumnLayout({
   scrollableMain = false,
 }: ThreeColumnLayoutProps) {
   return (
-    <div className="max-w-7xl mx-auto px-4">
+    <div className="max-w-7xl mx-auto h-full">
       {/* Mobile nav toggle */}
       <div className="lg:hidden sticky top-12 z-30 bg-bg-1/95 backdrop-blur border-b border-border py-2 -mx-4 px-4">
         <button
@@ -46,9 +46,9 @@ export function ThreeColumnLayout({
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 h-[calc(100vh-5.5rem)]">
-        <aside className="hidden lg:flex flex-col h-full min-h-0 pr-4 border-r border-border pt-6">
-          <div className="shrink-0">
+      <div className="grid grid-cols-1 lg:grid-cols-5 h-full">
+        <aside className="hidden lg:flex flex-col h-full min-h-0 border-r border-border pt-6">
+          <div className="shrink-0 pr-4 pb-1.5 border-b border-border">
             {leftHeader}
           </div>
           <div className="flex-1 overflow-y-auto min-h-0">
@@ -56,12 +56,12 @@ export function ThreeColumnLayout({
           </div>
         </aside>
 
-        <main className={`lg:col-span-3 px-4 ${scrollableMain ? 'h-full min-h-0 overflow-y-auto pt-6 pb-10' : ''}`}>
+        <main className={`lg:col-span-3 px-4 pt-6 ${scrollableMain ? 'h-full min-h-0 overflow-y-auto pt-6 pb-8' : ''}`}>
           {mainContent}
         </main>
 
-        <aside className="hidden lg:flex flex-col h-full min-h-0 pl-4 border-l border-border pt-6">
-          <div className="shrink-0">
+        <aside className="hidden lg:flex flex-col h-full min-h-0 border-l border-border pt-6">
+          <div className="shrink-0 pl-4 pb-1.5 border-b border-border">
             {rightHeader}
           </div>
           <div className="flex-1 overflow-y-auto min-h-0">

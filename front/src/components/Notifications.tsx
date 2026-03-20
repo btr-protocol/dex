@@ -2,6 +2,7 @@ import { useNotifications, removeNotification, type NotificationType } from '@li
 import { Icon } from '@components/ui/Icon';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { Button } from '@components/ui/Button';
+import { cn } from '@utils/cn';
 
 const icons: Record<NotificationType, string> = {
     info: 'info',
@@ -37,21 +38,14 @@ function NotificationItem({ notification }: { notification: { id: string; type: 
 
     return (
         <div
-            className="relative overflow-hidden flex items-start gap-3 p-3 pb-4 rounded-2xl bg-bg-1 shadow-sm animate-in slide-in-from-right"
-            style={{
-                borderWidth: '1px',
-                borderStyle: 'solid',
-                borderColor: `color-mix(in srgb, ${stateColor} 40%, var(--border-color))`,
-            }}
+            className="relative overflow-hidden flex items-start gap-3 p-3 pb-4 rounded-2xl bg-bg-1 shadow-sm animate-in slide-in-from-right border"
+            style={{ borderColor: `color-mix(in srgb, ${stateColor} 40%, var(--border-color))` }}
         >
             {/* Progress bar with pure CSS animation */}
-            <div
-                className="absolute bottom-0 left-0 right-0 h-1.5 rounded-b-2xl overflow-hidden"
-                style={{ backgroundColor: 'var(--bg-3)' }}
-            >
+            <div className="absolute bottom-0 left-0 right-0 h-1.5 rounded-b-2xl overflow-hidden bg-bg-3">
                 <div
                     ref={barRef}
-                    className="h-full"
+                    className="h-full transition-none"
                     style={{
                         backgroundColor: `color-mix(in srgb, ${stateColor} 70%, var(--bg-4))`,
                         width: '100%',
@@ -104,8 +98,10 @@ export function Notifications() {
 
     return (
         <div
-            className="fixed left-0 right-0 z-toast flex flex-col items-center pointer-events-none transition-all duration-200"
-            style={{ bottom: footerVisible ? '2.5rem' : '0.5rem' }}
+            className={cn(
+                "fixed left-0 right-0 z-toast flex flex-col items-center pointer-events-none transition-all duration-200",
+                footerVisible ? "bottom-10" : "bottom-2"
+            )}
         >
             <div className="w-full max-w-7xl">
                 <div className="flex flex-col gap-2 max-w-sm ml-auto pointer-events-auto">

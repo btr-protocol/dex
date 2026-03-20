@@ -29,10 +29,10 @@ export function ArchivistLayout({
     <ThreeColumnLayout
       leftHeader={
         <FlexRow gap="2" className="items-center justify-between">
-          <div className="text-sm font-semibold">Chat History</div>
+          <div className="text-sm font-semibold pl-4">Chat History</div>
           <Button
             variant="ghost"
-            size="sm"
+            size="xs"
             onClick={onNewSession}
             leftIcon={<Icon name="plus" className="w-4 h-4" />}
           />

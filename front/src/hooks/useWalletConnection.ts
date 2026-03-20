@@ -1,8 +1,9 @@
 /**
  * useWalletConnection - Consolidated wallet connection state management
- * Extracts 10 useState calls from WalletModal into reusable hook
+ * Uses signal-based WalletConnectionStore for optimized batch operations
  */
-import { useState, useCallback } from 'preact/hooks';
+import { useEffect } from 'preact/hooks';
+import { walletConnectionStore } from '@/lib/wallet/WalletConnectionStore';
 
 export interface WalletConnectionState {
   agreedToTerms: boolean;
@@ -17,86 +18,41 @@ export interface WalletConnectionState {
 }
 
 export function useWalletConnection(initialView: 'list' | 'qr' = 'list') {
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
-  const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [view, setView] = useState<'list' | 'qr'>(initialView);
-  const [isLoadingWC, setIsLoadingWC] = useState(false);
-  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
-  const [wcUri, setWcUri] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  // Use signal-based WalletConnectionStore singleton
+  const store = walletConnectionStore;
 
-  const reset = useCallback(() => {
-    setView('list');
-    setQrCodeUrl(null);
-    setWcUri(null);
-    setIsLoadingWC(false);
-    setError('');
-  }, []);
-
-  const resetSearch = useCallback(() => {
-    setSearchQuery('');
-  }, []);
-
-  const handleBack = useCallback(() => {
-    setView('list');
-    setQrCodeUrl(null);
-    setWcUri(null);
-    setIsLoadingWC(false);
-  }, []);
-
-  const startWalletConnect = useCallback(() => {
-    setIsLoadingWC(true);
-    setError('');
-    setView('qr');
-  }, []);
-
-  const setWalletConnectError = useCallback((err: string) => {
-    setError(err);
-    setView('list');
-    setIsLoadingWC(false);
-  }, []);
-
-  const copyUri = useCallback(async () => {
-    if (!wcUri) return false;
-    try {
-      await navigator.clipboard.writeText(wcUri);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      return true;
-    } catch {
-      return false;
-    }
-  }, [wcUri]);
+  // Set initial view
+  useEffect(() => {
+    store.setView(initialView);
+  }, [initialView]);
 
   return {
-    // State
-    agreedToTerms,
-    connectingWallet,
-    error,
-    searchQuery,
-    view,
-    isLoadingWC,
-    qrCodeUrl,
-    wcUri,
-    copied,
-    // Setters
-    setAgreedToTerms,
-    setConnectingWallet,
-    setError,
-    setSearchQuery,
-    setView,
-    setIsLoadingWC,
-    setQrCodeUrl,
-    setWcUri,
-    setCopied,
-    // Helpers
-    reset,
-    resetSearch,
-    handleBack,
-    startWalletConnect,
-    setWalletConnectError,
-    copyUri,
+    // State (signal values)
+    agreedToTerms: store.agreedToTerms.value,
+    connectingWallet: store.connectingWallet.value,
+    error: store.error.value,
+    searchQuery: store.searchQuery.value,
+    view: store.view.value,
+    isLoadingWC: store.isLoadingWC.value,
+    qrCodeUrl: store.qrCodeUrl.value,
+    wcUri: store.wcUri.value,
+    copied: store.copied.value,
+    // Setters (bound methods)
+    setAgreedToTerms: (v: boolean) => store.setAgreedToTerms(v),
+    setConnectingWallet: (v: string | null) => store.setConnectingWallet(v),
+    setError: (v: string) => store.setError(v),
+    setSearchQuery: (v: string) => store.setSearchQuery(v),
+    setView: (v: 'list' | 'qr') => store.setView(v),
+    setIsLoadingWC: (v: boolean) => store.setIsLoadingWC(v),
+    setQrCodeUrl: (v: string | null) => store.setQrCodeUrl(v),
+    setWcUri: (v: string | null) => store.setWcUri(v),
+    setCopied: (v: boolean) => store.setCopied(v),
+    // Helpers (batched methods)
+    reset: () => store.reset(),
+    resetSearch: () => store.resetSearch(),
+    handleBack: () => store.handleBack(),
+    startWalletConnect: () => store.startWalletConnect(),
+    setWalletConnectError: (err: string) => store.setWalletConnectError(err),
+    copyUri: () => store.copyUri(),
   };
 }

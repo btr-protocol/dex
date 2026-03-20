@@ -2,7 +2,7 @@ import { createContext, JSX } from 'preact';
 import { useContext, useState, useEffect, useCallback } from 'preact/hooks';
 import { ComponentChildren } from 'preact';
 import { getGPUInfo } from '@utils/gpu-detection';
-import { safeJson } from '@utils/json';
+import { safeJson } from '@sdk/utils';
 import { getDefaultSettings, type AppSettings } from '@config/settings';
 
 export const DEFAULT_SETTINGS: AppSettings = getDefaultSettings();

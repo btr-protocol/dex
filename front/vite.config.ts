@@ -1,10 +1,13 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import preact from '@preact/preset-vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { visualizer } from 'rollup-plugin-visualizer'
 import path from 'path'
 import fs from 'fs'
 import { execSync } from 'child_process'
+import { logger } from '../sdk/src/utils/logger'
+
+const log = logger.withContext('vite')
 
 // Plugin to watch docs and rebuild search index + compiled markdown on change
 function watchDocsPlugin() {
@@ -15,10 +18,10 @@ function watchDocsPlugin() {
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
       try {
-        console.log('\nDocs changed, rebuilding assets...')
+        log.info('\nDocs changed, rebuilding assets...')
         execSync('bun run build:search-index && bun run build:markdown', { cwd: __dirname, stdio: 'inherit' })
       } catch (err) {
-        console.error('Failed to rebuild docs assets:', err)
+        log.error('Failed to rebuild docs assets:', err)
       }
     }, 500)
   }
@@ -50,13 +53,13 @@ function watchDocsPlugin() {
     // Build search index and compiled markdown on server start
     buildStart() {
       if (process.env.SKIP_PREBUILD === '1') {
-        console.log('Skipping docs assets build (SKIP_PREBUILD=1)')
+        log.info('Skipping docs assets build (SKIP_PREBUILD=1)')
         return
       }
       try {
         execSync('bun run build:search-index && bun run build:markdown', { cwd: __dirname, stdio: 'inherit' })
       } catch (err) {
-        console.warn('Failed to build docs assets on start:', err)
+        log.warn('Failed to build docs assets on start:', err)
       }
     }
   }
@@ -160,10 +163,17 @@ export default defineConfig({
       'preact/jsx-runtime',
       'preact/jsx-dev-runtime',
       '@preact/signals',
+      'chartist',
+      // Include noble/hashes subpaths for @noble/curves compatibility
+      '@noble/hashes/sha2',
+      '@noble/hashes/utils',
+      '@noble/hashes/hmac',
+      '@noble/hashes/sha3',
+      '@noble/curves/secp256k1',
     ],
   },
   plugins: [
-    react(),
+    preact(),
     watchDocsPlugin(),
     serveDocsPlugin(),
     visualizer({
@@ -256,7 +266,7 @@ export default defineConfig({
           if (id.includes('minisearch')) {
             return 'search';
           }
-          // Note: markdown-wasm, prismjs, asciimath2ml are now build-time only
+          // NB: markdown-wasm, prismjs, asciimath2ml are now build-time only
           if (id.includes('node_modules')) {
             // Core vendor chunk
             return 'vendor';

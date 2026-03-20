@@ -150,7 +150,7 @@ export function createQR(text: string, options?: { logo?: boolean }): string {
 
   // Alignment (V6: at 6, 34)
   const alignPoints = [[6,34], [34,6], [34,34]];
-  // Note: (6,6) is finder, excluded.
+  // NB: (6,6) is finder, excluded.
   alignPoints.forEach(([c, r]) => {
     // 5x5 box centered
     for(let y=r-2; y<=r+2; y++) for(let x=c-2; x<=c+2; x++) set(x, y,

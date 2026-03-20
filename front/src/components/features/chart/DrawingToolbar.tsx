@@ -3,11 +3,11 @@
  * Order: Ticker | Chart Type | Timeframe | Indicators | Select | Draw | Lines | Shapes | [Color/Delete] | Download | Expand
  */
 import { ComponentChildren } from 'preact';
-import { useState } from 'preact/hooks';
+import { useState, useMemo, useCallback } from 'preact/hooks';
 import { Icon } from '@components/ui/Icon';
 import { MaskIcon } from '@components/ui/MaskIcon';
 import type { IChartApi, PriceScaleMode } from 'lightweight-charts';
-import { Tooltip } from '@components/ui/Tooltip';
+import { Tooltip } from '@components/ui/FloatingPanel';
 import { Dropdown } from '@components/ui/Dropdown';
 import { ANALYSIS_PRESETS } from '@utils/indicators';
 import { addNotification } from '@lib/notifications';
@@ -24,6 +24,7 @@ import {
   SUB_PANE_KEYS,
 } from './indicatorsConfig';
 import { type ExportRow, exportCsv, exportJson, exportPng } from './chartExport';
+import { cn } from '@utils/cn';
 
 const MAX_SUB_PANES = 3;
 const SUB_PANE_SET = new Set(SUB_PANE_KEYS);
@@ -203,17 +204,18 @@ function ColorSwatch({
 
 // StatusBeacon component for health indicator
 function StatusBeacon({ status }: { status: 'healthy' | 'degraded' | 'down' }) {
-  const color = status === 'healthy' ? 'var(--green)' : status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
+  const colorClass = status === 'healthy' ? 'bg-green' : status === 'degraded' ? 'bg-yellow' : 'bg-red';
+  const bgVar = status === 'healthy' ? 'var(--green)' : status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
 
   return (
     <div className="relative w-2 h-2 shrink-0">
       <div
-        className="absolute inset-0 rounded-full animate-ping opacity-75"
-        style={{ backgroundColor: color }}
+        className={cn('absolute inset-0 rounded-full animate-ping opacity-75', colorClass)}
+        style={{ backgroundColor: bgVar }}
       />
       <div
-        className="absolute inset-0 rounded-full"
-        style={{ backgroundColor: color }}
+        className={cn('absolute inset-0 rounded-full', colorClass)}
+        style={{ backgroundColor: bgVar }}
       />
     </div>
   );
@@ -289,7 +291,7 @@ export function DrawingToolbar({
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // Validate indicator selection - max 3 sub-pane indicators
-  const handleIndicatorChange = (newIndicators: IndicatorKey[]) => {
+  const handleIndicatorChange = useCallback((newIndicators: IndicatorKey[]) => {
     const newSubPanes = newIndicators.filter(k => SUB_PANE_SET.has(k));
     const currentSubPanes = activeIndicators.filter(k => SUB_PANE_SET.has(k));
 
@@ -303,9 +305,9 @@ export function DrawingToolbar({
       return;
     }
     onChangeIndicators(newIndicators);
-  };
+  }, [activeIndicators, onChangeIndicators]);
 
-  const handleSelectModeChange = (mode: SelectMode) => {
+  const handleSelectModeChange = useCallback((mode: SelectMode) => {
     if (mode === 'all') {
       onSelectAll();
       onAreaSelectModeChange(false);
@@ -316,30 +318,59 @@ export function DrawingToolbar({
       onToolChange(null);
       onAreaSelectModeChange(false);
     }
-  };
+  }, [onSelectAll, onAreaSelectModeChange, onToolChange]);
 
-  // Active states for toolbar highlighting
+  // Active states for toolbar highlighting (memoized to prevent recalculation)
   const isSelectActive = activeTool === null;
-  const isDrawActive = DRAW_ITEMS.some(t => t.value === activeTool);
-  const isLineActive = LINE_ITEMS.some(t => t.value === activeTool);
-  const isShapeActive = SHAPE_ITEMS.some(t => t.value === activeTool);
-  const canHaveFill = selectedDrawing && ['rectangle', 'circle', 'triangle', 'channel'].includes(selectedDrawing.type);
+  const isDrawActive = useMemo(() => DRAW_ITEMS.some(t => t.value === activeTool), [activeTool]);
+  const isLineActive = useMemo(() => LINE_ITEMS.some(t => t.value === activeTool), [activeTool]);
+  const isShapeActive = useMemo(() => SHAPE_ITEMS.some(t => t.value === activeTool), [activeTool]);
+  const canHaveFill = useMemo(() =>
+    selectedDrawing && ['rectangle', 'circle', 'triangle', 'channel'].includes(selectedDrawing.type),
+    [selectedDrawing]
+  );
 
-  const selectedTimeframe = TIMEFRAME_OPTIONS.find(t => t.value === timeframe)!;
-  const chartIconName = CHART_ICONS[chartType];
-  const filename = `${pairLabel.replace('/', '-')}-${timeframe}s`;
+  const selectedTimeframe = useMemo(() => TIMEFRAME_OPTIONS.find(t => t.value === timeframe)!, [timeframe]);
+  const chartIconName = useMemo(() => CHART_ICONS[chartType], [chartType]);
+  const filename = useMemo(() => `${pairLabel.replace('/', '-')}-${timeframe}s`, [pairLabel, timeframe]);
 
   // Current select mode for dropdown value
   const currentSelectMode: SelectMode = isAreaSelectMode ? 'area' : 'single';
 
-  // Reusable toolbar trigger style
-  const toolbarTrigger = (icon: ComponentChildren, isActive: boolean, tooltip: string) => (
+  // Reusable toolbar trigger style (stable reference)
+  const toolbarTrigger = useCallback((icon: ComponentChildren, isActive: boolean, tooltip: string) => (
     <Tooltip content={tooltip} side="bottom">
       <div className={`toolbar-btn border-r border-border ${isActive ? 'toolbar-btn-active' : ''}`}>
         {icon}
       </div>
     </Tooltip>
-  );
+  ), []);
+
+  // Memoize dropdown items to prevent recreation
+  const chartTypeItems = useMemo(() =>
+    CHART_TYPE_OPTIONS.map(opt => ({
+      value: opt.value,
+      label: opt.label,
+      icon: CHART_ICONS[opt.value],
+    })), []);
+
+  const timeframeItems = useMemo(() =>
+    TIMEFRAME_OPTIONS.map(opt => ({
+      value: opt.value,
+      label: opt.label,
+    })), []);
+
+  const priceScaleItems = useMemo(() =>
+    PRICE_SCALE_OPTIONS.map(opt => ({
+      value: opt.value,
+      label: opt.label,
+    })), []);
+
+  const indicatorItems = useMemo(() =>
+    ANALYSIS_PRESETS.filter(p => p.id !== 'none').map(preset => ({
+      value: preset.id,
+      label: preset.name,
+    })), []);
 
   return (
     <>
@@ -380,11 +411,7 @@ export function DrawingToolbar({
 
         {/* Chart Type */}
         <Dropdown
-          items={CHART_TYPE_OPTIONS.map(opt => ({
-            value: opt.value,
-            label: opt.label,
-            icon: CHART_ICONS[opt.value],
-          }))}
+          items={chartTypeItems}
           value={chartType}
           onChange={(v) => onChangeType(v as ChartType)}
           size="sm"
@@ -400,10 +427,7 @@ export function DrawingToolbar({
 
         {/* Timeframe */}
         <Dropdown
-          items={TIMEFRAME_OPTIONS.map(opt => ({
-            value: opt.value,
-            label: opt.label,
-          }))}
+          items={timeframeItems}
           value={timeframe}
           onChange={(v) => onChangeTimeframe(v as number)}
           size="sm"
@@ -420,10 +444,7 @@ export function DrawingToolbar({
         {/* Price Scale */}
         {onScaleChange && (
           <Dropdown
-            items={PRICE_SCALE_OPTIONS.map(opt => ({
-              value: opt.value,
-              label: opt.label,
-            }))}
+            items={priceScaleItems}
             value={priceScaleMode}
             onChange={(v) => onScaleChange(v as PriceScaleMode)}
             size="sm"
@@ -440,10 +461,7 @@ export function DrawingToolbar({
 
         {/* Indicators */}
         <Dropdown
-          items={ANALYSIS_PRESETS.filter(p => p.id !== 'none').map(preset => ({
-            value: preset.id,
-            label: preset.name,
-          }))}
+          items={indicatorItems}
           value={activeIndicators}
           onChange={(v) => handleIndicatorChange(v as IndicatorKey[])}
           mode="multi"

@@ -4,7 +4,7 @@ import { InfoRow, InfoSection } from '@components/ui/InfoRow';
 import { BorderedThemedIcon, doubleDownIcon } from '@/components/ui/BorderedThemedIcon';
 import { Card } from '@components/ui/Card';
 import { Dropdown } from '@components/ui/Dropdown';
-import { Tooltip } from '@components/ui/Tooltip';
+import { Tooltip } from '@components/ui/FloatingPanel';
 import { TokenSelector } from '@components/shared/token';
 import { cn } from '@utils/cn';
 import { useSwap, formatQuote } from '@/hooks/useSwap';
@@ -13,7 +13,7 @@ import { SwapStore, TokenData, type OrderType } from '@/lib/swap/SwapStore';
 import { DirectionToggle } from './DirectionToggle';
 import { TokenList } from './TokenList';
 import { ORDER_TYPE_OPTIONS } from '@/constants/swap';
-import { formatNumber } from '@/utils/format';
+import { formatNumber } from '@sdk/utils/format';
 
 interface ChainInfo {
   name: string;
@@ -43,10 +43,9 @@ export function SwapForm({
   initialPrimaryToken = 'ETH',
   initialSecondaryToken = 'USDT',
   onTokenChange,
-  store: externalStore
+  store
 }: SwapFormProps) {
-  const localStore = useMemo(() => new SwapStore(initialPrimaryToken, initialSecondaryToken), []);
-  const store = externalStore || localStore;
+  if (!store) throw new Error('SwapForm requires store prop');
 
   // Get swap quote from contract
   const primaryToken = store.primaryTokens.value[0]?.symbol || '';

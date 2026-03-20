@@ -1,7 +1,10 @@
 /**
  * Chart Engine Hook - manages lightweight-charts instance and all series
  */
-import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
+import { useEffect, useRef, useCallback, useMemo } from 'preact/hooks';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('priceChartEngine');
 import {
   createChart,
   ColorType,
@@ -15,9 +18,9 @@ import {
   LineSeries,
   HistogramSeries,
 } from 'lightweight-charts';
-import type { OHLC, PriceData } from '@/hooks/usePriceFeed';
+import type { OHLC, PriceData } from '@/types/market';
 import type { IndicatorParams } from '@utils/indicators';
-import { precision } from '@utils/format';
+import { precision } from '@sdk/utils/maths';
 import { getColors, useTheme } from '@lib/theme';
 import {
   type IndicatorKey,
@@ -29,24 +32,7 @@ import {
 } from './indicatorsConfig';
 import { CrossGridPrimitive } from './CrossGrid';
 import { DrawingToolsPrimitive, SubPaneDrawingRenderer } from './DrawingTools';
-
-export interface OverlayDisplay {
-  name1: string;
-  value1: number;
-  color1: string;
-  name2: string;
-  value2: number;
-  color2: string;
-}
-
-export interface PaneDisplay {
-  name1: string;
-  value1: number;
-  color1: string;
-  name2: string;
-  value2: number;
-  color2: string;
-}
+import { ChartDataStore, type OverlayDisplay, type PaneDisplay } from '@/lib/chart/ChartDataStore';
 
 interface PaneIndicatorRef {
   series1: ISeriesApi<any> | null;
@@ -107,22 +93,20 @@ export function usePriceChartEngine({
   const savedDrawingsRef = useRef<ReturnType<DrawingToolsPrimitive['getDrawings']>>([]);
   const decimalsRef = useRef<number>(2);
 
-  const [hoveredOHLC, setHoveredOHLC] = useState<OHLC | null>(null);
-  const [overlayValues, setOverlayValues] = useState<OverlayDisplay | null>(null);
-  const [paneValues, setPaneValues] = useState<Map<IndicatorKey, PaneDisplay>>(new Map());
-  const [paneHeights, setPaneHeights] = useState<number[]>([]);
+  // Use signal-based ChartDataStore instead of 5 useState calls
+  const store = useMemo(() => new ChartDataStore(), []);
 
   const hasOverlay = activeIndicators.includes('ema-trend');
   const subPaneIndicators = activeIndicators.filter(k => SUB_PANE_KEYS.includes(k));
   const numSubPanes = subPaneIndicators.length;
 
-  const currentOHLC = hoveredOHLC || (candles.length > 0 ? candles[candles.length - 1] : null);
+  const currentOHLC = store.hoveredOHLC.value || (candles.length > 0 ? candles[candles.length - 1] : null);
 
   // Update pane heights
   const updatePaneHeights = useCallback(() => {
     const chart = chartRef.current;
     if (!chart || numSubPanes === 0) {
-      setPaneHeights([]);
+      store.setPaneHeights([]);
       // Update cross grid height for single pane
       if (crossGridRef.current) {
         crossGridRef.current.updatePaneHeight(height - 28); // subtract time scale height
@@ -139,7 +123,7 @@ export function usePriceChartEngine({
           cumulative += panes[i].getHeight?.() || 100;
           heights.push(cumulative);
         }
-        setPaneHeights(heights);
+        store.setPaneHeights(heights);
         // Update drawing tools with pane heights for multi-pane support
         if (drawingToolsRef.current) {
           drawingToolsRef.current.updatePaneHeights(heights);
@@ -165,7 +149,7 @@ export function usePriceChartEngine({
       for (let i = 0; i < numSubPanes; i++) {
         heights.push(mainHeight + (i + 1) * (paneHeight + 4));
       }
-      setPaneHeights(heights);
+      store.setPaneHeights(heights);
       // Update drawing tools with pane heights for multi-pane support
       if (drawingToolsRef.current) {
         drawingToolsRef.current.updatePaneHeights(heights);
@@ -237,17 +221,17 @@ export function usePriceChartEngine({
 
     chartRef.current = chart;
 
-    // Crosshair handler
+    // Crosshair handler - optimized with signal store
     chart.subscribeCrosshairMove((param: MouseEventParams) => {
       if (param.time && param.seriesData && seriesRef.current) {
         const candleData = param.seriesData.get(seriesRef.current);
-        if (candleData) setHoveredOHLC(candleData as any);
+        if (candleData) store.setHoveredOHLC(candleData as any);
 
         if (emaFastRef.current && emaSlowRef.current) {
           const v1 = param.seriesData.get(emaFastRef.current) as any;
           const v2 = param.seriesData.get(emaSlowRef.current) as any;
           if (v1?.value !== undefined && v2?.value !== undefined) {
-            setOverlayValues(prev => prev ? { ...prev, value1: v1.value, value2: v2.value } : null);
+            store.updateOverlayValues(v1.value, v2.value);
           }
         }
 
@@ -256,23 +240,12 @@ export function usePriceChartEngine({
             const v1 = param.seriesData.get(indicator.series1) as any;
             const v2 = param.seriesData.get(indicator.series2) as any;
             if (v1?.value !== undefined || v2?.value !== undefined) {
-              setPaneValues(prev => {
-                const newMap = new Map(prev);
-                const existing = newMap.get(key);
-                if (existing) {
-                  newMap.set(key, {
-                    ...existing,
-                    value1: v1?.value ?? existing.value1,
-                    value2: v2?.value ?? existing.value2,
-                  });
-                }
-                return newMap;
-              });
+              store.updatePaneValue(key, v1?.value, v2?.value);
             }
           }
         });
       } else if (candles.length > 0) {
-        setHoveredOHLC(candles[candles.length - 1]);
+        store.setHoveredOHLC(candles[candles.length - 1]);
       }
     });
 
@@ -303,7 +276,7 @@ export function usePriceChartEngine({
 
     const colors = getColors();
 
-    // Note: We don't save pane heights - always recalculate fresh based on current height
+    // NB: We don't save pane heights - always recalculate fresh based on current height
 
     // Save drawings before recreating the primitive
     if (drawingToolsRef.current) {
@@ -322,8 +295,8 @@ export function usePriceChartEngine({
       if (indicator.series2) try { chart.removeSeries(indicator.series2); } catch {}
     });
     paneIndicatorsRef.current.clear();
-    setOverlayValues(null);
-    setPaneValues(new Map());
+    store.setOverlayDisplay(null);
+    store.clearPaneDisplays();
 
     const samplePrice = candles.length > 0 ? candles[candles.length - 1].close : 1;
     const decimals = Math.min(precision(samplePrice), 8);
@@ -399,7 +372,7 @@ export function usePriceChartEngine({
           lastValueVisible: false,
           priceLineVisible: false,
         }, 0);
-        setOverlayValues({
+        store.setOverlayDisplay({
           name1: 'Fast', value1: 0, color1: colors.blue,
           name2: 'Slow', value2: 0, color2: colors.orange,
         });
@@ -466,13 +439,9 @@ export function usePriceChartEngine({
 
         paneIndicatorsRef.current.set(key, { series1, series2, crossGrid: paneCrossGrid, drawingRenderer: subPaneDrawingRenderer });
 
-        setPaneValues(prev => {
-          const newMap = new Map(prev);
-          newMap.set(key, {
-            name1: def.label1, value1: 0, color1: primaryColor,
-            name2: def.isDivergence ? '' : def.label2, value2: 0, color2: def.isDivergence ? colors.fg2 : colors.orange,
-          });
-          return newMap;
+        store.setPaneDisplay(key, {
+          name1: def.label1, value1: 0, color1: primaryColor,
+          name2: def.isDivergence ? '' : def.label2, value2: 0, color2: def.isDivergence ? colors.fg2 : colors.orange,
         });
       });
 
@@ -504,7 +473,7 @@ export function usePriceChartEngine({
             panes[i].setHeight(actualSubPaneHeight);
           }
         } catch (e) {
-          console.warn('Failed to set pane heights:', e);
+          log.warn('Failed to set pane heights', e);
         }
       };
 
@@ -514,7 +483,7 @@ export function usePriceChartEngine({
       setTimeout(setPaneHeightsNow, 150);
       setTimeout(updatePaneHeights, 200);
     } catch (e) {
-      console.error('Could not create series:', e);
+      log.error('Could not create series', e);
     }
   }, [chartType, candles.length > 0, hasOverlay, subPaneIndicators.join(','), updatePaneHeights, height]);
 
@@ -549,7 +518,7 @@ export function usePriceChartEngine({
         emaSlowRef.current.setData(data.map((d: any) => ({ time: d.time as Time, value: d[def.series2Field] })));
         if (data.length > 0) {
           const last = data[data.length - 1];
-          setOverlayValues({
+          store.setOverlayDisplay({
             name1: 'Fast', value1: last[def.series1Field], color1: colors.cyan,
             name2: 'Slow', value2: last[def.series2Field], color2: colors.orange,
           });
@@ -568,18 +537,7 @@ export function usePriceChartEngine({
 
         if (data.length > 0) {
           const last = data[data.length - 1];
-          setPaneValues(prev => {
-            const newMap = new Map(prev);
-            const existing = newMap.get(key);
-            if (existing) {
-              newMap.set(key, {
-                ...existing,
-                value1: last[def.series1Field],
-                value2: last[def.series2Field],
-              });
-            }
-            return newMap;
-          });
+          store.updatePaneValue(key, last[def.series1Field], last[def.series2Field]);
         }
       });
 
@@ -594,7 +552,7 @@ export function usePriceChartEngine({
         hasInitializedRef.current = true;
       }
     } catch (e) {
-      console.error('Could not set data:', e);
+      log.error('Could not set data', e);
     }
   }, [candles, chartType, hasOverlay, subPaneIndicators.join(','), getParams]);
 
@@ -614,12 +572,9 @@ export function usePriceChartEngine({
         mode: priceScaleMode,
       });
     } catch (e) {
-      console.warn('Failed to update price scale mode:', e);
+      log.warn('Failed to update price scale mode', e);
     }
   }, [priceScaleMode]);
-
-  // Track current spread
-  const [spread, setSpread] = useState<{ bid: number; ask: number; mid: number } | null>(null);
 
   // Live price updates (price already has synthetic/inversion applied by PriceChart)
   useEffect(() => {
@@ -627,8 +582,8 @@ export function usePriceChartEngine({
 
     const { mid: price, bid, ask } = livePrice;
 
-    // Update spread state
-    setSpread({ bid, ask, mid: price });
+    // Update spread state using signal store
+    store.updateSpread(bid, ask, price);
 
     const now = Math.floor(Date.now() / 1000);
     const bucketTime = Math.floor(now / timeframe) * timeframe;
@@ -661,11 +616,11 @@ export function usePriceChartEngine({
     containerRef,
     chartRef,
     currentOHLC,
-    overlayValues,
-    paneValues,
-    paneHeights,
+    overlayValues: store.overlayValues.value,
+    paneValues: store.paneValues.value,
+    paneHeights: store.paneHeights.value,
     decimals: decimalsRef.current,
-    spread,
+    spread: store.spread.value,
     drawingTools: drawingToolsRef.current,
   };
 }

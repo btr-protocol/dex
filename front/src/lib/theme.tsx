@@ -1,6 +1,9 @@
 import { createContext, JSX } from 'preact';
 import { useContext, useEffect, useState } from 'preact/hooks';
 import { ComponentChildren } from 'preact';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('theme');
 
 // ─────────────────────────────────────────────────────────────
 // Color parsing + cache
@@ -169,7 +172,7 @@ function parseColor(value: string): string {
   }
 
   // Anything else
-  console.warn('Failed to normalize color:', value, '->', normalized);
+  log.warn(`Failed to normalize color: ${value} -> ${normalized}`);
   return '#000000';
 }
 

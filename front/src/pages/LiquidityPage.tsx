@@ -12,7 +12,7 @@ import { PageContainer } from '@components/layout/PageContainer';
 import { BorderedThemedIcon, plusIcon } from '@/components/ui/BorderedThemedIcon';
 import { AssetRow } from '@components/features/liquidity/AssetRow';
 import { useLiquidityData } from '@/hooks/useLiquidityData';
-import { formatCurrencyCompact, formatPercent } from '@/utils/format';
+import { formatCurrencyCompact, formatPercent } from '@sdk/utils/format';
 import { ROUTES } from '@/constants/navigation';
 import { liquidityStore, type Timeframe } from '@/lib/liquidity/LiquidityStore';
 

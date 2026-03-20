@@ -8,6 +8,9 @@ import { useRouter } from '@lib/router';
 import { LiquidityShaper } from '@components/features/liquidity';
 import { ParameterShaper } from '@components/shared/ui-utilities';
 import { ROUTES } from '@/constants/navigation';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('addAsset');
 
 const STEPS: Step[] = [
     { label: 'General Info', description: 'Token details' },
@@ -33,11 +36,11 @@ export function AddAssetPage() {
     const [gamma, setGamma] = useState(1.0);
     const [vega, setVega] = useState(1.0);
     const [lambda, setLambda] = useState(1.0);
-    const [coverageFloor, setCoverageFloor] = useState('0.1');
+    const [coverageMin, setCoverageFloor] = useState('0.1');
     const [decayStart, setDecayStart] = useState('0.5');
 
     const handleSubmit = () => {
-        console.log('Submitting Proposal...');
+        log.info('Submitting Proposal...');
     };
 
     return (
@@ -154,7 +157,7 @@ export function AddAssetPage() {
                                         <label className="text-sm font-medium text-muted-foreground">Coverage Floor</label>
                                         <Input
                                             type="number"
-                                            value={coverageFloor}
+                                            value={coverageMin}
                                             onChange={(e: Event) => setCoverageFloor((e.target as HTMLInputElement).value)}
                                         />
                                     </div>

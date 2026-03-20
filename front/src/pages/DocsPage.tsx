@@ -2,7 +2,11 @@ import { useEffect, useState } from 'preact/hooks';
 import { getDocBySlug, type DocFile } from '@/utils/docs';
 import { DocsLayout } from '@components/features/docs';
 import { DocNavigation } from '@components/features/docs';
+import { MarkdownRenderer } from '@components/features/docs';
 import { useRouter } from '@/lib/router';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('docsPage');
 
 interface DocsPageProps {
   slug?: string;
@@ -33,7 +37,7 @@ export function DocsPage({ slug: slugProp }: DocsPageProps) {
           setLoading(false);
         })
         .catch((error) => {
-          console.error('Error loading doc:', error);
+          log.error('Error loading doc', error);
           setError('Failed to load document');
           setDoc(null);
           setLoading(false);
@@ -56,17 +60,14 @@ export function DocsPage({ slug: slugProp }: DocsPageProps) {
   return (
     <DocsLayout currentSlug={slug} loading={loading}>
       {doc && (
-        <>
-          <article
-            className="markdown-content"
-            dangerouslySetInnerHTML={{ __html: doc.content }}
-          />
+        <article className="markdown-content-wrapper">
+          <MarkdownRenderer slug={slug} />
           <DocNavigation
             prev={doc.prev || undefined}
             next={doc.next || undefined}
             onNavigate={navigate}
           />
-        </>
+        </article>
       )}
     </DocsLayout>
   );

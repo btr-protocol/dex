@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'preact/hooks';
-import { PieChart as ChartistPie } from 'chartist';
 import type { PieChartProps } from './types';
+import type { ChartConfig } from './types';
+import * as Chartist from 'chartist';
+import 'chartist/dist/index.css';
 
 /**
  * Pie and donut chart component using Chartist.js
@@ -26,35 +28,33 @@ import type { PieChartProps } from './types';
  * />
  * ```
  */
-export function PieChart({
-  data,
-  labels,
-  width = 300,
-  height = 300,
-  color,
-  className = '',
-  donut = false,
-  donutWidth = 20,
-}: PieChartProps) {
+export function PieChart(props: PieChartProps & { config?: ChartConfig }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const styleRef = useRef<HTMLStyleElement | null>(null);
 
+  // Extract config if provided
+  const config = props.config;
+
   useEffect(() => {
-    if (!chartRef.current || !Array.isArray(data) || data.length === 0) return;
+    if (!chartRef.current) return;
+
+    const data = config?.data ?? props.data;
+
+    if (!Array.isArray(data) || data.length === 0) return;
 
     // Flatten data if needed (pie charts always use flat series)
     const series = Array.isArray(data[0]) ? (data as number[][]).flat() : (data as number[]);
 
     const chartData = {
-      labels: labels || series.map((_: number, i: number) => i.toString()),
+      labels: (config?.labels ?? props.labels) || series.map((_: number, i: number) => i.toString()),
       series,
     };
 
     const options = {
-      width,
-      height,
-      donut,
-      donutWidth,
+      width: config?.width ?? props.width ?? 300,
+      height: config?.height ?? props.height ?? 300,
+      donut: config?.donut ?? props.donut ?? false,
+      donutWidth: config?.donutWidth ?? props.donutWidth ?? 20,
       chartPadding: 0,
       showLabel: true,
       labelPosition: 'outside' as const,
@@ -64,11 +64,13 @@ export function PieChart({
     chartRef.current.innerHTML = '';
 
     // Create new chart (type assertion for Chartist.js types)
-    const chart = new ChartistPie(chartRef.current, chartData as any, options as any);
+    const ChartistLib = Chartist;
+    const chart = new (ChartistLib as any).Pie(chartRef.current, chartData as any, options as any);
 
     // Apply custom styling
     const styleId = Math.random().toString(36).substr(2, 9);
-    const colors = Array.isArray(color) ? color : color ? [color] : undefined;
+    const configColor = config?.color ?? props.color;
+    const colors = Array.isArray(configColor) ? configColor : configColor ? [configColor] : undefined;
 
     const cssRules: string[] = [];
 
@@ -111,13 +113,13 @@ export function PieChart({
       }
       chart.detach();
     };
-  }, [data, labels, width, height, color, donut, donutWidth]);
+  }, [props]);
 
   return (
     <div
       ref={chartRef}
-      className={`ct-chart ${className}`}
-      style={{ width, height }}
+      className={`ct-chart ${(props.className ?? props.config?.className)}`}
+      style={{ width: props.config?.width ?? props.width ?? 300, height: props.config?.height ?? props.height ?? 300 }}
     />
   );
 }

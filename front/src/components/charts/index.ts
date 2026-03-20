@@ -8,6 +8,7 @@
  */
 
 export type {
+  ChartConfig,
   ChartBaseProps,
   LineChartProps,
   BarChartProps,

@@ -6,7 +6,7 @@
 .markdown-content h5,
 .markdown-content h6 {
   margin-bottom: 0.5em;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.2;
   color: var(--fg-0);
 }
@@ -406,7 +406,17 @@
 }
 
 /* Tables without headers */
-.markdown-content table thead[style*="display: none"] {
+.markdown-content table>thead[style*="display: none"] {
+  display: none !important;
+}
+
+/* Hide empty table headers */
+.markdown-content table>thead:has(th:empty), .markdown-content table>thead:has(th.sortable:empty) {
+  display: none !important;
+}
+
+/* Also hide if all header cells are empty (including those with classes) */
+.markdown-content table>thead tr:has(th):not(:has(th:not(:empty))) {
   display: none !important;
 }
 

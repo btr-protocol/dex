@@ -6,10 +6,17 @@ export interface PositionResult {
   transform: string;
 }
 
+export interface PositionOptions {
+  clampToViewport?: boolean;
+  estimatedWidth?: number;
+  estimatedHeight?: number;
+}
+
 export function calculatePosition(
   rect: DOMRect,
   pos: Position,
-  gap = 12
+  gap = 12,
+  options?: PositionOptions
 ): PositionResult {
   let x = rect.left + rect.width / 2;
   let y = rect.top;
@@ -29,6 +36,20 @@ export function calculatePosition(
       x = rect.right + gap;
       y = rect.top + rect.height / 2;
       break;
+  }
+
+  // Clamp to viewport if requested
+  if (options?.clampToViewport) {
+    const width = options.estimatedWidth || 200;
+    const height = options.estimatedHeight || 100;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Horizontal clamping: keep panel fully visible
+    x = Math.max(width / 2 + 8, Math.min(x, viewportWidth - width / 2 - 8));
+
+    // Vertical clamping: keep panel fully visible
+    y = Math.max(height / 2 + 8, Math.min(y, viewportHeight - height / 2 - 8));
   }
 
   return {

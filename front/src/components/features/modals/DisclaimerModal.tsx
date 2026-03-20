@@ -3,6 +3,9 @@ import { Dialog, DialogContent } from '@components/ui/Dialog';
 import { Button } from '@components/ui/Button';
 import { Icon } from '@components/ui/Icon';
 import { Spinner } from '@components/ui/Spinner';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('disclaimerModal');
 
 const DISCLAIMER_KEY = 'btr-disclaimer-accepted';
 
@@ -23,7 +26,7 @@ export function DisclaimerModal({ onAccept }: DisclaimerModalProps) {
         setLoading(false);
       })
       .catch(err => {
-        console.error('Failed to load disclaimer:', err);
+        log.error('Failed to load disclaimer', err);
         setContent('# Error\nFailed to load disclaimer content.');
         setLoading(false);
       });

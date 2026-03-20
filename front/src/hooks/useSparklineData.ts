@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'preact/hooks';
 import { usePriceStream, type OHLC } from './usePriceFeed';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('sparklineData');
 
 const API_URL = import.meta.env.VITE_COLLECTOR_API || 'http://localhost:3001';
 const SPARKLINE_TIMEFRAME = 1800; // 30 minutes in seconds
@@ -64,7 +67,7 @@ export function useSparklineData(feedSymbol: string | null): SparklineData {
                 setLoading(false);
                 // Only log once to avoid console spam
                 if (error === null) {
-                    console.warn(`[useSparklineData] ${feedSymbol}: Backend unavailable`);
+                    log.warn(`${feedSymbol}: Backend unavailable`);
                 }
             });
 

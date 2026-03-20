@@ -1,4 +1,55 @@
 /**
+ * Chart configuration from markdown (```chart blocks)
+ * This interface is used to decode chart configs embedded in HTML
+ *
+ * NB: Colors default to theme colors if not specified.
+ * Axis labels/titles default to theme colors (var(--fg-1)).
+ * 
+ * Smoothing: Catmull-Rom (Cardinal) spline uses tension parameter:
+ * - tension: 0.5 (tight/loose) - moderately tight curves (good for liquidity profiles)
+ * - tension: 0.3 (very loose) - more flowing curves
+ * - tension: 0.2 (default-ish) - standard smoothness
+ * - tension: 1.0 (very tight) - almost no curves
+ *
+ * NB: Chartist's `lineSmooth: true` is a boolean flag that uses Cardinal interpolation.
+ * Use `tension` directly for more control over curve tightness.
+ */
+export interface ChartConfig {
+  /** Chart type */
+  type: 'pie' | 'bar' | 'line' | 'sparkline';
+  /** Data array (single series) or 2D array (multiple series) */
+  data: number[] | number[][];
+  /** Optional labels for data points */
+  labels?: string[];
+  /** Chart width in pixels */
+  width?: number;
+  /** Chart height in pixels */
+  height?: number;
+  /** Single color or array of colors for series (defaults to theme) */
+  color?: string | string[];
+  /** X-axis title */
+  titleX?: string;
+  /** Y-axis title */
+  titleY?: string;
+  /** Additional CSS classes */
+  className?: string;
+  /** Line chart options */
+  showLine?: boolean;
+  showArea?: boolean;
+  showPoint?: boolean;
+  /** Use smooth bezier curves (deprecated: use tension parameter for Catmull-Rom) */
+  smooth?: boolean;
+  /** Catmull-Rom spline tension (0=tight, 0.5=default-ish, higher=looser) */
+  tension?: number;
+  stacked?: boolean;
+  /** Bar chart options */
+  horizontal?: boolean;
+  /** Pie chart options */
+  donut?: boolean;
+  donutWidth?: number;
+}
+
+/**
  * Common base props for all chart components
  */
 export interface ChartBaseProps {
@@ -10,8 +61,12 @@ export interface ChartBaseProps {
   width?: number;
   /** Chart height in pixels */
   height?: number;
-  /** Single color or array of colors for series */
+  /** Single color or array of colors for series (defaults to theme) */
   color?: string | string[];
+  /** X-axis title */
+  titleX?: string;
+  /** Y-axis title */
+  titleY?: string;
   /** Additional CSS classes */
   className?: string;
 }
@@ -26,8 +81,10 @@ export interface LineChartProps extends ChartBaseProps {
   showArea?: boolean;
   /** Show data points */
   showPoint?: boolean;
-  /** Use smooth bezier curves */
+  /** Use smooth bezier curves (deprecated: use tension) */
   smooth?: boolean;
+  /** Catmull-Rom spline tension (0=tight, 0.5=default, higher=looser) */
+  tension?: number;
   /** Stack multiple series */
   stacked?: boolean;
 }

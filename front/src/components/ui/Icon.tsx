@@ -5,6 +5,9 @@
 import { JSX } from 'preact';
 import { cn } from '@utils/cn';
 import * as LucideIcons from 'lucide-preact';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('icon');
 
 /**
  * Mapping from Phosphor-style kebab-case names to Lucide PascalCase names
@@ -41,10 +44,11 @@ const PHOSPHOR_TO_LUCIDE: Record<string, string> = {
   'floppy-disk': 'Save',
   'save': 'Save',
   'trash': 'Trash2',
-  'pencil': 'Pencil',
+  'pencil': 'Edit2', // Use Edit2 instead of Pencil
   'edit': 'Edit',
   'highlighter': 'Highlighter',
-  'selection-all': 'Copy',
+  'selection-all': 'MousePointerSquare',
+  'cursor': 'MousePointer2', // Use MousePointer2 for cursor icon
 
   // UI Elements
   'magnifying-glass': 'Search',
@@ -104,6 +108,8 @@ const PHOSPHOR_TO_LUCIDE: Record<string, string> = {
 
   // Dev & Debug
   'bug': 'Bug',
+  'robot': 'Bot',
+  'bot': 'Bot',
 
   // Menu & Navigation
   'list': 'Menu',
@@ -123,7 +129,6 @@ const PHOSPHOR_TO_LUCIDE: Record<string, string> = {
   'package': 'Package',
   'arrows-left-right': 'ArrowLeftRight',
   'corners-out': 'Maximize2',
-  'cursor': 'MousePointer',
   'function': 'FunctionSquare',
   'box': 'Box',
   'clock': 'Clock',
@@ -281,7 +286,7 @@ export function Icon({ name, size = 16, className, ...props }: IconProps) {
   const IconComponent = (LucideIcons as any)[lucideName];
 
   if (!IconComponent) {
-    console.warn(`Icon "${name}" (resolved: "${lucideName}") not found in lucide-preact`);
+    log.warn(`Icon "${name}" (resolved: "${lucideName}") not found in lucide-preact`);
     return null;
   }
 

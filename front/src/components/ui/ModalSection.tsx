@@ -20,7 +20,7 @@ export function ModalSection({ title, icon, children }: ModalSectionProps) {
     <div className="">
       <div
         className={`text-xs uppercase tracking-wider px-3 py-2 transition-colors flex items-center gap-2 ${
-          isChildHovered ? 'text-primary' : 'text-muted-foreground'
+          isChildHovered ? 'text-primary' : 'text-fg-2'
         }`}
       >
         {icon && <Icon name={icon} className="w-3.5 h-3.5" />}

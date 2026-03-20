@@ -28,7 +28,7 @@ export function DownloadModal({ isOpen, onClose, onCopy, onDownload, onEmail }: 
           onClick={() => handleAction(onCopy)}
           className={`w-full flex items-center gap-3 ${MODAL_PADDING} py-3 hover:bg-bg-2 transition-colors`}
         >
-          <Icon name="copy" className="w-5 h-5 text-muted-foreground" />
+          <Icon name="copy" className="w-5 h-5 text-fg-2" />
           <div className="flex-1 text-left">
             <div className="text-sm font-medium">Copy to Clipboard</div>
             <div className="text-xs text-muted-foreground">Copy notifications as JSON</div>
@@ -39,7 +39,7 @@ export function DownloadModal({ isOpen, onClose, onCopy, onDownload, onEmail }: 
           onClick={() => handleAction(onDownload)}
           className={`w-full flex items-center gap-3 ${MODAL_PADDING} py-3 hover:bg-bg-2 transition-colors`}
         >
-          <Icon name="download" className="w-5 h-5 text-muted-foreground" />
+          <Icon name="download" className="w-5 h-5 text-fg-2" />
           <div className="flex-1 text-left">
             <div className="text-sm font-medium">Download as JSON</div>
             <div className="text-xs text-muted-foreground">Save as btr-logs.json</div>
@@ -50,7 +50,7 @@ export function DownloadModal({ isOpen, onClose, onCopy, onDownload, onEmail }: 
           onClick={() => handleAction(onEmail)}
           className={`w-full flex items-center gap-3 ${MODAL_PADDING} py-3 hover:bg-bg-2 transition-colors`}
         >
-          <Icon name="envelope" className="w-5 h-5 text-muted-foreground" />
+          <Icon name="envelope" className="w-5 h-5 text-fg-2" />
           <div className="flex-1 text-left">
             <div className="text-sm font-medium">Email Report</div>
             <div className="text-xs text-muted-foreground">Send to tech@btr.supply</div>

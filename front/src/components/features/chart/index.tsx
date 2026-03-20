@@ -3,7 +3,8 @@
  */
 import { useState, useMemo, useEffect } from 'preact/hooks';
 import type { PriceScaleMode } from 'lightweight-charts';
-import { precision, formatNumber } from '@utils/format';
+import { formatNumber } from '@sdk/utils/format';
+import { precision } from '@sdk/utils/maths';
 import {
   usePriceStream,
   fetchAvailableTickers,
@@ -353,11 +354,8 @@ export function PriceChart({
           return (
             <div
               key={key}
-              className="absolute z-10 flex items-center gap-1 text-[10px] font-numeric"
-              style={{
-                top: top + 4,
-                left: 4,
-              }}
+              className="absolute left-1 z-10 flex items-center gap-1 text-[10px] font-numeric"
+              style={{ top: `${top + 4}px` }}
             >
               {values && (
                 <>

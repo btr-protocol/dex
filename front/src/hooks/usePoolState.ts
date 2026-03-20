@@ -1,6 +1,6 @@
 import { useReadContract, useReadContracts } from './useContract';
 import type { Address } from '@sdk/eth';
-import { POOL_ABI, getContractAddress } from '@sdk/eth';
+import { POOL_ABI } from '@sdk/pool';
 
 export interface AssetState {
   reserves: bigint;
@@ -109,7 +109,7 @@ export function usePoolAssets(poolAddress?: Address) {
   const { data: assetAddressesData } = useRegisteredAssets(poolAddress);
   const assetAddresses = Array.isArray(assetAddressesData) ? (assetAddressesData as Address[]) : undefined;
 
-  const contracts = assetAddresses?.map((token: Address) => [
+  const contracts = poolAddress && assetAddresses?.map((token: Address) => [
     {
       address: poolAddress,
       abi: POOL_ABI,

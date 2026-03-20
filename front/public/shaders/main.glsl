@@ -15,14 +15,14 @@ const float DEF_EYE      = 0.15;
 const float TAU          = 6.2831853;
 const float MARGIN       = 0.1;
 const float SCALE        = 1.0 / (1.0 - MARGIN);
-const float STROKE_WIDTH = 0.0;
+const float STROKE_WIDTH = 0.003;
 
 // Theme colors
 const lowp vec3 DARK_BASE    = vec3(0.16);
 const lowp vec3 LIGHT_BASE   = vec3(0.90);
 const lowp vec3 DARK_CENTER  = vec3(0.08);
 const lowp vec3 LIGHT_CENTER = vec3(0.75);
-const lowp vec3 DARK_BORDER  = vec3(0.16);
+const lowp vec3 DARK_BORDER  = vec3(0.17);
 const lowp vec3 LIGHT_BORDER = vec3(0.87);
 
 // Sin-free hash (fract/mul chain)
@@ -96,7 +96,7 @@ void main() {
         lowp float depth = t;
 
         lowp vec3 fillColor   = mix(baseColor,  centerColor, depth);
-        lowp vec3 strokeColor = mix(borderBase, centerColor, depth * 0.7);
+        lowp vec3 strokeColor = mix(borderBase, centerColor, depth * 0.8);
 
         // Hard fill + independent stroke (original visual behavior)
         col = mix(col, fillColor, step(dist, radius));

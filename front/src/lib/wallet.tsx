@@ -19,6 +19,9 @@ import {
   getChain,
 } from '@sdk/eth';
 import { useSettings } from './settings';
+import { withContext } from './logger';
+
+const log = withContext('wallet');
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -161,7 +164,7 @@ export function WalletProvider({ children }: { children: ComponentChildren }) {
         }
       }
     } catch (error) {
-      console.error('Failed to connect', error);
+      log.error('Failed to connect', error);
       throw error;
     } finally {
       setIsConnecting(false);
@@ -171,6 +174,10 @@ export function WalletProvider({ children }: { children: ComponentChildren }) {
   const disconnect = useCallback(() => {
     setAddress(undefined);
     setProvider(undefined);
+    // Clear auth token when wallet disconnects
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('btr-auth-token');
+    }
   }, []);
 
   const switchChain = useCallback(async (id: number) => {

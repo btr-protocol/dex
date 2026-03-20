@@ -1,5 +1,8 @@
 import { useEffect } from 'preact/hooks';
 import type { DrawingToolsPrimitive } from '../DrawingTools';
+import { logger } from '@sdk/utils';
+
+const log = logger.withContext('drawingPersistence');
 
 export function useDrawingPersistence(
   engine: DrawingToolsPrimitive | null,
@@ -15,7 +18,7 @@ export function useDrawingPersistence(
         engine.loadDrawings(drawings);
       }
     } catch (e) {
-      console.warn('Failed to load drawings:', e);
+      log.warn('Failed to load drawings', e);
     }
   }, [engine, storageKey]);
 
@@ -32,7 +35,7 @@ export function useDrawingPersistence(
           localStorage.setItem(storageKey, JSON.stringify(drawings));
         }
       } catch (e) {
-        console.warn('Failed to save drawings:', e);
+        log.warn('Failed to save drawings', e);
       }
     };
 
@@ -42,7 +45,7 @@ export function useDrawingPersistence(
           const drawings = JSON.parse(e.newValue);
           engine.loadDrawings(drawings);
         } catch (err) {
-          console.warn('Failed to sync drawings:', err);
+          log.warn('Failed to sync drawings', err);
         }
       }
     };

@@ -148,12 +148,12 @@ export function Slider({
           </div>
 
           {showTicks && (
-            <div className="absolute left-0 right-0" style={{ top: '100%' }}>
+            <div className="absolute left-0 right-0 top-full">
               {ticks.map((tick, i) => (
                 <div
                   key={i}
-                  className="absolute flex flex-col items-center"
-                  style={{ left: `${tick.position}%`, transform: 'translateX(-50%)' }}
+                  className="absolute flex flex-col items-center -translate-x-1/2"
+                  style={{ left: `${tick.position}%` }}
                 >
                   <div className="w-px h-1 bg-fg-3" />
                   {(i === 0 || i === ticks.length - 1 || i === Math.floor(ticks.length / 2)) && (

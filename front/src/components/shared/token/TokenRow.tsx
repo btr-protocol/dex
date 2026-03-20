@@ -2,7 +2,7 @@ import { Icon } from '@components/ui/Icon';
 import { Input } from '@components/ui/Input';
 import { getTokenAddress, getTokenIcon, getChainIcon } from '@sdk/eth';
 import { MaskIcon } from '@components/ui/MaskIcon';
-import { Tooltip } from '@components/ui/Tooltip';
+import { Tooltip } from '@components/ui/FloatingPanel';
 import { addNotification } from '@lib/notifications';
 import { useExternalLink } from '@/lib/external-links';
 import { useState } from 'preact/hooks';

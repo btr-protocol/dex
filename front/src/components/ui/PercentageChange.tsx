@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { Icon } from './Icon';
-import { formatPercent } from '@/utils/format';
+import { formatPercent } from '@sdk/utils/format';
 
 interface PercentageChangeProps {
   value: number; // percentage change (e.g., 5 for 5%)

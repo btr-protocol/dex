@@ -138,7 +138,7 @@ export function NotificationsModal({
               <Tooltip content="Download notifications" side="bottom">
                 <button
                   onClick={() => setIsDownloadModalOpen(true)}
-                  className="p-1.5 hover:bg-bg-3 transition-colors text-muted-foreground hover:text-foreground"
+                  className="p-1.5 hover:bg-bg-3 transition-colors text-fg-2 hover:text-foreground"
                 >
                   <Icon name="download" className="w-4 h-4" />
                 </button>
@@ -146,7 +146,7 @@ export function NotificationsModal({
               <Tooltip content="Delete all notifications" side="bottom">
                 <button
                   onClick={onClearAll}
-                  className="p-1.5 hover:bg-red/10 transition-colors text-muted-foreground hover:text-red"
+                  className="p-1.5 hover:bg-red/10 transition-colors text-fg-2 hover:text-red"
                 >
                   <Icon name="trash" className="w-4 h-4" />
                 </button>

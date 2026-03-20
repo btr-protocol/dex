@@ -6,7 +6,8 @@ import { Spinner } from '@components/ui/Spinner';
 import { useSparklineData } from '@/hooks/useSparklineData';
 import { AssetData } from '@/hooks/useLiquidityData';
 import { liquidityStore } from '@/lib/liquidity/LiquidityStore';
-import { formatPrice, formatPercent, calcPercentChange, formatCurrencyCompact } from '@/utils/format';
+import { formatPrice, formatPercent, formatCurrencyCompact } from '@sdk/utils/format';
+import { calcPercentChange } from '@sdk/utils/maths';
 
 interface AssetRowProps {
     poolName: string;

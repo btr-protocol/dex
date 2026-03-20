@@ -138,7 +138,7 @@ export function NavPanel({ type, slug }: NavPanelProps) {
   const tocGroups = type === 'toc' ? groupTocItems(items) : [];
 
   return (
-    <nav className="overflow-x-hidden">
+    <nav className="overflow-x-hidden pl-4">
       {type === 'files' ? (
         <FileTree items={items} path={path} navigate={navigate} />
       ) : (

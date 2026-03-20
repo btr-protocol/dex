@@ -4,7 +4,7 @@ import { render } from 'preact';
 import { Icon } from './Icon';
 import { cn } from '@utils/cn';
 import { Button, ButtonProps } from './Button';
-import { Tooltip } from './Tooltip';
+import { Tooltip } from './FloatingPanel';
 import { type Size, DROPDOWN_ITEM_SIZES, SIZE_CHECK } from '@/constants/design';
 import { renderIcon, isStringIcon } from '@utils/iconHelpers';
 import { DropdownItem } from '@/types/ui';
@@ -328,7 +328,7 @@ export function Dropdown<T = string>({
                 isStringIcon(item.icon) ? (
                   <img src={item.icon} alt="" className={cn(itemSizeClasses.icon, 'rounded-xs shrink-0')} />
                 ) : (
-                  <span className={cn('shrink-0', selected && !disabled ? 'text-primary' : 'text-muted-foreground')}>
+                  <span className={cn('shrink-0', selected && !disabled ? 'text-primary' : 'text-fg-2')}>
                     {renderIcon(item.icon, itemSizeClasses.icon) as any}
                   </span>
                 )
