@@ -11,7 +11,7 @@ pragma solidity ^0.8.4;
 ///   script misfire / misconfiguration.
 /// - Careless dev forgets to add a withdraw function to a NFT sale contract.
 ///
-/// Note: if you are deploying via a untrusted `tx.origin`,
+/// NB: if you are deploying via a untrusted `tx.origin`,
 /// you MUST override `_lifebuoyDefaultDeployer` to return a trusted address.
 ///
 /// For best safety:
@@ -116,7 +116,7 @@ contract Lifebuoy {
 
     /// @dev Returns `tx.origin` by default. Override to return another address if needed.
     ///
-    /// Note: If you are deploying via a untrusted `tx.origin` (e.g. ERC4337 bundler)
+    /// NB: If you are deploying via a untrusted `tx.origin` (e.g. ERC4337 bundler)
     /// you MUST override this function to return a trusted address.
     function _lifebuoyDefaultDeployer() internal view virtual returns (address) {
         // I know about EIP7645, and I will stop it if it gets traction.

@@ -2,6 +2,8 @@
 pragma solidity ^0.8.33;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+import {IErrors} from "../interfaces/IErrors.sol";
 
 /// @title SoulboundToken
 /// @notice Non-transferable ERC20-like token for points campaigns
@@ -12,7 +14,6 @@ contract SoulboundToken is ERC20 {
     // ═══════════════════════════════════════════════════════════════════════════
 
     error NonTransferable();
-    error Unauthorized();
 
     // ═══════════════════════════════════════════════════════════════════════════
     // STORAGE
@@ -75,7 +76,7 @@ contract SoulboundToken is ERC20 {
     /// @param to Recipient address
     /// @param amount Amount to mint
     function mint(address to, uint256 amount) external {
-        if (msg.sender != minter) revert Unauthorized();
+        if (msg.sender != minter) revert Ownable.Unauthorized();
         _mint(to, amount);
     }
 
@@ -83,7 +84,7 @@ contract SoulboundToken is ERC20 {
     /// @param from Address to burn from
     /// @param amount Amount to burn
     function burn(address from, uint256 amount) external {
-        if (msg.sender != minter) revert Unauthorized();
+        if (msg.sender != minter) revert Ownable.Unauthorized();
         _burn(from, amount);
     }
 }

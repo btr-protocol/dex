@@ -247,7 +247,7 @@ abstract contract ERC20 {
 
     /// @dev Transfers `amount` tokens from `from` to `to`.
     ///
-    /// Note: Does not update the allowance if it is the maximum uint256 value.
+    /// NB: Does not update the allowance if it is the maximum uint256 value.
     ///
     /// Requirements:
     /// - `from` must at least have `amount`.

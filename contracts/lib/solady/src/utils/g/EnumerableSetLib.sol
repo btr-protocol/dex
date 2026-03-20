@@ -589,7 +589,7 @@ library EnumerableSetLib {
     }
 
     /// @dev Returns all of the values in the set.
-    /// Note: This can consume more gas than the block gas limit for large sets.
+    /// NB: This can consume more gas than the block gas limit for large sets.
     function values(AddressSet storage set) internal view returns (address[] memory result) {
         bytes32 rootSlot = _rootSlot(set);
         /// @solidity memory-safe-assembly
@@ -631,7 +631,7 @@ library EnumerableSetLib {
     }
 
     /// @dev Returns all of the values in the set.
-    /// Note: This can consume more gas than the block gas limit for large sets.
+    /// NB: This can consume more gas than the block gas limit for large sets.
     function values(Bytes32Set storage set) internal view returns (bytes32[] memory result) {
         bytes32 rootSlot = _rootSlot(set);
         /// @solidity memory-safe-assembly
@@ -672,13 +672,13 @@ library EnumerableSetLib {
     }
 
     /// @dev Returns all of the values in the set.
-    /// Note: This can consume more gas than the block gas limit for large sets.
+    /// NB: This can consume more gas than the block gas limit for large sets.
     function values(Uint256Set storage set) internal view returns (uint256[] memory result) {
         result = _toUints(values(_toBytes32Set(set)));
     }
 
     /// @dev Returns all of the values in the set.
-    /// Note: This can consume more gas than the block gas limit for large sets.
+    /// NB: This can consume more gas than the block gas limit for large sets.
     function values(Int256Set storage set) internal view returns (int256[] memory result) {
         result = _toInts(values(_toBytes32Set(set)));
     }

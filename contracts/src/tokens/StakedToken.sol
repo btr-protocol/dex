@@ -2,6 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 import {IStakingV1} from "../interfaces/modules/IStakingV1.sol";
 
@@ -20,13 +21,6 @@ abstract contract StakedToken is ERC20 {
 
     /// @notice Underlying token address (BTR or LP asset)
     address public immutable UNDERLYING;
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // ERRORS
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Using Unauthorized() (from Solady's Ownable) and IErrors.InvalidState() for error handling
-
-    error Unauthorized();
 
     // ═══════════════════════════════════════════════════════════════════════════
     // CONSTRUCTOR
@@ -89,7 +83,7 @@ abstract contract StakedToken is ERC20 {
     ///      Regular transfers are blocked at public function level
     function _update(address from, address to, uint256 amount) internal virtual {
         // Only Staking module can trigger mint/burn
-        if (msg.sender != STAKING) revert Unauthorized();
+        if (msg.sender != STAKING) revert Ownable.Unauthorized();
 
         // Enforce mint/burn only (no transfers)
         if (from != address(0) && to != address(0)) {

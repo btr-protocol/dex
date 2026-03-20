@@ -39,21 +39,22 @@ interface IPoolV1 is IErrors, IExchangeV1, ILiquidityV1, IAdminV1, IFlashV1, ILe
         uint8[2] _pad1;              // Padding to 256 bits
 
         // Slot 4: Pricing sensitivities (256 bits)
-        uint16 gamma;                // Inventory sensitivity: scales deviation → price offset (basis 10000, e.g., 5000 = 0.5x)
-        uint16 vega;                 // Volatility sensitivity: scales volatility → dispersion (basis 10000)
-        uint16 lambda;               // Deviation sensitivity: scales deviation → fee surcharge (basis 10000)
-        uint16 haircutSuppressor;    // Withdrawal haircut suppressor: higher = gentler curve (basis 10000, e.g., 40000 = 4x)
+        uint16 gamma;                // Inventory sensitivity: scales deviation → price offset (0.01% BPS: 10000=1.0x, 5000=0.5x)
+        uint16 vega;                 // Volatility sensitivity: scales volatility → dispersion (0.01% BPS: 10000=1.0x)
+        uint16 lambda;               // Deviation sensitivity: scales deviation → fee surcharge (0.01% BPS: 10000=1.0x)
+        uint16 haircutSuppressor;    // Withdrawal haircut suppressor: higher = gentler curve (0.01% BPS: 40000=4x)
         uint64 reservationPrice;     // Price floor vs anchor (B64 format) - swaps revert if price drops below
         uint8[16] _pad2;             // Reserved for future use
     }
 
     struct RiskConfig {
         uint16 decayStartRatioBps;     // Coverage threshold to start decay (0.0001% units, e.g., 980000 = 98%)
-        uint16 coverageFloor;          // Critical coverage floor for inventory skew (0.0001% units, e.g., 500000 = 50%)
+        uint16 coverageMin;            // Critical coverage floor (0.01% units, e.g., 5000 = 50%, max uint16 = 655%)
+        uint16 coverageMax;            // Critical coverage ceiling (0.01% units, e.g., 20000 = 200%)
         uint32 decaySlope;             // Linear decay % per year (WAD units per second)
         uint16 depthAmplifier;         // Depth curve amplifier: higher = more depth at low coverage (0=default, else 0.0001% units)
         uint16 flags;                  // Feature flags (bit 0: swap, bit 1: flash, bit 2: liability swap)
-        uint8[18] _pad;
+        uint8[16] _pad;                // Padding adjusted for new field
     }
 
     struct LiquidityProfile {
@@ -76,18 +77,7 @@ interface IPoolV1 is IErrors, IExchangeV1, ILiquidityV1, IAdminV1, IFlashV1, ILe
         uint8[29] _pad;
     }
 
-    struct SwapQuote {
-        uint256 amountOut;
-        uint256 amountIn;
-        uint16 spreadBps;             // Bid-ask spread (0.0001% units)
-        uint256 protoFee;             // Protocol fee
-        uint256 lpFee;                // LP fee
-        int8 skewIn;                  // Input inventory skew
-        int8 skewOut;                 // Output inventory skew
-        address[] routeHops;          // Routing path
-        uint256[] hopAmounts;         // Amount at each hop
-        uint64[] hopPrices;           // Execution price per hop (B64)
-    }
+    // SwapQuote is now defined in IExchangeV1 (inherited)
 
     struct DepositResult {
         uint256 lpAmount;
@@ -188,7 +178,7 @@ interface IPoolV1 is IErrors, IExchangeV1, ILiquidityV1, IAdminV1, IFlashV1, ILe
         address bridge;    // Authorized crosschain bridge contract
         address treasury;  // Protocol treasury (only address that can collect protocol fees)
         bool initialized;
-        // Note: reentrancyGuard removed - now using transient storage (EIP-1153) in BaseV1.sol
+        // NB: reentrancyGuard removed - now using transient storage (EIP-1153) in BaseV1.sol
 
         mapping(address => IPoolV1.Asset) assets;
         mapping(address => IPoolV1.OracleConfig) oracleConfigs;
@@ -228,7 +218,7 @@ interface IPoolV1 is IErrors, IExchangeV1, ILiquidityV1, IAdminV1, IFlashV1, ILe
         // ANCHOR TREE
         // ═══════════════════════════════════════════════════════════════════════════
 
-        // Note: No route caching - recomputing paths is cheaper for shallow trees
+        // NB: No route caching - recomputing paths is cheaper for shallow trees
     }
 
     // ========== EVENTS ==========
@@ -242,18 +232,9 @@ interface IPoolV1 is IErrors, IExchangeV1, ILiquidityV1, IAdminV1, IFlashV1, ILe
 
     function initialize(address owner, address baseToken, address wnative) external;
 
-    // ========== VIEW FUNCTIONS ==========
-
-    function owner() external view returns (address);
-    function baseToken() external view returns (address);
-    function wnative() external view returns (address);
-    function getAsset(address token) external view returns (Asset memory);
-    function getFeedConfig(address token) external view returns (OracleConfig memory);
-    function getRiskConfig(address token) external view returns (RiskConfig memory);
-    function getLiquidityProfile(address token) external view returns (LiquidityProfile memory);
-    function getLPBalance(address user, address token) external view returns (uint256);
-    function getProtocolFees(address token) external view returns (uint256);
-    function getCoverageRatio(address token) external view returns (uint256);
-    function getMidPrice(address token) external returns (uint256 midPrice);
+    // ========== ADDITIONAL VIEW FUNCTIONS ==========
+    // Common view functions (owner, baseToken, wnative, getAsset, getRiskConfig,
+    // getLPBalance, getCoverageRatio, getFeedConfig, getLiquidityProfile,
+    // getProtocolFees, getMidPrice) are inherited from IExchangeV1
 }
 

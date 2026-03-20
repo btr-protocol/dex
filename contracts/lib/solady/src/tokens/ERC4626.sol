@@ -161,7 +161,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST NOT reflect slippage or other on-chain conditions, during the actual exchange.
     /// - MUST NOT revert.
     ///
-    /// Note: This calculation MAY NOT reflect the "per-user" price-per-share, and instead
+    /// NB: This calculation MAY NOT reflect the "per-user" price-per-share, and instead
     /// should reflect the "average-user's" price-per-share, i.e. what the average user should
     /// expect to see when exchanging to and from.
     function convertToShares(uint256 assets) public view virtual returns (uint256 shares) {
@@ -186,7 +186,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST NOT reflect slippage or other on-chain conditions, during the actual exchange.
     /// - MUST NOT revert.
     ///
-    /// Note: This calculation MAY NOT reflect the "per-user" price-per-share, and instead
+    /// NB: This calculation MAY NOT reflect the "per-user" price-per-share, and instead
     /// should reflect the "average-user's" price-per-share, i.e. what the average user should
     /// expect to see when exchanging to and from.
     function convertToAssets(uint256 shares) public view virtual returns (uint256 assets) {
@@ -214,7 +214,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST be inclusive of deposit fees. Integrators should be aware of this.
     /// - MUST not revert.
     ///
-    /// Note: Any unfavorable discrepancy between `convertToShares` and `previewDeposit` SHOULD
+    /// NB: Any unfavorable discrepancy between `convertToShares` and `previewDeposit` SHOULD
     /// be considered slippage in share price or some other type of condition, meaning
     /// the depositor will lose assets by depositing.
     function previewDeposit(uint256 assets) public view virtual returns (uint256 shares) {
@@ -232,7 +232,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST be inclusive of deposit fees. Integrators should be aware of this.
     /// - MUST not revert.
     ///
-    /// Note: Any unfavorable discrepancy between `convertToAssets` and `previewMint` SHOULD
+    /// NB: Any unfavorable discrepancy between `convertToAssets` and `previewMint` SHOULD
     /// be considered slippage in share price or some other type of condition,
     /// meaning the depositor will lose assets by minting.
     function previewMint(uint256 shares) public view virtual returns (uint256 assets) {
@@ -260,7 +260,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST be inclusive of withdrawal fees. Integrators should be aware of this.
     /// - MUST not revert.
     ///
-    /// Note: Any unfavorable discrepancy between `convertToShares` and `previewWithdraw` SHOULD
+    /// NB: Any unfavorable discrepancy between `convertToShares` and `previewWithdraw` SHOULD
     /// be considered slippage in share price or some other type of condition,
     /// meaning the depositor will lose assets by depositing.
     function previewWithdraw(uint256 assets) public view virtual returns (uint256 shares) {
@@ -288,7 +288,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST be inclusive of withdrawal fees. Integrators should be aware of this.
     /// - MUST NOT revert.
     ///
-    /// Note: Any unfavorable discrepancy between `convertToAssets` and `previewRedeem` SHOULD
+    /// NB: Any unfavorable discrepancy between `convertToAssets` and `previewRedeem` SHOULD
     /// be considered slippage in share price or some other type of condition,
     /// meaning the depositor will lose assets by depositing.
     function previewRedeem(uint256 shares) public view virtual returns (uint256 assets) {
@@ -371,7 +371,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST revert if all of `assets` cannot be deposited, such as due to deposit limit,
     ///   slippage, insufficient approval, etc.
     ///
-    /// Note: Most implementations will require pre-approval of the Vault with the
+    /// NB: Most implementations will require pre-approval of the Vault with the
     /// Vault's underlying `asset` token.
     function deposit(uint256 assets, address to) public virtual returns (uint256 shares) {
         if (assets > maxDeposit(to)) _revert(0xb3c61a83); // `DepositMoreThanMax()`.
@@ -388,7 +388,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST revert if all of `shares` cannot be deposited, such as due to deposit limit,
     ///   slippage, insufficient approval, etc.
     ///
-    /// Note: Most implementations will require pre-approval of the Vault with the
+    /// NB: Most implementations will require pre-approval of the Vault with the
     /// Vault's underlying `asset` token.
     function mint(uint256 shares, address to) public virtual returns (uint256 assets) {
         if (shares > maxMint(to)) _revert(0x6a695959); // `MintMoreThanMax()`.
@@ -404,7 +404,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST revert if all of `assets` cannot be withdrawn, such as due to withdrawal limit,
     ///   slippage, insufficient balance, etc.
     ///
-    /// Note: Some implementations will require pre-requesting to the Vault before a withdrawal
+    /// NB: Some implementations will require pre-requesting to the Vault before a withdrawal
     /// may be performed. Those methods should be performed separately.
     function withdraw(uint256 assets, address to, address owner)
         public
@@ -424,7 +424,7 @@ abstract contract ERC4626 is ERC20 {
     /// - MUST revert if all of shares cannot be redeemed, such as due to withdrawal limit,
     ///   slippage, insufficient balance, etc.
     ///
-    /// Note: Some implementations will require pre-requesting to the Vault before a redeem
+    /// NB: Some implementations will require pre-requesting to the Vault before a redeem
     /// may be performed. Those methods should be performed separately.
     function redeem(uint256 shares, address to, address owner)
         public
@@ -490,7 +490,7 @@ abstract contract ERC4626 is ERC20 {
     /// @dev Internal conversion function (from assets to shares) to apply when the Vault is empty.
     /// Only used when {_useVirtualShares} returns false.
     ///
-    /// Note: Make sure to keep this function consistent with {_initialConvertToAssets}
+    /// NB: Make sure to keep this function consistent with {_initialConvertToAssets}
     /// when overriding it.
     function _initialConvertToShares(uint256 assets)
         internal
@@ -504,7 +504,7 @@ abstract contract ERC4626 is ERC20 {
     /// @dev Internal conversion function (from shares to assets) to apply when the Vault is empty.
     /// Only used when {_useVirtualShares} returns false.
     ///
-    /// Note: Make sure to keep this function consistent with {_initialConvertToShares}
+    /// NB: Make sure to keep this function consistent with {_initialConvertToShares}
     /// when overriding it.
     function _initialConvertToAssets(uint256 shares)
         internal

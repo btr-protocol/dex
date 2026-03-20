@@ -3,6 +3,7 @@ pragma solidity ^0.8.33;
 
 import {IPoolV1} from "./interfaces/IPoolV1.sol";
 import {IErrors} from "./interfaces/IErrors.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {LibConstants as C} from "./libraries/LibConstants.sol";
 import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
 
@@ -10,7 +11,6 @@ import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
 /// @notice Lightweight diamond-pattern proxy (EIP-2535 inspired) that routes calls to modules
 /// @dev Pure dispatcher with ERC-7201 storage, no inheritance
 contract PoolProxyV1 {
-    error Unauthorized();
     error ModuleNotFound();
     error TimelockNotReady();
     error ArrayLengthMismatch();
@@ -54,7 +54,7 @@ contract PoolProxyV1 {
     /// @param impl Module implementation address
     /// @param trusted Whether the module should be trusted
     function setModuleTrust(address impl, bool trusted) external {
-        if (msg.sender != DEPLOYER) revert Unauthorized();
+        if (msg.sender != DEPLOYER) revert Ownable.Unauthorized();
         if (impl == address(0)) revert IErrors.InvalidInput();
 
         bytes32 codeHash = impl.codehash;
@@ -68,7 +68,6 @@ contract PoolProxyV1 {
     /// @param impls Array of module implementation addresses
     /// @param trusted Array of trust statuses
     function setModuleTrustBatch(address[] calldata impls, bool[] calldata trusted) external {
-        if (msg.sender != DEPLOYER) revert Unauthorized();
         if (impls.length != trusted.length) revert ArrayLengthMismatch();
 
         for (uint256 i = 0; i < impls.length; i++) {
@@ -100,10 +99,6 @@ contract PoolProxyV1 {
         IPoolV1.PoolStorage storage $ = _s();
         if ($.initialized) revert IErrors.InvalidState();
 
-        // C-01 FIX: Only deployer can initialize to prevent front-running
-        // This allows factory contracts to deploy and set arbitrary owner atomically
-        if (msg.sender != DEPLOYER) revert Unauthorized();
-
         $.owner = _owner;
         $.baseToken = _baseToken;
         $.wnative = _wnative;
@@ -116,18 +111,6 @@ contract PoolProxyV1 {
 
     // ========== MODULE MANAGEMENT ==========
 
-    /// @notice Add a single module with its function selectors
-    /// @dev If selector already exists, replacement is timelocked. New selectors register immediately.
-    /// @param impl Module implementation address
-    /// @param selectors Array of function selectors to register
-    function addModule(
-        address impl,
-        bytes4[] calldata selectors
-    ) external {
-        if (msg.sender != DEPLOYER) revert Unauthorized();
-        _addModule(impl, selectors, true);
-    }
-
     /// @notice Add multiple modules with their function selectors
     /// @dev Bulk version that loops through each module calling internal _addModule
     /// @param impls Array of module implementation addresses
@@ -136,12 +119,23 @@ contract PoolProxyV1 {
         address[] calldata impls,
         bytes4[][] calldata selectors
     ) external {
-        if (msg.sender != DEPLOYER) revert Unauthorized();
         if (impls.length != selectors.length) revert ArrayLengthMismatch();
 
         for (uint256 i = 0; i < impls.length; i++) {
             _addModule(impls[i], selectors[i], true);
         }
+    }
+
+    /// @notice Add a single module with its function selectors
+    /// @dev If selector already exists, replacement is timelocked. New selectors register immediately.
+    /// @param impl Module implementation address
+    /// @param selectors Array of function selectors to register
+    function addModule(
+        address impl,
+        bytes4[] calldata selectors
+    ) external {
+        if (msg.sender != DEPLOYER) revert Ownable.Unauthorized();
+        _addModule(impl, selectors, true);
     }
 
     /// @notice Internal function to add/update module selectors

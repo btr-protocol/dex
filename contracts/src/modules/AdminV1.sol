@@ -2,6 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 import {IAdminV1} from "../interfaces/modules/IAdminV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
@@ -17,7 +18,7 @@ import {LibTransientCache as TCache} from "../libraries/LibTransientCache.sol";
 contract AdminV1 is BaseV1, IAdminV1 {
     modifier onlyOwner() override {
         IPoolV1.PoolStorage storage $ = _s();
-        if (msg.sender != $.owner) revert Unauthorized();
+        if (msg.sender != $.owner) revert Ownable.Unauthorized();
         _;
     }
 
@@ -45,6 +46,20 @@ contract AdminV1 is BaseV1, IAdminV1 {
 
     /// @notice Add asset directly without timelock - for initial pool setup
     /// @dev Only callable by owner. Combines request + execute for efficiency.
+    /// @param token Token address to add
+    /// @param oracleCfg Oracle configuration
+    /// @param riskCfg Risk configuration
+    /// @param profile Liquidity profile
+    /// @param minFeeBps Minimum fee in PBPS (0.0001% units, e.g., 10 = 0.001%)
+    /// @param decimals Token decimals
+    /// @param initialPrice Initial encoded price (B64)
+    /// @param initialFastVolEMA Initial fast volatility EMA
+    /// @param initialSlowVolEMA Initial slow volatility EMA
+    /// @param minDispersion Minimum dispersion in PBPS (0.0001% units, 0 = use default)
+    /// @param maxDispersion Maximum dispersion in PBPS (0.0001% units, 0 = use default)
+    /// @param gamma Inventory sensitivity (basis 10000, 0 = use default)
+    /// @param vega Volatility sensitivity (basis 10000, 0 = use default)
+    /// @param lambda Deviation sensitivity (basis 10000, 0 = use default)
     function addAsset(
         address token,
         IPoolV1.OracleConfig calldata oracleCfg,
@@ -54,7 +69,12 @@ contract AdminV1 is BaseV1, IAdminV1 {
         uint8 decimals,
         uint64 initialPrice,
         uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA
+        uint32 initialSlowVolEMA,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda
     ) external onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
 
@@ -66,7 +86,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
 
         _validateProfileMemory(profile);
         _validateOracleConfig(oracleCfg);
-        _initAsset($, tokenNorm, decimals, minFeeBps);
+        _initAsset($, tokenNorm, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
         _setupOracleAndConfig($, tokenNorm, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
 
         emit IAdminV1.AssetAdded(tokenNorm, decimals, 0);
@@ -122,7 +142,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
 
         _validateProfileMemory(profileMem);
         _validateOracleConfig(oracleCfg);
-        _initAsset($, tokenNorm, decimals, minFeeBps);
+        _initAsset($, tokenNorm, decimals, minFeeBps, 0, 0, 0, 0, 0); // Use defaults for dispersion/sensitivity from timelocked request
         _setupOracleAndConfig($, tokenNorm, oracleCfg, riskCfg, profileMem, initialPrice, initialFastVolEMA, initialSlowVolEMA);
 
         delete $.pendingOps[id];
@@ -182,7 +202,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         IPoolV1.PoolStorage storage $ = _s();
 
         // Only treasury can collect protocol fees
-        if (msg.sender != $.treasury) revert Unauthorized();
+        if (msg.sender != $.treasury) revert Ownable.Unauthorized();
 
         address tokenNorm = _wrap($, token);
         uint256 fees = $.protocolFees[tokenNorm];
@@ -501,7 +521,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         asset.anchor = anchor;
         asset.anchorDepth = depth;
 
-        // Note: Route caching removed - paths are recomputed on demand
+        // NB: Route caching removed - paths are recomputed on demand
 
         emit AnchorUpdated(tokenNorm, anchor, depth);
     }
@@ -542,22 +562,34 @@ contract AdminV1 is BaseV1, IAdminV1 {
 
     // ========== INTERNAL HELPERS ==========
 
+    /// @dev Initialize asset with optional dispersion and sensitivity overrides
+    /// @param minDispersion Minimum dispersion (0 = use default 1000)
+    /// @param maxDispersion Maximum dispersion (0 = use default 100000)
+    /// @param gamma Inventory sensitivity (0 = use default 10000)
+    /// @param vega Volatility sensitivity (0 = use default 10000)
+    /// @param lambda Deviation sensitivity (0 = use default 10000)
     function _initAsset(
         IPoolV1.PoolStorage storage $,
         address tokenNorm,
         uint8 decimals,
-        uint16 minFeeBps
+        uint16 minFeeBps,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda
     ) internal {
         IPoolV1.Asset storage asset = $.assets[tokenNorm];
         asset.decimals = decimals;
         asset.minFeeBps = minFeeBps;
         asset.maxFeeBps = 10000;
         asset.minLiquidity = 0;
-        asset.minDispersion = 1000;
-        asset.maxDispersion = 100000;
-        asset.gamma = 10000;
-        asset.vega = 10000;
-        asset.lambda = 10000;
+        // Use provided values or defaults (0 means use default)
+        asset.minDispersion = minDispersion == 0 ? 1000 : minDispersion;
+        asset.maxDispersion = maxDispersion == 0 ? 100000 : maxDispersion;
+        asset.gamma = gamma == 0 ? 10000 : gamma;
+        asset.vega = vega == 0 ? 10000 : vega;
+        asset.lambda = lambda == 0 ? 10000 : lambda;
         asset.haircutSuppressor = 10000;
 
         if (tokenNorm == $.baseToken) {

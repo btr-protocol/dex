@@ -44,7 +44,17 @@ interface IErrors {
     error ExceedsMaxSupply();                                        // Token supply exceeds max cap
 
     // Authorization errors
-    // Note: Unauthorized() is inherited from Solady's Ownable - not redeclared here to avoid conflicts
+    /// @notice Generic access control error for failed permission checks
+    /// @dev Using Unauthorized() from Solady's Ownable contract
+    ///      To use: import {Ownable} from "solady/auth/Ownable.sol"
+    ///      Then: revert Ownable.Unauthorized()
+    ///      This covers all authorization failures:
+    ///      - Owner/guardian-only functions (onlyOwner modifier)
+    ///      - Role-based access control failures
+    ///      - Failed JIT (just-in-time) protection checks
+    ///      - Failed reentrancy guard checks
+    ///      - Failed timelock/cooldown validations
+    ///      - Unauthorized module/registry access
 
     // State errors
     error InvalidState();                                   // Covers NotInitialized, AlreadyInitialized, Paused, NotPaused, StillLocked, etc.

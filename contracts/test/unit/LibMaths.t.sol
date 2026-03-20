@@ -14,13 +14,13 @@ contract LibMathsTest is BaseTestSetup {
     // ═══════════════════════════════════════════════════════════════════════════
 
     function test_encodeB64_zero_reverts() public pure {
-        // Note: Testing reverting library functions in pure context is not possible
+        // NB: Testing reverting library functions in pure context is not possible
         // This test documents expected behavior: encodeB64(0, 0) should revert
         // Actual revert testing would require a contract wrapper
     }
 
     function test_encodeB64_invalid_decimals_reverts() public pure {
-        // Note: Testing reverting library functions in pure context is not possible
+        // NB: Testing reverting library functions in pure context is not possible
         // This test documents expected behavior: encodeB64(x, 32) should revert
         // Actual revert testing would require a contract wrapper
     }
@@ -84,7 +84,7 @@ contract LibMathsTest is BaseTestSetup {
     // ═══════════════════════════════════════════════════════════════════════════
 
     function test_decodeB64_zero_reverts() public pure {
-        // Note: Testing reverting library functions in pure context is not possible
+        // NB: Testing reverting library functions in pure context is not possible
         // This test documents expected behavior: decodeB64(0, 0) should revert
         // Actual revert testing would require a contract wrapper
     }
@@ -172,7 +172,7 @@ contract LibMathsTest is BaseTestSetup {
     function test_add64_zero_operands() public pure {
         uint64 a = M.encodeB64(100, 0);
 
-        // Note: B64 can't encode zero, so we test edge case behavior
+        // NB: B64 can't encode zero, so we test edge case behavior
         uint64 result = M.add64(a, a);
         assertGt(result, 0);
     }
@@ -489,7 +489,7 @@ contract LibMathsTest is BaseTestSetup {
         uint32 volAB = M.diff1e6(priceA, priceB);
         uint32 volBA = M.diff1e6(priceB, priceA);
 
-        // Note: Not perfectly symmetric due to different denominators
+        // NB: Not perfectly symmetric due to different denominators
         // volAB uses priceA as base (1.0), volBA uses priceB as base (1.2)
         // Both should be in same ballpark (within 25% of each other)
         assertApproxEqRel(volAB, volBA, 0.25e18); // 25% relative tolerance

@@ -101,7 +101,7 @@ library Base64 {
     /// Does not support:
     /// - Line breaks.
     ///
-    /// Note: For performance reasons,
+    /// NB: For performance reasons,
     /// this function will NOT revert on invalid `data` inputs.
     /// Outputs for invalid inputs will simply be undefined behaviour.
     /// It is the user's responsibility to ensure that the `data`

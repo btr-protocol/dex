@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 /// @notice Reentrancy guard mixin (transient storage variant).
 /// @author Solady (https://github.com/vectorized/solady/blob/main/src/utils/ReentrancyGuardTransient.sol)
 ///
-/// @dev Note: This implementation utilizes the `TSTORE` and `TLOAD` opcodes.
+/// @dev NB: This implementation utilizes the `TSTORE` and `TLOAD` opcodes.
 /// Please ensure that the chain you are deploying on supports them.
 abstract contract ReentrancyGuardTransient {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/

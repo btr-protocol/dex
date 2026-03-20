@@ -69,7 +69,7 @@ library DynamicBufferLib {
     }
 
     /// @dev Returns a string pointing to the underlying bytes data.
-    /// Note: The string WILL change if the buffer is updated.
+    /// NB: The string WILL change if the buffer is updated.
     function s(DynamicBuffer memory buffer) internal pure returns (string memory) {
         return string(buffer.data);
     }

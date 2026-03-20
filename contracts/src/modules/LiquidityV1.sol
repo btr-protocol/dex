@@ -4,11 +4,12 @@ pragma solidity ^0.8.33;
 import {BaseV1} from "./BaseV1.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
+import {IExchangeV1} from "../interfaces/modules/IExchangeV1.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
 
 interface IExchangeQuote {
-    function getSwapQuote(address tokenIn, address tokenOut, uint256 amountIn) external returns (IPoolV1.SwapQuote memory);
+    function getSwapQuote(address tokenIn, address tokenOut, uint256 amountIn) external returns (IExchangeV1.SwapQuote memory);
 }
 
 /// @title LiquidityV1
@@ -242,7 +243,7 @@ contract LiquidityV1 is BaseV1 {
         address tokenIn,
         address tokenOut,
         uint256 amountIn
-    ) private returns (IPoolV1.SwapQuote memory quote) {
+    ) private returns (IExchangeV1.SwapQuote memory quote) {
         address coreModule = $.modules[IExchangeQuote.getSwapQuote.selector];
         if (coreModule == address(0)) revert IErrors.InvalidState();
 
@@ -252,7 +253,7 @@ contract LiquidityV1 is BaseV1 {
         if (!success) {
             assembly { revert(add(data, 32), mload(data)) }
         }
-        return abi.decode(data, (IPoolV1.SwapQuote));
+        return abi.decode(data, (IExchangeV1.SwapQuote));
     }
 
     /// @dev Simplified haircut: linear with suppression factor

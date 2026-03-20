@@ -183,8 +183,8 @@ library LibOracle {
             lastPriceB64: oneB64,
             fastOffset: 0,
             slowOffset: 0,
-            fastVolEMA: C.ONE_PCT_PBPS,  // 0.01% baseline volatility
-            slowVolEMA: C.ONE_PCT_PBPS,
+            fastVolEMA: uint32(C.ONE_PCT_PBPS),  // 0.01% baseline volatility
+            slowVolEMA: uint32(C.ONE_PCT_PBPS),
             updatedAt: uint32(block.timestamp),
             ttl: type(uint16).max, // Never expires
             confidence: 100

@@ -80,7 +80,7 @@ library JSONParserLib {
     /// Object items WILL simply contain all their children, inclusive of repeated keys,
     /// in the same order which they appear in the JSON string.
     ///
-    /// Note: For efficiency, this function WILL NOT make a copy of `s`.
+    /// NB: For efficiency, this function WILL NOT make a copy of `s`.
     /// The parsed tree WILL contain offsets to `s`.
     /// Do NOT pass in a string that WILL be modified later on.
     function parse(string memory s) internal pure returns (Item memory result) {
@@ -115,7 +115,7 @@ library JSONParserLib {
     /// All inner whitespace WILL be preserved, exactly as it is in the original JSON string.
     /// If the item's type is string, the returned string WILL be double-quoted, JSON encoded.
     ///
-    /// Note: This function lazily instantiates and caches the returned string.
+    /// NB: This function lazily instantiates and caches the returned string.
     /// Do NOT modify the returned string.
     function value(Item memory item) internal pure returns (string memory result) {
         bytes32 r = _query(_toInput(item), 0);
@@ -140,7 +140,7 @@ library JSONParserLib {
     /// It the item's parent is not an object, returns an empty string.
     /// The returned string WILL be double-quoted, JSON encoded.
     ///
-    /// Note: This function lazily instantiates and caches the returned string.
+    /// NB: This function lazily instantiates and caches the returned string.
     /// Do NOT modify the returned string.
     function key(Item memory item) internal pure returns (string memory result) {
         if (item._data & _PARENT_IS_OBJECT != 0) {
@@ -155,7 +155,7 @@ library JSONParserLib {
     /// @dev Returns the key of the item in the object.
     /// It the item is neither an array nor object, returns an empty array.
     ///
-    /// Note: This function lazily instantiates and caches the returned array.
+    /// NB: This function lazily instantiates and caches the returned array.
     /// Do NOT modify the returned array.
     function children(Item memory item) internal pure returns (Item[] memory result) {
         bytes32 r = _query(_toInput(item), 3);
@@ -228,7 +228,7 @@ library JSONParserLib {
         result = uint8(item._data & _BITMASK_TYPE);
     }
 
-    /// Note: All types are mutually exclusive.
+    /// NB: All types are mutually exclusive.
 
     /// @dev Returns whether the item is of type undefined.
     function isUndefined(Item memory item) internal pure returns (bool result) {

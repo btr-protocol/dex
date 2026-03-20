@@ -2,10 +2,12 @@
 pragma solidity ^0.8.33;
 
 import {IPoolV1} from "../IPoolV1.sol";
+import {IExchangeV1} from "./IExchangeV1.sol";
 
 /// @title ILiquidityV1
 /// @notice Liquidity operations: deposit, withdraw, donate, swapLiability
-interface ILiquidityV1 {
+/// @dev Inherits common view functions from IExchangeV1
+interface ILiquidityV1 is IExchangeV1 {
     // ========== WRITE FUNCTIONS ==========
 
     /// @notice Deposit tokens to receive LP tokens (same token count on withdrawal)
@@ -39,29 +41,6 @@ interface ILiquidityV1 {
 
     /// @notice Donate reserves without receiving LP tokens (increases liquidity index)
     function donate(address token, uint256 amount) external payable;
-
-    // ========== VIEW FUNCTIONS ==========
-
-    /// @notice Get asset configuration
-    function getAsset(address token) external view returns (IPoolV1.Asset memory);
-
-    /// @notice Get risk configuration
-    function getRiskConfig(address token) external view returns (IPoolV1.RiskConfig memory);
-
-    /// @notice Get LP token balance
-    function getLPBalance(address user, address token) external view returns (uint256);
-
-    /// @notice Get coverage ratio
-    function getCoverageRatio(address token) external view returns (uint256);
-
-    /// @notice Pool owner
-    function owner() external view returns (address);
-
-    /// @notice Base token address
-    function baseToken() external view returns (address);
-
-    /// @notice Wrapped native token address
-    function wnative() external view returns (address);
 
     // ========== EVENTS ==========
 

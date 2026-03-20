@@ -2,6 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
@@ -9,9 +10,10 @@ import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibOracle} from "../libraries/LibOracle.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
 
-/// @title InternalOracle
+/// @title InternalOracleV1
 /// @notice Ultra-efficient internal TWAP oracle that updates automatically on swaps
 /// @dev Optimized for minimal gas usage with single-slot updates where possible
+///      Storage location: LibConstants.ORACLE_STORAGE_LOC
 contract InternalOracleV1 is BaseV1 {
     using {M.b64To1e18} for uint64;
 
@@ -35,7 +37,7 @@ contract InternalOracleV1 is BaseV1 {
     /// @notice Default TTL for feeds (1 hour)
     uint16 public constant DEFAULT_TTL = 3600;
 
-    // Note: _os() storage getter inherited from Base
+    // NB: _os() storage getter inherited from Base
 
     // ========== PUBLIC INTERFACE ==========
 
@@ -125,7 +127,7 @@ contract InternalOracleV1 is BaseV1 {
         uint32 slowVolEMA
     ) external {
         // Allow owner OR internal pool calls (AdminV1 calls via proxy self-call)
-        if (msg.sender != _s().owner && msg.sender != address(this)) revert Unauthorized();
+        if (msg.sender != _s().owner && msg.sender != address(this)) revert Ownable.Unauthorized();
         if (initialPrice == 0) revert IErrors.ZeroValue();
         if (accDecimals > 18) revert IErrors.InvalidInput(); // Max 18 decimals
 
@@ -182,7 +184,7 @@ contract InternalOracleV1 is BaseV1 {
         uint64 priceB
     ) external {
         // Only callable from within the pool (Core module context)
-        if (msg.sender != address(this)) revert Unauthorized();
+        if (msg.sender != address(this)) revert Ownable.Unauthorized();
 
         IPoolV1.PoolStorage storage $ = _s();
 
@@ -213,8 +215,8 @@ contract InternalOracleV1 is BaseV1 {
         // Initialize if first update (should have been initialized via updateFeed)
         if (acc.lastUpdate == 0) {
             acc.lastPriceB64 = newPrice;
-            acc.fastVolEMA = C.ONE_PCT_PBPS / 100;  // 0.01% default
-            acc.slowVolEMA = C.ONE_PCT_PBPS / 100;
+            acc.fastVolEMA = uint32(C.ONE_PCT_PBPS / 100);  // 0.01% default
+            acc.slowVolEMA = uint32(C.ONE_PCT_PBPS / 100);
             acc.lastUpdate = currentTime;
             acc.ttl = DEFAULT_TTL;
             acc.confidence = 100;

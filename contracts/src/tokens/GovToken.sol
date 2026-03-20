@@ -14,8 +14,8 @@ contract GovToken is BridgeableERC20, Ownable {
     // ═══════════════════════════════════════════════════════════════════════════
     // ERRORS
     // ═══════════════════════════════════════════════════════════════════════════
-    // Note: Unauthorized() inherited from Solady's Ownable
-    // Note: ZeroValue() will be used from IErrors if needed
+    // NB: Unauthorized() inherited from Solady's Ownable
+    // NB: ZeroValue() will be used from IErrors if needed
 
     // ═══════════════════════════════════════════════════════════════════════════
     // IMMUTABLES

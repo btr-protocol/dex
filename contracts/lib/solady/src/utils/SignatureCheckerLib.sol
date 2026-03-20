@@ -206,7 +206,7 @@ library SignatureCheckerLib {
     /*                     ERC1271 OPERATIONS                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    // Note: These ERC1271 operations do NOT have an ECDSA fallback.
+    // NB: These ERC1271 operations do NOT have an ECDSA fallback.
 
     /// @dev Returns whether `signature` is valid for `hash` for an ERC1271 `signer` contract.
     function isValidERC1271SignatureNow(address signer, bytes32 hash, bytes memory signature)
@@ -304,13 +304,13 @@ library SignatureCheckerLib {
     /*                     ERC6492 OPERATIONS                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    // Note: These ERC6492 operations now include an ECDSA fallback at the very end.
+    // NB: These ERC6492 operations now include an ECDSA fallback at the very end.
     // The calldata variants are excluded for brevity.
 
     /// @dev Returns whether `signature` is valid for `hash`.
     /// If the signature is postfixed with the ERC6492 magic number, it will attempt to
     /// deploy / prepare the `signer` smart account before doing a regular ERC1271 check.
-    /// Note: This function is NOT reentrancy safe.
+    /// NB: This function is NOT reentrancy safe.
     /// The verifier must be deployed.
     /// Otherwise, the function will return false if `signer` is not yet deployed / prepared.
     /// See: https://gist.github.com/Vectorized/011d6becff6e0a73e42fe100f8d7ef04
@@ -393,7 +393,7 @@ library SignatureCheckerLib {
     /// If the signature is postfixed with the ERC6492 magic number, it will attempt
     /// to use a reverting verifier to deploy / prepare the `signer` smart account
     /// and do a `isValidSignature` check via the reverting verifier.
-    /// Note: This function is reentrancy safe.
+    /// NB: This function is reentrancy safe.
     /// The reverting verifier must be deployed.
     /// Otherwise, the function will return false if `signer` is not yet deployed / prepared.
     /// See: https://gist.github.com/Vectorized/846a474c855eee9e441506676800a9ad
@@ -489,7 +489,7 @@ library SignatureCheckerLib {
     /// This produces a hash corresponding to the one signed with the
     /// [`eth_sign`](https://eth.wiki/json-rpc/API#eth_sign)
     /// JSON-RPC method as part of EIP-191.
-    /// Note: Supports lengths of `s` up to 999999 bytes.
+    /// NB: Supports lengths of `s` up to 999999 bytes.
     function toEthSignedMessageHash(bytes memory s) internal pure returns (bytes32 result) {
         /// @solidity memory-safe-assembly
         assembly {

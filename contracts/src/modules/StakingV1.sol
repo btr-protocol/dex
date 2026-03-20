@@ -13,13 +13,15 @@ import {CREATE3} from "solady/utils/CREATE3.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
 import {LibTimelock as TL} from "../libraries/LibTimelock.sol";
 
-/// @title Staking
+/// @title StakingV1
 /// @notice Ultra-lean staking for governance tokens and LP tokens
 /// @dev Unified stake/unstake logic, CREATE3 sLP deployment
+///      Storage location: LibConstants.STAKING_STORAGE_LOC
 contract StakingV1 is BaseV1, IStakingV1 {
     using SafeTransferLib for address;
 
     // ========== STORAGE ==========
+    /// @dev ERC-7201 storage location: LibConstants.STAKING_STORAGE_LOC
 
     function _ss() internal pure returns (StakingStorage storage $) {
         bytes32 slot = C.STAKING_STORAGE_LOC;

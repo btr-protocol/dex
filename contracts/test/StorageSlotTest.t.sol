@@ -4,6 +4,7 @@ pragma solidity ^0.8.33;
 import {Test, console2} from "forge-std/Test.sol";
 import {IPoolV1} from "../src/interfaces/IPoolV1.sol";
 import {ICoreV1} from "../src/interfaces/modules/ICoreV1.sol";
+import {IExchangeV1} from "../src/interfaces/modules/IExchangeV1.sol";
 import {IAdminV1} from "../src/interfaces/modules/IAdminV1.sol";
 import {LibConstants as C} from "../src/libraries/LibConstants.sol";
 import {PoolProxyV1} from "../src/PoolProxyV1.sol";
@@ -208,8 +209,8 @@ contract StorageSlotTest is Test {
         uint256 modulesSlot = baseSlot + 14;
 
         // Test with swap selector from interface
-        bytes4 swapSelector = ICoreV1.swap.selector;
-        console2.log("ICoreV1.swap.selector:");
+        bytes4 swapSelector = IExchangeV1.swap.selector;
+        console2.log("IExchangeV1.swap.selector:");
         console2.logBytes4(swapSelector);
 
         // Also computed version

@@ -23,7 +23,7 @@ interface IStakingV1 is IErrors {
         mapping(address lpToken => address sLPToken) sLPTokens;  // LP -> sLP token mapping
         mapping(address user => mapping(address lpToken => uint48)) lpUnlockTime;
         address[] lpTokens;  // List of registered LP tokens
-        // Note: lpStaked and totalLPStaked are in IPoolV1.PoolStorage (shared with Distributor for rewards)
+        // NB: lpStaked and totalLPStaked are in IPoolV1.PoolStorage (shared with Distributor for rewards)
 
         // Delegation: metadata-only for off-chain (not used on-chain)
         mapping(address owner => address delegate) delegateOf;  // 0 = self, read by off-chain snapshot

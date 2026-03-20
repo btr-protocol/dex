@@ -5,6 +5,7 @@ import {BaseV1} from "./BaseV1.sol";
 import {InternalOracleV1} from "./InternalOracleV1.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 import {ICoreV1} from "../interfaces/modules/ICoreV1.sol";
+import {IExchangeV1} from "../interfaces/modules/IExchangeV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {IPoolHooks} from "../interfaces/IPoolHooks.sol";
@@ -42,6 +43,8 @@ contract ExchangeV1 is BaseV1 {
 
         out = _processSwap($, tk, actualIn, q);
 
+        // Post-execution check: verify minLiquidity floor after hooks and reconciliation
+        // Hooks can modify reserves via _postSwap, so we must re-check the floor
         if ($.assets[tk[1]].reserves < $.assets[tk[1]].minLiquidity) {
             revert IErrors.ThresholdViolation($.assets[tk[1]].reserves, $.assets[tk[1]].minLiquidity);
         }
@@ -50,7 +53,7 @@ contract ExchangeV1 is BaseV1 {
         if (out < minAmountOut) revert IErrors.ThresholdViolation(out, minAmountOut);
 
         _push(tokenOut, recipient, out);
-        emit ICoreV1.Swapped(msg.sender, recipient, tk[0], tk[1], actualIn, out, q.spreadBps, q.protoFee, q.lpFee);
+        emit IExchangeV1.Swapped(msg.sender, recipient, tk[0], tk[1], actualIn, out, q.spreadBps, q.protoFee, q.lpFee);
     }
 
     function _processSwap(
@@ -183,7 +186,7 @@ contract ExchangeV1 is BaseV1 {
             unchecked { ++j; }
         }
 
-        emit ICoreV1.BatchSwapped(msg.sender, recipient, inLen, outLen, baseTotal);
+        emit IExchangeV1.BatchSwapped(msg.sender, recipient, inLen, outLen, baseTotal);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -197,25 +200,11 @@ contract ExchangeV1 is BaseV1 {
     function getAsset(address tk) external view returns (IPoolV1.Asset memory) {
         IPoolV1.PoolStorage storage $ = _s(); return $.assets[_wrap($, tk)];
     }
-    function getFeedConfig(address tk) external view returns (IPoolV1.OracleConfig memory) {
-        IPoolV1.PoolStorage storage $ = _s(); return $.oracleConfigs[_wrap($, tk)];
-    }
-    function getRiskConfig(address tk) external view returns (IPoolV1.RiskConfig memory) {
-        IPoolV1.PoolStorage storage $ = _s(); return $.riskConfigs[_wrap($, tk)];
-    }
-    function getLiquidityProfile(address tk) external view returns (IPoolV1.LiquidityProfile memory) {
-        IPoolV1.PoolStorage storage $ = _s(); return $.profiles[_wrap($, tk)];
-    }
     function getLPBalance(address u, address tk) external view returns (uint256) {
         IPoolV1.PoolStorage storage $ = _s(); return $.lpBalances[u][_wrap($, tk)];
     }
     function getProtocolFees(address tk) external view returns (uint256) {
         IPoolV1.PoolStorage storage $ = _s(); return $.protocolFees[_wrap($, tk)];
-    }
-    function getCoverageRatio(address tk) external view returns (uint256) {
-        IPoolV1.PoolStorage storage $ = _s();
-        IPoolV1.Asset memory a = $.assets[_wrap($, tk)];
-        return a.liabilities == 0 ? type(uint256).max : (uint256(a.reserves) * 1e18) / a.liabilities;
     }
     function getMidPrice(address tk) external returns (uint256) {
         IPoolV1.PoolStorage storage $ = _s();
@@ -236,6 +225,8 @@ contract ExchangeV1 is BaseV1 {
         IPoolV1.Asset storage aIn = $.assets[tkIn];
         IPoolV1.Asset storage aOut = $.assets[tkOut];
 
+        // Pre-execution check: ensure sufficient reserves before state changes
+        // This protects against hooks draining reserves during _postSwap or _reconcile
         uint256 minReq = q.amountOut + aOut.minLiquidity;
         if (aOut.reserves < minReq) revert IErrors.InsufficientAmount(aOut.reserves, minReq);
 

@@ -34,7 +34,12 @@ interface IAdminV1 {
         uint8 decimals,
         uint64 initialPrice,
         uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA
+        uint32 initialSlowVolEMA,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda
     ) external;
 
     // ========== TIMELOCKED ADMIN FUNCTIONS ==========

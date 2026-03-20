@@ -17,7 +17,7 @@ contract CallContextChecker {
 
     /// @dev For checking if the context is a delegate call.
     ///
-    /// Note: To enable use cases with an immutable default implementation in the bytecode,
+    /// NB: To enable use cases with an immutable default implementation in the bytecode,
     /// (see: ERC6551Proxy), we don't require that the proxy address must match the
     /// value stored in the implementation slot, which may not be initialized.
     uint256 private immutable __self = uint256(uint160(address(this)));
@@ -35,7 +35,7 @@ contract CallContextChecker {
         /// @solidity memory-safe-assembly
         assembly {
             extcodecopy(address(), 0x00, 0x00, 0x20)
-            // Note: Checking that it starts with hex"ef01" is the most general and futureproof.
+            // NB: Checking that it starts with hex"ef01" is the most general and futureproof.
             // 7702 bytecode is `abi.encodePacked(hex"ef01", uint8(version), address(delegation))`.
             result := eq(0xef01, shr(240, mload(0x00)))
         }

@@ -156,7 +156,7 @@ library MetadataReaderLib {
                     if iszero(gt(o, sub(returndatasize(), 0x20))) {
                         returndatacopy(m, o, 0x20) // Copy the string's length.
                         // If the full string's end is within bounds.
-                        // Note: If the full string doesn't fit, the `abi.decode` must be aborted
+                        // NB: If the full string doesn't fit, the `abi.decode` must be aborted
                         // for compliance purposes, regardless if the truncated string can fit.
                         if iszero(gt(mload(m), sub(returndatasize(), add(o, 0x20)))) {
                             let n := min(mload(m), limit) // Truncate if needed.

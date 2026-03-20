@@ -2,6 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {IErrors} from "../interfaces/IErrors.sol";
 import {IDistributorV1} from "../interfaces/modules/IDistributorV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
@@ -16,10 +17,12 @@ import {SoulboundToken} from "../tokens/SoulboundToken.sol";
 /// @dev CRITICAL: Manager/treasury MUST pre-fund distributor with sufficient rewardToken (TOKENS)
 ///      or redeemToken (POINTS) before roots go live or redemption is enabled. Claims/redemptions
 ///      revert on insufficient balance.
+///      Storage location: LibConstants.DISTRIBUTOR_STORAGE_LOC
 contract DistributorV1 is BaseV1, IDistributorV1 {
     using SafeTransferLib for address;
 
     // ========== STORAGE ==========
+    /// @dev ERC-7201 storage location: LibConstants.DISTRIBUTOR_STORAGE_LOC
 
     function _ds() internal pure returns (DistributorStorage storage $) {
         bytes32 slot = C.DISTRIBUTOR_STORAGE_LOC;
@@ -85,7 +88,7 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         Campaign storage campaign = ds.campaigns[campaignId];
 
         if (campaign.id == 0) revert IErrors.NotConfigured(IErrors.Resource.CAMPAIGN, address(uint160(campaignId)));
-        if (msg.sender != campaign.manager) revert Unauthorized();
+        if (msg.sender != campaign.manager) revert Ownable.Unauthorized();
         if (campaign.status != CampaignStatus.ACTIVE && campaign.status != CampaignStatus.PAUSED) {
             revert IErrors.InvalidState();
         }
@@ -118,7 +121,7 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         uint256 totalEarned,
         bytes32[] calldata merkleProof
     ) external nonReentrant {
-        if (msg.sender != account) revert Unauthorized();
+        if (msg.sender != account) revert Ownable.Unauthorized();
 
         DistributorStorage storage ds = _ds();
         Campaign storage campaign = ds.campaigns[campaignId];
@@ -191,7 +194,7 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
 
         if (campaign.id == 0) revert IErrors.NotConfigured(IErrors.Resource.CAMPAIGN, address(uint160(campaignId)));
         if (campaign.campaignType != CampaignType.POINTS) revert IErrors.InvalidInput();
-        if (msg.sender != _s().owner) revert Unauthorized();
+        if (msg.sender != _s().owner) revert Ownable.Unauthorized();
         if (campaign.status == CampaignStatus.REDEEMABLE) revert IErrors.InvalidState(); // Already finalized
         if (redeemToken == address(0)) revert IErrors.ZeroValue();
         if (redeemRate == 0) revert IErrors.ZeroValue();

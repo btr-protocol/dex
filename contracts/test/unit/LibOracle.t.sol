@@ -79,7 +79,7 @@ contract LibOracleTest is BaseTestSetup {
         IOracleV1.FeedData memory feed = makeFeedData(
             current,
             type(int32).min,  // Most negative offset for fast
-            -int32(uint32(LibOracle.OFFSET_PRECISION)),  // -100% for slow
+            -int32(uint32(LibOracle.ORACLE_PBPS)),  // -100% for slow
             VOL_1_PCT,
             VOL_1_PCT
         );

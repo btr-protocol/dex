@@ -12,6 +12,7 @@ import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
 import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
 import {LibRescue} from "./libraries/LibRescue.sol";
 import {LibMaths as M} from "./libraries/LibMaths.sol";
+import {LibConstants as C} from "./libraries/LibConstants.sol";
 
 /// @title BridgeV1
 /// @notice Ultra-compact LayerZero bridge with timelocked upgrades
@@ -23,8 +24,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     // ═══════════════════════════════════════════════════════════════════════════
 
     uint8 constant RATIO_DENOM = 100;
-    uint48 constant TIMELOCK = 2 days;
-    uint48 constant GRACE = 3 days;
+    // Timelock constants from LibConstants: C.BASE_TIMELOCK, C.GRACE_PERIOD, C.UPGRADE_TIMELOCK
 
     uint8 constant FLAG_SUPPORTED = 0x01;
     uint8 constant FLAG_PAUSED = 0x02;
@@ -44,8 +44,6 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     // Upgrade mechanism
     bytes32 public pendingUpgrade;
     address public pendingImplementation;
-    uint48 constant UPGRADE_TIMELOCK = 7 days;
-    uint48 constant UPGRADE_GRACE = 3 days;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // SECURITY FIX (CRITICAL-6): Failed Message Recovery Queue
@@ -359,7 +357,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         bytes32 id = keccak256(abi.encode(IBridgeV1.OpType.ConfigUpdate, token));
         if (pendingOps[id] != 0) revert IErrors.PendingTimelock(uint48(block.timestamp));
 
-        pendingOps[id] = TL.pack(TIMELOCK, GRACE);
+        pendingOps[id] = TL.pack(C.BASE_TIMELOCK, C.GRACE_PERIOD);
         pendingData[id] = abi.encode(
             updateLimit ? M.encodeB64(newLimitRaw, decimals) : uint64(0),
             newRatio,
@@ -400,7 +398,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         bytes32 id = keccak256(abi.encode(IBridgeV1.OpType.PeerUpdate, eid));
         if (pendingOps[id] != 0) revert IErrors.PendingTimelock(uint48(block.timestamp));
 
-        pendingOps[id] = TL.pack(TIMELOCK, GRACE);
+        pendingOps[id] = TL.pack(C.BASE_TIMELOCK, C.GRACE_PERIOD);
         pendingData[id] = abi.encodePacked(peer);
     }
 
@@ -441,7 +439,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         pendingUpgrade = keccak256(abi.encode(newImplementation, block.timestamp));
         pendingImplementation = newImplementation;
 
-        uint96 timelock = TL.pack(UPGRADE_TIMELOCK, UPGRADE_GRACE);
+        uint96 timelock = TL.pack(C.UPGRADE_TIMELOCK, C.GRACE_PERIOD);
         pendingOps[pendingUpgrade] = timelock;
 
         emit UpgradeAuthorized(pendingUpgrade, newImplementation, uint48(timelock >> 48));

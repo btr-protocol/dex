@@ -58,7 +58,7 @@ contract ModuleSlotTest is Test {
         IPoolV1(address(pool)).requestAddAsset(
             USDC,
             IPoolV1.OracleConfig(address(pool), address(0), bytes32(0), 0, 6, [uint8(0),0,0,0,0,0,0,0,0,0,0,0,0]),
-            IPoolV1.RiskConfig(9800, 5000, 31709791, 20000, 3, [uint8(0),0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]),
+            IPoolV1.RiskConfig(9800, 5000, 20000, 31709791, 20000, 3, [uint8(0),0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]),
             concentratedProfile(),
             5,
             18,

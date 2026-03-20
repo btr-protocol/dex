@@ -195,7 +195,7 @@ library FixedPointMathLib {
 
     /// @dev Equivalent to `x` to the power of `y`.
     /// because `x ** y = (e ** ln(x)) ** y = e ** (ln(x) * y)`.
-    /// Note: This function is an approximation.
+    /// NB: This function is an approximation.
     function powWad(int256 x, int256 y) internal pure returns (int256) {
         // Using `ln(x)` means `x` must be greater than 0.
         return expWad((lnWad(x) * y) / int256(WAD));
@@ -203,7 +203,7 @@ library FixedPointMathLib {
 
     /// @dev Returns `exp(x)`, denominated in `WAD`.
     /// Credit to Remco Bloemen under MIT license: https://2π.com/22/exp-ln
-    /// Note: This function is an approximation. Monotonically increasing.
+    /// NB: This function is an approximation. Monotonically increasing.
     function expWad(int256 x) internal pure returns (int256 r) {
         unchecked {
             // When the result is less than 0.5 we return zero.
@@ -273,7 +273,7 @@ library FixedPointMathLib {
 
     /// @dev Returns `ln(x)`, denominated in `WAD`.
     /// Credit to Remco Bloemen under MIT license: https://2π.com/22/exp-ln
-    /// Note: This function is an approximation. Monotonically increasing.
+    /// NB: This function is an approximation. Monotonically increasing.
     function lnWad(int256 x) internal pure returns (int256 r) {
         /// @solidity memory-safe-assembly
         assembly {
@@ -349,7 +349,7 @@ library FixedPointMathLib {
     /// @dev Returns `W_0(x)`, denominated in `WAD`.
     /// See: https://en.wikipedia.org/wiki/Lambert_W_function
     /// a.k.a. Product log function. This is an approximation of the principal branch.
-    /// Note: This function is an approximation. Monotonically increasing.
+    /// NB: This function is an approximation. Monotonically increasing.
     function lambertW0Wad(int256 x) internal pure returns (int256 w) {
         // forgefmt: disable-next-item
         unchecked {

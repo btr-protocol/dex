@@ -319,7 +319,7 @@ abstract contract StdCheatsSafe {
     }
 
     function assumeNotPrecompile(address addr, uint256 chainId) internal pure virtual {
-        // Note: For some chains like Optimism these are technically predeploys (i.e. bytecode placed at a specific
+        // NB: For some chains like Optimism these are technically predeploys (i.e. bytecode placed at a specific
         // address), but the same rationale for excluding them applies so we include those too.
 
         // These are reserved by Ethereum and may be on all EVM-compatible chains.
