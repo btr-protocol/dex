@@ -141,3 +141,11 @@ dev/
 
 # Anvil state persistence
 .anvil/
+
+# Backend data directories
+back/.data/
+back/services/*/.data/
+back/services/*/data/
+
+# Native addons
+*.node
