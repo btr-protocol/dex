@@ -8,12 +8,14 @@
 import { readdir, readFile, writeFile, mkdir } from 'fs/promises';
 import { join, relative, basename } from 'path';
 import { existsSync } from 'fs';
-import { marked } from 'marked';
 import Prism from 'prismjs';
 import loadLanguages from 'prismjs/components/index.js';
 import { asciiToMathML } from 'asciimath2ml';
 import { slugifyDoc, generateAnchorId } from '../sdk/src/utils/format.js';
 import { chromium, type Browser } from 'playwright';
+import { logger } from '../sdk/src/utils/logger.js';
+
+const log = logger.withContext('precompile-markdown');
 
 // Load Prism languages
 loadLanguages(['javascript', 'typescript', 'jsx', 'tsx', 'json', 'bash', 'sql', 'markdown', 'solidity']);
@@ -274,13 +276,6 @@ async function closeBrowser() {
   }
 }
 
-// Configure marked
-marked.setOptions({
-  gfm: true,
-  breaks: false,
-  pedantic: false,
-});
-
 async function getAllMarkdownFiles(dir: string, baseDir: string = dir): Promise<string[]> {
   const files: string[] = [];
 
@@ -329,71 +324,19 @@ function extractTitleFromSlug(slug: string): string {
         .join(' ');
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
+// Removed: escapeHtml function was unnecessary and caused double-encoding issues
+// Prism.highlight() returns safe HTML that can be inserted directly into the DOM
 
 /**
  * Normalize math expression for AsciiMath parsing.
- * - Converts LaTeX symbols (\pi, \gamma, etc.) to AsciiMath equivalents
- * - Converts |expr| absolute value bars to abs(expr)
- * - Adds quad spacing around "with" and "where" keywords
- * - Quotes text phrases in piecewise functions
+ *
+ * NOTE: All LaTeX-to-AsciiMath conversions have been removed as obsolete.
+ * The documentation now uses proper AsciiMath syntax throughout.
+ * This function is kept for backward compatibility in case future normalization is needed.
  */
 function normalizeMathExpr(expr: string): string {
-  let result = expr
-    // LaTeX symbols to AsciiMath
-    .replace(/\\pi/g, 'pi')
-    .replace(/\\gamma/g, 'gamma')
-    .replace(/\\eta/g, 'eta')
-    .replace(/\\rho/g, 'rho')
-    .replace(/\\Delta/g, 'Delta')
-    .replace(/\\Sigma/g, 'Sigma')
-    .replace(/\\sigma/g, 'sigma')
-    .replace(/\\alpha/g, 'alpha')
-    .replace(/\\beta/g, 'beta')
-    .replace(/\\theta/g, 'theta')
-    .replace(/\\lambda/g, 'lambda')
-    .replace(/\\omega/g, 'omega')
-    .replace(/\\phi/g, 'phi')
-    .replace(/\\psi/g, 'psi')
-    .replace(/\\epsilon/g, 'epsilon')
-    .replace(/\\mu/g, 'mu')
-    .replace(/\\nu/g, 'nu')
-    .replace(/\\tau/g, 'tau')
-    .replace(/\\chi/g, 'chi')
-    .replace(/\\kappa/g, 'kappa')
-    .replace(/\\zeta/g, 'zeta')
-    // Convert |expr| to abs(expr) to avoid parser confusion
-    .replace(/\|([^|]+)\|/g, 'abs($1)')
-    // Convert times/cdot to proper AsciiMath symbols
-    // Use center dot (·) for multiplication - cleaner than ×
-    .replace(/\btimes\b/g, '*')
-    .replace(/\bcdot\b/g, '*');
-
-  // Add quad spacing around "with" and "where" keywords (but not if already processed)
-  // Pattern: " with " -> quad "with" quad
-  result = result.replace(/\s+with\s+(?!quad)/gi, ' quad "with" quad ');
-  result = result.replace(/\s+where\s+(?!quad)/gi, ' quad "where" quad ');
-
-  // Quote text phrases in piecewise functions (if X, otherwise, etc.)
-  // Match "if <text>" patterns and quote them
-  result = result.replace(/,\s*if\s+([^,)]+)/g, (_, text) => {
-    const trimmed = text.trim();
-    // If it's already quoted or is a simple variable, leave it
-    if (trimmed.startsWith('"') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
-      return `, "if" ${trimmed}`;
-    }
-    return `, "if ${trimmed}"`;
-  });
-  result = result.replace(/,\s*otherwise\s*\)/g, ', "otherwise")');
-
-  return result;
+  // Documentation uses proper AsciiMath syntax - no normalization needed
+  return expr;
 }
 
 /**
@@ -482,14 +425,12 @@ export async function renderMarkdown(content: string, options: RenderMarkdownOpt
 
   // Track math, mermaid, and chart placeholders
   const mathBlocks: { placeholder: string; html: string }[] = [];
-  const whereBlocks: { placeholder: string; html: string }[] = [];
   const chartBlocks: { placeholder: string; config: string }[] = [];
   let mathCounter = 0;
-  let whereBlockCounter = 0;
   let chartCounter = 0;
-
+  
   let processedContent = content;
-
+  
   // Handle ```chart blocks (Chartist.js charts)
   const chartMatches = [...content.matchAll(/```chart\n([\s\S]+?)\n```/g)];
   for (const match of chartMatches) {
@@ -505,13 +446,13 @@ export async function renderMarkdown(content: string, options: RenderMarkdownOpt
       chartCounter++;
     } catch (err) {
       // Silent failure - leave as code block if JSON is invalid
-      console.warn('Invalid chart config JSON:', err);
+      log.warn('Invalid chart config JSON:', err);
     }
   }
 
   // Handle ```mermaid blocks (optional)
   if (includeMermaid) {
-    const mermaidMatches = [...content.matchAll(/```mermaid\n([\s\S]+?)\n```/g)];
+    const mermaidMatches = [...content.matchAll(/```mermaid\s*([\s\S]+?)\s*```/g)];
     for (const match of mermaidMatches) {
       const mermaidCode = match[1];
       try {
@@ -535,180 +476,6 @@ export async function renderMarkdown(content: string, options: RenderMarkdownOpt
       }
     }
   }
-
-  // First, placeholder ALL labeled code blocks to avoid false matches
-  const codeBlockPlaceholders: { placeholder: string; content: string }[] = [];
-  let codeBlockCounter = 0;
-
-  processedContent = processedContent.replace(/```([a-z]+)\n([\s\S]+?)\n```/g, (match, lang, code) => {
-    const placeholder = `<!--CODEBLOCK${codeBlockCounter}-->`;
-    codeBlockPlaceholders.push({ placeholder, content: match });
-    codeBlockCounter++;
-    return placeholder;
-  });
-
-  // Handle ```math blocks - convert to proper math notation
-  processedContent = processedContent.replace(/```math\n([\s\S]+?)\n```/g, (match, blockContent) => {
-    const lines = blockContent.split('\n');
-    let result: string[] = [];
-    let inWhere = false;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-
-      if (!trimmed) {
-        result.push(''); // preserve blank lines
-      } else if (trimmed === 'where:' || trimmed === 'for each chain:') {
-        result.push(`\n**${trimmed}**\n`); // Keep as markdown header
-        inWhere = true;
-      } else if (trimmed.match(/^[-•]\s/)) {
-        // Already a list item - keep as is
-        result.push(line);
-      } else if (inWhere && line.match(/^  /)) {
-        // Indented line in where/for clause - use list with inline math
-        result.push(`- $${trimmed}$`);
-      } else if (trimmed.match(/^[A-Z_][a-z_]*\s*[=<>∈]/)) {
-        // Formula line starting with variable - use display math
-        result.push(`$$${trimmed}$$\n`);
-      } else {
-        // Keep as regular text (like comments in brackets)
-        result.push(line);
-      }
-    }
-
-    return result.join('\n');
-  });
-
-  // Also handle unlabeled ``` blocks that contain math (backwards compatibility)
-  // This now safely runs after labeled blocks are placeholdered
-  processedContent = processedContent.replace(/```\n([\s\S]+?)\n```/g, (match, blockContent) => {
-    // Check if this looks like math
-    const hasMathSymbols = /[×Σλγσ]|V_[a-z]+\s*=|effectiveStake|skew\s*=|EMA_|haircut\s*=/.test(blockContent);
-
-    if (hasMathSymbols) {
-      // Treat as math block
-      return `\`\`\`math\n${blockContent}\n\`\`\``;
-    }
-    return match;
-  });
-
-  // Handle where: blocks (lowercase) - generate styled HTML container
-  // Pattern: where:\n- var = description
-  processedContent = processedContent.replace(/^where:\s*\n((?:- .+\n?)+)/gm, (match, listContent) => {
-    const lines = listContent.trim().split('\n');
-    const htmlLines: string[] = [];
-
-    for (const line of lines) {
-      const listMatch = line.match(/^-\s+(.+)$/);
-      if (!listMatch) continue;
-
-      const content = listMatch[1];
-      // Split on = to get variable and description
-      const eqMatch = content.match(/^([^=]+?)\s*=\s*(.+)$/);
-      if (!eqMatch) {
-        htmlLines.push(`<div class="where-line">${content}</div>`);
-        continue;
-      }
-
-      const [, varPart, descPart] = eqMatch;
-      const trimmedVar = varPart.trim();
-
-      // Variable is already wrapped in $...$ or needs wrapping
-      const varForMath = trimmedVar.startsWith('$') && trimmedVar.endsWith('$')
-        ? trimmedVar.slice(1, -1) // Remove $ delimiters, will be processed later
-        : trimmedVar;
-
-      htmlLines.push(`<div class="where-line">$${varForMath}$ = ${descPart.trim()}</div>`);
-    }
-
-    // Return as HTML placeholder that won't be processed by markdown
-    const placeholder = `<!--WHERE_BLOCK_${whereBlockCounter}-->`;
-    whereBlocks.push({
-      placeholder,
-      html: `<div class="where-block"><div class="where-header">WHERE</div>${htmlLines.join('')}</div>`,
-    });
-    whereBlockCounter++;
-    return placeholder;
-  });
-
-  // Restore labeled code blocks
-  codeBlockPlaceholders.forEach(({ placeholder, content }) => {
-    processedContent = processedContent.replace(placeholder, content);
-  });
-
-  // Convert backtick math to $ syntax for inline expressions
-  // Only convert if it has clear AsciiMath operators: xx (with spaces), //, quoted strings
-  processedContent = processedContent.replace(/`([^`\n]+)`/g, (match, code) => {
-    const trimmed = code.trim();
-
-    // Definite code patterns - exclude these first
-    const isDefinitelyCode =
-      /^[a-z][a-zA-Z0-9_]*$/.test(trimmed) || // simple identifier like `foo`
-      /^[A-Z_][A-Z0-9_]*$/.test(trimmed) || // constant like `MAX_VALUE`
-      /https?:|^\/|\.ts|\.js|\.sol|\.md|#\//.test(trimmed) || // URL, path, extension
-      /^\d+$/.test(trimmed) || // plain number like `123`
-      /^[a-zA-Z][a-zA-Z0-9_]*\(/.test(trimmed) || // function like `foo(` or `FooBar(`
-      /^[a-zA-Z][a-zA-Z0-9_]*\[/.test(trimmed) || // array like `arr[`
-      /^\.[a-z]/.test(trimmed) || // property like `.foo`
-      /[,;{}]|uint\d+|address|bool|string/.test(trimmed); // code/Solidity syntax
-
-    if (isDefinitelyCode) {
-      return match;
-    }
-
-    // Definite math patterns - only these get converted
-    const isDefinitelyMath =
-      / xx /.test(trimmed) || // AsciiMath multiply: `a xx b`
-      / \/\/ /.test(trimmed) || // AsciiMath divide: `a // b`
-      /"[a-z_]+"/.test(trimmed); // AsciiMath quoted strings: `"progress"`
-
-    if (isDefinitelyMath) {
-      return `$${trimmed}$`;
-    }
-
-    // Default: keep as code
-    return match;
-  });
-
-  // Handle WHERE blocks - convert to plain markdown list (no containers)
-  // Match code blocks that start with "WHERE" (no language specified)
-  processedContent = processedContent.replace(/```\nWHERE\n([\s\S]+?)\n```/g, (match, whereContent) => {
-    const lines = whereContent.trim().split('\n');
-    const markdownLines: string[] = ['where:'];
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-
-      // Split by comma to handle multiple definitions per line
-      const parts = trimmed.split(/,\s*(?=[a-zA-Z$_\\])/);
-
-      for (const part of parts) {
-        const partTrimmed = part.trim();
-        if (!partTrimmed) continue;
-
-        // Check if line has $...$ segments
-        const mathSegments = [...partTrimmed.matchAll(/\$([^$]+)\$/g)];
-
-        if (mathSegments.length > 0) {
-          // Keep as-is with inline math
-          markdownLines.push(`- ${partTrimmed}`);
-        } else {
-          // No math segments - check for simple "var = desc" pattern
-          const eqMatch = partTrimmed.match(/^([^=]+?)\s*=\s*(.+)$/);
-          if (eqMatch) {
-            const [, varPart, descPart] = eqMatch;
-            // Wrap variable in inline math
-            markdownLines.push(`- $${varPart.trim()}$ = ${descPart.trim()}`);
-          } else {
-            markdownLines.push(`- ${partTrimmed}`);
-          }
-        }
-      }
-    }
-
-    return markdownLines.join('\n');
-  });
 
   // Merge consecutive $$...$$ blocks into single multi-line math block
   // Pattern: $$expr1$$\n\n$$expr2$$\n\n$$expr3$$ -> separate lines with spacing
@@ -810,12 +577,16 @@ export async function renderMarkdown(content: string, options: RenderMarkdownOpt
     }
   });
 
-  // Parse markdown with marked
-  let html = marked.parse(processedContent) as string;
+  // Parse markdown with Bun.markdown
+  let html = Bun.markdown.html(processedContent, {
+    gfm: true,
+    latexMath: true,
+  });
 
   // Apply syntax highlighting with Prism
   const codeBlockRegex = /<pre><code class="language-([^"]*)">([\s\S]*?)<\/code><\/pre>/g;
   html = html.replace(codeBlockRegex, (match, lang, code) => {
+    // Decode HTML entities to get raw code (marked may encode some characters)
     const rawCode = code
       .replace(/<[^>]+>/g, '')
       .replace(/&lt;/g, '<')
@@ -824,15 +595,15 @@ export async function renderMarkdown(content: string, options: RenderMarkdownOpt
       .replace(/&quot;/g, '"')
       .replace(/&#039;/g, "'");
 
+    // Highlight with Prism if language is supported
     let highlighted = rawCode;
     if (lang && Prism.languages[lang]) {
       try {
         highlighted = Prism.highlight(rawCode, Prism.languages[lang], lang);
       } catch {
-        highlighted = escapeHtml(rawCode);
+        // If Prism fails, use raw code (already decoded)
+        highlighted = rawCode;
       }
-    } else {
-      highlighted = escapeHtml(rawCode);
     }
 
     // Wrap each line in .line element
@@ -844,10 +615,19 @@ export async function renderMarkdown(content: string, options: RenderMarkdownOpt
     if (includeCopyButton) {
       const lineCount = rawCode.split('\n').filter(l => l.trim()).length;
       const shortAttr = lineCount <= 3 ? ' data-short="true"' : '';
-      copyButton = `<button class="copy-button" data-code="${escapeHtml(rawCode)}" aria-label="Copy code"${shortAttr}><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>`;
+
+      // Escape rawCode for HTML attribute (but NOT for the code content)
+      const codeForAttr = rawCode
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
+      copyButton = `<button class="copy-button" data-code="${codeForAttr}" aria-label="Copy code"${shortAttr}><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>`;
     }
 
-    return `<pre data-language="${escapeHtml(lang)}"><code class="language-${lang}">${wrappedLines}</code>${copyButton}</pre>`;
+    return `<pre data-language="${lang}"><code class="language-${lang}">${highlighted}</code>${copyButton}</pre>`;
   });
 
   // Add IDs to headings
@@ -860,38 +640,9 @@ export async function renderMarkdown(content: string, options: RenderMarkdownOpt
 
   // Make table headers sortable
   html = html.replace(/<th([^>]*)>/g, '<th$1 class="sortable">');
-
-  // Fix Unicode character encoding issues
-  let fixedHtml = html
-    .replace(/�/g, '→')
-    .replace(/◆/g, '→')
-    .replace(/\u25C6/g, '→')
-    .replace(/×/g, '×')
-    .replace(/\s@\s/g, ' × ')
-    .replace(/→\s+/g, '→ ')
-    .replace(/<li>\s*\*\s*/g, '<li>');
-
-  // Restore where blocks - process inline math first
-  whereBlocks.forEach(({ placeholder, html: whereHtml }) => {
-    // Process inline math within where block HTML
-    let processedWhereHtml = whereHtml.replace(/\$([^$]+)\$/g, (m, expr) => {
-      try {
-        const normalized = normalizeMathExpr(expr);
-        let mathML = asciiToMathML(normalized, true);
-        mathML = mathML.replace(/displaystyle="true"/g, 'displaystyle="false"');
-        return `<span class="math-inline">${mathML}</span>`;
-      } catch {
-        return `<span class="where-var">${expr}</span>`;
-      }
-    });
-
-    const escaped = placeholder.replace('<!--', '&lt;!--').replace('-->', '--&gt;');
-    fixedHtml = fixedHtml.replace(placeholder, processedWhereHtml);
-    fixedHtml = fixedHtml.replace(escaped, processedWhereHtml);
-    fixedHtml = fixedHtml.replace(`<p>${placeholder}</p>`, processedWhereHtml);
-    fixedHtml = fixedHtml.replace(`<p>${escaped}</p>`, processedWhereHtml);
-  });
-
+  
+  let fixedHtml = html;
+  
   // Restore math blocks - handle both escaped and unescaped comment forms
   mathBlocks.forEach(({ placeholder, html: mathHtml }) => {
     // Match placeholder in various escaped forms
@@ -942,7 +693,7 @@ async function compileMarkdownFiles(files: string[], docsDir: string, legalDir: 
         category,
       };
     } catch (err) {
-      console.error(`Failed to compile ${slug}:`, err);
+      log.error(`Failed to compile ${slug}:`, err);
     }
   }
 
@@ -971,7 +722,7 @@ async function main() {
 
   // Main mode: collect all files and spawn workers
   if (!existsSync(docsDir)) {
-    console.error('Docs directory not found:', docsDir);
+    log.error('Docs directory not found:', docsDir);
     process.exit(1);
   }
 
@@ -983,7 +734,7 @@ async function main() {
   const legalFiles = existsSync(legalDir) ? await getAllMarkdownFiles(legalDir) : [];
   const allFiles = [...docsFiles, ...legalFiles];
 
-  console.log(`Found ${allFiles.length} markdown files`);
+  log.info(`Found ${allFiles.length} markdown files`);
 
   // Split files into chunks for parallel processing
   const numWorkers = Math.min(8, Math.max(2, Math.floor(allFiles.length / 4)));
@@ -994,7 +745,7 @@ async function main() {
     chunks.push(allFiles.slice(i, i + chunkSize));
   }
 
-  console.log(`Spawning ${chunks.length} workers (${chunkSize} files each)...`);
+  log.info(`Spawning ${chunks.length} workers (${chunkSize} files each)...`);
 
   // Spawn worker processes
   const workers = chunks.map(async (chunk, idx) => {
@@ -1030,7 +781,7 @@ async function main() {
     Object.assign(compiledDocs, result);
   }
 
-  console.log(`✓ Compiled ${Object.keys(compiledDocs).length} documents`);
+  log.info(`✓ Compiled ${Object.keys(compiledDocs).length} documents`);
 
   // Add prev/next navigation to each doc
   const sortKey = (slug: string) => {
@@ -1084,8 +835,11 @@ async function main() {
 
   const originalSize = JSON.stringify(compiledDocs).length;
   const gzippedSize = gzippedContent.length;
-  console.log(`Original: ${(originalSize / 1024).toFixed(2)} KB`);
-  console.log(`Gzipped: ${(gzippedSize / 1024).toFixed(2)} KB (${((gzippedSize / originalSize) * 100).toFixed(1)}% compression)`);
+  log.info(`Original: ${(originalSize / 1024).toFixed(2)} KB`);
+  log.info(`Gzipped: ${(gzippedSize / 1024).toFixed(2)} KB (${((gzippedSize / originalSize) * 100).toFixed(1)}% compression)`);
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  log.error('Fatal error:', err);
+  process.exit(1);
+});

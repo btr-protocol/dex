@@ -1,34 +1,29 @@
 {
-  "name": "@btr/dex-monorepo",
+  "name": "@btr/monorepo",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "bun run install:all",
-    "dev": "(cd front && bun run dev) & (cd back/collector && bun run dev)",
-    "install:all": "bun install && cd front && bun install && cd ../back/collector && bun install && cd ../../sdk && bun install",
-    "build": "cd sdk && bun run build && cd ../back/collector && bun run build && cd ../../front && bun run build",
-    "typecheck": "cd sdk && bun run typecheck && cd ../back/collector && bun run typecheck && cd ../../front && bun run typecheck",
+    "dev": "bun scripts/dev.ts",
+    "dev:agents": "cd back/services/agents && bun run dev",
+    "dev:collector": "cd back/services/collector && bun run dev",
+    "dev:front": "cd front && bun run dev",
+    "build": "cd sdk && bun run build && cd ../front && bun run build",
+    "typecheck": "cd sdk && bun run typecheck && cd ../back/services/collector && bun run typecheck && cd ../agents && bun run typecheck && cd ../../../front && bun run typecheck",
     "lint": "oxlint .",
-    "fmt": "oxlint --fix ."
+    "fmt": "oxlint --fix .",
+    "clean": "bun run clean:dist && bun run clean:deps",
+    "clean:dist": "find . -name 'dist' -type d -exec rm -rf {} +",
+    "clean:deps": "find . -name 'node_modules' -type d -prune -exec rm -rf {} +"
   },
   "workspaces": [
+    "sdk",
     "front",
-    "back/collector",
-    "sdk"
+    "back/services/collector",
+    "back/services/agents"
   ],
   "devDependencies": {
-    "@typescript/native-preview": "^7.0.0-dev.20251227.1",
-    "asciimath2ml": "^1.0.8",
-    "bun-types": "^1.3.5",
-    "happy-dom": "^20.0.11",
-    "marked": "^17.0.1",
-    "minisearch": "^7.2.0",
-    "oxlint": "^1.35.0",
-    "playwright": "^1.57.0",
-    "prismjs": "^1.30.0"
-  },
-  "dependencies": {
-    "dotenv": "^17.2.3"
+    "typescript": "^5.8.0",
+    "oxlint": "^0.15.0"
   }
 }

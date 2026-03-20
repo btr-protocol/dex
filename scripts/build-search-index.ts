@@ -5,6 +5,9 @@ import path from "path";
 import { gzipSync } from "zlib";
 import MiniSearch from "minisearch";
 import { slugifyDoc, generateAnchorId } from "../sdk/src/utils/format.js";
+import { logger } from "../sdk/src/utils/logger.js";
+
+const log = logger.withContext('build-search-index');
 
 interface SearchDocument {
   id: string;
@@ -59,7 +62,7 @@ function parseFrontmatter(content: string): { data: Record<string, any>; content
   return { data, content: markdownContent };
 }
 
-// Note: generateAnchorId is now imported from SDK (../sdk/src/utils/format.js)
+// NB: generateAnchorId is now imported from SDK (../sdk/src/utils/format.js)
 
 // Strip markdown formatting (simple, no need for full parser)
 function stripMarkdown(markdown: string): string {
@@ -109,7 +112,7 @@ function getAllMarkdownFiles(dirPath: string, relativePath = ""): string[] {
   const files: string[] = [];
 
   if (!fs.existsSync(dirPath)) {
-    console.warn(`Directory does not exist: ${dirPath}`);
+    log.warn(`Directory does not exist: ${dirPath}`);
     return files;
   }
 
@@ -136,7 +139,7 @@ function generateDocsStructure(dirPath: string, relativePath = ""): DocStructure
   const structure: DocStructure[] = [];
 
   if (!fs.existsSync(dirPath)) {
-    console.warn(`Directory does not exist: ${dirPath}`);
+    log.warn(`Directory does not exist: ${dirPath}`);
     return structure;
   }
 
@@ -238,7 +241,7 @@ function generateDocsStructureFiles(docsStructure: DocStructure[]) {
 
 // Generate search index
 async function generateSearchIndex() {
-  console.log("Building search index...");
+  log.info("Building search index...");
 
   const markdownFiles = getAllMarkdownFiles(docsDirectory);
   const documents: SearchDocument[] = [];
@@ -313,7 +316,7 @@ async function generateSearchIndex() {
         }
       });
     } catch (error) {
-      console.error(`Error processing file ${filePath}:`, error);
+      log.error(`Error processing file ${filePath}:`, error);
     }
   }
 
@@ -368,14 +371,17 @@ async function generateSearchIndex() {
   const docsStructureCompressedSize = fs.statSync(docsStructureOutputPathGz).size;
   const docsStructureCompressionRatio = ((docsStructureOriginalSize - docsStructureCompressedSize) / docsStructureOriginalSize * 100).toFixed(1);
 
-  console.log(`Done: ${markdownFiles.length} files, ${documents.length} entries`);
-  console.log(`  index: ${(originalSize / 1024).toFixed(0)}KB -> ${(compressedSize / 1024).toFixed(0)}KB (${compressionRatio}%)`);
-  console.log(`  structure: ${(docsStructureOriginalSize / 1024).toFixed(1)}KB -> ${(docsStructureCompressedSize / 1024).toFixed(1)}KB (${docsStructureCompressionRatio}%)`);
+  log.info(`Done: ${markdownFiles.length} files, ${documents.length} entries`);
+  log.info(`  index: ${(originalSize / 1024).toFixed(0)}KB -> ${(compressedSize / 1024).toFixed(0)}KB (${compressionRatio}%)`);
+  log.info(`  structure: ${(docsStructureOriginalSize / 1024).toFixed(1)}KB -> ${(docsStructureCompressedSize / 1024).toFixed(1)}KB (${docsStructureCompressionRatio}%)`);
 }
 
 // Run the script
 if (import.meta.main) {
-  generateSearchIndex().catch(console.error);
+  generateSearchIndex().catch((err) => {
+    log.error('Fatal error:', err);
+    process.exit(1);
+  });
 }
 
 export { generateSearchIndex };
