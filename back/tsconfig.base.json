@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022"],
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "paths": {
+      "@btr/sdk": ["../sdk/src"],
+      "@btr/sdk/*": ["../sdk/src/*"],
+      "@shared": ["./shared"],
+      "@shared/*": ["./shared/*"]
+    }
+  }
+}

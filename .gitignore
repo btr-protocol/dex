@@ -146,6 +146,8 @@ dev/
 back/.data/
 back/services/*/.data/
 back/services/*/data/
+**/.data/
+**/.tei-model/
 
 # Native addons
 *.node
