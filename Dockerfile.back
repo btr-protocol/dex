@@ -1,0 +1,104 @@
+# Multi-stage Dockerfile for Backend Services
+# Install dependencies fresh in Docker to avoid workspace issues
+
+# ============ BASE STAGE ============
+FROM oven/bun:1-alpine AS base
+WORKDIR /app
+RUN apk add --no-cache dumb-init wget
+COPY back/shared ./back/shared
+
+# ============ COLLECTOR DEPS INSTALL ============
+FROM base AS collector-deps
+WORKDIR /app
+
+RUN echo '{"name":"btr-collector-workspace","version":"0.0.0","private":true,"workspaces":["sdk","back/services/collector"]}' > package.json
+
+COPY sdk ./sdk
+COPY back/services/collector ./back/services/collector
+COPY back/services/collector/bun.lock ./bun.lock
+
+RUN bun install
+
+# ============ COLLECTOR RUNNER ============
+FROM base AS collector-runner
+WORKDIR /app
+
+COPY back/services/collector ./back/services/collector
+COPY sdk ./sdk
+COPY --from=collector-deps /app/node_modules ./node_modules
+
+RUN mkdir -p /app/data && \
+    addgroup -g 1001 -S collector && \
+    adduser -S collector -u 1001 && \
+    chown -R collector:collector /app
+
+USER collector
+WORKDIR /app/back/services/collector
+ENV NODE_ENV=production
+ENV PORT=3001
+ENV DATA_DIR=/app/data
+EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["bun", "run", "src/server-main.ts"]
+
+# ============ AGENTS WORKSPACE INSTALL ============
+FROM base AS agents-install
+WORKDIR /app
+
+# Create minimal workspace config for Docker build
+# Include back/shared as a workspace so shared dependencies resolve correctly
+RUN echo '{"name":"btr-dex-workspace","version":"0.0.0","private":true,"workspaces":["sdk","back/services/agents","back/shared"]}' > package.json
+
+# Copy workspace packages
+COPY sdk ./sdk
+COPY back/services/agents ./back/services/agents
+
+# Create a minimal package.json for back/shared with all dependencies
+RUN echo '{"name":"@btr/shared","version":"0.0.0","type":"module","dependencies":{"@btr/sdk":"workspace:*","dotenv":"^16.4.5","marked":"^15.0.4","prismjs":"^1.29.0"}}' > back/shared/package.json
+
+# Copy lockfiles for workspace resolution
+COPY back/services/agents/bun.lock ./bun.lock
+
+# Install from root to resolve workspace dependencies
+RUN bun install
+
+# ============ AGENTS RUNNER ============
+FROM base AS agents-runner
+WORKDIR /app
+
+# Copy workspace source
+COPY back/services/agents ./back/services/agents
+COPY sdk ./sdk
+
+# Copy back/shared package.json created during agents-install for module resolution
+COPY --from=agents-install /app/back/shared/package.json ./back/shared/package.json
+
+# Copy workspace lock and root package.json for fresh install
+COPY --from=agents-install /app/package.json ./package.json
+COPY --from=agents-install /app/bun.lock ./bun.lock
+
+# Install dependencies fresh in runner stage to get platform-specific native bindings
+RUN bun install --production
+
+RUN mkdir -p /app/back/.data && \
+    addgroup -g 1001 -S agents && \
+    adduser -S agents -u 1001 && \
+    chown -R agents:agents /app
+
+USER agents
+WORKDIR /app/back/services/agents
+ENV NODE_ENV=production
+ENV PORT=4001
+ENV DATA_DIR=/app/back/.data
+ENV TEI_EXTERNAL=true
+EXPOSE 4001
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:4001/health || exit 1
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["bun", "run", "src/server.ts"]
