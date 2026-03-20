@@ -671,11 +671,11 @@ bun run build
 - Avoid verbose strings: ~~`S_"final"`~~ → `S_f`
 
 **Fractions**:
-$$
-Simple:         a/b
-Complex:        {x + y}/{z - w}
-Multi-term:     {sigma * nu}/{100M}
-$$
+$$Simple:         a/b$$
+
+$$Complex:        {x + y}/{z - w}$$
+
+$$Multi-term:     {sigma * nu}/{100M}$$
 
 ---
 

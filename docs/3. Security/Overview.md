@@ -91,7 +91,8 @@ FLASH_ENABLED_BIT     = 1 << 4   // Flash loans
 - Per-asset granularity
 
 **Thresholds:**
-- `coverageFloor`  Minimum healthy coverage (default 50%)
+- `coverageMin`  Minimum healthy coverage (default 50%, parametric)
+- `coverageMax`  Maximum healthy coverage (default 200%, parametric)
 - `decayStartRatioBps`  Decay activation threshold
 - `minLiquidity`  Reserve floor per asset
 

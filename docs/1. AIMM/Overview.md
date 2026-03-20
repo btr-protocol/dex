@@ -26,9 +26,9 @@ All pool interactions route through a single proxy that dispatches to implementa
 
 ```mermaid
 graph LR
-    User[User] --> Proxy[PoolProxyV1]
-    Proxy --> Module[Module<br/>CoreV1, AdminV1,<br/>FlashV1, etc.]
-    Registry[Module Registry<br/>selector → implementation] -.-> Proxy
+    User --> Proxy[PoolProxyV1]
+    Proxy --> Module[CoreV1, AdminV1, etc.]
+    Registry[Module Registry] -.-> Proxy
 ```
 
 **Storage Isolation**: Each module uses [ERC-7201](https://eips.ethereum.org/EIPS/eip-7201) namespaced storage to prevent collisions.
@@ -67,14 +67,13 @@ See: [Parametrization](/docs/1.1.7-Parametrization) for full field reference.
 
 ```mermaid
 graph TB
-    Start([swap tokenIn, tokenOut, amountIn]) --> Step1
-    Step1[1. Calculate Coverage<br/>c = R / L] --> Step2
-    Step2[2. Compute Inventory Skew<br/>linear interpolation<br/>range: -100, +100] --> Step3
-    Step3[3. Get Oracle Price<br/>TWAP from internal or<br/>external oracle] --> Step4
-    Step4[4. Calculate Volatility<br/>dual EMA average] --> Step5
-    Step5[5. Traverse Spline Profile<br/>Catmull-Rom integration] --> Step6
-    Step6[6. Apply Spread + Fees<br/>vol + toxic surcharge<br/>50/50 fee split] --> End
-    End([amountOut])
+    Start[swap request] --> Step1[Calculate Coverage]
+    Step1 --> Step2[Compute Inventory Skew]
+    Step2 --> Step3[Get Oracle Price]
+    Step3 --> Step4[Calculate Volatility]
+    Step4 --> Step5[Traverse Spline Profile]
+    Step5 --> Step6[Apply Spread and Fees]
+    Step6 --> End[amountOut]
 ```
 
 ### 4.2. Key Concepts
@@ -99,7 +98,7 @@ All tokens connect through an anchor tree with a hub token (typically stablecoin
 
 ```mermaid
 graph TD
-    BASE[BASE<br/>root] --> ETH
+    BASE[BASE root] --> ETH
     BASE --> BTC
     BASE --> MATIC
     ETH --> LINK

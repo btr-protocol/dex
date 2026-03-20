@@ -11,6 +11,7 @@
 | **Link Format** | `/docs/slug#anchor` (slugified, no extension) |
 | **Math** | AsciiMath with WHERE blocks, rendered to MathML at build time |
 | **Diagrams** | Mermaid (rendered to SVG at build time) |
+| **Tables** | GFM tables with optional headless mode (empty cells with spaces) |
 | **Code Docs** | NatSpec (Solidity), JSDoc (TypeScript) |
 | **Accessibility** | Public, AI-indexable, no login walls |
 
@@ -148,14 +149,44 @@ Inline (definition/embedding): $expression$ → `$x + y$`, `$pi$`, `$sum_{i}$`
 | Invisible grouping | `{` `}` |
 | Visible curly braces | `{:` `:}` |
 
+**Systems of Equations:**
+
+Use matrix syntax with left bracket `{|` and right bracket `::|}`:
+
+```markdown
+$${| 2x;+;17y;=;23;; x;-;y;=;5 ::|}$$
+```
+
+Renders as:
+$${| 2x;+;17y;=;23;; x;-;y;=;5 ::|}$$
+
+**Syntax rules:**
+- Cells separated by semicolons (`;`)
+- Rows separated by double semicolons (`;;`)
+- Left bracket: `{|` (required for systems)
+- Right bracket: `::|}` (with closing brace)
+
+**IMPORTANT:** Systems of equations must use `$${| ... ::|}$$` format (with closing brace)
+
 **Examples:**
 
-$$
-Simple:         a/b
-Complex:        {x + y}/{z - w}
-Multi-term:     {sigma * nu}/{100M}
-System:         {(eq1), (eq2), (eq3):}
-$$
+$$Simple:         a/b$$
+
+$$Complex:        {x + y}/{z - w}$$
+
+$$Multi-term:     {sigma * nu}/{100M}$$
+
+$$System:         {| d_1 = abs(x - y);; d_2 = abs(x);; d = max(d_1, d_2) ::|}$$
+
+**Angle Brackets:**
+
+- Much less/greater: `<<` → ≪, `>>` → ≫
+- Angle brackets: `: :` → 〈 〉 (use `(:` and `:)`)
+
+**Over/Underbraces:**
+
+- Underbrace: `ubrace{exp}_{exp}` → `$$ubrace{1+2+3+4}_{"under"}$$`
+- Overbrace: `obrace{exp}^{exp}` → `$$obrace{1+2+3+4}^{"over"}$$`
 
 ### Math Definitions (where: blocks)
 
@@ -219,8 +250,8 @@ Diagrams are rendered to **SVG at build time** via Playwright.
 
 ```mermaid
 graph LR
-    User[User] --> Proxy[PoolProxyV1]
-    Proxy --> Module[Module<br/>CoreV1, AdminV1,<br/>FlashV1, etc.]
+    User --> Proxy[PoolProxyV1]
+    Proxy --> Module[CoreV1, AdminV1, etc.]
     Registry[Module Registry] -.-> Proxy
 ```
 
@@ -242,15 +273,160 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    Start([swap tokenIn, tokenOut, amountIn]) --> Step1
-    Step1[1. Calculate Coverage] --> Step2
-    Step2[2. Compute Inventory Skew] --> End
-    End([amountOut])
+    Start[swap request] --> Step1[Calculate Coverage]
+    Step1 --> Step2[Compute Inventory Skew]
+    Step2 --> End[amountOut]
 ```
 
 ---
 
-## 5. Code Documentation
+## 5. Headless Tables
+
+### What Are Headless Tables?
+
+Headless tables are markdown tables that render without visible headers. They're useful for:
+
+- **Structured data display** where column meaning is obvious from context
+- **Configuration lists** with no need for column labels
+- **Compact presentation** of parameter sets, permissions, or mappings
+- **Tabular data** where headers would be redundant
+
+### Syntax Requirements
+
+**CRITICAL**: Empty header cells must contain **spaces** for the markdown parser to recognize it as a table.
+
+```markdown
+| | | | |               ✅ CORRECT - spaces in empty cells
+|---|---|---|---|
+| Data 1 | Data 2 | Data 3 | Data 4 |
+
+|||||                      ❌ WRONG - no spaces, renders as paragraph
+|---|---|---|---|
+| Data 1 | Data 2 | Data 3 | Data 4 |
+```
+
+### How It Works
+
+1. **Markdown Compilation**: marked.js parses the table with empty header cells
+2. **HTML Generation**: Creates `<thead>` with empty `<th>` elements (with `sortable` class)
+3. **CSS Hiding**: The `:has()` pseudo-class detects empty headers and hides the entire `<thead>`
+4. **Final Render**: Table displays with body content only
+
+### Technical Implementation
+
+**CSS Rules** (from `/front/src/styles/markdown.css`):
+
+```css
+/* Hide empty table headers */
+.markdown-content table>thead:has(th:empty),
+.markdown-content table>thead:has(th.sortable:empty) {
+  display: none !important;
+}
+
+/* Also hide if all header cells are empty (including those with classes) */
+.markdown-content table>thead tr:has(th):not(:has(th:not(:empty))) {
+  display: none !important;
+}
+```
+
+**Key Points**:
+- Uses CSS `:has()` pseudo-class (requires modern browser support)
+- Handles `th` elements with and without `sortable` class
+- `sortable` class is added by `precompile-markdown.ts` during build
+
+### Common Pitfalls
+
+| Issue | Example | Fix |
+|-------|---------|-----|
+| **No spaces in empty cells** | `\|\|\|\|\|` | Use `\| \| \| \| \|` (spaces between pipes) |
+| **Mixed empty/filled headers** | First column has label | Either all empty or use normal headers |
+| **Wrong column count** | 3 data cells, 4 header cells | Ensure header separator row matches data row count |
+| **Extra pipes** | Trailing `\|` after last cell | Remove trailing pipes |
+| **Missing separator row** | No `\|---\|---\|` row after header | Add separator row with dashes |
+
+### Use Cases & Examples
+
+**1. Parameter Lists** (from Deployment & Upgrades):
+
+```markdown
+| | | | |
+|---|---|---|---|
+| **Operation** | **Timelock** | **Grace Period** | **Bypass** |
+| `setReservePrice()` | 7 days | 0 | No |
+| `setFee()` | 7 days | 0 | No |
+```
+
+Renders as a clean table with inline column labels.
+
+**2. Permission Mappings**:
+
+```markdown
+| | | |
+|---|---|---|
+| `admin` | `executeTimelocked()` | ✅ |
+| `operator` | `setReservePrice()` | ✅ |
+| `anyone` | `swap()` | ✅ |
+```
+
+**3. Configuration Tables**:
+
+```markdown
+| | | |
+|---|---|---|
+| `slippage_tolerance` | `0.5%` | Maximum acceptable slippage |
+| `min_liquidity` | `10,000` | Minimum LP token amount |
+| `max_fee` | `1%` | Fee cap for swaps |
+```
+
+### When NOT to Use Headless Tables
+
+| Situation | Recommendation |
+|-----------|----------------|
+| **Complex data** with non-obvious column meanings | Use normal headers |
+| **Large tables** (5+ columns) | Use normal headers for clarity |
+| **Multi-section content** where context changes | Use explicit headers |
+| **Accessibility concerns** | Headers improve screen reader navigation |
+| **Print/export** where structure matters | Normal headers render better |
+
+### New Opportunities
+
+**1. Compact UI Patterns**:
+- Configuration panels with inline labels
+- Permission matrices without redundant column names
+- Status tables where context is provided in preceding text
+
+**2. Enhanced Documentation**:
+- Inline parameter definitions (as shown in Deployment & Upgrades)
+- Reduced visual noise in technical specs
+- Better mobile layout for simple tables
+
+**3. Mixed Documentation Styles**:
+- Combine headless tables with section headers for contextual clarity
+- Use in code examples alongside function signatures
+- Pair with markdown lists for hierarchical data
+
+### Troubleshooting
+
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| Table renders as paragraph | Empty header cells have no spaces | Add spaces: `\| \| \|` |
+| Headers still visible | CSS not loaded or `:has()` not supported | Check browser compatibility, ensure CSS is imported |
+| Table layout broken | Column count mismatch between header and data | Count pipes, ensure equal cells per row |
+| Sorting fails (if enabled) | Empty headers break table header detection | Use normal headers for sortable tables |
+
+### Browser Compatibility
+
+The `:has()` pseudo-class is supported in:
+- Chrome 105+
+- Firefox 121+
+- Safari 15.4+
+- Edge 105+
+
+For older browsers, tables will display with visible (empty) headers.
+
+---
+
+## 6. Code Documentation
 
 ### NatSpec for Smart Contracts
 
@@ -308,7 +484,7 @@ export function getSwapQuote(
 
 ---
 
-## 6. Writing Style Guidelines
+## 7. Writing Style Guidelines
 
 ### Language Principles
 
@@ -331,7 +507,7 @@ export function getSwapQuote(
 
 ---
 
-## 7. Frontmatter
+## 8. Frontmatter
 
 For SEO and indexing, use frontmatter:
 
@@ -349,7 +525,7 @@ tags: ["liquidity", "LP", "tutorial"]
 
 ---
 
-## 8. Build-Time Compilation
+## 9. Build-Time Compilation
 
 **Zero runtime deps**: markdown → HTML, AsciiMath → MathML, Mermaid → SVG
 
@@ -361,11 +537,12 @@ See [`FRONTEND.md`](./FRONTEND.md#7-build-time-compilation) for details.
 
 ---
 
-## 9. Review Checklist
+## 10. Review Checklist
 
 - [ ] All cross-references use `/docs/slug#anchor` format
 - [ ] Math uses AsciiMath with WHERE blocks for clarity
 - [ ] Mermaid diagrams render correctly
+- [ ] Tables use proper syntax (headless tables have spaces in empty cells)
 - [ ] Public functions have complete NatSpec/JSDoc
 - [ ] Code examples follow project style guide
 - [ ] Terminology is consistent with glossary
