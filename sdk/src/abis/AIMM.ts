@@ -1,6 +1,6 @@
 /**
  * AIMM Contract ABI
- * @module @btr/dex-sdk/abis
+ * @module @btr/sdk/abis
  *
  * To regenerate: run `forge build` in contracts/ then `bun run generate-abis`
  */

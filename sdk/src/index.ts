@@ -4,9 +4,9 @@
  *
  * @example Basic usage with EIP-1193 provider
  * ```ts
- * import { deposit, swap, withdraw } from '@btr/dex-sdk/flows';
- * import { AIMM_ABI } from '@btr/dex-sdk/abis';
- * import { encodeFunctionData } from '@btr/dex-sdk';
+ * import { deposit, swap, withdraw } from '@btr/sdk/flows';
+ * import { AIMM_ABI } from '@btr/sdk/abis';
+ * import { encodeFunctionData } from '@btr/sdk';
  *
  * const provider = window.ethereum; // EIP-1193 provider
  *
@@ -22,8 +22,8 @@
  *
  * @example Oracle keeper (backend)
  * ```ts
- * import { BinanceOracle } from '@btr/dex-sdk/oracles';
- * import { AIMM_ABI } from '@btr/dex-sdk/abis';
+ * import { BinanceOracle } from '@btr/sdk/oracles';
+ * import { AIMM_ABI } from '@btr/sdk/abis';
  *
  * const provider = createJsonRpcProvider('https://...');
  *
@@ -41,8 +41,8 @@
  *
  * @example Circuit breaker guardian (backend)
  * ```ts
- * import { CircuitBreakerGuardian } from '@btr/dex-sdk/guardians';
- * import { AIMM_ABI } from '@btr/dex-sdk/abis';
+ * import { CircuitBreakerGuardian } from '@btr/sdk/guardians';
+ * import { AIMM_ABI } from '@btr/sdk/abis';
  *
  * const guardian = new CircuitBreakerGuardian(provider, {
  *   poolAddress: '0x...',
@@ -53,7 +53,7 @@
  * await guardian.start();
  * ```
  *
- * @module @btr/dex-sdk
+ * @module @btr/sdk
  */
 
 // Re-export from utils (excluding types that conflict with pool module)

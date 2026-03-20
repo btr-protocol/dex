@@ -8,6 +8,9 @@
  */
 
 import { Contract, Provider } from 'ethers';
+import { logger } from '../src/utils/logger.js';
+
+const log = logger.withContext('poolState');
 
 // AIMM ABI fragment (only what we need)
 const AIMM_ABI = [
@@ -60,7 +63,7 @@ async function getPoolState(
     const [fastTWAP, slowTWAP, reserves, liabilities, reservesValue, liabilitiesValue] = assetStates[i];
 
     // Compute coverage ratio: C = (reserves / liabilities) * 1e18
-    // Note: 1e18 = 100%, 5e17 = 50%, 15e17 = 150%
+    // NB: 1e18 = 100%, 5e17 = 50%, 15e17 = 150%
     const coverageRatio = liabilities > 0n
       ? (reserves * 10n**18n) / liabilities
       : (reserves > 0n ? 2n**256n - 1n : 10n**18n);  // Infinite if reserves but no liabilities
@@ -129,22 +132,22 @@ async function main() {
   // Fetch entire pool state in ONE multicall
   const state = await getPoolState(aimmAddress, provider);
 
-  console.log('=== POOL STATE ===\n');
-  console.log(`Total Reserves Value:    ${formatValue(state.totalReservesValue)}`);
-  console.log(`Total Liabilities Value: ${formatValue(state.totalLiabilitiesValue)}`);
-  console.log(`Overall Coverage Ratio:  ${formatCoverage(state.overallCoverageRatio)}\n`);
+  log.info('=== POOL STATE ===\n');
+  log.info(`Total Reserves Value:    ${formatValue(state.totalReservesValue)}`);
+  log.info(`Total Liabilities Value: ${formatValue(state.totalLiabilitiesValue)}`);
+  log.info(`Overall Coverage Ratio:  ${formatCoverage(state.overallCoverageRatio)}\n`);
 
-  console.log('=== PER-ASSET STATE ===\n');
+  log.info('=== PER-ASSET STATE ===\n');
   for (const asset of state.assets) {
-    console.log(`Token: ${asset.token}`);
-    console.log(`  Fast TWAP:         $${decodeTWAP(asset.fastTWAP)}`);
-    console.log(`  Slow TWAP:         $${decodeTWAP(asset.slowTWAP)}`);
-    console.log(`  Reserves:          ${asset.reserves.toString()}`);
-    console.log(`  Liabilities:       ${asset.liabilities.toString()}`);
-    console.log(`  Reserves Value:    ${formatValue(asset.reservesValue)}`);
-    console.log(`  Liabilities Value: ${formatValue(asset.liabilitiesValue)}`);
-    console.log(`  Coverage Ratio:    ${formatCoverage(asset.coverageRatio)}`);
-    console.log('');
+    log.info(`Token: ${asset.token}`);
+    log.info(`  Fast TWAP:         $${decodeTWAP(asset.fastTWAP)}`);
+    log.info(`  Slow TWAP:         $${decodeTWAP(asset.slowTWAP)}`);
+    log.info(`  Reserves:          ${asset.reserves.toString()}`);
+    log.info(`  Liabilities:       ${asset.liabilities.toString()}`);
+    log.info(`  Reserves Value:    ${formatValue(asset.reservesValue)}`);
+    log.info(`  Liabilities Value: ${formatValue(asset.liabilitiesValue)}`);
+    log.info(`  Coverage Ratio:    ${formatCoverage(asset.coverageRatio)}`);
+    log.info('');
   }
 }
 
@@ -152,14 +155,14 @@ async function main() {
 function isPoolHealthy(state: PoolState, minCoverage: bigint = 9n * 10n**17n): boolean {
   // Check if overall coverage is above 90% (0.9 * 1e18)
   if (state.overallCoverageRatio < minCoverage) {
-    console.warn(`⚠️  Pool coverage ${formatCoverage(state.overallCoverageRatio)} below minimum ${formatCoverage(minCoverage)}`);
+    log.warn(`⚠️  Pool coverage ${formatCoverage(state.overallCoverageRatio)} below minimum ${formatCoverage(minCoverage)}`);
     return false;
   }
 
   // Check individual assets
   for (const asset of state.assets) {
     if (asset.coverageRatio < minCoverage && asset.coverageRatio !== 2n**256n - 1n) {
-      console.warn(`⚠️  Asset ${asset.token} coverage ${formatCoverage(asset.coverageRatio)} below minimum`);
+      log.warn(`⚠️  Asset ${asset.token} coverage ${formatCoverage(asset.coverageRatio)} below minimum`);
       return false;
     }
   }
@@ -183,12 +186,12 @@ async function getOracleDataExample(
   const [fastTWAP, slowTWAP, fastVolatility, slowVolatility, lastUpdate] =
     await aimm.getOracleData(tokenAddress);
 
-  console.log('=== ORACLE DATA ===');
-  console.log(`Fast TWAP:        $${decodeTWAP(fastTWAP)}`);
-  console.log(`Slow TWAP:        $${decodeTWAP(slowTWAP)}`);
-  console.log(`Fast Volatility:  ${(Number(fastVolatility) / 1e6).toFixed(2)}%`);
-  console.log(`Slow Volatility:  ${(Number(slowVolatility) / 1e6).toFixed(2)}%`);
-  console.log(`Last Update:      ${new Date(Number(lastUpdate) * 1000).toISOString()}`);
+  log.info('=== ORACLE DATA ===');
+  log.info(`Fast TWAP:        $${decodeTWAP(fastTWAP)}`);
+  log.info(`Slow TWAP:        $${decodeTWAP(slowTWAP)}`);
+  log.info(`Fast Volatility:  ${(Number(fastVolatility) / 1e6).toFixed(2)}%`);
+  log.info(`Slow Volatility:  ${(Number(slowVolatility) / 1e6).toFixed(2)}%`);
+  log.info(`Last Update:      ${new Date(Number(lastUpdate) * 1000).toISOString()}`);
 }
 
 export {

@@ -319,3 +319,13 @@ export function formatVerticalLineTime(timestamp: number): string {
   const minutes = date.getUTCMinutes().toString().padStart(2, '0');
   return `${day}/${month} ${hours}:${minutes}`;
 }
+
+/** Format timestamp as relative time ("5m ago", "2h ago") */
+export function formatTimeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  return new Date(timestamp).toLocaleDateString();
+}

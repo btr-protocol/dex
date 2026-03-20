@@ -132,6 +132,9 @@ export {
   onDisconnect,
 } from './rpc';
 
+// Signature Verification
+export { recoverAddress, verifySignature } from './signature';
+
 // Contract
 export type { ContractConfig, ReadOptions, WriteOptions } from './contract';
 export { Contract, getContract, readContract, writeContract } from './contract';

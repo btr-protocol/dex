@@ -1,6 +1,6 @@
 /**
  * Guardian implementations for monitoring and protecting AIMM pools
- * @module @btr/dex-sdk/guardians
+ * @module @btr/sdk/guardians
  */
 
 export * from './base-guardian.js';

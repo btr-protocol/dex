@@ -1,11 +1,14 @@
 /**
  * Deposit flow for AIMM pools
- * @module @btr/dex-sdk/flows
+ * @module @btr/sdk/flows
  */
 
 import type { Address, Hex, Eip1193Provider, Abi } from '../eth/index.js';
 import { Contract, ERC20_ABI, waitForTransaction } from '../eth/index.js';
 import { applySlippage } from '../utils/business.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.withContext('deposit');
 
 export interface DepositParams {
   poolAddress: Address;
@@ -46,11 +49,11 @@ export async function deposit(
 
   // 2. Approve if needed
   if (allowance < params.amount) {
-    console.log('Approving token...');
+    log.info('Approving token...');
 
     const approveTx = await tokenContract.write('approve', [params.poolAddress, params.amount]);
     await waitForTransaction(provider, approveTx);
-    console.log('Approval confirmed');
+    log.info('Approval confirmed');
   }
 
   const poolContract = new Contract({
@@ -76,12 +79,12 @@ export async function deposit(
 
   // 4. Execute deposit
   const hash = await poolContract.write('deposit', [params.token, params.amount, minLpTokens]);
-  console.log(`Deposit transaction: ${hash}`);
+  log.info(`Deposit transaction: ${hash}`);
 
   // Wait for confirmation
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const receipt = await waitForTransaction(provider, hash) as any;
-  console.log(`Deposit confirmed. Gas used: ${receipt.gasUsed}`);
+  log.info(`Deposit confirmed. Gas used: ${receipt.gasUsed}`);
 
   // TODO: Parse logs to extract actual LP tokens received
   return { hash };

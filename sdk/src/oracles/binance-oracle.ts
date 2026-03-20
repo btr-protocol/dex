@@ -3,13 +3,16 @@
  * Streams real-time prices from Binance and updates on-chain when divergence thresholds are met
  * Uses Bun's native WebSocket support
  *
- * @module @btr/dex-sdk/oracles
+ * @module @btr/sdk/oracles
  */
 
 import type { Address, Eip1193Provider } from '../eth/index.js';
 import { BaseOracle, type OracleConfig, type AssetOracleConfig } from './base-oracle.js';
 import type { OraclePrice } from '../utils/constants.js';
 import { PRECISION_1E18 } from '../utils/constants.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.withContext('binanceOracle');
 
 interface BinanceTickerMessage {
   e: string; // Event type
@@ -78,7 +81,7 @@ export class BinanceOracle extends BaseOracle {
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      console.log('✅ Connected to Binance WebSocket');
+      log.info('Connected to Binance WebSocket');
     };
 
     this.ws.onmessage = (event: MessageEvent) => {
@@ -86,16 +89,16 @@ export class BinanceOracle extends BaseOracle {
         const message = JSON.parse(event.data.toString());
         this.handlePriceUpdate(message);
       } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+        log.error('Error parsing WebSocket message', error);
       }
     };
 
     this.ws.onerror = (error: Event) => {
-      console.error('WebSocket error:', error);
+      log.error('WebSocket error', error);
     };
 
     this.ws.onclose = () => {
-      console.log('WebSocket closed. Reconnecting in 5s...');
+      log.info('WebSocket closed. Reconnecting in 5s...');
       if (this.isRunning) {
         setTimeout(() => this.connectWebSocket(), 5000);
       }
@@ -163,7 +166,7 @@ export class BinanceOracle extends BaseOracle {
         symbol: asset.symbol,
       };
     } catch (error) {
-      console.error(`Failed to fetch price for ${asset.symbol}:`, error);
+      log.error(`Failed to fetch price for ${asset.symbol}`, error);
       throw error;
     }
   }

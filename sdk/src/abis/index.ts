@@ -1,6 +1,6 @@
 /**
  * Contract ABIs
- * @module @btr/dex-sdk/abis
+ * @module @btr/sdk/abis
  *
  * Canonical source of all contract ABIs used across the project
  */

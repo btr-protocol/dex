@@ -7,6 +7,9 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { logger } from '../utils/logger.js';
+
+const log = logger.withContext('consolidateTokens');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const tokensPath = join(__dirname, 'tokens.ts');
@@ -17,12 +20,12 @@ const addressesMatch = content.match(/export const TOKEN_ADDRESSES[\s\S]*?^};/m)
 const tokensMatch = content.match(/export const TOKENS[\s\S]*?^};/m);
 
 if (!addressesMatch || !tokensMatch) {
-  console.error('Could not find TOKEN_ADDRESSES or TOKENS');
+  log.error('Could not find TOKEN_ADDRESSES or TOKENS');
   process.exit(1);
 }
 
 // Parse them (simplified - we'll manually create the consolidated version)
-console.log('Creating consolidated TOKENS structure...');
+log.info('Creating consolidated TOKENS structure...');
 
 const newContent = `/**
  * ERC20 Token Configuration - Canonical Source of Truth
@@ -580,7 +583,7 @@ export function tokenMatchesSearch(symbol: string, searchTerm: string): boolean 
 }
 `;
 
-console.log('Writing new tokens.ts...');
+log.info('Writing new tokens.ts...');
 writeFileSync(tokensPath, newContent);
 
-console.log('✓ Consolidated tokens.ts created successfully!');
+log.info('✓ Consolidated tokens.ts created successfully!');

@@ -5,16 +5,19 @@
  */
 
 import { tokenMatchesSearch, resolveTokenAlias, TOKENS } from './tokens';
+import { logger } from '../utils/logger.js';
 
-console.log('Token Alias Search Tests\n');
+const log = logger.withContext('testAliases');
+
+log.info('Token Alias Search Tests');
 
 // Show configured wrappers
 const wrappers = Object.entries(TOKENS)
   .filter(([_, token]) => token.wrapperOf)
   .map(([symbol, token]) => `${symbol} → ${token.wrapperOf}`)
   .join(', ');
-console.log('Configured wrappers:', wrappers);
-console.log('\n--- Resolve Tests ---\n');
+log.info('Configured wrappers:', wrappers);
+log.info('\n--- Resolve Tests ---\n');
 
 const resolveTests = [
   { input: 'WETH', expected: 'ETH' },
@@ -34,15 +37,15 @@ for (const { input, expected } of resolveTests) {
   const success = result === expected;
 
   if (success) {
-    console.log(`✓ resolveTokenAlias('${input}') → ${result}`);
+    log.info(`✓ resolveTokenAlias('${input}') → ${result}`);
     passed++;
   } else {
-    console.log(`✗ resolveTokenAlias('${input}') → ${result} (expected: ${expected})`);
+    log.info(`✗ resolveTokenAlias('${input}') → ${result} (expected: ${expected})`);
     failed++;
   }
 }
 
-console.log('\n--- Search Match Tests ---\n');
+log.info('\n--- Search Match Tests ---\n');
 
 const searchTests = [
   { symbol: 'ETH', search: 'eth', expected: true },
@@ -62,17 +65,17 @@ for (const { symbol, search, expected } of searchTests) {
   const success = result === expected;
 
   if (success) {
-    console.log(`✓ tokenMatchesSearch('${symbol}', '${search}') → ${result}`);
+    log.info(`✓ tokenMatchesSearch('${symbol}', '${search}') → ${result}`);
     passed++;
   } else {
-    console.log(`✗ tokenMatchesSearch('${symbol}', '${search}') → ${result} (expected: ${expected})`);
+    log.info(`✗ tokenMatchesSearch('${symbol}', '${search}') → ${result} (expected: ${expected})`);
     failed++;
   }
 }
 
-console.log(`\n--- Results ---`);
-console.log(`Passed: ${passed}/${resolveTests.length + searchTests.length}`);
-console.log(`Failed: ${failed}/${resolveTests.length + searchTests.length}`);
+log.info(`\n--- Results ---`);
+log.info(`Passed: ${passed}/${resolveTests.length + searchTests.length}`);
+log.info(`Failed: ${failed}/${resolveTests.length + searchTests.length}`);
 
 if (failed > 0) {
   process.exit(1);

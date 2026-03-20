@@ -1,6 +1,6 @@
 /**
  * Oracle implementations for price feeds
- * @module @btr/dex-sdk/oracles
+ * @module @btr/sdk/oracles
  */
 
 export * from './base-oracle.js';
