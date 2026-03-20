@@ -212,34 +212,35 @@ def calculate_dispersion(
 function computeInventorySkew(
     uint128 reserves,
     uint128 liabilities,
-    uint16 coverageFloor,   // e.g., 500000 = 50%
-    uint16 gamma            // exponent in basis 10000
+    uint16 coverageMin,   // e.g., 5000 = 50% (0.01% units)
+    uint16 coverageMax,   // e.g., 20000 = 200% (0.01% units)
+    uint16 gamma          // multiplier in basis 10000
 ) internal pure returns (int8 inventorySkew) {
     // Coverage = reserves / liabilities (in WAD = 1e18)
     uint256 coverage = calculateCoverage(reserves, liabilities);
 
-    uint256 critMin = (uint256(coverageFloor) * WAD) / 1_000_000;  // e.g., 50%
-    uint256 critMax = 2 * WAD;  // 200%
+    uint256 critMin = (uint256(coverageMin) * WAD) / 10000;  // 5000 → 50%
+    uint256 critMax = (uint256(coverageMax) * WAD) / 10000;  // 20000 → 200%
     uint256 target = WAD;       // 100%
 
     if (coverage <= critMin) return 100;   // Max premium
     if (coverage >= critMax) return -100;  // Max discount
 
-    // Gamma as EXPONENT: 10000 = 1.0x exponent
-    uint256 expWad = (uint256(gamma) * WAD) / MULT_BASE;
-
+    // Gamma as LINEAR MULTIPLIER: 10000 = 1.0x multiplier
     if (coverage < target) {
         // Under target: positive skew (premium to encourage deposits)
-        uint256 progress = (target - coverage) / (target - critMin);
-        uint256 baseSkew = _powWad(progress, expWad);
-        uint256 skew = (100 * baseSkew) / WAD;
-        return skew > 100 ? 100 : int8(int256(skew));
+        uint256 rangeUnder = target - critMin;
+        uint256 posUnder = target - coverage;
+        uint256 progress = (posUnder * WAD) / rangeUnder;
+        int256 skew = int256((uint256(gamma) * 100 * progress) / (10000 * WAD));
+        return skew > 100 ? 100 : int8(skew);
     } else {
         // Over target: negative skew (discount to encourage withdrawals)
-        uint256 progress = (coverage - target) / (critMax - target);
-        uint256 baseSkew = _powWad(progress, expWad);
-        uint256 skew = (100 * baseSkew) / WAD;
-        return skew > 100 ? -100 : int8(-int256(skew));
+        uint256 rangeOver = critMax - target;
+        uint256 posOver = coverage - target;
+        uint256 progress = (posOver * WAD) / rangeOver;
+        int256 skew = -int256((uint256(gamma) * 100 * progress) / (10000 * WAD));
+        return skew < -100 ? -100 : int8(skew);
     }
 }
 ```
@@ -248,11 +249,12 @@ function computeInventorySkew(
 - Returns -100 to +100 representing price adjustment direction
 - At coverage < 100%: positive skew (premium price, encourages deposits)
 - At coverage > 100%: negative skew (discount price, encourages withdrawals)
-- Exponentiation: `progress^(gamma/10000)` where gamma is the exponent
+- Linear formula: `skew = sign × gamma × 100 × progress / 10000` where gamma is a multiplier
 
 **Python Implementation:**
 ```python
 WAD = 10**18
+BPS = 10_000  # 0.01% units for coverageMin/Max and multipliers
 
 def calculate_coverage(reserves: int, liabilities: int) -> int:
     """Calculate coverage ratio: reserves / liabilities in WAD units"""
@@ -263,14 +265,15 @@ def calculate_coverage(reserves: int, liabilities: int) -> int:
 def compute_inventory_skew(
     reserves: int,
     liabilities: int,
-    coverage_floor: int,    # e.g., 500000 = 50% in BPS_PRECISION units
-    gamma: int              # exponent in basis 10000
+    coverage_min: int,    # e.g., 5000 = 50% in 0.01% BPS units
+    coverage_max: int,    # e.g., 20000 = 200% in 0.01% BPS units
+    gamma: int            # multiplier in basis 10000 (10000 = 1.0x)
 ) -> int:
-    """Compute inventory skew from coverage ratio"""
+    """Compute inventory skew from coverage ratio using LINEAR formula"""
     coverage = calculate_coverage(reserves, liabilities)
 
-    crit_min = (coverage_floor * WAD) // 1_000_000
-    crit_max = 2 * WAD
+    crit_min = (coverage_min * WAD) // BPS  # 5000 → 50%
+    crit_max = (coverage_max * WAD) // BPS  # 20000 → 200%
     target = WAD
 
     if coverage <= crit_min:
@@ -278,42 +281,20 @@ def compute_inventory_skew(
     if coverage >= crit_max:
         return -100
 
-    # Gamma as exponent
-    exp_wad = (gamma * WAD) // 10_000
-
     if coverage < target:
         # Positive skew (premium)
         range_under = target - crit_min
         pos_under = target - coverage
         progress = (pos_under * WAD) // range_under
-        base_skew = pow_wad(progress, exp_wad)
-        skew = (100 * base_skew) // WAD
+        skew = (gamma * 100 * progress) // (BPS * WAD)
         return min(skew, 100)
     else:
         # Negative skew (discount)
         range_over = crit_max - target
         pos_over = coverage - target
         progress = (pos_over * WAD) // range_over
-        base_skew = pow_wad(progress, exp_wad)
-        skew = (100 * base_skew) // WAD
-        return max(-skew, -100)
-
-def pow_wad(base: int, exp: int) -> int:
-    """Compute base^exp in WAD precision"""
-    # For WAD (1e18), exponentiation needs special handling
-    # Can use: result = exp(exp * ln(base))
-    # For simulation, use Python's built-in power with careful scaling
-    if base == 0:
-        return 0 if exp > 0 else WAD
-    if exp == 0:
-        return WAD
-
-    # Use logarithms in WAD space
-    import math
-    ln_base = math.log(base / WAD)
-    result_ln = exp * ln_base / WAD
-    result = WAD * math.exp(result_ln)
-    return int(result)
+        skew = -(gamma * 100 * progress) // (BPS * WAD)
+        return max(skew, -100)
 ```
 
 ---
@@ -674,7 +655,7 @@ amount_in = 0.1 * 10**18  # 0.1 ETH selling
 - [ ] **Volatility (Sigma)**: Average of fast and slow vol EMAs
 - [ ] **Deviation (Delta)**: Max of fast-slow and fast-current offsets
 - [ ] **Dispersion**: 1000 + (sigma × vega) / (1000 × 10000), clamped to [min, max]
-- [ ] **Inventory Skew**: Exponential formula with gamma as exponent, -100 to +100 range
+- [ ] **Inventory Skew**: Linear formula with gamma as multiplier, -100 to +100 range
 - [ ] **Spline Traversal**: Build points, map skew to depth (5000 + skew×50), integrate area under curve
 - [ ] **Asymmetric Spread**: Base = 100 + (sigma × vega) / (100 × 10000), surcharge = (delta × lambda) / 10000 if coverage worsens
 - [ ] **Coverage Impact**: Compare reserves/liabilities change at both endpoints
