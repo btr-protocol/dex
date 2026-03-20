@@ -278,7 +278,7 @@ When coverage ratio deviates from target:
 - Pool accumulating token → quote tighter asks, wider bids
 - Pool depleting token → quote tighter bids, wider asks
 
-This is how every professional market maker in traditional finance operates. AIMM brings that intelligence on-chain. Note: inventory skew adjusts **mid-price**, not fees directly.
+This is how every professional market maker in traditional finance operates. AIMM brings that intelligence on-chain. NB: inventory skew adjusts **mid-price**, not fees directly.
 
 **Two-Factor Dynamic Fees**
 

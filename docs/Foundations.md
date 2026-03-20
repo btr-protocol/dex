@@ -24,15 +24,15 @@ The key insight: a market maker holding excess inventory faces directional expos
 
 Avellaneda-Stoikov introduces the **reservation price**:
 
-$$r = s - q \times \gamma \times \sigma^2 \times \tau$$
+$$r = s - q * gamma * sigma^2 * tau$$
 
 where:
 - $r$ = reservation price
 - $s$ = mid-market price
 - $q$ = inventory quantity (positive = long, negative = short)
-- $\gamma$ = risk aversion parameter
-- $\sigma$ = price volatility
-- $\tau$ = time remaining (T - t)
+- $gamma$ = risk aversion parameter
+- $sigma$ = price volatility
+- $tau$ = time remaining (T - t)
 
 When inventory $q > 0$ (long position), the reservation price shifts below market—the market maker is willing to sell at lower prices to reduce exposure. The converse applies for short positions.
 
@@ -40,11 +40,11 @@ When inventory $q > 0$ (long position), the reservation price shifts below marke
 
 The optimal bid-ask spread depends on volatility, order arrival intensity, and risk aversion:
 
-$$\Delta = \gamma \times \sigma^2 \times \tau + \frac{2}{\gamma} \ln(1 + \gamma/k)$$
+$$Delta = gamma * sigma^2 * tau + {2}/{gamma} * ln(1 + gamma/k)$$
 
 where:
-- $\Delta$ = optimal bid-ask spread
-- $\tau$ = time remaining (T - t)
+- $Delta$ = optimal bid-ask spread
+- $tau$ = time remaining (T - t)
 - $k$ = order arrival intensity parameter
 
 Higher volatility or risk aversion widens the spread; more frequent order flow tightens it.
@@ -142,7 +142,7 @@ This directly influenced AIMM's volatility band $S_v$.
 
 Swaap's constant geometric mean product enables multi-asset pools where each asset maintains target weight:
 
-$$\prod_i x_i^{w_i} = k$$
+$$prod_i x_i^{w_i} = k$$
 
 where:
 - $x_i$ = quantity of asset i
@@ -307,12 +307,12 @@ Surge pricing compensates LPs during periods of maximum adverse selection:
 
 AIMM's volatility band directly implements surge pricing concepts:
 
-$$S_v = 100 + \frac{\sigma_p \times \nu}{100M}$$
+$$S_v = 100 + (sigma_p * nu)/(100M)$$
 
 where:
 - $S_v$ = volatility band (basis points)
-- $\sigma_p$ = pair volatility
-- $\nu$ = vega sensitivity
+- $sigma_p$ = pair volatility
+- $nu$ = vega sensitivity
 - $M$ = multiplier base (10000)
 
 Key differences:
