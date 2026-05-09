@@ -4,25 +4,22 @@ pragma solidity ^0.8.35;
 import {Test, console2} from "forge-std/Test.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
-import {Exchange} from "../src/modules/Exchange.sol";
-import {AdminConfig} from "../src/modules/AdminConfig.sol";
-import {AdminTimelock} from "../src/modules/AdminTimelock.sol";
+import {Pool} from "../src/modules/Pool.sol";
+import {Admin} from "../src/modules/Admin.sol";
 import {LibConstants as C} from "../src/libraries/LibConstants.sol";
 import {LibMaths} from "../src/libraries/LibMaths.sol";
 
 contract ModuleSlotTest is Test {
     PoolProxy pool;
-    Exchange exchangeModule;
-    AdminConfig adminConfigModule;
-    AdminTimelock adminTimelockModule;
+    Pool poolModule;
+    Admin adminModule;
 
     address constant USDC = 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d;
     address constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
     function setUp() public {
-        exchangeModule = new Exchange();
-        adminConfigModule = new AdminConfig();
-        adminTimelockModule = new AdminTimelock();
+        poolModule = new Pool();
+        adminModule = new Admin();
         pool = new PoolProxy();
 
         uint8[29] memory feePad;
@@ -35,7 +32,7 @@ contract ModuleSlotTest is Test {
     }
 
     function test_moduleSlotCalculation() public {
-        bytes4 selector = AdminTimelock.requestAddAsset.selector;
+        bytes4 selector = Admin.requestAddAsset.selector;
         console2.log("Selector:", vm.toString(selector));
         console2.log("Selector as uint32:", uint32(selector));
 
@@ -47,12 +44,12 @@ contract ModuleSlotTest is Test {
         console2.log("Computed storage slot:", vm.toString(slot));
 
         // Store module address
-        vm.store(address(pool), slot, bytes32(uint256(uint160(address(adminTimelockModule)))));
+        vm.store(address(pool), slot, bytes32(uint256(uint160(address(adminModule)))));
 
         // Read it back via sload
         bytes32 stored = vm.load(address(pool), slot);
         console2.log("Stored value:", vm.toString(stored));
-        console2.log("Admin module:", address(adminTimelockModule));
+        console2.log("Admin module:", address(adminModule));
 
         // Try calling the function
         // If slot is wrong, this will revert with InvalidInput
@@ -72,7 +69,7 @@ contract ModuleSlotTest is Test {
     }
 
     function test_verifyGetModule() public {
-        bytes4 selector = AdminConfig.getModule.selector;
+        bytes4 selector = Admin.getModule.selector;
         console2.log("getModule selector:", vm.toString(selector));
 
         // Try offset 13 (treasury+initialized pack together)
@@ -81,17 +78,17 @@ contract ModuleSlotTest is Test {
 
         bytes32 slot = keccak256(abi.encode(selector, modulesSlot));
         console2.log("Storage slot for getModule:", vm.toString(slot));
-        vm.store(address(pool), slot, bytes32(uint256(uint160(address(adminConfigModule)))));
+        vm.store(address(pool), slot, bytes32(uint256(uint160(address(adminModule)))));
 
         // Also register requestAddAsset
-        bytes4 reqSelector = AdminTimelock.requestAddAsset.selector;
+        bytes4 reqSelector = Admin.requestAddAsset.selector;
         bytes32 reqSlot = keccak256(abi.encode(reqSelector, modulesSlot));
-        vm.store(address(pool), reqSlot, bytes32(uint256(uint160(address(adminTimelockModule)))));
+        vm.store(address(pool), reqSlot, bytes32(uint256(uint160(address(adminModule)))));
 
         // Now try getModule - this should work if slot calculation is correct
         address module = IPool(address(pool)).getModule(reqSelector);
         console2.log("getModule result:", module);
-        assertEq(module, address(adminTimelockModule), "Module not found at expected slot");
+        assertEq(module, address(adminModule), "Module not found at expected slot");
     }
 
     function concentratedProfile() internal pure returns (IPool.LiquidityProfile memory profile) {

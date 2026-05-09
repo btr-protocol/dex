@@ -22,20 +22,16 @@ pragma solidity ^0.8.35;
 import {Script, console2} from "forge-std/Script.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {ICore} from "../src/interfaces/modules/ICore.sol";
-import {IExchange} from "../src/interfaces/modules/IExchange.sol";
-import {ILiquidity} from "../src/interfaces/modules/ILiquidity.sol";
+import {IPoolModule} from "../src/interfaces/modules/IPool.sol";
 import {IAdmin} from "../src/interfaces/modules/IAdmin.sol";
 import {IPoolProxyFactory} from "../src/interfaces/IPoolProxyFactory.sol";
 import {ICreateX} from "../src/interfaces/external/ICreateX.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
 import {PoolProxyFactory} from "../src/PoolProxyFactory.sol";
 import {Router} from "../src/Router.sol";
-import {Exchange} from "../src/modules/Exchange.sol";
-import {Liquidity} from "../src/modules/Liquidity.sol";
-import {AdminConfig} from "../src/modules/AdminConfig.sol";
-import {AdminTimelock} from "../src/modules/AdminTimelock.sol";
-import {IAdminConfig} from "../src/interfaces/modules/IAdminConfig.sol";
-import {IAdminTimelock} from "../src/interfaces/modules/IAdminTimelock.sol";
+import {Pool} from "../src/modules/Pool.sol";
+import {Admin} from "../src/modules/Admin.sol";
+import {IAdminConfig, IAdminTimelock} from "../src/interfaces/modules/IAdmin.sol";
 import {InternalOracle} from "../src/modules/InternalOracle.sol";
 import {Staking} from "../src/modules/Staking.sol";
 import {Distributor} from "../src/modules/Distributor.sol";
@@ -74,10 +70,8 @@ contract DeployBSCFork is Script {
     address constant TEST_ADDR = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
 
     // Module addresses (set after deployment)
-    address public exchangeModule;
-    address public liquidityModule;
-    address public adminConfigModule;
-    address public adminTimelockModule;
+    address public poolModule;
+    address public adminModule;
     address public oracleModule;
     address public stakingModule;
     address public distributorModule;
@@ -463,10 +457,8 @@ contract DeployBSCFork is Script {
 
     function deployModules() internal {
         console2.log("=== Deploying Modules (CREATE) ===");
-        exchangeModule = address(new Exchange());
-        liquidityModule = address(new Liquidity());
-        adminConfigModule = address(new AdminConfig());
-        adminTimelockModule = address(new AdminTimelock());
+        poolModule = address(new Pool());
+        adminModule = address(new Admin());
         oracleModule = address(new InternalOracle());
         stakingModule = address(new Staking());
         distributorModule = address(new Distributor());
@@ -476,34 +468,30 @@ contract DeployBSCFork is Script {
     }
 
     function _registerModules(address pool) internal {
-        address[] memory impls = new address[](9);
-        impls[0] = exchangeModule;
-        impls[1] = liquidityModule;
-        impls[2] = adminConfigModule;
-        impls[3] = adminTimelockModule;
-        impls[4] = oracleModule;
-        impls[5] = stakingModule;
-        impls[6] = distributorModule;
-        impls[7] = flashModule;
-        impls[8] = rescueModule;
+        address[] memory impls = new address[](7);
+        impls[0] = poolModule;
+        impls[1] = adminModule;
+        impls[2] = oracleModule;
+        impls[3] = stakingModule;
+        impls[4] = distributorModule;
+        impls[5] = flashModule;
+        impls[6] = rescueModule;
 
         // Mark all modules as trusted
-        bool[] memory trusted = new bool[](9);
-        for (uint i = 0; i < 9; i++) {
+        bool[] memory trusted = new bool[](7);
+        for (uint i = 0; i < 7; i++) {
             trusted[i] = true;
         }
         PoolProxy(payable(pool)).setModuleTrustBatch(impls, trusted);
 
-        bytes4[][] memory selectors = new bytes4[][](9);
-        selectors[0] = getExchangeSelectors();
-        selectors[1] = getLiquiditySelectors();
-        selectors[2] = getAdminConfigSelectors();
-        selectors[3] = getAdminTimelockSelectors();
-        selectors[4] = getOracleSelectors();
-        selectors[5] = getStakingSelectors();
-        selectors[6] = getDistributorSelectors();
-        selectors[7] = getFlashSelectors();
-        selectors[8] = getRescueSelectors();
+        bytes4[][] memory selectors = new bytes4[][](7);
+        selectors[0] = getPoolSelectors();
+        selectors[1] = getAdminSelectors();
+        selectors[2] = getOracleSelectors();
+        selectors[3] = getStakingSelectors();
+        selectors[4] = getDistributorSelectors();
+        selectors[5] = getFlashSelectors();
+        selectors[6] = getRescueSelectors();
 
         PoolProxy(payable(pool)).addModules(impls, selectors);
     }
@@ -654,60 +642,56 @@ contract DeployBSCFork is Script {
         p.knots[3] = 50;
     }
 
-    function getExchangeSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](14);
-        s[0] = IExchange.swap.selector;
-        s[1] = IExchange.batchSwap.selector;
-        s[2] = IExchange.getSwapQuote.selector;
-        s[3] = IExchange.owner.selector;
-        s[4] = IExchange.baseToken.selector;
-        s[5] = IExchange.wnative.selector;
-        s[6] = IExchange.getAsset.selector;
-        s[7] = IExchange.getLPBalance.selector;
-        s[8] = IExchange.getProtocolFees.selector;
-        s[9] = IExchange.getCoverageRatio.selector;
-        s[10] = IExchange.getMidPrice.selector;
-        s[11] = IExchange.getFeedConfig.selector;
-        s[12] = IExchange.getRiskConfig.selector;
-        s[13] = IExchange.getLiquidityProfile.selector;
+    function getPoolSelectors() internal pure returns (bytes4[] memory s) {
+        s = new bytes4[](19);
+        // Exchange domain
+        s[0] = IPoolModule.swap.selector;
+        s[1] = IPoolModule.batchSwap.selector;
+        s[2] = IPoolModule.getSwapQuote.selector;
+        s[3] = IPoolModule.owner.selector;
+        s[4] = IPoolModule.baseToken.selector;
+        s[5] = IPoolModule.wnative.selector;
+        s[6] = IPoolModule.getAsset.selector;
+        s[7] = IPoolModule.getLPBalance.selector;
+        s[8] = IPoolModule.getProtocolFees.selector;
+        s[9] = IPoolModule.getCoverageRatio.selector;
+        s[10] = IPoolModule.getMidPrice.selector;
+        s[11] = IPoolModule.getFeedConfig.selector;
+        s[12] = IPoolModule.getRiskConfig.selector;
+        s[13] = IPoolModule.getLiquidityProfile.selector;
+        // Liquidity domain
+        s[14] = IPoolModule.deposit.selector;
+        s[15] = IPoolModule.withdraw.selector;
+        s[16] = IPoolModule.withdrawTo.selector;
+        s[17] = IPoolModule.swapLiability.selector;
+        s[18] = IPoolModule.donate.selector;
     }
 
-    function getLiquiditySelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](5);
-        s[0] = ILiquidity.deposit.selector;
-        s[1] = ILiquidity.withdraw.selector;
-        s[2] = ILiquidity.withdrawTo.selector;
-        s[3] = ILiquidity.swapLiability.selector;
-        s[4] = ILiquidity.donate.selector;
-    }
-
-    function getAdminConfigSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](6);
+    function getAdminSelectors() internal pure returns (bytes4[] memory s) {
+        s = new bytes4[](21);
+        // Non-timelocked (former AdminConfig — 6)
         s[0] = IAdminConfig.freezeAsset.selector;
         s[1] = IAdminConfig.unfreezeAsset.selector;
         s[2] = bytes4(keccak256("addAsset(address,(address,address,bytes32,uint16,uint8,uint8[13]),(uint16,uint16,uint32,uint16,uint16,uint8[16]),(uint8[16],int8[17]),uint16,uint8,uint64,uint32,uint32,uint32,uint32,uint16,uint16,uint16)"));
         s[3] = IAdminConfig.collectProtocolFees.selector;
         s[4] = IAdminConfig.getModule.selector;
         s[5] = bytes4(keccak256("setAnchor(address,address)"));
-    }
-
-    function getAdminTimelockSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](15);
-        s[0] = IAdminTimelock.requestAddAsset.selector;
-        s[1] = IAdminTimelock.executeAddAsset.selector;
-        s[2] = IAdminTimelock.requestUpdateRiskConfig.selector;
-        s[3] = IAdminTimelock.executeUpdateRiskConfig.selector;
-        s[4] = IAdminTimelock.requestUpdateFeeParams.selector;
-        s[5] = IAdminTimelock.executeUpdateFeeParams.selector;
-        s[6] = IAdminTimelock.requestOwnershipTransfer.selector;
-        s[7] = IAdminTimelock.executeOwnershipTransfer.selector;
-        s[8] = IAdminTimelock.requestBridgeUpdate.selector;
-        s[9] = IAdminTimelock.executeBridgeUpdate.selector;
-        s[10] = IAdminTimelock.requestTreasuryUpdate.selector;
-        s[11] = IAdminTimelock.executeTreasuryUpdate.selector;
-        s[12] = IAdminTimelock.requestModuleUpdate.selector;
-        s[13] = IAdminTimelock.executeModuleUpdate.selector;
-        s[14] = IAdminTimelock.cancelTimelock.selector;
+        // Timelocked governance (former AdminTimelock — 15)
+        s[6] = IAdminTimelock.requestAddAsset.selector;
+        s[7] = IAdminTimelock.executeAddAsset.selector;
+        s[8] = IAdminTimelock.requestUpdateRiskConfig.selector;
+        s[9] = IAdminTimelock.executeUpdateRiskConfig.selector;
+        s[10] = IAdminTimelock.requestUpdateFeeParams.selector;
+        s[11] = IAdminTimelock.executeUpdateFeeParams.selector;
+        s[12] = IAdminTimelock.requestOwnershipTransfer.selector;
+        s[13] = IAdminTimelock.executeOwnershipTransfer.selector;
+        s[14] = IAdminTimelock.requestBridgeUpdate.selector;
+        s[15] = IAdminTimelock.executeBridgeUpdate.selector;
+        s[16] = IAdminTimelock.requestTreasuryUpdate.selector;
+        s[17] = IAdminTimelock.executeTreasuryUpdate.selector;
+        s[18] = IAdminTimelock.requestModuleUpdate.selector;
+        s[19] = IAdminTimelock.executeModuleUpdate.selector;
+        s[20] = IAdminTimelock.cancelTimelock.selector;
     }
 
     function getOracleSelectors() internal pure returns (bytes4[] memory s) {
