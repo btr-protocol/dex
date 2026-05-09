@@ -22,62 +22,28 @@ library LibPricing {
     uint256 private constant MIN_ADJ = C.WAD / 1000;   // 0.1%
 
     /// @notice Avellaneda-Stoikov inventory skew. Linear: skew = sign*γ*100*progress, clamp [-100,+100].
-    ///         At critMin: +γ*100 (premium); target: 0; critMax: -γ*100 (discount).
+    ///         At critMin: +γ*100 (premium); target=WAD: 0; critMax: -γ*100 (discount).
+    ///         coverageMin/Max in 0.01% units (10000=100%). gamma in BPS (10000=1x).
     function computeInventorySkew(
         uint128 reserves,
         uint128 liabilities,
         uint16 coverageMin,
         uint16 coverageMax,
         uint16 gamma
-    ) internal pure returns (int8 inventorySkew) {
-        // Edge case: zero liabilities = infinite coverage, treat as maximally over-collateralized
+    ) internal pure returns (int8) {
         if (liabilities == 0) return -100;
-
-        // Calculate coverage ratio
         uint256 coverage = calculateCoverage(reserves, liabilities);
-
-        // Critical bounds (parametric for flexibility across different pool types)
-        // coverageMin/Max use 0.01% units: 10000 = 100%, 5000 = 50%, 20000 = 200%
-        uint256 critMin = (uint256(coverageMin) * C.WAD) / 10000;  // e.g., 5000 → 50%
-        uint256 critMax = (uint256(coverageMax) * C.WAD) / 10000;  // e.g., 20000 → 200%
-        uint256 target = C.WAD;       // 100% target
-
-        // At or below critical min: max premium (capped at +100)
+        uint256 critMin = (uint256(coverageMin) * C.WAD) / 10000;
+        uint256 critMax = (uint256(coverageMax) * C.WAD) / 10000;
         if (coverage <= critMin) return 100;
-
-        // At or above critical max: max discount (capped at -100)
         if (coverage >= critMax) return -100;
-
-        uint256 progress;
-        uint256 skew;
-
-        // Under target: positive skew (premium)
-        if (coverage < target) {
-            // progress = (target - coverage) / (target - critMin)
-            // At critMin: progress = 1, at target: progress = 0
-            uint256 rangeUnder = target - critMin;
-            uint256 posUnder = target - coverage;
-            progress = (posUnder * C.WAD) / rangeUnder;
-
-            // Linear: skew = gamma × 100 × progress / 100 (gamma is % in BPS, so divide by 100)
-            skew = (uint256(gamma) * 100 * progress) / (C.BPS * C.WAD);
-
-            if (skew > 100) return 100;
-            return int8(int256(skew));
-        }
-
-        // Over target: negative skew (discount)
-        // progress = (coverage - target) / (critMax - target)
-        // At target: progress = 0, at critMax: progress = 1
-        uint256 rangeOver = critMax - target;
-        uint256 posOver = coverage - target;
-        progress = (posOver * C.WAD) / rangeOver;
-
-        // Linear: skew = -gamma × 100 × progress / 100 (gamma is % in BPS, so divide by 100)
-        skew = (uint256(gamma) * 100 * progress) / (C.BPS * C.WAD);
-
-        if (skew > 100) return -100;
-        return int8(-int256(skew));
+        bool under = coverage < C.WAD;
+        uint256 numer = under ? C.WAD - coverage : coverage - C.WAD;
+        uint256 denom = under ? C.WAD - critMin : critMax - C.WAD;
+        uint256 progress = (numer * C.WAD) / denom;
+        uint256 skew = (uint256(gamma) * 100 * progress) / (C.BPS * C.WAD);
+        if (skew > 100) skew = 100;
+        return under ? int8(int256(skew)) : int8(-int256(skew));
     }
 
     /// @notice Quote sell-side swap with coverage-adjusted depth + spline traversal.
@@ -112,45 +78,6 @@ library LibPricing {
 
         // executionPrice is in base per token units (1e18), so baseOut = amountIn * executionPrice / C.WAD
         amountOut = (amountIn * executionPrice) / C.WAD;
-    }
-
-    /// @notice Quote buy given cost via spline traversal. Refines amountOut twice.
-    function quoteBuyWithCost(
-        uint256 costIn,
-        uint128 reserves,
-        uint128 liabilities,
-        uint256 twap,
-        uint32 volatility,
-        IPool.LiquidityProfile storage profile,
-        int8 inventorySkew,
-        uint16 depthAmplifier,
-        uint16 vega,
-        uint32 minDispersion,
-        uint32 maxDispersion
-    ) internal view returns (uint256 amountOut, uint256 executionPrice) {
-        // Calculate effective depth and dispersion
-        uint256 depth = calculateDepth(reserves, liabilities, depthAmplifier);
-        uint32 dispersion = _calculateDispersion(volatility, vega, minDispersion, maxDispersion);
-
-        // Get mid price from profile for initial estimate
-        uint256 midPrice = _getMidPriceFromProfile(twap, inventorySkew, dispersion, profile);
-
-        // Initial estimate of amount
-        amountOut = (costIn * C.WAD) / midPrice;
-
-        // Traverse spline by volume to get execution price
-        executionPrice = _traverseSplineByVolume(
-            twap,
-            dispersion,
-            profile,
-            inventorySkew,
-            amountOut,
-            depth,
-            false // buying
-        );
-
-        // Refine output based on execution price
-        amountOut = (costIn * C.WAD) / executionPrice;
     }
 
     /// @dev κ⁻¹: dispersion ∝ σ. dispersion = clamp(1000 + σ·vega/1000/BPS, [min,max]).
@@ -358,10 +285,21 @@ library LibPricing {
         }
 
         quote.amountIn = amountIn;
-        quote.spreadBps = _calculatePathSpreadCached(
-            cacheIn, cacheOut, amountIn, acc.currentAmount,
-            acc.sigmaPair, acc.deltaPair, acc.minFeePath, acc.maxFeePath
-        );
+        {
+            // Path spread: S_vol = 100 + σ·vega/100; U = Δ·λ/100; clamp [minFee,maxFee].
+            uint16 vegaSpread = cacheIn.vega > cacheOut.vega ? cacheIn.vega : cacheOut.vega;
+            uint16 lambdaSpread = cacheIn.lambda > cacheOut.lambda ? cacheIn.lambda : cacheOut.lambda;
+            int256 impact = netCoverageImpact(
+                cacheIn.reserves, cacheIn.liabilities, cacheOut.reserves, cacheOut.liabilities,
+                amountIn, acc.currentAmount, cacheIn.price, cacheOut.price
+            );
+            uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(vegaSpread)) / (100 * C.BPS);
+            uint256 u = (uint256(acc.deltaPair) * uint256(lambdaSpread)) / C.BPS;
+            uint256 rawSpread = impact < 0 ? sVol : sVol + u;
+            quote.spreadBps = rawSpread < uint256(acc.minFeePath)
+                ? acc.minFeePath
+                : (rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread));
+        }
 
         uint256 halfSpread = uint256(quote.spreadBps) / 2;
         uint256 feeIn = (amountIn * halfSpread) / 1_000_000;
@@ -472,11 +410,14 @@ library LibPricing {
                 asset.vega, asset.minDispersion, asset.maxDispersion
             );
         } else {
-            (amountOut,) = quoteBuyWithCost(
-                amountIn, asset.reserves, asset.liabilities, twap, sigma,
-                $.profiles[profileAsset], skew, rc.depthAmplifier,
-                asset.vega, asset.minDispersion, asset.maxDispersion
-            );
+            // Buy quote w/ cost: estimate amount via mid, traverse spline, refine.
+            uint256 depth = calculateDepth(asset.reserves, asset.liabilities, rc.depthAmplifier);
+            uint32 dispersion = _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
+            IPool.LiquidityProfile storage profile = $.profiles[profileAsset];
+            uint256 midPrice = _getMidPriceFromProfile(twap, skew, dispersion, profile);
+            amountOut = (amountIn * C.WAD) / midPrice;
+            uint256 execPrice = _traverseSplineByVolume(twap, dispersion, profile, skew, amountOut, depth, false);
+            amountOut = (amountIn * C.WAD) / execPrice;
         }
     }
 
@@ -493,31 +434,6 @@ library LibPricing {
         uint32 dispersion = _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
 
         return _getMidPriceFromProfile(twap, skew, dispersion, $.profiles[profileAsset]);
-    }
-
-    /// @dev Path spread w/ cached endpoints. S_vol = 100 + σ·vega/100; U = Δ·λ/100; clamp [minFee,maxFee].
-    function _calculatePathSpreadCached(
-        EndpointCache memory cacheIn,
-        EndpointCache memory cacheOut,
-        uint256 amountIn,
-        uint256 amountOut,
-        uint32 sigmaPair,
-        uint32 deltaPair,
-        uint16 minFeePath,
-        uint16 maxFeePath
-    ) private pure returns (uint16) {
-        uint16 vegaSpread = cacheIn.vega > cacheOut.vega ? cacheIn.vega : cacheOut.vega;
-        uint16 lambdaSpread = cacheIn.lambda > cacheOut.lambda ? cacheIn.lambda : cacheOut.lambda;
-        int256 impact = netCoverageImpact(
-            cacheIn.reserves, cacheIn.liabilities, cacheOut.reserves, cacheOut.liabilities,
-            amountIn, amountOut, cacheIn.price, cacheOut.price
-        );
-        uint256 sVol = 100 + (uint256(sigmaPair) * uint256(vegaSpread)) / (100 * C.BPS);
-        uint256 u = (uint256(deltaPair) * uint256(lambdaSpread)) / C.BPS;
-        uint256 rawSpread = impact < 0 ? sVol : sVol + u;
-        if (rawSpread < uint256(minFeePath)) return minFeePath;
-        if (rawSpread > uint256(maxFeePath)) return maxFeePath;
-        return uint16(rawSpread);
     }
 
     /// @dev Read oracle w/ transient cache. Supports internal (storage) + external (IOracle).
@@ -642,25 +558,6 @@ library LibPricing {
         uint256 rawDecay = (uint256(liabilities) * uint256(decaySlope) * uint256(dt)) / C.WAD;
         uint256 maxDecay = liabilities > reserves ? liabilities - reserves : 0; // cap @ 100% coverage
         return rawDecay > maxDecay ? uint128(maxDecay) : uint128(rawDecay);
-    }
-
-    /// @notice Power-law withdrawal haircut: h(c) = (1-c)^p, p = 1 + suppression/PBPS.
-    ///         h(0) = 1 (block); h(1) = 0 (no penalty).
-    function applyWithdrawalHaircut(
-        uint256 amount,
-        uint128 reserves,
-        uint128 liabilities,
-        uint16 suppression
-    ) internal pure returns (uint256 actualAmount, uint256 haircutAmount) {
-        if (liabilities == 0 || reserves >= liabilities) return (amount, 0);
-        uint256 coverage = calculateCoverage(reserves, liabilities);
-        if (coverage > C.WAD) coverage = C.WAD;
-        uint256 deficit = C.WAD - coverage;
-        uint256 pWad = C.WAD + (uint256(suppression) * C.WAD) / C.PBPS;
-        uint256 haircutRatio = deficit == 0 ? 0 : (deficit == C.WAD ? C.WAD : _powWad(deficit, pWad));
-        if (haircutRatio > C.WAD) haircutRatio = C.WAD;
-        haircutAmount = (amount * haircutRatio) / C.WAD;
-        actualAmount = amount - haircutAmount;
     }
 
     /// @dev x^y in WAD via binary exp on integer part + linear approx on fractional remainder.
