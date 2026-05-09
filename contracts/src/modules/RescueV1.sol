@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {IRescueV1} from "../interfaces/modules/IRescueV1.sol";
 import {IERC721} from "../interfaces/external/IERC721.sol";
@@ -37,19 +37,19 @@ contract RescueV1 is BaseV1, IRescueV1 {
         uint256[] calldata tokenIds,
         address receiver
     ) external onlyOwner {
-        if (receiver == address(0)) revert IErrors.InvalidInput();
+        if (receiver == address(0)) revert Err.InvalidInput();
 
         bytes32 id = keccak256(abi.encodePacked(receiver, tokenType));
         RescueStorage storage rs = _rs();
 
-        if (rs.pending[id] != 0) revert IErrors.InvalidState();
+        if (rs.pending[id] != 0) revert Err.InvalidState();
 
         uint256 amount;
         if (tokenType <= TokenType.ERC20) {
             amount = LibRescue.getBalance(tokenType == TokenType.NATIVE ? C.NATIVE : token);
-            if (amount == 0) revert IErrors.ZeroValue();
+            if (amount == 0) revert Err.ZeroValue();
         } else {
-            if (tokenIds.length == 0) revert IErrors.InvalidInput();
+            if (tokenIds.length == 0) revert Err.InvalidInput();
             amount = tokenIds.length;
         }
 

@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import {BridgeableERC20} from "./BridgeableERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 
 /// @title GovToken
 /// @notice Generic governance token with mint/burn and crosschain capabilities
@@ -39,9 +39,9 @@ contract GovToken is BridgeableERC20, Ownable {
     /// @param tokenName Token name (e.g., "BTR Governance Token")
     /// @param tokenSymbol Token symbol (e.g., "BTR")
     constructor(address owner, string memory tokenName, string memory tokenSymbol) {
-        if (owner == address(0)) revert IErrors.ZeroValue();
-        if (bytes(tokenName).length == 0) revert IErrors.ZeroValue();
-        if (bytes(tokenSymbol).length == 0) revert IErrors.ZeroValue();
+        if (owner == address(0)) revert Err.ZeroValue();
+        if (bytes(tokenName).length == 0) revert Err.ZeroValue();
+        if (bytes(tokenSymbol).length == 0) revert Err.ZeroValue();
         _initializeOwner(owner);
         TREASURY = owner;
         _name = tokenName;

@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
-import {IErrors} from "./IErrors.sol";
 import {LZEndpointV2} from "./external/ILZEndpointV2.sol";
 
 /// @title IBridgeV1
 /// @notice LayerZero bridge with ERC7802 support and timelocked configuration
-interface IBridgeV1 is IErrors {
+interface IBridgeV1 {
     // ═══════════════════════════════════════════════════════════════════════════
     // STRUCTS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -46,7 +45,7 @@ interface IBridgeV1 is IErrors {
     // ═══════════════════════════════════════════════════════════════════════════
     // ERRORS
     // ═══════════════════════════════════════════════════════════════════════════
-    // All errors inherited from IErrors - see IErrors.sol for details
+    // All errors inherited from IErrors - see Err.sol for details
 
     // ═══════════════════════════════════════════════════════════════════════════
     // BRIDGE OPERATIONS

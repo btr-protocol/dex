@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {IDistributorV1} from "../interfaces/modules/IDistributorV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
@@ -37,7 +37,7 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         string calldata symbol,
         address manager
     ) external onlyOwner returns (uint256 campaignId, address sbtToken) {
-        if (manager == address(0)) revert IErrors.ZeroValue();
+        if (manager == address(0)) revert Err.ZeroValue();
 
         DistributorStorage storage ds = _ds();
         campaignId = ds.nextCampaignId++;
@@ -61,7 +61,7 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         address rewardToken,
         address manager
     ) external onlyOwner returns (uint256 campaignId) {
-        if (rewardToken == address(0) || manager == address(0)) revert IErrors.ZeroValue();
+        if (rewardToken == address(0) || manager == address(0)) revert Err.ZeroValue();
 
         DistributorStorage storage ds = _ds();
         campaignId = ds.nextCampaignId++;
@@ -87,12 +87,12 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         DistributorStorage storage ds = _ds();
         Campaign storage campaign = ds.campaigns[campaignId];
 
-        if (campaign.id == 0) revert IErrors.NotConfigured(IErrors.Resource.CAMPAIGN, address(uint160(campaignId)));
+        if (campaign.id == 0) revert Err.NotConfigured(Err.Resource.CAMPAIGN, address(uint160(campaignId)));
         if (msg.sender != campaign.manager) revert Ownable.Unauthorized();
         if (campaign.status != CampaignStatus.ACTIVE && campaign.status != CampaignStatus.PAUSED) {
-            revert IErrors.InvalidState();
+            revert Err.InvalidState();
         }
-        if (merkleRoot == bytes32(0)) revert IErrors.InvalidInput();
+        if (merkleRoot == bytes32(0)) revert Err.InvalidInput();
 
         // Verify sufficient balance for TOKEN campaigns
         if (campaign.campaignType == CampaignType.TOKENS && totalClaimable > 0) {
@@ -102,7 +102,7 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
             uint256 required = totalClaimable > alreadyClaimed ? totalClaimable - alreadyClaimed : 0;
 
             if (balance < required) {
-                revert IErrors.InsufficientAmount(balance, required);
+                revert Err.InsufficientAmount(balance, required);
             }
         }
 
@@ -127,7 +127,7 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         Campaign storage campaign = ds.campaigns[campaignId];
 
         uint256 claimable = _verifyAndGetClaimable(ds, campaign, campaignId, index, account, totalEarned, merkleProof);
-        if (claimable == 0) revert IErrors.InvalidState();
+        if (claimable == 0) revert Err.InvalidState();
 
         ds.campaignClaimed[campaignId][account] = totalEarned;
         ds.totalClaimed[campaignId] += claimable;
@@ -136,7 +136,7 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
             SoulboundToken(campaign.rewardToken).mint(account, claimable);
         } else {
             uint256 available = SafeTransferLib.balanceOf(campaign.rewardToken, address(this));
-            if (available < claimable) revert IErrors.InsufficientAmount(available, claimable);
+            if (available < claimable) revert Err.InsufficientAmount(available, claimable);
             campaign.rewardToken.safeTransfer(account, claimable);
         }
 
@@ -148,8 +148,8 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         DistributorStorage storage ds = _ds();
         Campaign storage campaign = ds.campaigns[campaignId];
 
-        if (campaign.id == 0) revert IErrors.NotConfigured(IErrors.Resource.CAMPAIGN, address(uint160(campaignId)));
-        if (campaign.status != CampaignStatus.ACTIVE) revert IErrors.InvalidState();
+        if (campaign.id == 0) revert Err.NotConfigured(Err.Resource.CAMPAIGN, address(uint160(campaignId)));
+        if (campaign.status != CampaignStatus.ACTIVE) revert Err.InvalidState();
 
         campaign.status = CampaignStatus.PAUSED;
         emit CampaignStatusUpdated(campaignId, CampaignStatus.PAUSED);
@@ -160,8 +160,8 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         DistributorStorage storage ds = _ds();
         Campaign storage campaign = ds.campaigns[campaignId];
 
-        if (campaign.id == 0) revert IErrors.NotConfigured(IErrors.Resource.CAMPAIGN, address(uint160(campaignId)));
-        if (campaign.status != CampaignStatus.PAUSED) revert IErrors.InvalidState();
+        if (campaign.id == 0) revert Err.NotConfigured(Err.Resource.CAMPAIGN, address(uint160(campaignId)));
+        if (campaign.status != CampaignStatus.PAUSED) revert Err.InvalidState();
 
         campaign.status = CampaignStatus.ACTIVE;
         emit CampaignStatusUpdated(campaignId, CampaignStatus.ACTIVE);
@@ -172,10 +172,10 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         DistributorStorage storage ds = _ds();
         Campaign storage campaign = ds.campaigns[campaignId];
 
-        if (campaign.id == 0) revert IErrors.NotConfigured(IErrors.Resource.CAMPAIGN, address(uint160(campaignId)));
-        if (campaign.campaignType == CampaignType.POINTS) revert IErrors.InvalidInput(); // Use finalizePointsCampaign instead
+        if (campaign.id == 0) revert Err.NotConfigured(Err.Resource.CAMPAIGN, address(uint160(campaignId)));
+        if (campaign.campaignType == CampaignType.POINTS) revert Err.InvalidInput(); // Use finalizePointsCampaign instead
         if (campaign.status != CampaignStatus.ACTIVE && campaign.status != CampaignStatus.PAUSED) {
-            revert IErrors.InvalidState(); // Already finalized
+            revert Err.InvalidState(); // Already finalized
         }
 
         campaign.status = CampaignStatus.FINALIZED;
@@ -192,12 +192,12 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         DistributorStorage storage ds = _ds();
         Campaign storage campaign = ds.campaigns[campaignId];
 
-        if (campaign.id == 0) revert IErrors.NotConfigured(IErrors.Resource.CAMPAIGN, address(uint160(campaignId)));
-        if (campaign.campaignType != CampaignType.POINTS) revert IErrors.InvalidInput();
+        if (campaign.id == 0) revert Err.NotConfigured(Err.Resource.CAMPAIGN, address(uint160(campaignId)));
+        if (campaign.campaignType != CampaignType.POINTS) revert Err.InvalidInput();
         if (msg.sender != _s().owner) revert Ownable.Unauthorized();
-        if (campaign.status == CampaignStatus.REDEEMABLE) revert IErrors.InvalidState(); // Already finalized
-        if (redeemToken == address(0)) revert IErrors.ZeroValue();
-        if (redeemRate == 0) revert IErrors.ZeroValue();
+        if (campaign.status == CampaignStatus.REDEEMABLE) revert Err.InvalidState(); // Already finalized
+        if (redeemToken == address(0)) revert Err.ZeroValue();
+        if (redeemRate == 0) revert Err.ZeroValue();
 
         // Set redemption parameters (immutable once set)
         campaign.redeemToken = redeemToken;
@@ -211,14 +211,14 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
 
     /// @inheritdoc IDistributorV1
     function redeemPoints(uint256 campaignId, uint256 amount) external nonReentrant {
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         DistributorStorage storage ds = _ds();
         Campaign storage campaign = ds.campaigns[campaignId];
 
-        if (campaign.id == 0) revert IErrors.NotConfigured(IErrors.Resource.CAMPAIGN, address(uint160(campaignId)));
-        if (campaign.campaignType != CampaignType.POINTS) revert IErrors.InvalidInput();
-        if (campaign.status != CampaignStatus.REDEEMABLE) revert IErrors.InvalidState();
+        if (campaign.id == 0) revert Err.NotConfigured(Err.Resource.CAMPAIGN, address(uint160(campaignId)));
+        if (campaign.campaignType != CampaignType.POINTS) revert Err.InvalidInput();
+        if (campaign.status != CampaignStatus.REDEEMABLE) revert Err.InvalidState();
 
         // 1) Calculate tokens to receive
         uint256 tokensOut = (amount * campaign.redeemRate) / 1e18;
@@ -227,13 +227,13 @@ contract DistributorV1 is BaseV1, IDistributorV1 {
         if (campaign.maxRedeemable > 0) {
             uint256 newTotal = campaign.totalRedeemed + tokensOut;
             if (newTotal > campaign.maxRedeemable) {
-                revert IErrors.InsufficientAmount(campaign.maxRedeemable - campaign.totalRedeemed, tokensOut);
+                revert Err.InsufficientAmount(campaign.maxRedeemable - campaign.totalRedeemed, tokensOut);
             }
         }
 
         // 3) Check distributor has sufficient tokens BEFORE burning
         uint256 available = SafeTransferLib.balanceOf(campaign.redeemToken, address(this));
-        if (available < tokensOut) revert IErrors.InsufficientAmount(available, tokensOut);
+        if (available < tokensOut) revert Err.InsufficientAmount(available, tokensOut);
 
         // 4) Only after ALL checks pass: burn points, update tracking, and transfer tokens
         SoulboundToken(campaign.rewardToken).burn(msg.sender, amount);

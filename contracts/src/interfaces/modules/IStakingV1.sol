@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
-import {IErrors} from "../IErrors.sol";
-
 /// @title IStaking
 /// @notice Interface for governance token and LP staking operations
-interface IStakingV1 is IErrors {
+interface IStakingV1 {
     // ═══════════════════════════════════════════════════════════════════════════
     // STORAGE STRUCT
     // ═══════════════════════════════════════════════════════════════════════════
@@ -48,7 +46,7 @@ interface IStakingV1 is IErrors {
     // ═══════════════════════════════════════════════════════════════════════════
     // ERRORS
     // ═══════════════════════════════════════════════════════════════════════════
-    // All errors inherited from IErrors - see IErrors.sol for details
+    // All errors inherited from IErrors - see Err.sol for details
 
     // ═══════════════════════════════════════════════════════════════════════════
     // GOVERNANCE TOKEN STAKING

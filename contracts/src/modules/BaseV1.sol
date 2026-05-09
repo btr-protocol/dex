@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {IERC20} from "../interfaces/external/IERC20.sol";
 import {IWETH9} from "../interfaces/external/IWETH9.sol";
@@ -51,7 +51,7 @@ abstract contract BaseV1 {
     }
 
     modifier whenInitialized() virtual {
-        if (!_s().initialized) revert IErrors.InvalidState();
+        if (!_s().initialized) revert Err.InvalidState();
         _;
     }
 
@@ -97,7 +97,7 @@ abstract contract BaseV1 {
 
         unchecked {
             if (block.timestamp < lastDeposit + cooldown) {
-                revert IErrors.CooldownActive(lastDeposit + cooldown - uint32(block.timestamp));
+                revert Err.CooldownActive(lastDeposit + cooldown - uint32(block.timestamp));
             }
         }
     }
@@ -119,7 +119,7 @@ abstract contract BaseV1 {
 
         unchecked {
             if (block.timestamp < lastStake + cooldown) {
-                revert IErrors.CooldownActive(lastStake + cooldown - uint32(block.timestamp));
+                revert Err.CooldownActive(lastStake + cooldown - uint32(block.timestamp));
             }
         }
     }
@@ -143,7 +143,7 @@ abstract contract BaseV1 {
 
         unchecked {
             if (block.timestamp < lastStake + cooldown) {
-                revert IErrors.CooldownActive(lastStake + cooldown - uint32(block.timestamp));
+                revert Err.CooldownActive(lastStake + cooldown - uint32(block.timestamp));
             }
         }
     }
@@ -156,7 +156,7 @@ abstract contract BaseV1 {
         returns (IPoolV1.Asset storage asset)
     {
         asset = $.assets[tokenNorm];
-        if (asset.decimals == 0) revert IErrors.NotFound(IErrors.Resource.ASSET, tokenNorm);
+        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tokenNorm);
     }
 
     /// @dev Centralized hook lookup with flag check
@@ -179,7 +179,7 @@ abstract contract BaseV1 {
 
     /// @dev Safe uint128 cast with overflow check
     function _toUint128(uint256 x) internal pure returns (uint128) {
-        if (x > type(uint128).max) revert IErrors.ExcessiveAmount(x, type(uint128).max);
+        if (x > type(uint128).max) revert Err.ExcessiveAmount(x, type(uint128).max);
         return uint128(x);
     }
 
@@ -190,7 +190,7 @@ abstract contract BaseV1 {
 
     function _pull(address token, uint256 amount) internal returns (uint256 actual) {
         if (token == C.NATIVE) {
-            if (msg.value < amount) revert IErrors.InsufficientAmount(msg.value, amount);
+            if (msg.value < amount) revert Err.InsufficientAmount(msg.value, amount);
             IWETH9(_s().wnative).deposit{value: amount}();
             // H-02 FIX: Refund excess ETH to prevent trapped funds
             unchecked {
@@ -218,11 +218,11 @@ abstract contract BaseV1 {
 
     function _checkRisk(IPoolV1.PoolStorage storage $, address token, uint16 requiredFlag) internal view {
         IPoolV1.RiskConfig storage risk = $.riskConfigs[token];
-        if ((risk.flags & C.FROZEN_BIT) != 0) revert IErrors.FeatureDisabled(IErrors.Resource.ASSET);
+        if ((risk.flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
         if (requiredFlag != 0 && (risk.flags & requiredFlag) == 0) {
-            if (requiredFlag == C.SWAP_ENABLED_BIT) revert IErrors.FeatureDisabled(IErrors.Resource.SWAP);
-            if (requiredFlag == C.LIABILITY_SWAP_ENABLED_BIT) revert IErrors.FeatureDisabled(IErrors.Resource.LIABILITY_SWAP);
-            if (requiredFlag == C.FLASH_ENABLED_BIT) revert IErrors.FeatureDisabled(IErrors.Resource.FLASH);
+            if (requiredFlag == C.SWAP_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.SWAP);
+            if (requiredFlag == C.LIABILITY_SWAP_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.LIABILITY_SWAP);
+            if (requiredFlag == C.FLASH_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.FLASH);
         }
     }
 
@@ -235,7 +235,7 @@ abstract contract BaseV1 {
         IPoolV1.FeedAccumulator storage acc = _os().accumulators[token];
 
         if (acc.lastUpdate == 0) {
-            if (requireConfigured) revert IErrors.NotConfigured(IErrors.Resource.ORACLE, token);
+            if (requireConfigured) revert Err.NotConfigured(Err.Resource.ORACLE, token);
             return (data, false);
         }
 
@@ -279,7 +279,7 @@ abstract contract BaseV1 {
 
         // Cache miss: perform oracle read
         IPoolV1.OracleConfig memory cfg = $.oracleConfigs[token];
-        if (cfg.primary == address(0)) revert IErrors.NotConfigured(IErrors.Resource.ORACLE, token);
+        if (cfg.primary == address(0)) revert Err.NotConfigured(Err.Resource.ORACLE, token);
 
         // M-02 FIX: Track actual age/maxAge for error reporting
         uint256 lastAge;
@@ -364,18 +364,18 @@ abstract contract BaseV1 {
                     // Secondary oracle also failed
                     // If primary also failed, revert with oracle failure
                     if (primaryFailed) {
-                        revert IErrors.NotConfigured(IErrors.Resource.ORACLE, token); // Both oracles failed
+                        revert Err.NotConfigured(Err.Resource.ORACLE, token); // Both oracles failed
                     }
                     // Otherwise fall through to staleness check
                 }
             }
         } else if (primaryFailed) {
             // No fallback configured and primary failed
-            revert IErrors.NotConfigured(IErrors.Resource.ORACLE, token);
+            revert Err.NotConfigured(Err.Resource.ORACLE, token);
         }
 
         // M-02 FIX: Revert with actual staleness values
-        revert IErrors.StaleData(uint32(lastAge), uint32(lastMaxAge));
+        revert Err.StaleData(uint32(lastAge), uint32(lastMaxAge));
     }
 
     /// @notice Apply liability decay if conditions are met

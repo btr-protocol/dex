@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {IMintable} from "../interfaces/IMintable.sol";
 import {IStakingV1} from "../interfaces/modules/IStakingV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
@@ -29,7 +29,7 @@ contract StakingV1 is BaseV1, IStakingV1 {
     }
 
     modifier whenNotPaused() {
-        if (_s().stakingConfig.stakingPaused) revert IErrors.InvalidState();
+        if (_s().stakingConfig.stakingPaused) revert Err.InvalidState();
         _;
     }
 
@@ -37,7 +37,7 @@ contract StakingV1 is BaseV1, IStakingV1 {
 
     /// @inheritdoc IStakingV1
     function stakeGov(uint256 amount) external nonReentrant whenNotPaused {
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         StakingStorage storage ss = _ss();
@@ -60,13 +60,13 @@ contract StakingV1 is BaseV1, IStakingV1 {
 
     /// @inheritdoc IStakingV1
     function unstakeGov(uint256 amount) external nonReentrant whenNotPaused {
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         StakingStorage storage ss = _ss();
 
         _checkGovUnstakeCooldown(msg.sender);
-        if (block.timestamp < ss.govUnlockTime[msg.sender]) revert IErrors.InvalidState();
+        if (block.timestamp < ss.govUnlockTime[msg.sender]) revert Err.InvalidState();
 
         ss.govStaked[msg.sender] -= amount;
         ss.totalGovStaked -= amount;
@@ -84,12 +84,12 @@ contract StakingV1 is BaseV1, IStakingV1 {
         IPoolV1.PoolStorage storage $ = _s();
         StakingStorage storage ss = _ss();
 
-        if (ss.sLPTokens[lpToken] != address(0)) revert IErrors.AlreadyConfigured(IErrors.Resource.STAKING, lpToken);
+        if (ss.sLPTokens[lpToken] != address(0)) revert Err.AlreadyConfigured(Err.Resource.STAKING, lpToken);
 
         // Verify LP token is stakeable
         address tokenNorm = _wrap($, lpToken);
-        if ($.assets[tokenNorm].decimals == 0) revert IErrors.NotFound(IErrors.Resource.ASSET, tokenNorm);
-        if (($.riskConfigs[tokenNorm].flags & C.STAKEABLE_BIT) == 0) revert IErrors.InvalidInput();
+        if ($.assets[tokenNorm].decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tokenNorm);
+        if (($.riskConfigs[tokenNorm].flags & C.STAKEABLE_BIT) == 0) revert Err.InvalidInput();
 
         // Generate deterministic salt based on LP token address to prevent collisions
         // This ensures unique salts for each LP token
@@ -108,7 +108,7 @@ contract StakingV1 is BaseV1, IStakingV1 {
         address sLP = CREATE3.deployDeterministic(creationCode, deterministicSalt);
 
         // Verify deployment succeeded and address is unique
-        if (sLP.code.length == 0) revert IErrors.DeploymentFailed();
+        if (sLP.code.length == 0) revert Err.DeploymentFailed();
 
         ss.sLPTokens[lpToken] = sLP;
         ss.lpTokens.push(lpToken);
@@ -117,20 +117,20 @@ contract StakingV1 is BaseV1, IStakingV1 {
 
     /// @inheritdoc IStakingV1
     function stakeLP(address lpToken, uint256 amount) external nonReentrant whenNotPaused {
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         StakingStorage storage ss = _ss();
 
         address sLP = ss.sLPTokens[lpToken];
-        if (sLP == address(0)) revert IErrors.NotConfigured(IErrors.Resource.STAKING, lpToken);
+        if (sLP == address(0)) revert Err.NotConfigured(Err.Resource.STAKING, lpToken);
 
         address tokenNorm = _wrap($, lpToken);
-        if (($.riskConfigs[tokenNorm].flags & C.STAKEABLE_BIT) == 0) revert IErrors.InvalidInput();
+        if (($.riskConfigs[tokenNorm].flags & C.STAKEABLE_BIT) == 0) revert Err.InvalidInput();
 
         uint256 alreadyStaked = $.lpStaked[msg.sender][lpToken];
         uint256 available = $.lpBalances[msg.sender][tokenNorm];
-        if (available < alreadyStaked + amount) revert IErrors.InsufficientAmount(available, alreadyStaked + amount);
+        if (available < alreadyStaked + amount) revert Err.InsufficientAmount(available, alreadyStaked + amount);
 
         IMintable(sLP).mint(msg.sender, amount);
 
@@ -149,19 +149,19 @@ contract StakingV1 is BaseV1, IStakingV1 {
 
     /// @inheritdoc IStakingV1
     function unstakeLP(address lpToken, uint256 amount) external nonReentrant whenNotPaused {
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         StakingStorage storage ss = _ss();
 
         address sLP = ss.sLPTokens[lpToken];
-        if (sLP == address(0)) revert IErrors.NotConfigured(IErrors.Resource.STAKING, lpToken);
+        if (sLP == address(0)) revert Err.NotConfigured(Err.Resource.STAKING, lpToken);
 
         _checkLPUnstakeCooldown(msg.sender, lpToken);
-        if (block.timestamp < ss.lpUnlockTime[msg.sender][lpToken]) revert IErrors.InvalidState();
+        if (block.timestamp < ss.lpUnlockTime[msg.sender][lpToken]) revert Err.InvalidState();
 
         uint256 available = $.lpStaked[msg.sender][lpToken];
-        if (available < amount) revert IErrors.InsufficientAmount(available, amount);
+        if (available < amount) revert Err.InsufficientAmount(available, amount);
 
         IMintable(sLP).burn(msg.sender, amount);
 
@@ -192,7 +192,7 @@ contract StakingV1 is BaseV1, IStakingV1 {
     /// @inheritdoc IStakingV1
     function pause() external onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
-        if ($.stakingConfig.stakingPaused) revert IErrors.InvalidState();
+        if ($.stakingConfig.stakingPaused) revert Err.InvalidState();
         $.stakingConfig.stakingPaused = true;
         emit StakingPaused(msg.sender);
     }
@@ -200,7 +200,7 @@ contract StakingV1 is BaseV1, IStakingV1 {
     /// @inheritdoc IStakingV1
     function unpause() external onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
-        if (!$.stakingConfig.stakingPaused) revert IErrors.InvalidState();
+        if (!$.stakingConfig.stakingPaused) revert Err.InvalidState();
         $.stakingConfig.stakingPaused = false;
         emit StakingUnpaused(msg.sender);
     }

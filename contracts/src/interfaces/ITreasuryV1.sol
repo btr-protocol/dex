@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
-import {IErrors} from "./IErrors.sol";
-
 /// @title ITreasuryV1
 /// @notice Standalone treasury contract for BTR token management and protocol fee collection
-interface ITreasuryV1 is IErrors {
+interface ITreasuryV1 {
     // ═══════════════════════════════════════════════════════════════════════════
     // STRUCTS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -42,7 +40,7 @@ interface ITreasuryV1 is IErrors {
     // ═══════════════════════════════════════════════════════════════════════════
     // ERRORS
     // ═══════════════════════════════════════════════════════════════════════════
-    // All errors inherited from IErrors - see IErrors.sol for details
+    // All errors inherited from IErrors - see Err.sol for details
 
     // ═══════════════════════════════════════════════════════════════════════════
     // MINT / BURN

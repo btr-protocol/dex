@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {LibMaths as M} from "./LibMaths.sol";
 import {LibSpline} from "./LibSpline.sol";
 import {LibAnchorTree} from "./LibAnchorTree.sol";
@@ -771,7 +771,7 @@ library LibPricing {
         // Cache miss: perform oracle read
         IPoolV1.OracleConfig memory cfg = $.oracleConfigs[token];
         if (cfg.primary == address(0)) {
-            revert IErrors.NotConfigured(IErrors.Resource.ORACLE, token);
+            revert Err.NotConfigured(Err.Resource.ORACLE, token);
         }
 
         // Check if using internal oracle (cfg.primary == address(this) in module context)
@@ -800,7 +800,7 @@ library LibPricing {
         IPoolV1.FeedAccumulator storage acc = _os().accumulators[token];
 
         if (acc.lastUpdate == 0) {
-            revert IErrors.NotConfigured(IErrors.Resource.ORACLE, token);
+            revert Err.NotConfigured(Err.Resource.ORACLE, token);
         }
 
         data = IOracleV1.FeedData({
