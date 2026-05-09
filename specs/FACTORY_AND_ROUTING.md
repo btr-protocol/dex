@@ -37,7 +37,7 @@ This document describes the factory-based architecture for pool deployment and t
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         RouterV1 (Stateless)                        │   │
+│  │                         Router (Stateless)                        │   │
 │  │                                                                      │   │
 │  │  ┌──────────────────────────────────────────────────────────────┐  │   │
 │  │  │                    View Functions Only                       │  │   │
@@ -374,15 +374,15 @@ contract PoolProxyFactory is Ownable {
 }
 ```
 
-## 2. Stateless RouterV1 Design
+## 2. Stateless Router Design
 
 ### 2.1 Core Interface
 
 ```solidity
-/// @title RouterV1
+/// @title Router
 /// @notice Stateless router for optimal route discovery and execution
 /// @dev Uses factory for registry, delegates swaps to pools directly
-contract RouterV1 is IRouterV1 {
+contract Router is IRouter {
     // ========== STATE ==========
 
     /// @notice Pool proxy factory
@@ -476,8 +476,8 @@ contract RouterV1 is IRouterV1 {
             if (!factory.isOfficialPool(commonPools[i])) continue;
 
             // Get quote from pool
-            try IExchangeV1(commonPools[i]).getSwapQuote(tokenIn, tokenOut, amountIn)
-                returns (IExchangeV1.SwapQuote memory quote)
+            try IExchange(commonPools[i]).getSwapQuote(tokenIn, tokenOut, amountIn)
+                returns (IExchange.SwapQuote memory quote)
             {
                 if (quote.amountOut > bestAmountOut) {
                     bestAmountOut = quote.amountOut;
@@ -552,9 +552,9 @@ contract RouterV1 is IRouterV1 {
 
                 // Quote first hop
                 uint256 hop1AmountOut;
-                try IExchangeV1(poolsIn[i]).getSwapQuote(
+                try IExchange(poolsIn[i]).getSwapQuote(
                     tokenIn, intermediate, amountIn
-                ) returns (IExchangeV1.SwapQuote memory quote1) {
+                ) returns (IExchange.SwapQuote memory quote1) {
                     hop1AmountOut = quote1.amountOut;
                 } catch {
                     continue;
@@ -562,9 +562,9 @@ contract RouterV1 is IRouterV1 {
 
                 // Quote second hop
                 uint256 hop2AmountOut;
-                try IExchangeV1(bestOutPoolForIntermediate).getSwapQuote(
+                try IExchange(bestOutPoolForIntermediate).getSwapQuote(
                     intermediate, tokenOut, hop1AmountOut
-                ) returns (IExchangeV1.SwapQuote memory quote2) {
+                ) returns (IExchange.SwapQuote memory quote2) {
                     hop2AmountOut = quote2.amountOut;
                 } catch {
                     continue;
@@ -650,20 +650,20 @@ contract RouterV1 is IRouterV1 {
                 uint256 amt1 = amountIn;
                 uint256 amt2, amt3;
 
-                try IExchangeV1(pool1).getSwapQuote(tokenIn, base1, amt1)
-                    returns (IExchangeV1.SwapQuote memory q1)
+                try IExchange(pool1).getSwapQuote(tokenIn, base1, amt1)
+                    returns (IExchange.SwapQuote memory q1)
                 {
                     amt2 = q1.amountOut;
                 } catch { continue; }
 
-                try IExchangeV1(pool2).getSwapQuote(base1, base2, amt2)
-                    returns (IExchangeV1.SwapQuote memory q2)
+                try IExchange(pool2).getSwapQuote(base1, base2, amt2)
+                    returns (IExchange.SwapQuote memory q2)
                 {
                     amt3 = q2.amountOut;
                 } catch { continue; }
 
-                try IExchangeV1(pool3).getSwapQuote(base2, tokenOut, amt3)
-                    returns (IExchangeV1.SwapQuote memory q3)
+                try IExchange(pool3).getSwapQuote(base2, tokenOut, amt3)
+                    returns (IExchange.SwapQuote memory q3)
                 {
                     if (q3.amountOut > bestAmountOut) {
                         bestAmountOut = q3.amountOut;
@@ -706,8 +706,8 @@ contract RouterV1 is IRouterV1 {
             if (!factory.tokenInPool[pools[i]][tokenA]) continue;
             if (!factory.tokenInPool[pools[i]][tokenB]) continue;
 
-            try IExchangeV1(pools[i]).getSwapQuote(tokenA, tokenB, 1e18)
-                returns (IExchangeV1.SwapQuote memory quote)
+            try IExchange(pools[i]).getSwapQuote(tokenA, tokenB, 1e18)
+                returns (IExchange.SwapQuote memory quote)
             {
                 if (quote.amountOut > bestAmountOut) {
                     bestAmountOut = quote.amountOut;
@@ -752,7 +752,7 @@ contract RouterV1 is IRouterV1 {
             uint256 amountOut;
             if (currentToken == address(0)) {
                 // Native input
-                amountOut = IExchangeV1(step.pool).swap{value: currentAmount}(
+                amountOut = IExchange(step.pool).swap{value: currentAmount}(
                     currentToken,
                     step.tokenOut,
                     currentAmount,
@@ -760,7 +760,7 @@ contract RouterV1 is IRouterV1 {
                     address(this) // Router holds intermediate tokens
                 );
             } else {
-                amountOut = IExchangeV1(step.pool).swap(
+                amountOut = IExchange(step.pool).swap(
                     currentToken,
                     step.tokenOut,
                     currentAmount,
@@ -853,9 +853,9 @@ The V1 routing solution uses a **hub-and-spoke** approach:
 ### 3.3 Implementation
 
 ```solidity
-/// @title BatchRouterV1
+/// @title BatchRouter
 /// @notice Batch swap routing using hub-and-spoke model
-contract BatchRouterV1 is RouterV1 {
+contract BatchRouter is Router {
     // ========== STRUCTS ==========
 
     /// @notice Batch swap route
@@ -1022,7 +1022,7 @@ contract BatchRouterV1 is RouterV1 {
                 RouteStep memory step = route.inputRoutes[i];
                 if (inputs[i].token == address(0)) {
                     // Native
-                    IExchangeV1(step.pool).swap{value: inputs[i].amount}(
+                    IExchange(step.pool).swap{value: inputs[i].amount}(
                         inputs[i].token,
                         route.hubToken,
                         inputs[i].amount,
@@ -1035,7 +1035,7 @@ contract BatchRouterV1 is RouterV1 {
                         step.pool,
                         inputs[i].amount
                     );
-                    IExchangeV1(step.pool).swap(
+                    IExchange(step.pool).swap(
                         inputs[i].token,
                         route.hubToken,
                         inputs[i].amount,
@@ -1068,7 +1068,7 @@ contract BatchRouterV1 is RouterV1 {
                     expectedAmount
                 );
 
-                uint256 amountOut = IExchangeV1(step.pool).swap(
+                uint256 amountOut = IExchange(step.pool).swap(
                     route.hubToken,
                     outputToken,
                     expectedAmount,
@@ -1123,7 +1123,7 @@ address router = CREATE3.deploy(
 ```solidity
 // User calls factory.createPool()
 bytes memory initdata = abi.encodeWithSelector(
-    IPoolV1.initialize.selector,
+    IPool.initialize.selector,
     userAddress,    // owner
     usdcAddress,    // baseToken
     wethAddress     // wnative

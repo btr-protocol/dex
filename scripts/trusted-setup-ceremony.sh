@@ -17,7 +17,7 @@
 #
 # Output:
 #   - Generated .zkey file: ${CIRCUIT_NAME}_final.zkey
-#   - Verification key: contracts/src/darkpool/Verifier.sol
+#   - Verification key: evm/src/darkpool/Verifier.sol
 #   - Ceremony transcript with contributor signatures
 #
 ##############################################################################
@@ -227,10 +227,10 @@ log_info "Step 2: Exporting Solidity verification key..."
 
 snarkjs zkey export solidityverifier \
     "${CIRCUIT_NAME}_final.zkey" \
-    "contracts/src/darkpool/Verifier.sol" \
+    "evm/src/darkpool/Verifier.sol" \
     > /dev/null 2>&1
 
-log_info "Verification key exported: contracts/src/darkpool/Verifier.sol"
+log_info "Verification key exported: evm/src/darkpool/Verifier.sol"
 
 # Step 6: Generate public signals definition (optional)
 log_info "Step 3: Generating public signals..."
@@ -252,7 +252,7 @@ log_info "=================================================="
 log_info ""
 log_info "Generated artifacts:"
 log_info "  • Zkey file: ${CIRCUIT_NAME}_final.zkey"
-log_info "  • Verifier contract: contracts/src/darkpool/Verifier.sol"
+log_info "  • Verifier contract: evm/src/darkpool/Verifier.sol"
 log_info "  • Public signals (JSON): ${CIRCUIT_NAME}_final.json"
 log_info ""
 log_info "Next steps:"

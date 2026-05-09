@@ -4,7 +4,7 @@ pragma solidity ^0.8.35;
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IERC721} from "../interfaces/external/IERC721.sol";
 import {IERC1155} from "../interfaces/external/IERC1155.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {LibConstants as C} from "./LibConstants.sol";
 
 /// @title LibRescue — recover stuck ERC20/721/1155/Native tokens.

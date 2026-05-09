@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";

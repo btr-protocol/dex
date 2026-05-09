@@ -33,7 +33,7 @@ echo "────────────────────────�
 total_contracts_total=0
 total_contracts_code=0
 
-for dir in contracts/src/aimm contracts/src/darkpool contracts/src/oracles; do
+for dir in evm/src/aimm evm/src/darkpool evm/src/oracles; do
     if [ -d "$dir" ]; then
         for file in "$dir"/*.sol; do
             if [ -f "$file" ]; then
@@ -58,8 +58,8 @@ echo "────────────────────────�
 total_libs_total=0
 total_libs_code=0
 
-if [ -d "contracts/src/libraries" ]; then
-    for file in contracts/src/libraries/*.sol; do
+if [ -d "evm/src/libraries" ]; then
+    for file in evm/src/libraries/*.sol; do
         if [ -f "$file" ]; then
             name=$(basename "$file")
             read total code < <(count_loc "$file")
@@ -81,8 +81,8 @@ echo "────────────────────────�
 total_interfaces_total=0
 total_interfaces_code=0
 
-if [ -d "contracts/src/interfaces" ]; then
-    for file in contracts/src/interfaces/*.sol; do
+if [ -d "evm/src/interfaces" ]; then
+    for file in evm/src/interfaces/*.sol; do
         if [ -f "$file" ]; then
             name=$(basename "$file")
             read total code < <(count_loc "$file")
@@ -104,8 +104,8 @@ echo "────────────────────────�
 total_utils_total=0
 total_utils_code=0
 
-if [ -d "contracts/src/utils" ]; then
-    for file in contracts/src/utils/*.sol; do
+if [ -d "evm/src/utils" ]; then
+    for file in evm/src/utils/*.sol; do
         if [ -f "$file" ]; then
             name=$(basename "$file")
             read total code < <(count_loc "$file")
@@ -120,7 +120,7 @@ echo "────────────────────────�
 printf "${YELLOW}%-40s %9d %10d${NC}\n" "TOTAL UTILITIES" "$total_utils_total" "$total_utils_code"
 
 # SDK
-if [ -d "sdk/contracts" ]; then
+if [ -d "sdk/evm" ]; then
     echo -e "\n${BLUE}SDK CONTRACTS${NC}"
     echo "File                                     Total LOC  Code LOC"
     echo "───────────────────────────────────────────────────────────────"
@@ -128,7 +128,7 @@ if [ -d "sdk/contracts" ]; then
     total_sdk_total=0
     total_sdk_code=0
 
-    for file in sdk/contracts/*.sol; do
+    for file in sdk/evm/*.sol; do
         if [ -f "$file" ]; then
             name=$(basename "$file")
             read total code < <(count_loc "$file")

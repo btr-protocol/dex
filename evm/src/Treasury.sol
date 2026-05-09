@@ -6,7 +6,7 @@ import {IMintable} from "./interfaces/IMintable.sol";
 import {IPool} from "./interfaces/IPool.sol";
 import {IAdmin} from "./interfaces/modules/IAdmin.sol";
 import {IBridge} from "./interfaces/IBridge.sol";
-import {Err} from "./Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";

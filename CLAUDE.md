@@ -1,34 +1,33 @@
-# Claude AI Development Guide
+# BTR DEX — agent guide
 
-> **⚠️ OBSOLETE** - This file has been superseded by the contribution guide system.
+## Scope (post Phase 30 split)
+This repo = **Solidity contracts + Bun keepers ONLY**. No front/back/SDK colocated.
 
-**All agent guidelines have been migrated to** → [`AGENTS.md`](AGENTS.md)
+| Sibling repo | Path | Role |
+|---|---|---|
+| sdk   | `~/Work/btr/sdk`   | `@btr-protocol/sdk` — ABIs, eth RPC client, shared TS types |
+| swap  | `~/Work/btr/swap`  | `@btr-supply/swap` — aggregator SDK |
+| back  | `~/Work/btr/back`  | Bun monorepo: `services/{swap,collector,agents}` |
+| front | `~/Work/btr/front` | SvelteKit SPA |
 
----
+If you need to edit dApp UI / off-chain services / SDK types → go to the sibling repo. Do NOT recreate `front/`, `back/`, or `sdk/` here.
 
-## Current Documentation Structure
+## Local content
+- `evm/` — Solidity (Foundry). Main protocol impl + tests.
+- `circuits/` — zkSNARK circuits (dark pool privacy).
+- `keeper/`   — off-chain guardian (circuit breakers, oracle updates).
+- `sim/`      — simulation harness.
+- `specs/`    — canonical technical specs.
+- ~~`docs/`~~ — **MOVED** to `~/Work/btr/docs/` (Phase 40C). Three product surfaces consolidated under one tree (swap/dex/supply/legal + protocol-wide). Build scripts now live at `~/Work/btr/back/services/docs/build/`.
 
-| For This... | See This File |
-|-------------|---------------|
-| **Agent quick reference** | [`AGENTS.md`](AGENTS.md) |
-| **Git workflow** | [`docs/5. Contributing/GIT.md`](docs/5. Contributing/GIT.md) |
-| **Frontend development** | [`docs/5. Contributing/FRONTEND.md`](docs/5. Contributing/FRONTEND.md) |
-| **Backend development** | [`docs/5. Contributing/BACKEND.md`](docs/5. Contributing/BACKEND.md) |
-| **Smart contracts** | [`docs/5. Contributing/SMART_CONTRACTS.md`](docs/5. Contributing/SMART_CONTRACTS.md) |
-| **Security & audits** | [`docs/5. Contributing/SECURITY.md`](docs/5. Contributing/SECURITY.md) |
-| **Quant/research** | [`docs/5. Contributing/QUANT.md`](docs/5. Contributing/QUANT.md) |
+## Build/test
+```sh
+cd evm && forge build && forge test
+```
 
----
+## Cross-repo refs
+- ABIs consumed by `front` via `@btr-protocol/sdk/abis` — do not duplicate ABIs here. After contract changes, regenerate ABIs in `~/Work/btr/sdk/src/abis/`.
+- Keeper services may live here OR migrate to `~/Work/btr/back/services/` (TBD).
 
-## Technical Specs
-
-| Spec | File |
-|------|------|
-| **Architecture** | [`specs/ARCHITECTURE.md`](specs/ARCHITECTURE.md) |
-| **Fee System** | [`specs/FEES.md`](specs/FEES.md) |
-| **Coverage Ratio ALM** | [`specs/ALM_COVERAGE_RATIO.md`](specs/ALM_COVERAGE_RATIO.md) |
-| **Oracle System** | [`specs/ORACLE.md`](specs/ORACLE.md) |
-
----
-
-*This file is retained for historical reference only. All content has been consolidated into the contribution guide system.*
+## Historical
+Previous monorepo layout (front/back/sdk colocated) deprecated in Phase 30. See sibling READMEs.

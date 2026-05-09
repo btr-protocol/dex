@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
 
 /// @title ExternalOracle

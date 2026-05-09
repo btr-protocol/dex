@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
 import {InternalOracle} from "./InternalOracle.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {IExchange} from "../interfaces/modules/IExchange.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {IPoolHooks} from "../interfaces/IPoolHooks.sol";

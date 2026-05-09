@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {IOracle} from "../interfaces/IOracle.sol";
 import {IPool} from "../interfaces/IPool.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {LibMaths as M} from "./LibMaths.sol";
 import {LibSpline} from "./LibSpline.sol";
 import {LibAnchorTree} from "./LibAnchorTree.sol";

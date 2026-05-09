@@ -430,7 +430,7 @@ offset = interpolate(start_depth, end_depth)
 
 ## 11. Implementation Checklist
 
-### Solidity (contracts/src/libraries/)
+### Solidity (evm/src/libraries/)
 - [ ] LibOracle.sol: Update to accumulator-based TWAP
 - [ ] LibOracle.sol: Keep activity-based EMA for volatility
 - [ ] LibPricing.sol: Fix skew to LINEAR (γ × 100 × progress)

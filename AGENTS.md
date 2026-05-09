@@ -58,7 +58,7 @@ dex/
 ├── sdk/           # Core SDK (tokens, chains, contracts metadata)
 ├── front/         # Preact frontend
 ├── back/collector/# Bun WebSocket server
-└── contracts/     # Solidity contracts (Foundry)
+└── evm/          # Solidity contracts (Foundry)
 ```
 
 ---

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {Base} from "./Base.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {ILend} from "../interfaces/modules/ILend.sol";
 
 /// @title Lend

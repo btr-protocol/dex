@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 
 /// @title LibMaths — B64 (52/5/7) float ops + helpers.
 /// @dev Constants WAD/PBPS @ LibConstants. B64 layout: mantissa(52)|decimals(5)|exp+bias(7).

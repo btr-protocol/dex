@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {IERC20} from "../interfaces/external/IERC20.sol";
 import {IWETH9} from "../interfaces/external/IWETH9.sol";
