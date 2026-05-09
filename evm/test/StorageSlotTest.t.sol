@@ -4,14 +4,11 @@ pragma solidity ^0.8.35;
 import {Test, console2} from "forge-std/Test.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {ICore} from "../src/interfaces/modules/ICore.sol";
-import {IExchange} from "../src/interfaces/modules/IExchange.sol";
-import {IAdmin} from "../src/interfaces/modules/IAdmin.sol";
-import {IAdminConfig} from "../src/interfaces/modules/IAdminConfig.sol";
-import {IAdminTimelock} from "../src/interfaces/modules/IAdminTimelock.sol";
+import {IPoolModule} from "../src/interfaces/modules/IPool.sol";
+import {IAdmin, IAdminConfig, IAdminTimelock} from "../src/interfaces/modules/IAdmin.sol";
 import {LibConstants as C} from "../src/libraries/LibConstants.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
-import {AdminConfig} from "../src/modules/AdminConfig.sol";
-import {AdminTimelock} from "../src/modules/AdminTimelock.sol";
+import {Admin} from "../src/modules/Admin.sol";
 
 /// @title StorageSlotTest
 /// @notice Test to verify storage slot layout for PoolStorage struct
@@ -76,7 +73,7 @@ contract StorageSlotTest is Test {
 
     function test_pool_proxy_module_registration() public {
         // Deploy actual contracts
-        AdminTimelock admin = new AdminTimelock();
+        Admin admin = new Admin();
         PoolProxy proxy = new PoolProxy();
 
         // Initialize
@@ -212,8 +209,8 @@ contract StorageSlotTest is Test {
         uint256 modulesSlot = baseSlot + 14;
 
         // Test with swap selector from interface
-        bytes4 swapSelector = IExchange.swap.selector;
-        console2.log("IExchange.swap.selector:");
+        bytes4 swapSelector = IPoolModule.swap.selector;
+        console2.log("IPoolModule.swap.selector:");
         console2.logBytes4(swapSelector);
 
         // Also computed version

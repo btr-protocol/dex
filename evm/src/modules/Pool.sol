@@ -4,18 +4,236 @@ pragma solidity ^0.8.35;
 import {Base} from "./Base.sol";
 import {InternalOracle} from "./InternalOracle.sol";
 import {Err} from "@btr-peripheral/Errors.sol";
-import {IExchange} from "../interfaces/modules/IExchange.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {IPoolHooks} from "../interfaces/IPoolHooks.sol";
+import {IPoolModule} from "../interfaces/modules/IPool.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {LibPricing as Pricing} from "../libraries/LibPricing.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
 
-/// @title Exchange — swap, batchSwap, quotes, views
-contract Exchange is Base {
+/// @title Pool — merged Liquidity + Exchange module
+/// @notice deposit/withdraw/donate/swapLiability + swap/batchSwap/quotes/views
+/// @dev Single module replaces former Liquidity + Exchange. Internal calls
+///      replace the prior IExchangeQuote delegatecall shim.
+contract Pool is Base {
     using SafeTransferLib for address;
     using {M.b64To1e18} for uint64;
+
+    /// @dev Initial liquidity index (1e12 → ~18M× growth before uint64 overflow)
+    uint256 private constant INIT_LIQUIDITY_INDEX = 1e12;
+
+    // ── Liquidity events (mirrored from ICore to avoid import) ──
+    event Deposited(address indexed sender, address indexed token, uint256 amount, uint256 lpAmount);
+    event Withdrawn(address indexed sender, address indexed token, uint256 amount, uint256 lpAmount);
+    event LiabilitySwapped(address indexed sender, address indexed tokenIn, address indexed tokenOut, uint256 lpAmountIn, uint256 lpAmountOut, uint256 haircut);
+    event Donated(address indexed sender, address indexed token, uint256 amount);
+
+    // ─────────────────────────────────────────────────────────────────
+    // LIQUIDITY DOMAIN
+    // ─────────────────────────────────────────────────────────────────
+
+    function deposit(
+        address token,
+        uint256 amount
+    ) external payable nonReentrant whenInitialized returns (IPool.DepositResult memory result) {
+        if (amount == 0) revert Err.ZeroValue();
+
+        IPool.PoolStorage storage $ = _s();
+        address tkn = _wrap($, token);
+        IPool.Asset storage asset = _asset($, tkn);
+
+        _applyDecay($, tkn, asset);
+        if (($.riskConfigs[tkn].flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
+
+        uint256 amt = _pull(token, amount);
+        if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
+
+        uint256 lpAmt = (amt * C.WAD) / (asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex);
+
+        asset.reserves += uint128(amt);
+        asset.liabilities += uint128(amt);
+        $.lpBalances[msg.sender][tkn] += lpAmt;
+        _recordDeposit(msg.sender, tkn);
+
+        emit Deposited(msg.sender, tkn, amt, lpAmt);
+        return IPool.DepositResult({lpAmount: lpAmt, actualDeposit: amt});
+    }
+
+    function donate(address token, uint256 amount) external payable nonReentrant whenInitialized {
+        if (amount == 0) revert Err.ZeroValue();
+
+        IPool.PoolStorage storage $ = _s();
+        address tkn = _wrap($, token);
+        IPool.Asset storage asset = _asset($, tkn);
+
+        _applyDecay($, tkn, asset);
+        _checkRisk($, tkn, 0);
+
+        uint256 amt = _pull(token, amount);
+        if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
+
+        uint256 liabBefore = uint256(asset.liabilities);
+        asset.reserves += uint128(amt);
+        asset.liabilities += uint128(amt);
+
+        uint256 idx = asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex;
+        asset.liquidityIndex = uint64(liabBefore == 0 ? idx : (idx * (liabBefore + amt)) / liabBefore);
+
+        emit Donated(msg.sender, token, amt);
+    }
+
+    function withdraw(
+        address token,
+        uint256 lpAmount,
+        uint256 minAmountOut
+    ) external nonReentrant whenInitialized returns (IPool.WithdrawResult memory) {
+        return _withdrawTo(token, token, lpAmount, minAmountOut);
+    }
+
+    function withdrawTo(
+        address tokenFrom,
+        address tokenTo,
+        uint256 lpAmount,
+        uint256 minAmountOut
+    ) public nonReentrant whenInitialized returns (IPool.WithdrawResult memory) {
+        return _withdrawTo(tokenFrom, tokenTo, lpAmount, minAmountOut);
+    }
+
+    function _withdrawTo(
+        address tokenFrom,
+        address tokenTo,
+        uint256 lpAmount,
+        uint256 minAmountOut
+    ) private returns (IPool.WithdrawResult memory) {
+        if (lpAmount == 0) revert Err.ZeroValue();
+
+        IPool.PoolStorage storage $ = _s();
+        address fromTk = _wrap($, tokenFrom);
+        address toTk = _wrap($, tokenTo);
+
+        _checkWithdrawCooldown(msg.sender, fromTk);
+        if ($.lpBalances[msg.sender][fromTk] < lpAmount) {
+            revert Err.InsufficientAmount($.lpBalances[msg.sender][fromTk], lpAmount);
+        }
+
+        IPool.Asset storage assetFrom = _asset($, fromTk);
+        IPool.Asset storage assetTo = _asset($, toTk);
+        _applyDecay($, fromTk, assetFrom);
+        _applyDecay($, toTk, assetTo);
+
+        uint256 withdrawValue = (lpAmount * (assetFrom.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetFrom.liquidityIndex)) / C.WAD;
+        uint256 amt;
+        uint256 haircut;
+
+        if (fromTk == toTk) {
+            (amt, haircut) = _applyHaircut(withdrawValue, assetFrom.reserves, assetFrom.liabilities, assetFrom.haircutSuppressor);
+            if (assetFrom.reserves < amt) revert Err.InsufficientAmount(assetFrom.reserves, amt);
+            if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
+
+            uint256 liabRed = withdrawValue > assetFrom.liabilities ? assetFrom.liabilities : withdrawValue;
+            assetFrom.reserves -= uint128(amt);
+            assetFrom.liabilities -= uint128(liabRed);
+        } else {
+            // Direct internal quote — replaces former IExchangeQuote delegatecall shim
+            IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, fromTk, toTk, withdrawValue);
+            (amt, haircut) = _applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
+            if (assetTo.reserves < amt) revert Err.InsufficientAmount(assetTo.reserves, amt);
+
+            uint256 liabRed = withdrawValue > assetFrom.liabilities ? assetFrom.liabilities : withdrawValue;
+            assetFrom.liabilities -= uint128(liabRed);
+
+            if (q.protoFee > 0) $.protocolFees[toTk] += q.protoFee;
+            assetTo.reserves -= uint128(amt + q.protoFee);
+        }
+
+        $.lpBalances[msg.sender][fromTk] -= lpAmount;
+        if (assetTo.reserves < assetTo.minLiquidity) {
+            revert Err.ThresholdViolation(assetTo.reserves, assetTo.minLiquidity);
+        }
+        if (amt < minAmountOut) revert Err.ThresholdViolation(amt, minAmountOut);
+        _push(tokenTo, msg.sender, amt);
+
+        if (fromTk == toTk) {
+            emit Withdrawn(msg.sender, fromTk, amt, lpAmount);
+        } else {
+            emit LiabilitySwapped(msg.sender, fromTk, toTk, lpAmount, 0, haircut);
+            emit Withdrawn(msg.sender, toTk, amt, lpAmount);
+        }
+        return IPool.WithdrawResult({amountOut: amt, lpBurned: lpAmount});
+    }
+
+    function swapLiability(
+        address tokenIn,
+        address tokenOut,
+        uint256 lpAmountIn,
+        uint256 minLpAmountOut
+    ) external nonReentrant whenInitialized returns (uint256 lpAmountOut) {
+        if (lpAmountIn == 0) revert Err.ZeroValue();
+
+        IPool.PoolStorage storage $ = _s();
+        address inTk = _wrap($, tokenIn);
+        address outTk = _wrap($, tokenOut);
+        if (inTk == outTk) revert Err.InvalidInput();
+
+        IPool.Asset storage assetIn = $.assets[inTk];
+        IPool.Asset storage assetOut = $.assets[outTk];
+        if (assetIn.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, inTk);
+        if (assetOut.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, outTk);
+
+        _applyDecay($, inTk, assetIn);
+        _applyDecay($, outTk, assetOut);
+        _checkRisk($, inTk, C.LIABILITY_SWAP_ENABLED_BIT);
+        _checkRisk($, outTk, C.LIABILITY_SWAP_ENABLED_BIT);
+
+        if ($.lpBalances[msg.sender][inTk] < lpAmountIn) {
+            revert Err.InsufficientAmount($.lpBalances[msg.sender][inTk], lpAmountIn);
+        }
+
+        uint256 liabIn = (lpAmountIn * (assetIn.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetIn.liquidityIndex)) / C.WAD;
+        if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
+
+        IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, inTk, outTk, liabIn);
+        uint256 liabOut = q.amountOut;
+        uint256 haircut;
+
+        if (assetOut.reserves < assetOut.liabilities) {
+            (liabOut, haircut) = _applyHaircut(liabOut, assetOut.reserves, assetOut.liabilities, assetOut.haircutSuppressor);
+        }
+
+        lpAmountOut = (liabOut * C.WAD) / (assetOut.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetOut.liquidityIndex);
+
+        assetIn.liabilities -= uint128(liabIn);
+        assetOut.liabilities += uint128(liabOut);
+        if (lpAmountOut < minLpAmountOut) revert Err.ThresholdViolation(lpAmountOut, minLpAmountOut);
+
+        $.lpBalances[msg.sender][inTk] -= lpAmountIn;
+        $.lpBalances[msg.sender][outTk] += lpAmountOut;
+
+        emit LiabilitySwapped(msg.sender, inTk, outTk, lpAmountIn, lpAmountOut, haircut);
+        return lpAmountOut;
+    }
+
+    /// @dev Linear haircut w/ suppression: deficit × (1 - suppression/20000), capped 100%.
+    function _applyHaircut(
+        uint256 amount,
+        uint128 reserves,
+        uint128 liabilities,
+        uint16 suppression
+    ) private pure returns (uint256 actualAmount, uint256 haircutAmount) {
+        if (liabilities == 0 || reserves >= liabilities) return (amount, 0);
+
+        uint256 deficit = ((uint256(liabilities) - uint256(reserves)) * 1e18) / uint256(liabilities);
+        uint256 factor = suppression >= 20000 ? 0 : 1e18 - (uint256(suppression) * 1e18 / 20000);
+        uint256 haircutRatio = (deficit * factor) / 1e18;
+        if (haircutRatio > 1e18) haircutRatio = 1e18;
+        haircutAmount = (amount * haircutRatio) / 1e18;
+        actualAmount = amount - haircutAmount;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // EXCHANGE DOMAIN
+    // ─────────────────────────────────────────────────────────────────
 
     function swap(
         address tokenIn,
@@ -49,7 +267,7 @@ contract Exchange is Base {
         if (out < minAmountOut) revert Err.ThresholdViolation(out, minAmountOut);
 
         _push(tokenOut, recipient, out);
-        emit IExchange.Swapped(msg.sender, recipient, tk[0], tk[1], actualIn, out, q.spreadBps, q.protoFee, q.lpFee);
+        emit IPoolModule.Swapped(msg.sender, recipient, tk[0], tk[1], actualIn, out, q.spreadBps, q.protoFee, q.lpFee);
     }
 
     function _processSwap(
@@ -177,10 +395,10 @@ contract Exchange is Base {
             unchecked { ++j; }
         }
 
-        emit IExchange.BatchSwapped(msg.sender, recipient, inLen, outLen, baseTotal);
+        emit IPoolModule.BatchSwapped(msg.sender, recipient, inLen, outLen, baseTotal);
     }
 
-
+    // ── Views ──
     function owner() external view returns (address) { return _s().owner; }
     function baseToken() external view returns (address) { return _s().baseToken; }
     function wnative() external view returns (address) { return _s().wnative; }
@@ -199,6 +417,7 @@ contract Exchange is Base {
         return _readOracle($, _wrap($, tk)).lastPriceB64.b64To1e18();
     }
 
+    // ── Internal swap helpers ──
 
     function _exec(
         IPool.PoolStorage storage $,
