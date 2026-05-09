@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.35;
+
+import {ERC20} from "solady/tokens/ERC20.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+import {Err} from "../Errors.sol";
+import {IStaking} from "../interfaces/modules/IStaking.sol";
+
+/// @title StakedToken
+/// @notice Abstract base for soulbound staked receipt tokens (sGov, sLP)
+/// @dev Balances delegated to Staking module; non-transferable; chain-local
+abstract contract StakedToken is ERC20 {
+    /// @notice Staking module that manages balances
+    address public immutable STAKING;
+    /// @notice Underlying token address (BTR or LP asset)
+    address public immutable UNDERLYING;
+
+    constructor(address _staking, address _underlying) {
+        STAKING = _staking;
+        UNDERLYING = _underlying;
+    }
+
+    function balanceOf(address account) public view virtual override returns (uint256) {
+        try IStaking(STAKING).getStakedBalance(account, UNDERLYING) returns (uint256 b) { return b; } catch { return 0; }
+    }
+
+    function totalSupply() public view virtual override returns (uint256) {
+        try IStaking(STAKING).getTotalStaked(UNDERLYING) returns (uint256 s) { return s; } catch { return 0; }
+    }
+
+    function _disabled() internal pure {
+        revert Err.FeatureDisabled(Err.Resource.TRANSFER);
+    }
+
+    function transfer(address, uint256) public pure override returns (bool) { _disabled(); return false; }
+    function transferFrom(address, address, uint256) public pure override returns (bool) { _disabled(); return false; }
+    function approve(address, uint256) public pure override returns (bool) { _disabled(); return false; }
+
+    /// @dev Only Staking can mint/burn; no transfers
+    function _update(address from, address to, uint256 amount) internal virtual {
+        if (msg.sender != STAKING) revert Ownable.Unauthorized();
+        if (from != address(0) && to != address(0)) revert Err.FeatureDisabled(Err.Resource.TRANSFER);
+        emit Transfer(from, to, amount);
+    }
+}
