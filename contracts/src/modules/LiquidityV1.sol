@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {IExchangeV1} from "../interfaces/modules/IExchangeV1.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
@@ -34,17 +34,17 @@ contract LiquidityV1 is BaseV1 {
         address token,
         uint256 amount
     ) external payable nonReentrant whenInitialized returns (IPoolV1.DepositResult memory result) {
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         address tkn = _wrap($, token);
         IPoolV1.Asset storage asset = _asset($, tkn);
 
         _applyDecay($, tkn, asset);
-        if (($.riskConfigs[tkn].flags & C.FROZEN_BIT) != 0) revert IErrors.FeatureDisabled(IErrors.Resource.ASSET);
+        if (($.riskConfigs[tkn].flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
 
         uint256 amt = _pull(token, amount);
-        if (amt > type(uint128).max) revert IErrors.ExcessiveAmount(amt, type(uint128).max);
+        if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
         uint256 lpAmt = (amt * C.WAD) / (asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex);
 
@@ -59,7 +59,7 @@ contract LiquidityV1 is BaseV1 {
     }
 
     function donate(address token, uint256 amount) external payable nonReentrant whenInitialized {
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         address tkn = _wrap($, token);
@@ -69,7 +69,7 @@ contract LiquidityV1 is BaseV1 {
         _checkRisk($, tkn, 0);
 
         uint256 amt = _pull(token, amount);
-        if (amt > type(uint128).max) revert IErrors.ExcessiveAmount(amt, type(uint128).max);
+        if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
         uint256 liabBefore = uint256(asset.liabilities);
         asset.reserves += uint128(amt);
@@ -108,7 +108,7 @@ contract LiquidityV1 is BaseV1 {
         uint256 lpAmount,
         uint256 minAmountOut
     ) private returns (IPoolV1.WithdrawResult memory result) {
-        if (lpAmount == 0) revert IErrors.ZeroValue();
+        if (lpAmount == 0) revert Err.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         address fromTk = _wrap($, tokenFrom);
@@ -117,7 +117,7 @@ contract LiquidityV1 is BaseV1 {
         _checkWithdrawCooldown(msg.sender, fromTk);
 
         if ($.lpBalances[msg.sender][fromTk] < lpAmount) {
-            revert IErrors.InsufficientAmount($.lpBalances[msg.sender][fromTk], lpAmount);
+            revert Err.InsufficientAmount($.lpBalances[msg.sender][fromTk], lpAmount);
         }
 
         IPoolV1.Asset storage assetFrom = _asset($, fromTk);
@@ -133,10 +133,10 @@ contract LiquidityV1 is BaseV1 {
         if (fromTk == toTk) {
             (amt, haircut) = _applyHaircut(withdrawValue, assetFrom.reserves, assetFrom.liabilities, assetFrom.haircutSuppressor);
 
-            if (assetFrom.reserves < amt) revert IErrors.InsufficientAmount(assetFrom.reserves, amt);
+            if (assetFrom.reserves < amt) revert Err.InsufficientAmount(assetFrom.reserves, amt);
 
             uint256 liabRed = withdrawValue > assetFrom.liabilities ? assetFrom.liabilities : withdrawValue;
-            if (amt > type(uint128).max) revert IErrors.ExcessiveAmount(amt, type(uint128).max);
+            if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
             assetFrom.reserves -= uint128(amt);
             assetFrom.liabilities -= uint128(liabRed);
@@ -145,7 +145,7 @@ contract LiquidityV1 is BaseV1 {
             IPoolV1.SwapQuote memory q = _getQuote($, fromTk, toTk, withdrawValue);
             (amt, haircut) = _applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
 
-            if (assetTo.reserves < amt) revert IErrors.InsufficientAmount(assetTo.reserves, amt);
+            if (assetTo.reserves < amt) revert Err.InsufficientAmount(assetTo.reserves, amt);
 
             uint256 liabRed = withdrawValue > assetFrom.liabilities ? assetFrom.liabilities : withdrawValue;
             assetFrom.liabilities -= uint128(liabRed);
@@ -157,10 +157,10 @@ contract LiquidityV1 is BaseV1 {
         $.lpBalances[msg.sender][fromTk] -= lpAmount;
 
         if (assetTo.reserves < assetTo.minLiquidity) {
-            revert IErrors.ThresholdViolation(assetTo.reserves, assetTo.minLiquidity);
+            revert Err.ThresholdViolation(assetTo.reserves, assetTo.minLiquidity);
         }
 
-        if (amt < minAmountOut) revert IErrors.ThresholdViolation(amt, minAmountOut);
+        if (amt < minAmountOut) revert Err.ThresholdViolation(amt, minAmountOut);
         _push(tokenTo, msg.sender, amt);
 
         if (fromTk == toTk) {
@@ -183,19 +183,19 @@ contract LiquidityV1 is BaseV1 {
         uint256 lpAmountIn,
         uint256 minLpAmountOut
     ) external nonReentrant whenInitialized returns (uint256 lpAmountOut) {
-        if (lpAmountIn == 0) revert IErrors.ZeroValue();
+        if (lpAmountIn == 0) revert Err.ZeroValue();
 
         IPoolV1.PoolStorage storage $ = _s();
         address inTk = _wrap($, tokenIn);
         address outTk = _wrap($, tokenOut);
 
-        if (inTk == outTk) revert IErrors.InvalidInput();
+        if (inTk == outTk) revert Err.InvalidInput();
 
         IPoolV1.Asset storage assetIn = $.assets[inTk];
         IPoolV1.Asset storage assetOut = $.assets[outTk];
 
-        if (assetIn.decimals == 0) revert IErrors.NotFound(IErrors.Resource.ASSET, inTk);
-        if (assetOut.decimals == 0) revert IErrors.NotFound(IErrors.Resource.ASSET, outTk);
+        if (assetIn.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, inTk);
+        if (assetOut.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, outTk);
 
         _applyDecay($, inTk, assetIn);
         _applyDecay($, outTk, assetOut);
@@ -203,12 +203,12 @@ contract LiquidityV1 is BaseV1 {
         _checkRisk($, outTk, C.LIABILITY_SWAP_ENABLED_BIT);
 
         if ($.lpBalances[msg.sender][inTk] < lpAmountIn) {
-            revert IErrors.InsufficientAmount($.lpBalances[msg.sender][inTk], lpAmountIn);
+            revert Err.InsufficientAmount($.lpBalances[msg.sender][inTk], lpAmountIn);
         }
 
         uint256 liabIn = (lpAmountIn * (assetIn.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetIn.liquidityIndex)) / C.WAD;
 
-        if (liabIn > assetIn.liabilities) revert IErrors.InsufficientAmount(assetIn.liabilities, liabIn);
+        if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
 
         // Get quote from CoreV1 via module registry
         IPoolV1.SwapQuote memory q = _getQuote($, inTk, outTk, liabIn);
@@ -224,7 +224,7 @@ contract LiquidityV1 is BaseV1 {
         assetIn.liabilities -= uint128(liabIn);
         assetOut.liabilities += uint128(liabOut);
 
-        if (lpAmountOut < minLpAmountOut) revert IErrors.ThresholdViolation(lpAmountOut, minLpAmountOut);
+        if (lpAmountOut < minLpAmountOut) revert Err.ThresholdViolation(lpAmountOut, minLpAmountOut);
 
         $.lpBalances[msg.sender][inTk] -= lpAmountIn;
         $.lpBalances[msg.sender][outTk] += lpAmountOut;
@@ -245,7 +245,7 @@ contract LiquidityV1 is BaseV1 {
         uint256 amountIn
     ) private returns (IExchangeV1.SwapQuote memory quote) {
         address coreModule = $.modules[IExchangeQuote.getSwapQuote.selector];
-        if (coreModule == address(0)) revert IErrors.InvalidState();
+        if (coreModule == address(0)) revert Err.InvalidState();
 
         (bool success, bytes memory data) = coreModule.delegatecall(
             abi.encodeCall(IExchangeQuote.getSwapQuote, (tokenIn, tokenOut, amountIn))

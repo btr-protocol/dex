@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import {IPoolProxyFactoryV1} from "./interfaces/IPoolProxyFactoryV1.sol";
 import {IPoolV1} from "./interfaces/IPoolV1.sol";
-import {IErrors} from "./interfaces/IErrors.sol";
+import {Err} from "./Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
@@ -74,8 +74,8 @@ contract PoolProxyFactoryV1 is IPoolProxyFactoryV1, Ownable {
     // ========== CONSTRUCTOR ==========
 
     constructor(address _referencePool, address _protocolDeployer) {
-        if (_referencePool == address(0)) revert IErrors.ZeroValue();
-        if (_protocolDeployer == address(0)) revert IErrors.ZeroValue();
+        if (_referencePool == address(0)) revert Err.ZeroValue();
+        if (_protocolDeployer == address(0)) revert Err.ZeroValue();
 
         referencePool = _referencePool;
         protocolDeployer = _protocolDeployer;
@@ -95,8 +95,8 @@ contract PoolProxyFactoryV1 is IPoolProxyFactoryV1, Ownable {
         address[] calldata tokens,
         bytes calldata initdata
     ) external returns (address pool) {
-        if (baseToken == address(0)) revert IErrors.ZeroValue();
-        if (tokens.length == 0) revert IErrors.InvalidInput();
+        if (baseToken == address(0)) revert Err.ZeroValue();
+        if (tokens.length == 0) revert Err.InvalidInput();
 
         // Construct minimal proxy bytecode
         bytes memory bytecode = bytes.concat(
@@ -119,11 +119,11 @@ contract PoolProxyFactoryV1 is IPoolProxyFactoryV1, Ownable {
             pool := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
         }
 
-        if (pool == address(0)) revert IErrors.DeploymentFailed();
+        if (pool == address(0)) revert Err.DeploymentFailed();
 
         // Initialize the pool
         (bool success, ) = pool.call(initdata);
-        if (!success) revert IErrors.OperationFailed();
+        if (!success) revert Err.OperationFailed();
 
         // Register pool
         _registerPool(pool, msg.sender, baseToken, tokens);
@@ -167,7 +167,7 @@ contract PoolProxyFactoryV1 is IPoolProxyFactoryV1, Ownable {
     function _addTokens(address pool, address[] memory tokens) internal {
         for (uint256 i = 0; i < tokens.length; i++) {
             address token = tokens[i];
-            if (token == address(0)) revert IErrors.ZeroValue();
+            if (token == address(0)) revert Err.ZeroValue();
 
             // Skip if already registered
             if (_poolHasToken[pool][token]) continue;
@@ -270,8 +270,8 @@ contract PoolProxyFactoryV1 is IPoolProxyFactoryV1, Ownable {
         external
         onlyOwner
     {
-        if (newImplementation == address(0)) revert IErrors.ZeroValue();
-        if (pendingReferencePool != address(0)) revert IErrors.PendingTimelock(uint48(block.timestamp));
+        if (newImplementation == address(0)) revert Err.ZeroValue();
+        if (pendingReferencePool != address(0)) revert Err.PendingTimelock(uint48(block.timestamp));
 
         pendingReferencePool = newImplementation;
         upgradeTimelock = block.timestamp + UPGRADE_TIMELOCK;
@@ -285,8 +285,8 @@ contract PoolProxyFactoryV1 is IPoolProxyFactoryV1, Ownable {
 
     /// @notice Execute pending reference upgrade
     function executeReferenceUpgrade() external onlyOwner {
-        if (block.timestamp < upgradeTimelock) revert IErrors.PendingTimelock(uint48(upgradeTimelock));
-        if (pendingReferencePool == address(0)) revert IErrors.InvalidState();
+        if (block.timestamp < upgradeTimelock) revert Err.PendingTimelock(uint48(upgradeTimelock));
+        if (pendingReferencePool == address(0)) revert Err.InvalidState();
 
         address oldImplementation = referencePool;
         referencePool = pendingReferencePool;
@@ -299,7 +299,7 @@ contract PoolProxyFactoryV1 is IPoolProxyFactoryV1, Ownable {
 
     /// @notice Cancel pending reference upgrade
     function cancelReferenceUpgrade() external onlyOwner {
-        if (pendingReferencePool == address(0)) revert IErrors.InvalidState();
+        if (pendingReferencePool == address(0)) revert Err.InvalidState();
 
         delete pendingReferencePool;
         delete upgradeTimelock;
@@ -307,7 +307,7 @@ contract PoolProxyFactoryV1 is IPoolProxyFactoryV1, Ownable {
 
     /// @notice Update protocol deployer
     function setProtocolDeployer(address newDeployer) external onlyOwner {
-        if (newDeployer == address(0)) revert IErrors.ZeroValue();
+        if (newDeployer == address(0)) revert Err.ZeroValue();
 
         address oldDeployer = protocolDeployer;
         protocolDeployer = newDeployer;

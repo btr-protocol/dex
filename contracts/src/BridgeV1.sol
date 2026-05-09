@@ -5,7 +5,7 @@ import {IERC7802} from "./interfaces/external/IERC7802.sol";
 import {LZEndpointV2} from "./interfaces/external/ILZEndpointV2.sol";
 import {ILZOAppReceiver} from "./interfaces/external/ILZOAppReceiver.sol";
 import {IBridgeV1} from "./interfaces/IBridgeV1.sol";
-import {IErrors} from "./interfaces/IErrors.sol";
+import {Err} from "./Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
@@ -73,15 +73,15 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     // ═══════════════════════════════════════════════════════════════════════════
 
     constructor(address endpoint) {
-        if (endpoint == address(0)) revert IErrors.ZeroValue();
+        if (endpoint == address(0)) revert Err.ZeroValue();
         LZ_ENDPOINT = endpoint;
     }
 
     /// @notice Initialize bridge (one-time, called via proxy)
     function initialize(address newOwner) external {
-        if (newOwner == address(0)) revert IErrors.ZeroValue();
+        if (newOwner == address(0)) revert Err.ZeroValue();
         // Ensure initialize is only called once
-        if (owner() != address(0)) revert IErrors.InvalidState();
+        if (owner() != address(0)) revert Err.InvalidState();
         _initializeOwner(newOwner);
     }
 
@@ -97,11 +97,11 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         uint256 amount,
         bytes calldata options
     ) external payable nonReentrant {
-        if (receiver == bytes32(0)) revert IErrors.ZeroValue();
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (receiver == bytes32(0)) revert Err.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         bytes32 peer = peers[dstEid];
-        if (peer == bytes32(0)) revert IErrors.NotConfigured(IErrors.Resource.BRIDGE_PEER, address(uint160(dstEid)));
+        if (peer == bytes32(0)) revert Err.NotConfigured(Err.Resource.BRIDGE_PEER, address(uint160(dstEid)));
 
         _checkAndUpdateLimit(token, amount, IBridgeV1.Direction.Outbound);
 
@@ -118,7 +118,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         });
 
         LZEndpointV2.MessagingFee memory fee = _quoteFee(sendParam);
-        if (msg.value != fee.nativeFee) revert IErrors.InsufficientAmount(msg.value, fee.nativeFee);
+        if (msg.value != fee.nativeFee) revert Err.InsufficientAmount(msg.value, fee.nativeFee);
 
         LZEndpointV2.MessagingReceipt memory receipt =
             LZEndpointV2(LZ_ENDPOINT).send{value: fee.nativeFee}(sendParam, fee, msg.sender);
@@ -138,10 +138,10 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         if (msg.sender != LZ_ENDPOINT) revert Unauthorized();
 
         (bytes32 receiver, address token, uint256 amount) = abi.decode(_message, (bytes32, address, uint256));
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         address to = address(uint160(uint256(receiver)));
-        if (to == address(0)) revert IErrors.ZeroValue();
+        if (to == address(0)) revert Err.ZeroValue();
 
         // SECURITY FIX (CRITICAL-6): Check peer - queue for recovery if failed
         bytes32 trustedPeer = peers[_origin.srcEid];
@@ -224,13 +224,13 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         uint256 amount,
         bytes calldata options
     ) external view returns (LZEndpointV2.MessagingFee memory) {
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         TokenConfig memory cfg = tokenConfigs[token];
         if ((cfg.flags & FLAG_SUPPORTED) == 0 || (cfg.flags & FLAG_PAUSED) != 0) {
-            revert IErrors.NotConfigured(IErrors.Resource.ASSET, token);
+            revert Err.NotConfigured(Err.Resource.ASSET, token);
         }
-        if (peers[dstEid] == bytes32(0)) revert IErrors.NotConfigured(IErrors.Resource.BRIDGE_PEER, address(uint160(dstEid)));
+        if (peers[dstEid] == bytes32(0)) revert Err.NotConfigured(Err.Resource.BRIDGE_PEER, address(uint160(dstEid)));
 
         return _quoteFee(LZEndpointV2.SendParam({
             dstEid: dstEid,
@@ -250,7 +250,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     /// @param guid The LayerZero message GUID
     function recoverFailedMessage(bytes32 guid) external onlyOwner nonReentrant {
         FailedMessage memory failed = failedMessages[guid];
-        if (failed.amount == 0) revert IErrors.InvalidState(); // No such failed message
+        if (failed.amount == 0) revert Err.InvalidState(); // No such failed message
 
         // Delete before external call (reentrancy protection)
         delete failedMessages[guid];
@@ -270,10 +270,10 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     /// @param guid The LayerZero message GUID
     /// @param newRecipient New address to receive the tokens
     function recoverFailedMessageTo(bytes32 guid, address newRecipient) external onlyOwner nonReentrant {
-        if (newRecipient == address(0)) revert IErrors.ZeroValue();
+        if (newRecipient == address(0)) revert Err.ZeroValue();
 
         FailedMessage memory failed = failedMessages[guid];
-        if (failed.amount == 0) revert IErrors.InvalidState();
+        if (failed.amount == 0) revert Err.InvalidState();
 
         delete failedMessages[guid];
 
@@ -292,10 +292,10 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     /// @param options LayerZero options for the refund message
     function refundFailedMessage(bytes32 guid, bytes calldata options) external payable onlyOwner nonReentrant {
         FailedMessage memory failed = failedMessages[guid];
-        if (failed.amount == 0) revert IErrors.InvalidState();
+        if (failed.amount == 0) revert Err.InvalidState();
 
         bytes32 peer = peers[failed.srcEid];
-        if (peer == bytes32(0)) revert IErrors.NotConfigured(IErrors.Resource.BRIDGE_PEER, address(uint160(failed.srcEid)));
+        if (peer == bytes32(0)) revert Err.NotConfigured(Err.Resource.BRIDGE_PEER, address(uint160(failed.srcEid)));
 
         delete failedMessages[guid];
 
@@ -309,7 +309,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         });
 
         LZEndpointV2.MessagingFee memory fee = _quoteFee(sendParam);
-        if (msg.value < fee.nativeFee) revert IErrors.InsufficientAmount(msg.value, fee.nativeFee);
+        if (msg.value < fee.nativeFee) revert Err.InsufficientAmount(msg.value, fee.nativeFee);
 
         LZEndpointV2(LZ_ENDPOINT).send{value: fee.nativeFee}(sendParam, fee, payable(msg.sender));
 
@@ -328,10 +328,10 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         uint8 inRatio,
         bool unlimited
     ) external onlyOwner {
-        if (token == address(0)) revert IErrors.ZeroValue();
+        if (token == address(0)) revert Err.ZeroValue();
 
         IBridgeV1.TokenConfig memory cfg = tokenConfigs[token];
-        if ((cfg.flags & FLAG_SUPPORTED) != 0) revert IErrors.AlreadyConfigured(IErrors.Resource.ASSET, token);
+        if ((cfg.flags & FLAG_SUPPORTED) != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, token);
 
         tokenConfigs[token] = IBridgeV1.TokenConfig({
             limitOutB64: unlimited ? 0 : M.encodeB64(limitRaw, decimals),
@@ -355,7 +355,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         bool updateRatio
     ) external onlyOwner {
         bytes32 id = keccak256(abi.encode(IBridgeV1.OpType.ConfigUpdate, token));
-        if (pendingOps[id] != 0) revert IErrors.PendingTimelock(uint48(block.timestamp));
+        if (pendingOps[id] != 0) revert Err.PendingTimelock(uint48(block.timestamp));
 
         pendingOps[id] = TL.pack(C.BASE_TIMELOCK, C.GRACE_PERIOD);
         pendingData[id] = abi.encode(
@@ -396,7 +396,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     /// @notice Request peer set (timelocked)
     function requestSetPeer(uint32 eid, bytes32 peer) external onlyOwner {
         bytes32 id = keccak256(abi.encode(IBridgeV1.OpType.PeerUpdate, eid));
-        if (pendingOps[id] != 0) revert IErrors.PendingTimelock(uint48(block.timestamp));
+        if (pendingOps[id] != 0) revert Err.PendingTimelock(uint48(block.timestamp));
 
         pendingOps[id] = TL.pack(C.BASE_TIMELOCK, C.GRACE_PERIOD);
         pendingData[id] = abi.encodePacked(peer);
@@ -417,7 +417,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
 
     /// @notice Cancel pending operation
     function cancelOperation(bytes32 id) external onlyOwner {
-        if (pendingOps[id] == 0) revert IErrors.InvalidState();
+        if (pendingOps[id] == 0) revert Err.InvalidState();
         delete pendingOps[id];
         delete pendingData[id];
     }
@@ -433,8 +433,8 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
 
     /// @notice Request contract upgrade (timelocked)
     function requestUpgrade(address newImplementation) external onlyOwner {
-        if (newImplementation == address(0)) revert IErrors.ZeroValue();
-        if (pendingUpgrade != bytes32(0)) revert IErrors.PendingTimelock(uint48(block.timestamp));
+        if (newImplementation == address(0)) revert Err.ZeroValue();
+        if (pendingUpgrade != bytes32(0)) revert Err.PendingTimelock(uint48(block.timestamp));
 
         pendingUpgrade = keccak256(abi.encode(newImplementation, block.timestamp));
         pendingImplementation = newImplementation;
@@ -447,7 +447,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
 
     /// @notice Execute contract upgrade after timelock
     function executeUpgrade() external onlyOwner {
-        if (pendingUpgrade == bytes32(0)) revert IErrors.InvalidState();
+        if (pendingUpgrade == bytes32(0)) revert Err.InvalidState();
         TL.validate(pendingOps[pendingUpgrade]);
 
         address newImpl = pendingImplementation;
@@ -462,7 +462,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
 
     /// @notice Cancel pending upgrade request
     function cancelUpgrade() external onlyOwner {
-        if (pendingUpgrade == bytes32(0)) revert IErrors.InvalidState();
+        if (pendingUpgrade == bytes32(0)) revert Err.InvalidState();
 
         bytes32 upgradeId = pendingUpgrade;
         delete pendingUpgrade;
@@ -519,8 +519,8 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
     function _checkAndUpdateLimit(address token, uint256 amount, Direction dir) internal {
         IBridgeV1.TokenConfig storage cfg = tokenConfigs[token];
 
-        if ((cfg.flags & FLAG_SUPPORTED) == 0) revert IErrors.NotConfigured(IErrors.Resource.ASSET, token);
-        if ((cfg.flags & FLAG_PAUSED) != 0) revert IErrors.FeatureDisabled(IErrors.Resource.BRIDGE);
+        if ((cfg.flags & FLAG_SUPPORTED) == 0) revert Err.NotConfigured(Err.Resource.ASSET, token);
+        if ((cfg.flags & FLAG_PAUSED) != 0) revert Err.FeatureDisabled(Err.Resource.BRIDGE);
         if ((cfg.flags & FLAG_UNLIMITED) != 0) return;
 
         // Reset if new day
@@ -544,7 +544,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
                 // Decode for error message only
                 uint256 limitDec = M.decodeB64(cfg.limitOutB64, decimals);
                 uint256 usedDec = M.decodeB64(cfg.bridgedOutB64, decimals);
-                revert IErrors.ExcessiveAmount(amount, limitDec - usedDec);
+                revert Err.ExcessiveAmount(amount, limitDec - usedDec);
             }
 
             cfg.bridgedOutB64 = newTotal;
@@ -559,7 +559,7 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
 
             if (M.gt64(newTotal, inboundLimitB64)) {
                 uint256 usedDec = M.decodeB64(cfg.bridgedInB64, decimals);
-                revert IErrors.ExcessiveAmount(amount, inboundLimit - usedDec);
+                revert Err.ExcessiveAmount(amount, inboundLimit - usedDec);
             }
 
             cfg.bridgedInB64 = newTotal;
@@ -573,10 +573,10 @@ contract BridgeV1 is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable,
         try LZEndpointV2(LZ_ENDPOINT).quote(sendParam, false) returns (
             LZEndpointV2.MessagingFee memory fee
         ) {
-            if (fee.nativeFee == 0 && fee.lzTokenFee == 0) revert IErrors.OperationFailed();
+            if (fee.nativeFee == 0 && fee.lzTokenFee == 0) revert Err.OperationFailed();
             return fee;
         } catch {
-            revert IErrors.OperationFailed();
+            revert Err.OperationFailed();
         }
     }
 

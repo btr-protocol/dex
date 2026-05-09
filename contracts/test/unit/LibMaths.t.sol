@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {LibMaths as M} from "../../src/libraries/LibMaths.sol";
-import {IErrors} from "../../src/interfaces/IErrors.sol";
+import {Err} from "../../src/Errors.sol";
 
 /// @title LibMathsTest
 /// @notice Comprehensive unit tests for LibMaths B64 encoding/decoding and arithmetic

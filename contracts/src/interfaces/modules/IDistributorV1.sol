@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
-import {IErrors} from "../IErrors.sol";
-
 /// @title IDistributor
 /// @notice Cumulative Merkle-based reward distribution with campaign management
-interface IDistributorV1 is IErrors {
+interface IDistributorV1 {
     // ═══════════════════════════════════════════════════════════════════════════
     // ENUMS
     // ═══════════════════════════════════════════════════════════════════════════

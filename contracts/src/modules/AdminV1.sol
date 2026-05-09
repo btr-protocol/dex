@@ -1,65 +1,43 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.35;
 
 import {BaseV1} from "./BaseV1.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {IAdminV1} from "../interfaces/modules/IAdminV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {InternalOracleV1} from "./InternalOracleV1.sol";
 import {LibTimelock as TL} from "../libraries/LibTimelock.sol";
+import {LibUpgradeQueue as UQ} from "../libraries/LibUpgradeQueue.sol";
 import {LibAnchorTree} from "../libraries/LibAnchorTree.sol";
-import {LibTransientCache as TCache} from "../libraries/LibTransientCache.sol";
 
-/// @title Admin
-/// @notice Administrative functions with ultra-compact timelock governance
+/// @title AdminV1
+/// @notice Admin ops with timelock governance
 contract AdminV1 is BaseV1, IAdminV1 {
     modifier onlyOwner() override {
-        IPoolV1.PoolStorage storage $ = _s();
-        if (msg.sender != $.owner) revert Ownable.Unauthorized();
+        if (msg.sender != _s().owner) revert Ownable.Unauthorized();
         _;
     }
 
-    // ========== EMERGENCY FUNCTIONS (NO TIMELOCK) ==========
 
-    /// @notice Emergency freeze of an asset - only immediate admin function
     function freezeAsset(address token) external override onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
-        address tokenNorm = _wrap($, token);
-        _asset($, tokenNorm);
-        $.riskConfigs[tokenNorm].flags |= C.FROZEN_BIT;
-        emit IAdminV1.EmergencyFreeze(tokenNorm);
+        address t = _wrap($, token);
+        _asset($, t);
+        $.riskConfigs[t].flags |= C.FROZEN_BIT;
+        emit IAdminV1.EmergencyFreeze(t);
     }
 
-    /// @notice Unfreeze an asset
     function unfreezeAsset(address token) external override onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
-        address tokenNorm = _wrap($, token);
-        _asset($, tokenNorm);
-        $.riskConfigs[tokenNorm].flags &= ~C.FROZEN_BIT;
-        emit IAdminV1.EmergencyUnfreeze(tokenNorm);
+        address t = _wrap($, token);
+        _asset($, t);
+        $.riskConfigs[t].flags &= ~C.FROZEN_BIT;
+        emit IAdminV1.EmergencyUnfreeze(t);
     }
 
-    // ========== DIRECT ASSET ADDITION (NO TIMELOCK) ==========
-
-    /// @notice Add asset directly without timelock - for initial pool setup
-    /// @dev Only callable by owner. Combines request + execute for efficiency.
-    /// @param token Token address to add
-    /// @param oracleCfg Oracle configuration
-    /// @param riskCfg Risk configuration
-    /// @param profile Liquidity profile
-    /// @param minFeeBps Minimum fee in PBPS (0.0001% units, e.g., 10 = 0.001%)
-    /// @param decimals Token decimals
-    /// @param initialPrice Initial encoded price (B64)
-    /// @param initialFastVolEMA Initial fast volatility EMA
-    /// @param initialSlowVolEMA Initial slow volatility EMA
-    /// @param minDispersion Minimum dispersion in PBPS (0.0001% units, 0 = use default)
-    /// @param maxDispersion Maximum dispersion in PBPS (0.0001% units, 0 = use default)
-    /// @param gamma Inventory sensitivity (basis 10000, 0 = use default)
-    /// @param vega Volatility sensitivity (basis 10000, 0 = use default)
-    /// @param lambda Deviation sensitivity (basis 10000, 0 = use default)
     function addAsset(
         address token,
         IPoolV1.OracleConfig calldata oracleCfg,
@@ -76,458 +54,53 @@ contract AdminV1 is BaseV1, IAdminV1 {
         uint16 vega,
         uint16 lambda
     ) external onlyOwner {
+        if (initialPrice == 0) revert Err.ZeroValue();
+        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
+
         IPoolV1.PoolStorage storage $ = _s();
-
-        if (initialPrice == 0) revert IErrors.ZeroValue();
-        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert IErrors.InvalidInput();
-
-        address tokenNorm = _wrap($, token);
-        if ($.assets[tokenNorm].decimals != 0) revert IErrors.AlreadyConfigured(IErrors.Resource.ASSET, tokenNorm);
+        address t = _wrap($, token);
+        if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
 
         _validateProfileMemory(profile);
         _validateOracleConfig(oracleCfg);
-        _initAsset($, tokenNorm, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
-        _setupOracleAndConfig($, tokenNorm, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
+        _initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
+        _setupOracleAndConfig($, t, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
 
-        emit IAdminV1.AssetAdded(tokenNorm, decimals, 0);
-    }
-
-    // ========== TIMELOCKED ADMIN FUNCTIONS ==========
-
-    function requestAddAsset(
-        address token,
-        IPoolV1.OracleConfig calldata oracleCfg,
-        IPoolV1.RiskConfig calldata riskCfg,
-        IPoolV1.LiquidityProfile calldata profile,
-        uint16 minFeeBps,
-        uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA
-    ) external override onlyOwner {
-        bytes32 id = keccak256(abi.encodePacked("ADD_ASSET", token));
-        IPoolV1.PoolStorage storage $ = _s();
-
-        if (initialPrice == 0) revert IErrors.ZeroValue();
-        if (initialFastVolEMA == 0) revert IErrors.InvalidInput();
-        if (initialSlowVolEMA == 0) revert IErrors.InvalidInput();
-
-        $.pendingOps[id] = TL.pack(C.LOW_TIMELOCK, C.GRACE_PERIOD);
-        $.pendingData[id] = abi.encode(token, oracleCfg, riskCfg, profile, minFeeBps, decimals, initialPrice, initialFastVolEMA, initialSlowVolEMA);
-        emit IAdminV1.TimelockRequested(id, uint8(IPoolV1.OpType.ADD_ASSET), uint48(block.timestamp) + C.LOW_TIMELOCK);
-    }
-
-    function executeAddAsset(address token) external override nonReentrant onlyOwner {
-        bytes32 id = keccak256(abi.encodePacked("ADD_ASSET", token));
-        IPoolV1.PoolStorage storage $ = _s();
-
-        TL.validate($.pendingOps[id]);
-
-        (
-            address storedToken,
-            IPoolV1.OracleConfig memory oracleCfg,
-            IPoolV1.RiskConfig memory riskCfg,
-            IPoolV1.LiquidityProfile memory profileMem,
-            uint16 minFeeBps,
-            uint8 decimals,
-            uint64 initialPrice,
-            uint32 initialFastVolEMA,
-            uint32 initialSlowVolEMA
-        ) = abi.decode($.pendingData[id], (address, IPoolV1.OracleConfig, IPoolV1.RiskConfig, IPoolV1.LiquidityProfile, uint16, uint8, uint64, uint32, uint32));
-
-        if (storedToken != token) revert IErrors.InvalidInput();
-
-        address tokenNorm = _wrap($, token);
-        if ($.assets[tokenNorm].decimals != 0) revert IErrors.AlreadyConfigured(IErrors.Resource.ASSET, tokenNorm);
-
-        _validateProfileMemory(profileMem);
-        _validateOracleConfig(oracleCfg);
-        _initAsset($, tokenNorm, decimals, minFeeBps, 0, 0, 0, 0, 0); // Use defaults for dispersion/sensitivity from timelocked request
-        _setupOracleAndConfig($, tokenNorm, oracleCfg, riskCfg, profileMem, initialPrice, initialFastVolEMA, initialSlowVolEMA);
-
-        delete $.pendingOps[id];
-        delete $.pendingData[id];
-        emit IAdminV1.AssetAdded(tokenNorm, decimals, 0);
-    }
-
-    function requestUpdateRiskConfig(address token, IPoolV1.RiskConfig calldata cfg) external override onlyOwner {
-        bytes32 id = keccak256(abi.encodePacked("UPDATE_RISK", token));
-        IPoolV1.PoolStorage storage $ = _s();
-
-        $.pendingOps[id] = TL.pack(C.LOW_TIMELOCK, C.GRACE_PERIOD);
-        $.pendingData[id] = abi.encode(token, cfg);
-        emit IAdminV1.TimelockRequested(id, uint8(IPoolV1.OpType.UPDATE_RISK), uint48(block.timestamp) + C.LOW_TIMELOCK);
-    }
-
-    function executeUpdateRiskConfig(address token) external override nonReentrant onlyOwner {
-        bytes32 id = keccak256(abi.encodePacked("UPDATE_RISK", token));
-        IPoolV1.PoolStorage storage $ = _s();
-
-        TL.validate($.pendingOps[id]);
-
-        (address storedToken, IPoolV1.RiskConfig memory cfg) = abi.decode($.pendingData[id], (address, IPoolV1.RiskConfig));
-        if (storedToken != token) revert IErrors.InvalidInput();
-
-        address tokenNorm = _wrap($, token);
-        _asset($, tokenNorm);
-        $.riskConfigs[tokenNorm] = cfg;
-
-        delete $.pendingOps[id];
-        delete $.pendingData[id];
-        emit IAdminV1.RiskConfigUpdated(tokenNorm, cfg.flags, 0);
-    }
-
-    function requestUpdateFeeParams(IPoolV1.FeeParams calldata params) external override onlyOwner {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        $.pendingOps[C.TIMELOCK_ID_FEE_PARAMS] = TL.pack(C.LOW_TIMELOCK, C.GRACE_PERIOD);
-        $.pendingData[C.TIMELOCK_ID_FEE_PARAMS] = abi.encode(params);
-        emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_FEE_PARAMS, uint8(IPoolV1.OpType.UPDATE_FEES), uint48(block.timestamp) + C.LOW_TIMELOCK);
-    }
-
-    function executeUpdateFeeParams() external override nonReentrant onlyOwner {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        TL.validate($.pendingOps[C.TIMELOCK_ID_FEE_PARAMS]);
-
-        IPoolV1.FeeParams memory params = abi.decode($.pendingData[C.TIMELOCK_ID_FEE_PARAMS], (IPoolV1.FeeParams));
-        $.feeParams = params;
-
-        delete $.pendingOps[C.TIMELOCK_ID_FEE_PARAMS];
-        delete $.pendingData[C.TIMELOCK_ID_FEE_PARAMS];
-        emit IAdminV1.FeeParamsUpdated(params.protoShare, params.flashFeeBps);
+        emit IAdminV1.AssetAdded(t, decimals, 0);
     }
 
     function collectProtocolFees(address token, address recipient) external override nonReentrant {
         IPoolV1.PoolStorage storage $ = _s();
-
-        // Only treasury can collect protocol fees
         if (msg.sender != $.treasury) revert Ownable.Unauthorized();
 
-        address tokenNorm = _wrap($, token);
-        uint256 fees = $.protocolFees[tokenNorm];
+        address t = _wrap($, token);
+        uint256 fees = $.protocolFees[t];
         if (fees > 0) {
-            $.protocolFees[tokenNorm] = 0;
+            $.protocolFees[t] = 0;
             _push(token, recipient, fees);
-            emit IAdminV1.ProtocolFeesCollected(tokenNorm, recipient, fees);
+            emit IAdminV1.ProtocolFeesCollected(t, recipient, fees);
         }
     }
 
-    // ========== TIMELOCK GOVERNANCE ==========
-
-    function requestOwnershipTransfer(address newOwner) external override onlyOwner {
-        if (newOwner == address(0)) revert IErrors.ZeroValue();
-        IPoolV1.PoolStorage storage $ = _s();
-
-        $.pendingOps[C.TIMELOCK_ID_OWNERSHIP] = TL.pack(C.HIGH_TIMELOCK, C.GRACE_PERIOD);
-        $.pendingData[C.TIMELOCK_ID_OWNERSHIP] = abi.encode(newOwner);
-        emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_OWNERSHIP, uint8(IPoolV1.OpType.TRANSFER_OWNERSHIP), uint48(block.timestamp) + C.HIGH_TIMELOCK);
-    }
-
-    function executeOwnershipTransfer() external override nonReentrant {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        TL.validate($.pendingOps[C.TIMELOCK_ID_OWNERSHIP]);
-
-        address newOwner = abi.decode($.pendingData[C.TIMELOCK_ID_OWNERSHIP], (address));
-        address oldOwner = $.owner;
-        $.owner = newOwner;
-
-        delete $.pendingOps[C.TIMELOCK_ID_OWNERSHIP];
-        delete $.pendingData[C.TIMELOCK_ID_OWNERSHIP];
-        emit IAdminV1.OwnershipTransferred(oldOwner, newOwner);
-    }
-
-    function requestBridgeUpdate(address newBridge) external override onlyOwner {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        $.pendingOps[C.TIMELOCK_ID_BRIDGE] = TL.pack(C.HIGH_TIMELOCK, C.GRACE_PERIOD);
-        $.pendingData[C.TIMELOCK_ID_BRIDGE] = abi.encode(newBridge);
-        emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_BRIDGE, uint8(IPoolV1.OpType.UPDATE_BRIDGE), uint48(block.timestamp) + C.HIGH_TIMELOCK);
-    }
-
-    function executeBridgeUpdate() external override nonReentrant onlyOwner {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        TL.validate($.pendingOps[C.TIMELOCK_ID_BRIDGE]);
-
-        address newBridge = abi.decode($.pendingData[C.TIMELOCK_ID_BRIDGE], (address));
-        address oldBridge = $.bridge;
-        $.bridge = newBridge;
-
-        delete $.pendingOps[C.TIMELOCK_ID_BRIDGE];
-        delete $.pendingData[C.TIMELOCK_ID_BRIDGE];
-        emit IAdminV1.BridgeUpdated(oldBridge, newBridge);
-    }
-
-    function requestTreasuryUpdate(address newTreasury) external override onlyOwner {
-        if (newTreasury == address(0)) revert IErrors.ZeroValue();
-        IPoolV1.PoolStorage storage $ = _s();
-
-        $.pendingOps[C.TIMELOCK_ID_TREASURY] = TL.pack(C.HIGH_TIMELOCK, C.GRACE_PERIOD);
-        $.pendingData[C.TIMELOCK_ID_TREASURY] = abi.encode(newTreasury);
-        emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_TREASURY, uint8(IPoolV1.OpType.UPDATE_TREASURY), uint48(block.timestamp) + C.HIGH_TIMELOCK);
-    }
-
-    function executeTreasuryUpdate() external override nonReentrant onlyOwner {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        TL.validate($.pendingOps[C.TIMELOCK_ID_TREASURY]);
-
-        address newTreasury = abi.decode($.pendingData[C.TIMELOCK_ID_TREASURY], (address));
-        address oldTreasury = $.treasury;
-        $.treasury = newTreasury;
-
-        delete $.pendingOps[C.TIMELOCK_ID_TREASURY];
-        delete $.pendingData[C.TIMELOCK_ID_TREASURY];
-        emit IAdminV1.TreasuryUpdated(oldTreasury, newTreasury);
-    }
-
-    function requestModuleUpdate(address impl, bytes4[] calldata selectors, bytes calldata initData) external override onlyOwner {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        $.pendingOps[C.TIMELOCK_ID_MODULE] = TL.pack(C.HIGH_TIMELOCK, C.GRACE_PERIOD);
-        $.pendingData[C.TIMELOCK_ID_MODULE] = abi.encode(impl, selectors, initData);
-        emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_MODULE, uint8(IPoolV1.OpType.UPDATE_MODULE), uint48(block.timestamp) + C.HIGH_TIMELOCK);
-    }
-
-    function executeModuleUpdate() external override onlyOwner nonReentrant {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        TL.validate($.pendingOps[C.TIMELOCK_ID_MODULE]);
-
-        (address impl, bytes4[] memory selectors, bytes memory initData) = abi.decode($.pendingData[C.TIMELOCK_ID_MODULE], (address, bytes4[], bytes));
-
-        _updateModule($, impl, selectors, initData);
-
-        delete $.pendingOps[C.TIMELOCK_ID_MODULE];
-        delete $.pendingData[C.TIMELOCK_ID_MODULE];
-    }
-
-    function requestBaseMigration(address newBase) external override onlyOwner {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        $.pendingOps[C.TIMELOCK_ID_BASE_MIGRATION] = TL.pack(C.CRITICAL_TIMELOCK, C.GRACE_PERIOD);
-        $.pendingData[C.TIMELOCK_ID_BASE_MIGRATION] = abi.encode(newBase);
-        emit IAdminV1.TimelockRequested(C.TIMELOCK_ID_BASE_MIGRATION, uint8(IPoolV1.OpType.MIGRATE_BASE_TOKEN), uint48(block.timestamp) + C.CRITICAL_TIMELOCK);
-    }
-
-    function executeBaseMigration() external override nonReentrant onlyOwner {
-        IPoolV1.PoolStorage storage $ = _s();
-
-        TL.validate($.pendingOps[C.TIMELOCK_ID_BASE_MIGRATION]);
-
-        address newBase = abi.decode($.pendingData[C.TIMELOCK_ID_BASE_MIGRATION], (address));
-        address oldBase = $.baseToken;
-        $.baseToken = newBase;
-
-        delete $.pendingOps[C.TIMELOCK_ID_BASE_MIGRATION];
-        delete $.pendingData[C.TIMELOCK_ID_BASE_MIGRATION];
-        emit IAdminV1.BaseTokenMigrated(oldBase, newBase);
-    }
-
-    function requestOracleUpdate(address token, IPoolV1.OracleConfig calldata cfg) external override onlyOwner {
-        bytes32 id = keccak256(abi.encodePacked("ORACLE_UPDATE", token));
-        IPoolV1.PoolStorage storage $ = _s();
-
-        $.pendingOps[id] = TL.pack(C.BASE_TIMELOCK, C.GRACE_PERIOD);
-        $.pendingData[id] = abi.encode(token, cfg);
-        emit IAdminV1.TimelockRequested(id, uint8(IPoolV1.OpType.UPDATE_ORACLE), uint48(block.timestamp) + C.BASE_TIMELOCK);
-    }
-
-    function executeOracleUpdate(address token) external nonReentrant onlyOwner {
-        bytes32 id = keccak256(abi.encodePacked("ORACLE_UPDATE", token));
-        IPoolV1.PoolStorage storage $ = _s();
-
-        TL.validate($.pendingOps[id]);
-
-        (address storedToken, IPoolV1.OracleConfig memory cfg) = abi.decode($.pendingData[id], (address, IPoolV1.OracleConfig));
-        if (storedToken != token) revert IErrors.InvalidInput();
-
-        _validateOracleConfig(cfg);
-
-        $.oracleConfigs[token] = cfg;
-
-        delete $.pendingOps[id];
-        delete $.pendingData[id];
-        emit IAdminV1.OracleUpdated(token);
-    }
-
-    function cancelTimelock(uint8 opType) external override onlyOwner {
-        IPoolV1.PoolStorage storage $ = _s();
-        bytes32 id;
-
-        if (opType == uint8(IPoolV1.OpType.TRANSFER_OWNERSHIP)) {
-            id = C.TIMELOCK_ID_OWNERSHIP;
-        } else if (opType == uint8(IPoolV1.OpType.UPDATE_MODULE)) {
-            id = C.TIMELOCK_ID_MODULE;
-        } else if (opType == uint8(IPoolV1.OpType.MIGRATE_BASE_TOKEN)) {
-            id = C.TIMELOCK_ID_BASE_MIGRATION;
-        } else if (opType == uint8(IPoolV1.OpType.UPDATE_ORACLE)) {
-            revert IErrors.InvalidInput(); // Use cancelOracleUpdate instead
-        } else if (opType == uint8(IPoolV1.OpType.UPDATE_STAKING)) {
-            id = C.TIMELOCK_ID_STAKING;
-        } else if (opType == uint8(IPoolV1.OpType.UPDATE_DISTRIBUTION)) {
-            id = C.TIMELOCK_ID_DISTRIBUTION;
-        } else if (opType == uint8(IPoolV1.OpType.UPDATE_BRIDGE)) {
-            id = C.TIMELOCK_ID_BRIDGE;
-        } else if (opType == uint8(IPoolV1.OpType.UPDATE_TREASURY)) {
-            id = C.TIMELOCK_ID_TREASURY;
-        } else {
-            revert IErrors.InvalidInput();
-        }
-
-        if ($.pendingOps[id] == 0) {
-            revert IErrors.InvalidState();
-        }
-
-        delete $.pendingOps[id];
-        delete $.pendingData[id];
-        emit IAdminV1.TimelockCancelled(id, opType);
-    }
-
-    function cancelOracleUpdate(address token) external onlyOwner {
-        bytes32 id = keccak256(abi.encodePacked("ORACLE_UPDATE", token));
-        IPoolV1.PoolStorage storage $ = _s();
-
-        if ($.pendingOps[id] == 0) {
-            revert IErrors.InvalidState();
-        }
-
-        delete $.pendingOps[id];
-        delete $.pendingData[id];
-        emit IAdminV1.TimelockCancelled(id, uint8(IPoolV1.OpType.UPDATE_ORACLE));
-    }
-
-    // ========== MODULE MANAGEMENT ==========
-
-    function _updateModule(
-        IPoolV1.PoolStorage storage $,
-        address impl,
-        bytes4[] memory sels,
-        bytes memory initData
-    ) internal {
-        if (sels.length == 0) revert IErrors.InvalidInput();
-
-        for (uint256 i = 0; i < sels.length; i++) {
-            $.modules[sels[i]] = impl;
-        }
-
-        if (impl != address(0) && initData.length > 0) {
-            (bool ok, bytes memory err) = impl.delegatecall(initData);
-            if (!ok) {
-                assembly { revert(add(err, 32), mload(err)) }
-            }
-        }
-
-        emit IAdminV1.ModulesUpdated(impl, sels);
-    }
-
-    function getModule(bytes4 sel) external view override returns (address) {
-        return _s().modules[sel];
-    }
-
-    // ========== INTERNAL HELPERS ==========
-
-    function _validateProfileMemory(IPoolV1.LiquidityProfile memory profile) internal pure {
-        if (profile.weights[0] == 0) revert IErrors.InvalidInput();
-
-        uint256 sum = 0;
-        uint256 segmentCount = 0;
-        unchecked {
-            for (uint256 i = 0; i < 16; ++i) {
-                if (profile.weights[i] == 0) {
-                    segmentCount = i;
-                    break;
-                }
-                sum += profile.weights[i];
-                if (i == 15) segmentCount = 16;
-            }
-        }
-
-        if (segmentCount == 0) revert IErrors.InvalidInput();
-        if (sum != 200) revert IErrors.InvalidInput();
-
-        // Validate knots are monotonically increasing (for N segments, we have N+1 knots)
-        uint256 knotCount = segmentCount + 1;
-        unchecked {
-            for (uint256 i = 1; i < knotCount; ++i) {
-                if (profile.knots[i] < profile.knots[i - 1]) {
-                    revert IErrors.InvalidInput();
-                }
-            }
-        }
-
-        // Validate dispersion constraint: max(knots) - min(knots) == 100
-        // Since knots are monotonically increasing: min = knots[0], max = knots[knotCount-1]
-        if (int16(profile.knots[knotCount - 1]) - int16(profile.knots[0]) != 100) {
-            revert IErrors.InvalidInput();
-        }
-    }
-
-    function _validateOracleConfig(IPoolV1.OracleConfig memory cfg) internal view {
-        if (cfg.primary == address(0)) revert IErrors.InvalidInput();
-
-        // Validate primary oracle exists and is callable
-        if (cfg.primary != address(this)) {
-            try IOracleV1(cfg.primary).getFeed(cfg.feedId) returns (IOracleV1.FeedData memory feed) {
-                // Success - could cache this feed data for immediate use after validation
-                // But since this is admin function (rare), caching benefit is minimal
-            } catch {
-                revert IErrors.InvalidInput();
-            }
-        }
-
-        // Validate secondary oracle if configured
-        if (cfg.secondary != address(0) && cfg.secondary != address(this)) {
-            try IOracleV1(cfg.secondary).getFeed(cfg.feedId) returns (IOracleV1.FeedData memory) {
-                // Success
-            } catch {
-                revert IErrors.InvalidInput();
-            }
-        }
-    }
-
-    // ========== FLOW GUARD (JIT PROTECTION) ==========
-
-    /// @notice Set flow cooldown for deposit→withdraw and stake→unstake protection
-    /// @dev No timelock needed - this is a protective parameter, not a risk-increasing one
-    /// @param cooldownSeconds Cooldown duration in seconds (0 to disable)
     function setFlowCooldown(uint16 cooldownSeconds) external override onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
-        uint16 oldCooldown = $.flowCooldownSeconds;
+        uint16 old = $.flowCooldownSeconds;
         $.flowCooldownSeconds = cooldownSeconds;
-        emit IAdminV1.FlowCooldownUpdated(oldCooldown, cooldownSeconds);
+        emit IAdminV1.FlowCooldownUpdated(old, cooldownSeconds);
     }
 
-    // ========== ANCHOR TREE MANAGEMENT ==========
-
-    /// @notice Set or update anchor for an asset
-    /// @dev No timelock needed as this is a configuration change, not a risk change
-    /// @param token The asset to configure
-    /// @param anchor The parent asset in the tree (address(0) for root)
     function setAnchor(address token, address anchor) external onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
-        address tokenNorm = _wrap($, token);
+        address t = _wrap($, token);
+        IPoolV1.Asset storage asset = $.assets[t];
+        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
 
-        // Validate asset exists
-        IPoolV1.Asset storage asset = $.assets[tokenNorm];
-        if (asset.decimals == 0) revert IErrors.NotFound(IErrors.Resource.ASSET, tokenNorm);
-
-        // Import LibAnchorTree for validation
-        uint8 depth = LibAnchorTree.validateAnchor($, tokenNorm, anchor);
-
-        // Update anchor relationship
+        uint8 depth = LibAnchorTree.validateAnchor($, t, anchor);
         asset.anchor = anchor;
         asset.anchorDepth = depth;
-
-        // NB: Route caching removed - paths are recomputed on demand
-
-        emit AnchorUpdated(tokenNorm, anchor, depth);
+        emit AnchorUpdated(t, anchor, depth);
     }
 
-    /// @notice Update asset pricing and risk parameters
-    /// @dev No timelock as these are configuration changes (not irreversible)
     function setAssetParams(
         address token,
         uint128 minLiquidity,
@@ -540,13 +113,10 @@ contract AdminV1 is BaseV1, IAdminV1 {
         uint64 reservationPrice
     ) external onlyOwner {
         IPoolV1.PoolStorage storage $ = _s();
-        address tokenNorm = _wrap($, token);
-
-        IPoolV1.Asset storage asset = $.assets[tokenNorm];
-        if (asset.decimals == 0) revert IErrors.NotFound(IErrors.Resource.ASSET, tokenNorm);
-
-        // Validate fee bounds
-        if (minFeeBps > maxFeeBps) revert IErrors.InvalidInput();
+        address t = _wrap($, token);
+        IPoolV1.Asset storage asset = $.assets[t];
+        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
+        if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
 
         asset.minLiquidity = minLiquidity;
         asset.minFeeBps = minFeeBps;
@@ -556,21 +126,262 @@ contract AdminV1 is BaseV1, IAdminV1 {
         asset.lambda = lambda;
         asset.haircutSuppressor = haircutSuppressor;
         asset.reservationPrice = reservationPrice;
-
-        emit AssetParamsUpdated(tokenNorm, minLiquidity, reservationPrice);
+        emit AssetParamsUpdated(t, minLiquidity, reservationPrice);
     }
 
-    // ========== INTERNAL HELPERS ==========
 
-    /// @dev Initialize asset with optional dispersion and sensitivity overrides
-    /// @param minDispersion Minimum dispersion (0 = use default 1000)
-    /// @param maxDispersion Maximum dispersion (0 = use default 100000)
-    /// @param gamma Inventory sensitivity (0 = use default 10000)
-    /// @param vega Volatility sensitivity (0 = use default 10000)
-    /// @param lambda Deviation sensitivity (0 = use default 10000)
+    function _queue(bytes32 id, uint48 delay, bytes memory data, uint8 opType) internal {
+        IPoolV1.PoolStorage storage $ = _s();
+        uint48 eta = UQ.queue($.pendingOps, $.pendingData, id, delay, C.GRACE_PERIOD, data);
+        emit IAdminV1.TimelockRequested(id, opType, eta);
+    }
+
+    function _consume(bytes32 id) internal returns (bytes memory data) {
+        IPoolV1.PoolStorage storage $ = _s();
+        data = UQ.consume($.pendingOps, $.pendingData, id);
+    }
+
+    function _cancel(bytes32 id, uint8 opType) internal {
+        IPoolV1.PoolStorage storage $ = _s();
+        UQ.cancel($.pendingOps, $.pendingData, id);
+        emit IAdminV1.TimelockCancelled(id, opType);
+    }
+
+
+    function requestAddAsset(
+        address token,
+        IPoolV1.OracleConfig calldata oracleCfg,
+        IPoolV1.RiskConfig calldata riskCfg,
+        IPoolV1.LiquidityProfile calldata profile,
+        uint16 minFeeBps,
+        uint8 decimals,
+        uint64 initialPrice,
+        uint32 initialFastVolEMA,
+        uint32 initialSlowVolEMA
+    ) external override onlyOwner {
+        if (initialPrice == 0) revert Err.ZeroValue();
+        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
+        bytes32 id = keccak256(abi.encodePacked("ADD_ASSET", token));
+        _queue(id, C.LOW_TIMELOCK, abi.encode(token, oracleCfg, riskCfg, profile, minFeeBps, decimals, initialPrice, initialFastVolEMA, initialSlowVolEMA), uint8(IPoolV1.OpType.ADD_ASSET));
+    }
+
+    function executeAddAsset(address token) external override nonReentrant onlyOwner {
+        bytes32 id = keccak256(abi.encodePacked("ADD_ASSET", token));
+        bytes memory raw = _consume(id);
+        (
+            address storedToken,
+            IPoolV1.OracleConfig memory oracleCfg,
+            IPoolV1.RiskConfig memory riskCfg,
+            IPoolV1.LiquidityProfile memory profile,
+            uint16 minFeeBps,
+            uint8 decimals,
+            uint64 initialPrice,
+            uint32 initialFastVolEMA,
+            uint32 initialSlowVolEMA
+        ) = abi.decode(raw, (address, IPoolV1.OracleConfig, IPoolV1.RiskConfig, IPoolV1.LiquidityProfile, uint16, uint8, uint64, uint32, uint32));
+        if (storedToken != token) revert Err.InvalidInput();
+
+        IPoolV1.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
+
+        _validateProfileMemory(profile);
+        _validateOracleConfig(oracleCfg);
+        _initAsset($, t, decimals, minFeeBps, 0, 0, 0, 0, 0);
+        _setupOracleAndConfig($, t, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
+        emit IAdminV1.AssetAdded(t, decimals, 0);
+    }
+
+
+    function requestUpdateRiskConfig(address token, IPoolV1.RiskConfig calldata cfg) external override onlyOwner {
+        bytes32 id = keccak256(abi.encodePacked("UPDATE_RISK", token));
+        _queue(id, C.LOW_TIMELOCK, abi.encode(token, cfg), uint8(IPoolV1.OpType.UPDATE_RISK));
+    }
+
+    function executeUpdateRiskConfig(address token) external override nonReentrant onlyOwner {
+        bytes32 id = keccak256(abi.encodePacked("UPDATE_RISK", token));
+        bytes memory raw = _consume(id);
+        (address storedToken, IPoolV1.RiskConfig memory cfg) = abi.decode(raw, (address, IPoolV1.RiskConfig));
+        if (storedToken != token) revert Err.InvalidInput();
+
+        IPoolV1.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        _asset($, t);
+        $.riskConfigs[t] = cfg;
+        emit IAdminV1.RiskConfigUpdated(t, cfg.flags, 0);
+    }
+
+
+    function requestUpdateFeeParams(IPoolV1.FeeParams calldata params) external override onlyOwner {
+        _queue(C.TIMELOCK_ID_FEE_PARAMS, C.LOW_TIMELOCK, abi.encode(params), uint8(IPoolV1.OpType.UPDATE_FEES));
+    }
+
+    function executeUpdateFeeParams() external override nonReentrant onlyOwner {
+        IPoolV1.FeeParams memory params = abi.decode(_consume(C.TIMELOCK_ID_FEE_PARAMS), (IPoolV1.FeeParams));
+        _s().feeParams = params;
+        emit IAdminV1.FeeParamsUpdated(params.protoShare, params.flashFeeBps);
+    }
+
+
+    function requestOwnershipTransfer(address newOwner) external override onlyOwner {
+        if (newOwner == address(0)) revert Err.ZeroValue();
+        _queue(C.TIMELOCK_ID_OWNERSHIP, C.HIGH_TIMELOCK, abi.encode(newOwner), uint8(IPoolV1.OpType.TRANSFER_OWNERSHIP));
+    }
+
+    function executeOwnershipTransfer() external override nonReentrant {
+        address newOwner = abi.decode(_consume(C.TIMELOCK_ID_OWNERSHIP), (address));
+        IPoolV1.PoolStorage storage $ = _s();
+        address oldOwner = $.owner;
+        $.owner = newOwner;
+        emit IAdminV1.OwnershipTransferred(oldOwner, newOwner);
+    }
+
+
+    function requestBridgeUpdate(address newBridge) external override onlyOwner {
+        _queue(C.TIMELOCK_ID_BRIDGE, C.HIGH_TIMELOCK, abi.encode(newBridge), uint8(IPoolV1.OpType.UPDATE_BRIDGE));
+    }
+
+    function executeBridgeUpdate() external override nonReentrant onlyOwner {
+        address newBridge = abi.decode(_consume(C.TIMELOCK_ID_BRIDGE), (address));
+        IPoolV1.PoolStorage storage $ = _s();
+        address oldBridge = $.bridge;
+        $.bridge = newBridge;
+        emit IAdminV1.BridgeUpdated(oldBridge, newBridge);
+    }
+
+
+    function requestTreasuryUpdate(address newTreasury) external override onlyOwner {
+        if (newTreasury == address(0)) revert Err.ZeroValue();
+        _queue(C.TIMELOCK_ID_TREASURY, C.HIGH_TIMELOCK, abi.encode(newTreasury), uint8(IPoolV1.OpType.UPDATE_TREASURY));
+    }
+
+    function executeTreasuryUpdate() external override nonReentrant onlyOwner {
+        address newTreasury = abi.decode(_consume(C.TIMELOCK_ID_TREASURY), (address));
+        IPoolV1.PoolStorage storage $ = _s();
+        address oldTreasury = $.treasury;
+        $.treasury = newTreasury;
+        emit IAdminV1.TreasuryUpdated(oldTreasury, newTreasury);
+    }
+
+
+    function requestModuleUpdate(address impl, bytes4[] calldata selectors, bytes calldata initData) external override onlyOwner {
+        _queue(C.TIMELOCK_ID_MODULE, C.HIGH_TIMELOCK, abi.encode(impl, selectors, initData), uint8(IPoolV1.OpType.UPDATE_MODULE));
+    }
+
+    function executeModuleUpdate() external override onlyOwner nonReentrant {
+        (address impl, bytes4[] memory selectors, bytes memory initData) = abi.decode(_consume(C.TIMELOCK_ID_MODULE), (address, bytes4[], bytes));
+        _updateModule(_s(), impl, selectors, initData);
+    }
+
+
+    function requestBaseMigration(address newBase) external override onlyOwner {
+        _queue(C.TIMELOCK_ID_BASE_MIGRATION, C.CRITICAL_TIMELOCK, abi.encode(newBase), uint8(IPoolV1.OpType.MIGRATE_BASE_TOKEN));
+    }
+
+    function executeBaseMigration() external override nonReentrant onlyOwner {
+        address newBase = abi.decode(_consume(C.TIMELOCK_ID_BASE_MIGRATION), (address));
+        IPoolV1.PoolStorage storage $ = _s();
+        address oldBase = $.baseToken;
+        $.baseToken = newBase;
+        emit IAdminV1.BaseTokenMigrated(oldBase, newBase);
+    }
+
+
+    function requestOracleUpdate(address token, IPoolV1.OracleConfig calldata cfg) external override onlyOwner {
+        bytes32 id = keccak256(abi.encodePacked("ORACLE_UPDATE", token));
+        _queue(id, C.BASE_TIMELOCK, abi.encode(token, cfg), uint8(IPoolV1.OpType.UPDATE_ORACLE));
+    }
+
+    function executeOracleUpdate(address token) external nonReentrant onlyOwner {
+        bytes32 id = keccak256(abi.encodePacked("ORACLE_UPDATE", token));
+        (address storedToken, IPoolV1.OracleConfig memory cfg) = abi.decode(_consume(id), (address, IPoolV1.OracleConfig));
+        if (storedToken != token) revert Err.InvalidInput();
+        _validateOracleConfig(cfg);
+        _s().oracleConfigs[token] = cfg;
+        emit IAdminV1.OracleUpdated(token);
+    }
+
+    function cancelOracleUpdate(address token) external onlyOwner {
+        bytes32 id = keccak256(abi.encodePacked("ORACLE_UPDATE", token));
+        _cancel(id, uint8(IPoolV1.OpType.UPDATE_ORACLE));
+    }
+
+
+    function cancelTimelock(uint8 opType) external override onlyOwner {
+        bytes32 id;
+        if (opType == uint8(IPoolV1.OpType.TRANSFER_OWNERSHIP)) id = C.TIMELOCK_ID_OWNERSHIP;
+        else if (opType == uint8(IPoolV1.OpType.UPDATE_MODULE)) id = C.TIMELOCK_ID_MODULE;
+        else if (opType == uint8(IPoolV1.OpType.MIGRATE_BASE_TOKEN)) id = C.TIMELOCK_ID_BASE_MIGRATION;
+        else if (opType == uint8(IPoolV1.OpType.UPDATE_STAKING)) id = C.TIMELOCK_ID_STAKING;
+        else if (opType == uint8(IPoolV1.OpType.UPDATE_DISTRIBUTION)) id = C.TIMELOCK_ID_DISTRIBUTION;
+        else if (opType == uint8(IPoolV1.OpType.UPDATE_BRIDGE)) id = C.TIMELOCK_ID_BRIDGE;
+        else if (opType == uint8(IPoolV1.OpType.UPDATE_TREASURY)) id = C.TIMELOCK_ID_TREASURY;
+        else revert Err.InvalidInput(); // includes UPDATE_ORACLE → use cancelOracleUpdate
+        _cancel(id, opType);
+    }
+
+
+    function _updateModule(
+        IPoolV1.PoolStorage storage $,
+        address impl,
+        bytes4[] memory sels,
+        bytes memory initData
+    ) internal {
+        if (sels.length == 0) revert Err.InvalidInput();
+        for (uint256 i = 0; i < sels.length; i++) $.modules[sels[i]] = impl;
+        if (impl != address(0) && initData.length > 0) {
+            (bool ok, bytes memory err) = impl.delegatecall(initData);
+            if (!ok) { assembly { revert(add(err, 32), mload(err)) } }
+        }
+        emit IAdminV1.ModulesUpdated(impl, sels);
+    }
+
+    function getModule(bytes4 sel) external view override returns (address) {
+        return _s().modules[sel];
+    }
+
+
+    function _validateProfileMemory(IPoolV1.LiquidityProfile memory profile) internal pure {
+        if (profile.weights[0] == 0) revert Err.InvalidInput();
+
+        uint256 sum = 0;
+        uint256 segmentCount = 0;
+        unchecked {
+            for (uint256 i = 0; i < 16; ++i) {
+                if (profile.weights[i] == 0) { segmentCount = i; break; }
+                sum += profile.weights[i];
+                if (i == 15) segmentCount = 16;
+            }
+        }
+        if (segmentCount == 0 || sum != 200) revert Err.InvalidInput();
+
+        uint256 knotCount = segmentCount + 1;
+        unchecked {
+            for (uint256 i = 1; i < knotCount; ++i) {
+                if (profile.knots[i] < profile.knots[i - 1]) revert Err.InvalidInput();
+            }
+        }
+        if (int16(profile.knots[knotCount - 1]) - int16(profile.knots[0]) != 100) revert Err.InvalidInput();
+    }
+
+    function _validateOracleConfig(IPoolV1.OracleConfig memory cfg) internal view {
+        if (cfg.primary == address(0)) revert Err.InvalidInput();
+        if (cfg.primary != address(this)) {
+            try IOracleV1(cfg.primary).getFeed(cfg.feedId) returns (IOracleV1.FeedData memory) {} catch {
+                revert Err.InvalidInput();
+            }
+        }
+        if (cfg.secondary != address(0) && cfg.secondary != address(this)) {
+            try IOracleV1(cfg.secondary).getFeed(cfg.feedId) returns (IOracleV1.FeedData memory) {} catch {
+                revert Err.InvalidInput();
+            }
+        }
+    }
+
+
     function _initAsset(
         IPoolV1.PoolStorage storage $,
-        address tokenNorm,
+        address t,
         uint8 decimals,
         uint16 minFeeBps,
         uint32 minDispersion,
@@ -579,12 +390,11 @@ contract AdminV1 is BaseV1, IAdminV1 {
         uint16 vega,
         uint16 lambda
     ) internal {
-        IPoolV1.Asset storage asset = $.assets[tokenNorm];
+        IPoolV1.Asset storage asset = $.assets[t];
         asset.decimals = decimals;
         asset.minFeeBps = minFeeBps;
         asset.maxFeeBps = 10000;
         asset.minLiquidity = 0;
-        // Use provided values or defaults (0 means use default)
         asset.minDispersion = minDispersion == 0 ? 1000 : minDispersion;
         asset.maxDispersion = maxDispersion == 0 ? 100000 : maxDispersion;
         asset.gamma = gamma == 0 ? 10000 : gamma;
@@ -592,7 +402,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
         asset.lambda = lambda == 0 ? 10000 : lambda;
         asset.haircutSuppressor = 10000;
 
-        if (tokenNorm == $.baseToken) {
+        if (t == $.baseToken) {
             asset.anchor = address(0);
             asset.anchorDepth = 0;
         } else {
@@ -603,7 +413,7 @@ contract AdminV1 is BaseV1, IAdminV1 {
 
     function _setupOracleAndConfig(
         IPoolV1.PoolStorage storage $,
-        address tokenNorm,
+        address t,
         IPoolV1.OracleConfig memory oracleCfg,
         IPoolV1.RiskConfig memory riskCfg,
         IPoolV1.LiquidityProfile memory profile,
@@ -611,16 +421,15 @@ contract AdminV1 is BaseV1, IAdminV1 {
         uint32 initialFastVolEMA,
         uint32 initialSlowVolEMA
     ) internal {
-        $.oracleConfigs[tokenNorm] = oracleCfg;
-        $.riskConfigs[tokenNorm] = riskCfg;
-        $.profiles[tokenNorm] = profile;
+        $.oracleConfigs[t] = oracleCfg;
+        $.riskConfigs[t] = riskCfg;
+        $.profiles[t] = profile;
 
         if (oracleCfg.primary == address(this)) {
             uint8 accDec = oracleCfg.accDecimals == 0 ? 6 : oracleCfg.accDecimals;
-            try InternalOracleV1(address(this)).updateFeed(tokenNorm, initialPrice, accDec, initialFastVolEMA, initialSlowVolEMA) {} catch {
-                revert IErrors.OperationFailed();
+            try InternalOracleV1(address(this)).updateFeed(t, initialPrice, accDec, initialFastVolEMA, initialSlowVolEMA) {} catch {
+                revert Err.OperationFailed();
             }
         }
     }
-
 }

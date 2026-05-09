@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {IStakingV1} from "../interfaces/modules/IStakingV1.sol";
 
 /// @title StakedToken
@@ -60,18 +60,18 @@ abstract contract StakedToken is ERC20 {
     /// @notice Transfers are disabled - staked tokens are non-transferable receipts
     /// @dev Users must unstake via StakingV1 to move underlying assets
     function transfer(address, uint256) public pure override returns (bool) {
-        revert IErrors.FeatureDisabled(IErrors.Resource.TRANSFER);
+        revert Err.FeatureDisabled(Err.Resource.TRANSFER);
     }
 
     /// @notice Transfers are disabled - staked tokens are non-transferable receipts
     /// @dev Users must unstake via StakingV1 to move underlying assets
     function transferFrom(address, address, uint256) public pure override returns (bool) {
-        revert IErrors.FeatureDisabled(IErrors.Resource.TRANSFER);
+        revert Err.FeatureDisabled(Err.Resource.TRANSFER);
     }
 
     /// @notice Allowances are disabled since transfers are disabled
     function approve(address, uint256) public pure override returns (bool) {
-        revert IErrors.FeatureDisabled(IErrors.Resource.TRANSFER);
+        revert Err.FeatureDisabled(Err.Resource.TRANSFER);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -87,7 +87,7 @@ abstract contract StakedToken is ERC20 {
 
         // Enforce mint/burn only (no transfers)
         if (from != address(0) && to != address(0)) {
-            revert IErrors.FeatureDisabled(IErrors.Resource.TRANSFER);
+            revert Err.FeatureDisabled(Err.Resource.TRANSFER);
         }
 
         // Emit Transfer event for ERC20 compliance

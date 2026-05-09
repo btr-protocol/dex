@@ -6,7 +6,7 @@ import {IMintable} from "./interfaces/IMintable.sol";
 import {IPoolV1} from "./interfaces/IPoolV1.sol";
 import {IAdminV1} from "./interfaces/modules/IAdminV1.sol";
 import {IBridgeV1} from "./interfaces/IBridgeV1.sol";
-import {IErrors} from "./interfaces/IErrors.sol";
+import {Err} from "./Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
@@ -70,23 +70,23 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
     // ═══════════════════════════════════════════════════════════════════════════
 
     constructor(address _govToken) {
-        if (_govToken == address(0)) revert IErrors.ZeroValue();
+        if (_govToken == address(0)) revert Err.ZeroValue();
         govToken = _govToken;
     }
 
     /// @notice Initialize treasury (one-time, called via proxy)
     function initialize(address newOwner) external {
-        if (newOwner == address(0)) revert IErrors.ZeroValue();
+        if (newOwner == address(0)) revert Err.ZeroValue();
         // Ensure initialize is only called once
-        if (owner() != address(0)) revert IErrors.InvalidState();
+        if (owner() != address(0)) revert Err.InvalidState();
         _initializeOwner(newOwner);
     }
 
     /// @notice Initialize emissions schedule (one-time, owner only)
     /// @dev Should be called after token is deployed with treasury as owner
     function initializeEmissions(uint256 _emissionsCap) external onlyOwner {
-        if (_emissionsCap == 0) revert IErrors.ZeroValue();
-        if (emissionsSchedule.totalAllocation != 0) revert IErrors.InvalidState();
+        if (_emissionsCap == 0) revert Err.ZeroValue();
+        if (emissionsSchedule.totalAllocation != 0) revert Err.InvalidState();
 
         // Initialize emissions schedule (off-chain curve determines timing, this only caps total)
         emissionsSchedule = VestingSchedule({
@@ -104,7 +104,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
     /// @notice Enforce global max supply before any mint
     function _enforceMaxSupply(uint256 amount) internal view {
         uint256 ts = IMintable(govToken).totalSupply();
-        if (ts + amount > maxSupply) revert IErrors.ExceedsMaxSupply();
+        if (ts + amount > maxSupply) revert Err.ExceedsMaxSupply();
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -113,16 +113,16 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
 
     /// @notice Mint governance tokens for non-emissions uses (owner only, treasury/seeding/grants)
     function mintGovToken(address to, uint256 amount) external override onlyOwner {
-        if (to == address(0)) revert IErrors.ZeroValue();
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (to == address(0)) revert Err.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
         _mintAndTrack(to, amount);
         emit GovTokenMinted(to, amount);
     }
 
     /// @notice Mint emissions to distributor (owner only, enforces emissions cap)
     function mintEmissionsToDistributor(uint256 amount) external override onlyOwner {
-        if (amount == 0) revert IErrors.ZeroValue();
-        if (distributor == address(0)) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
+        if (distributor == address(0)) revert Err.ZeroValue();
 
         _checkAndUpdateEmissions(amount);
         _mintAndTrack(distributor, amount);
@@ -139,12 +139,12 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
         override
         onlyOwner
     {
-        revert IErrors.FeatureDisabled(IErrors.Resource.BRIDGE);
+        revert Err.FeatureDisabled(Err.Resource.BRIDGE);
 
-        if (amount == 0) revert IErrors.ZeroValue();
-        if (bridge == address(0)) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
+        if (bridge == address(0)) revert Err.ZeroValue();
         address remoteDistributor = authorizedRemoteDistributor[dstEid];
-        if (remoteDistributor == address(0)) revert IErrors.ZeroValue();
+        if (remoteDistributor == address(0)) revert Err.ZeroValue();
 
         _checkAndUpdateEmissions(amount);
         _mintAndTrack(address(this), amount);
@@ -158,7 +158,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
 
     /// @notice Burn governance tokens (permissionless)
     function burnGovToken(uint256 amount) external override {
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
         IMintable(govToken).burn(msg.sender, amount);
         emit GovTokenBurned(msg.sender, amount);
     }
@@ -174,8 +174,8 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
         address[] calldata beneficiaries,
         uint256[] calldata allocations
     ) external override onlyOwner {
-        if (tgeTimestamp != 0) revert IErrors.InvalidState();
-        if (beneficiaries.length != allocations.length) revert IErrors.InvalidInput();
+        if (tgeTimestamp != 0) revert Err.InvalidState();
+        if (beneficiaries.length != allocations.length) revert Err.InvalidInput();
 
         tgeTimestamp = uint48(block.timestamp);
 
@@ -206,7 +206,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
             address beneficiary = beneficiaries[i];
             uint256 allocation = allocations[i];
 
-            if (beneficiary == address(0)) revert IErrors.ZeroValue();
+            if (beneficiary == address(0)) revert Err.ZeroValue();
             if (allocation == 0) continue;
 
             uint48 cliffTime = tgeTimestamp + CLIFF_DURATION;
@@ -229,10 +229,10 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
     /// @notice Claim vested tokens
     function claimVested() external override nonReentrant {
         VestingSchedule storage schedule = vestingSchedules[msg.sender];
-        if (schedule.totalAllocation == 0) revert IErrors.InvalidState();
+        if (schedule.totalAllocation == 0) revert Err.InvalidState();
 
         uint256 claimable = getClaimableVested(msg.sender);
-        if (claimable == 0) revert IErrors.InvalidState();
+        if (claimable == 0) revert Err.InvalidState();
 
         schedule.claimed += claimable;
         _enforceMaxSupply(claimable);
@@ -272,7 +272,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
     /// @notice Collect protocol fees from a pool
     /// @dev Anyone can call this - fees are sent to treasury (this contract)
     function collectProtocolFees(address pool, address token) external override nonReentrant {
-        if (pool == address(0) || token == address(0)) revert IErrors.ZeroValue();
+        if (pool == address(0) || token == address(0)) revert Err.ZeroValue();
         IAdminV1(pool).collectProtocolFees(token, address(this));
         emit ProtocolFeesCollected(pool, token, 0); // Amount logged in pool's event
     }
@@ -283,8 +283,8 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
 
     /// @notice Request ownership transfer (timelocked)
     function requestOwnershipTransfer(address newOwner) external override onlyOwner {
-        if (newOwner == address(0)) revert IErrors.ZeroValue();
-        if (pendingOwnershipOp != 0) revert IErrors.PendingTimelock(uint48(block.timestamp));
+        if (newOwner == address(0)) revert Err.ZeroValue();
+        if (pendingOwnershipOp != 0) revert Err.PendingTimelock(uint48(block.timestamp));
 
         pendingOwnershipOp = TL.pack(C.CRITICAL_TIMELOCK, C.GRACE_PERIOD);
         pendingOwner = newOwner;
@@ -307,28 +307,28 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
 
     /// @notice Cancel pending ownership transfer
     function cancelOwnershipTransfer() external override onlyOwner {
-        if (pendingOwnershipOp == 0) revert IErrors.InvalidState();
+        if (pendingOwnershipOp == 0) revert Err.InvalidState();
         delete pendingOwnershipOp;
         delete pendingOwner;
     }
 
     /// @notice Set the distributor contract address (owner only)
     function setDistributor(address _distributor) external override onlyOwner {
-        if (_distributor == address(0)) revert IErrors.ZeroValue();
+        if (_distributor == address(0)) revert Err.ZeroValue();
         distributor = _distributor;
         emit DistributorSet(_distributor);
     }
 
     /// @notice Set the bridge contract address (owner only)
     function setBridge(address _bridge) external override onlyOwner {
-        if (_bridge == address(0)) revert IErrors.ZeroValue();
+        if (_bridge == address(0)) revert Err.ZeroValue();
         bridge = _bridge;
         emit BridgeSet(_bridge);
     }
 
     /// @notice Authorize a remote distributor for a destination chain (owner only)
     function authorizeRemoteDistributor(uint32 dstEid, address remoteDistributor) external override onlyOwner {
-        if (remoteDistributor == address(0)) revert IErrors.ZeroValue();
+        if (remoteDistributor == address(0)) revert Err.ZeroValue();
         authorizedRemoteDistributor[dstEid] = remoteDistributor;
         emit RemoteDistributorAuthorized(dstEid, remoteDistributor);
     }
@@ -336,8 +336,8 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
     /// @notice Request emissions cap change (timelocked)
     function requestEmissionsCapChange(uint256 newCap) external override onlyOwner {
         VestingSchedule storage es = emissionsSchedule;
-        if (newCap < es.claimed) revert IErrors.InvalidInput();
-        if (pendingEmissionsCapOp != 0) revert IErrors.PendingTimelock(uint48(block.timestamp));
+        if (newCap < es.claimed) revert Err.InvalidInput();
+        if (pendingEmissionsCapOp != 0) revert Err.PendingTimelock(uint48(block.timestamp));
 
         pendingEmissionsCapOp = TL.pack(C.CRITICAL_TIMELOCK, C.GRACE_PERIOD);
         pendingEmissionsCap = newCap;
@@ -365,7 +365,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
 
     /// @notice Cancel pending emissions cap change
     function cancelEmissionsCapChange() external override onlyOwner {
-        if (pendingEmissionsCapOp == 0) revert IErrors.InvalidState();
+        if (pendingEmissionsCapOp == 0) revert Err.InvalidState();
         delete pendingEmissionsCapOp;
         delete pendingEmissionsCap;
     }
@@ -381,8 +381,8 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
 
     /// @notice Request contract upgrade (timelocked)
     function requestUpgrade(address newImplementation) external onlyOwner {
-        if (newImplementation == address(0)) revert IErrors.ZeroValue();
-        if (pendingUpgrade != bytes32(0)) revert IErrors.PendingTimelock(uint48(block.timestamp));
+        if (newImplementation == address(0)) revert Err.ZeroValue();
+        if (pendingUpgrade != bytes32(0)) revert Err.PendingTimelock(uint48(block.timestamp));
 
         pendingUpgrade = keccak256(abi.encode(newImplementation, block.timestamp));
         pendingImplementation = newImplementation;
@@ -395,7 +395,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
 
     /// @notice Execute contract upgrade after timelock
     function executeUpgrade() external onlyOwner {
-        if (pendingUpgrade == bytes32(0)) revert IErrors.InvalidState();
+        if (pendingUpgrade == bytes32(0)) revert Err.InvalidState();
         TL.validate(pendingUpgradeOp);
 
         address newImpl = pendingImplementation;
@@ -410,7 +410,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
 
     /// @notice Cancel pending upgrade request
     function cancelUpgrade() external onlyOwner {
-        if (pendingUpgrade == bytes32(0)) revert IErrors.InvalidState();
+        if (pendingUpgrade == bytes32(0)) revert Err.InvalidState();
 
         bytes32 upgradeId = pendingUpgrade;
         delete pendingUpgrade;
@@ -466,7 +466,7 @@ contract TreasuryV1 is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasuryV1 {
     function _checkAndUpdateEmissions(uint256 amount) internal {
         VestingSchedule storage es = emissionsSchedule;
         uint256 newClaimed = es.claimed + amount;
-        if (newClaimed > es.totalAllocation) revert IErrors.ExceedsMaxSupply();
+        if (newClaimed > es.totalAllocation) revert Err.ExceedsMaxSupply();
         es.claimed = newClaimed;
     }
 

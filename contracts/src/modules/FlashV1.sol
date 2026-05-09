@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {IFlashV1} from "../interfaces/modules/IFlashV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {IPoolHooks} from "../interfaces/IPoolHooks.sol";
@@ -37,11 +37,11 @@ contract FlashV1 is BaseV1, IFlashV1 {
         // Apply decay
         _applyDecay($, tokenNorm, asset);
 
-        if ((risk.flags & C.FLASH_ENABLED_BIT) == 0) revert IErrors.FeatureDisabled(IErrors.Resource.FLASH);
-        if ((risk.flags & C.FROZEN_BIT) != 0) revert IErrors.FeatureDisabled(IErrors.Resource.ASSET);
-        if (amount == 0) revert IErrors.ZeroValue();
+        if ((risk.flags & C.FLASH_ENABLED_BIT) == 0) revert Err.FeatureDisabled(Err.Resource.FLASH);
+        if ((risk.flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
+        if (amount == 0) revert Err.ZeroValue();
         if (asset.reserves < amount || asset.reserves - amount < asset.minLiquidity) {
-            revert IErrors.InsufficientAmount(asset.reserves, amount);
+            revert Err.InsufficientAmount(asset.reserves, amount);
         }
 
         uint256 fee = (amount * uint256($.feeParams.flashFeeBps)) / 1_000_000;
@@ -62,12 +62,12 @@ contract FlashV1 is BaseV1, IFlashV1 {
         // Callback with ERC-3156 magic value check (use original address)
         bytes32 result = receiver.postFlashLoan(msg.sender, token, amount, fee, data);
         if (result != keccak256("ERC3156FlashBorrower.postFlashLoan")) {
-            revert IErrors.OperationFailed();
+            revert Err.OperationFailed();
         }
 
         // Verify repayment: must return amount + fee
         uint256 balanceAfter = _balanceOf(token);
-        if (balanceAfter < balanceBefore + amount + fee) revert IErrors.OperationFailed();
+        if (balanceAfter < balanceBefore + amount + fee) revert Err.OperationFailed();
 
         // Update reserves (use normalized address for storage)
         asset.reserves = uint128(balanceAfter - protoFee);

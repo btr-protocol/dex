@@ -5,7 +5,7 @@ import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {LibOracle} from "../../src/libraries/LibOracle.sol";
 import {LibMaths as M} from "../../src/libraries/LibMaths.sol";
 import {IOracleV1} from "../../src/interfaces/IOracleV1.sol";
-import {IErrors} from "../../src/interfaces/IErrors.sol";
+import {Err} from "../../src/Errors.sol";
 
 /// @title LibOracleTest
 /// @notice Comprehensive unit tests for LibOracle offset encoding/decoding and risk signals

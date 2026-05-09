@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 
 /// @title LibAnchorTree
 /// @notice Library for anchor-based pricing tree operations
@@ -166,7 +166,7 @@ library LibAnchorTree {
         address[] memory pathB
     ) internal pure returns (address lca) {
         // Both paths end at root, so roots must match
-        if (pathA[pathA.length - 1] != pathB[pathB.length - 1]) revert IErrors.InvalidInput();
+        if (pathA[pathA.length - 1] != pathB[pathB.length - 1]) revert Err.InvalidInput();
 
         lca = pathA[pathA.length - 1];  // Start at root
 
@@ -214,7 +214,7 @@ library LibAnchorTree {
             }
         }
 
-        if (lcaIndexIn == type(uint256).max || lcaIndexOut == type(uint256).max) revert IErrors.InvalidState();
+        if (lcaIndexIn == type(uint256).max || lcaIndexOut == type(uint256).max) revert Err.InvalidState();
 
         // Build full path: tokenIn → ... → LCA → ... → tokenOut
         uint256 totalLength = lcaIndexIn + 1 + lcaIndexOut;

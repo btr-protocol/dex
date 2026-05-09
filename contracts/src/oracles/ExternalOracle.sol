@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
 
@@ -84,7 +84,7 @@ contract ExternalOracle is IOracleV1 {
     // ========== CONSTRUCTOR ==========
 
     constructor(address _owner, address _oracle) {
-        if (_owner == address(0) || _oracle == address(0)) revert IErrors.ZeroValue();
+        if (_owner == address(0) || _oracle == address(0)) revert Err.ZeroValue();
         owner = _owner;
         oracles[_oracle] = true;
         emit OracleGranted(_oracle);
@@ -111,13 +111,13 @@ contract ExternalOracle is IOracleV1 {
         uint16 maxDeviation,
         uint16 ttl
     ) external onlyOwner {
-        if (base == address(0) || quote == address(0)) revert IErrors.ZeroValue();
-        if (fastEMA == 0 || slowEMA == 0) revert IErrors.ZeroValue();
+        if (base == address(0) || quote == address(0)) revert Err.ZeroValue();
+        if (fastEMA == 0 || slowEMA == 0) revert Err.ZeroValue();
         if (fastVolEMA > MAX_VOLATILITY || slowVolEMA > MAX_VOLATILITY) {
-            revert IErrors.ThresholdViolation(fastVolEMA > slowVolEMA ? fastVolEMA : slowVolEMA, MAX_VOLATILITY);
+            revert Err.ThresholdViolation(fastVolEMA > slowVolEMA ? fastVolEMA : slowVolEMA, MAX_VOLATILITY);
         }
-        if (maxDeviation > MAX_DEV_THRESHOLD) revert IErrors.InvalidInput();
-        if (ttl == 0) revert IErrors.InvalidInput();
+        if (maxDeviation > MAX_DEV_THRESHOLD) revert Err.InvalidInput();
+        if (ttl == 0) revert Err.InvalidInput();
 
         bytes32 feedId = keccak256(abi.encodePacked(base, quote));
         if (feeds[feedId].updatedAt != 0) revert FeedAlreadyExists(feedId);
@@ -157,8 +157,8 @@ contract ExternalOracle is IOracleV1 {
         uint16 ttl
     ) external onlyOwner {
         if (feeds[feedId].updatedAt == 0) revert FeedNotFound(feedId);
-        if (maxDeviation > MAX_DEV_THRESHOLD) revert IErrors.InvalidInput();
-        if (ttl == 0) revert IErrors.InvalidInput();
+        if (maxDeviation > MAX_DEV_THRESHOLD) revert Err.InvalidInput();
+        if (ttl == 0) revert Err.InvalidInput();
 
         feeds[feedId].ttl = ttl;
         // NB: maxDeviation not stored in FeedData (removed from struct)
@@ -170,7 +170,7 @@ contract ExternalOracle is IOracleV1 {
     /// @notice Grant oracle role
     /// @param oracle Address to grant role
     function grantOracle(address oracle) external onlyOwner {
-        if (oracle == address(0)) revert IErrors.ZeroValue();
+        if (oracle == address(0)) revert Err.ZeroValue();
         oracles[oracle] = true;
         emit OracleGranted(oracle);
     }
@@ -184,7 +184,7 @@ contract ExternalOracle is IOracleV1 {
 
     /// @notice Transfer ownership
     function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert IErrors.ZeroValue();
+        if (newOwner == address(0)) revert Err.ZeroValue();
         owner = newOwner;
     }
 
@@ -227,7 +227,7 @@ contract ExternalOracle is IOracleV1 {
             slowEMAs.length != length ||
             fastVolEMAs.length != length ||
             slowVolEMAs.length != length
-        ) revert IErrors.InvalidInput();
+        ) revert Err.InvalidInput();
 
         for (uint256 i = 0; i < length; i++) {
             _pushInternal(
@@ -254,9 +254,9 @@ contract ExternalOracle is IOracleV1 {
     ) internal {
         FeedData storage feed = feeds[feedId];
         if (feed.updatedAt == 0) revert FeedNotFound(feedId);
-        if (newFastEMA == 0 || newSlowEMA == 0) revert IErrors.ZeroValue();
+        if (newFastEMA == 0 || newSlowEMA == 0) revert Err.ZeroValue();
         if (newFastVolEMA > MAX_VOLATILITY || newSlowVolEMA > MAX_VOLATILITY) {
-            revert IErrors.ThresholdViolation(newFastVolEMA > newSlowVolEMA ? newFastVolEMA : newSlowVolEMA, MAX_VOLATILITY);
+            revert Err.ThresholdViolation(newFastVolEMA > newSlowVolEMA ? newFastVolEMA : newSlowVolEMA, MAX_VOLATILITY);
         }
 
         // Update lastPrice to newFastEMA, compute new offsets

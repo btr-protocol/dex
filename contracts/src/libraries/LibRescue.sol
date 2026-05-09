@@ -4,7 +4,7 @@ pragma solidity ^0.8.33;
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IERC721} from "../interfaces/external/IERC721.sol";
 import {IERC1155} from "../interfaces/external/IERC1155.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {LibConstants as C} from "./LibConstants.sol";
 
 /// @title LibRescue
@@ -30,8 +30,8 @@ library LibRescue {
     /// @param to Recipient address
     /// @param amount Amount to rescue
     function rescueToken(address token, address to, uint256 amount) internal {
-        if (to == address(0)) revert IErrors.ZeroValue();
-        if (amount == 0) revert IErrors.ZeroValue();
+        if (to == address(0)) revert Err.ZeroValue();
+        if (amount == 0) revert Err.ZeroValue();
 
         if (token == C.NATIVE) {
             SafeTransferLib.safeTransferETH(to, amount);
@@ -61,10 +61,10 @@ library LibRescue {
     /// @param to Recipient address
     /// @return rescued Amount rescued
     function rescueAll(address token, address to) internal returns (uint256 rescued) {
-        if (to == address(0)) revert IErrors.ZeroValue();
+        if (to == address(0)) revert Err.ZeroValue();
 
         rescued = getBalance(token);
-        if (rescued == 0) revert IErrors.ZeroValue();
+        if (rescued == 0) revert Err.ZeroValue();
 
         if (token == C.NATIVE) {
             SafeTransferLib.safeTransferETH(to, rescued);
@@ -85,7 +85,7 @@ library LibRescue {
     /// @param to Recipient address
     /// @param tokenId Token ID to rescue
     function rescueERC721(address token, address to, uint256 tokenId) internal {
-        if (to == address(0)) revert IErrors.ZeroValue();
+        if (to == address(0)) revert Err.ZeroValue();
         if (token == address(0)) revert InvalidToken();
         if (token.code.length == 0) revert InvalidToken();
         IERC721(token).safeTransferFrom(address(this), to, tokenId);
@@ -96,8 +96,8 @@ library LibRescue {
     /// @param to Recipient address
     /// @param tokenIds Array of token IDs to rescue
     function rescueERC721Batch(address token, address to, uint256[] memory tokenIds) internal {
-        if (to == address(0)) revert IErrors.ZeroValue();
-        if (tokenIds.length == 0) revert IErrors.ZeroValue();
+        if (to == address(0)) revert Err.ZeroValue();
+        if (tokenIds.length == 0) revert Err.ZeroValue();
         if (token == address(0)) revert InvalidToken();
         if (token.code.length == 0) revert InvalidToken();
 
@@ -124,14 +124,14 @@ library LibRescue {
     /// @param tokenId Token ID to rescue
     /// @param amount Amount to rescue (0 = rescue all balance)
     function rescueERC1155(address token, address to, uint256 tokenId, uint256 amount) internal {
-        if (to == address(0)) revert IErrors.ZeroValue();
+        if (to == address(0)) revert Err.ZeroValue();
         if (token == address(0)) revert InvalidToken();
         if (token.code.length == 0) revert InvalidToken();
 
         uint256 balance = IERC1155(token).balanceOf(address(this), tokenId);
         uint256 toRescue = (amount == 0 || amount > balance) ? balance : amount;
 
-        if (toRescue == 0) revert IErrors.ZeroValue();
+        if (toRescue == 0) revert Err.ZeroValue();
 
         IERC1155(token).safeTransferFrom(address(this), to, tokenId, toRescue, "");
     }
@@ -141,8 +141,8 @@ library LibRescue {
     /// @param to Recipient address
     /// @param tokenIds Array of token IDs to rescue
     function rescueERC1155Batch(address token, address to, uint256[] memory tokenIds) internal {
-        if (to == address(0)) revert IErrors.ZeroValue();
-        if (tokenIds.length == 0) revert IErrors.ZeroValue();
+        if (to == address(0)) revert Err.ZeroValue();
+        if (tokenIds.length == 0) revert Err.ZeroValue();
         if (token == address(0)) revert InvalidToken();
         if (token.code.length == 0) revert InvalidToken();
 

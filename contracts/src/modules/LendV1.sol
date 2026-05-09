@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {ILendV1} from "../interfaces/modules/ILendV1.sol";
 
 /// @title Lend

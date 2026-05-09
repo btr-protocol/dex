@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
 import {InternalOracleV1} from "./InternalOracleV1.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {ICoreV1} from "../interfaces/modules/ICoreV1.sol";
 import {IExchangeV1} from "../interfaces/modules/IExchangeV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
@@ -30,8 +30,8 @@ contract ExchangeV1 is BaseV1 {
         IPoolV1.PoolStorage storage $ = _s();
         address[2] memory tk = [_wrap($, tokenIn), _wrap($, tokenOut)];
 
-        if (tk[0] == tk[1]) revert IErrors.InvalidInput();
-        if (amountIn == 0) revert IErrors.ZeroValue();
+        if (tk[0] == tk[1]) revert Err.InvalidInput();
+        if (amountIn == 0) revert Err.ZeroValue();
 
         _checkRisk($, tk[0], C.SWAP_ENABLED_BIT);
         _checkRisk($, tk[1], C.SWAP_ENABLED_BIT);
@@ -46,11 +46,11 @@ contract ExchangeV1 is BaseV1 {
         // Post-execution check: verify minLiquidity floor after hooks and reconciliation
         // Hooks can modify reserves via _postSwap, so we must re-check the floor
         if ($.assets[tk[1]].reserves < $.assets[tk[1]].minLiquidity) {
-            revert IErrors.ThresholdViolation($.assets[tk[1]].reserves, $.assets[tk[1]].minLiquidity);
+            revert Err.ThresholdViolation($.assets[tk[1]].reserves, $.assets[tk[1]].minLiquidity);
         }
 
         _oracle(q);
-        if (out < minAmountOut) revert IErrors.ThresholdViolation(out, minAmountOut);
+        if (out < minAmountOut) revert Err.ThresholdViolation(out, minAmountOut);
 
         _push(tokenOut, recipient, out);
         emit IExchangeV1.Swapped(msg.sender, recipient, tk[0], tk[1], actualIn, out, q.spreadBps, q.protoFee, q.lpFee);
@@ -102,8 +102,8 @@ contract ExchangeV1 is BaseV1 {
         uint256 inLen = inputs.length / 32;
         uint256 outLen = outputs.length / 32;
 
-        if (inputs.length % 32 != 0 || inLen == 0 || inLen > 8) revert IErrors.InvalidInput();
-        if (outputs.length % 32 != 0 || outLen == 0 || outLen > 8) revert IErrors.InvalidInput();
+        if (inputs.length % 32 != 0 || inLen == 0 || inLen > 8) revert Err.InvalidInput();
+        if (outputs.length % 32 != 0 || outLen == 0 || outLen > 8) revert Err.InvalidInput();
 
         address base = $.baseToken;
         amountsOut = new uint256[](outLen);
@@ -119,7 +119,7 @@ contract ExchangeV1 is BaseV1 {
             }
             tk = _wrap($, tk);
             IPoolV1.Asset storage a = $.assets[tk];
-            if (a.decimals == 0) revert IErrors.NotFound(IErrors.Resource.ASSET, tk);
+            if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
 
             _checkRisk($, tk, C.SWAP_ENABLED_BIT);
             _applyDecay($, tk, a);
@@ -137,7 +137,7 @@ contract ExchangeV1 is BaseV1 {
             unchecked { ++i; }
         }
 
-        if (baseTotal == 0) revert IErrors.ZeroValue();
+        if (baseTotal == 0) revert Err.ZeroValue();
 
         uint256 wSum;
         for (uint256 j; j < outLen;) {
@@ -151,7 +151,7 @@ contract ExchangeV1 is BaseV1 {
             }
             tk = _wrap($, tk);
             IPoolV1.Asset storage a = $.assets[tk];
-            if (a.decimals == 0) revert IErrors.NotFound(IErrors.Resource.ASSET, tk);
+            if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
 
             wSum += w;
             uint256 baseIn = (baseTotal * w) / 10000;
@@ -169,11 +169,11 @@ contract ExchangeV1 is BaseV1 {
             }
 
             uint256 minOut = M.decodeB64(minB64, a.decimals);
-            if (amountsOut[j] < minOut) revert IErrors.ThresholdViolation(amountsOut[j], minOut);
+            if (amountsOut[j] < minOut) revert Err.ThresholdViolation(amountsOut[j], minOut);
             unchecked { ++j; }
         }
 
-        if (wSum != 10000) revert IErrors.InvalidInput();
+        if (wSum != 10000) revert Err.InvalidInput();
 
         for (uint256 j; j < outLen;) {
             address tk;
@@ -228,7 +228,7 @@ contract ExchangeV1 is BaseV1 {
         // Pre-execution check: ensure sufficient reserves before state changes
         // This protects against hooks draining reserves during _postSwap or _reconcile
         uint256 minReq = q.amountOut + aOut.minLiquidity;
-        if (aOut.reserves < minReq) revert IErrors.InsufficientAmount(aOut.reserves, minReq);
+        if (aOut.reserves < minReq) revert Err.InsufficientAmount(aOut.reserves, minReq);
 
         aIn.reserves += uint128(amtIn - (amtIn * q.spreadBps / 2) / 1_000_000);
         aOut.reserves -= uint128(q.amountOut);
@@ -237,7 +237,7 @@ contract ExchangeV1 is BaseV1 {
         uint64 floor = aOut.reservationPrice;
         if (floor != 0) {
             uint64 price = _readOracle($, tkOut).lastPriceB64;
-            if (price < floor) revert IErrors.PriceBelowReservation(price, floor);
+            if (price < floor) revert Err.PriceBelowReservation(price, floor);
         }
     }
 
@@ -312,7 +312,7 @@ contract ExchangeV1 is BaseV1 {
     function _reconcile(IPoolV1.Asset storage a, uint256 actual, uint256 expected) private {
         if (actual == expected) return;
         uint256 d = actual > expected ? actual - expected : expected - actual;
-        if (d > type(uint128).max) revert IErrors.ExcessiveAmount(d, type(uint128).max);
+        if (d > type(uint128).max) revert Err.ExcessiveAmount(d, type(uint128).max);
         if (actual > expected) a.reserves -= uint128(d);
         else a.reserves += uint128(d);
     }

@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import {BaseV1} from "./BaseV1.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 import {IOracleV1} from "../interfaces/IOracleV1.sol";
 import {IPoolV1} from "../interfaces/IPoolV1.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
@@ -49,7 +49,7 @@ contract InternalOracleV1 is BaseV1 {
         address tokenNorm = _wrap($, token);
         IPoolV1.FeedAccumulator storage acc = _os().accumulators[tokenNorm];
 
-        if (acc.lastUpdate == 0) revert IErrors.NotConfigured(IErrors.Resource.ORACLE, tokenNorm);
+        if (acc.lastUpdate == 0) revert Err.NotConfigured(Err.Resource.ORACLE, tokenNorm);
 
         // Reconstruct FeedData from accumulator
         data = IOracleV1.FeedData({
@@ -101,7 +101,7 @@ contract InternalOracleV1 is BaseV1 {
         address tokenNorm = _wrap($, token);
         IPoolV1.FeedAccumulator storage acc = _os().accumulators[tokenNorm];
 
-        if (acc.lastUpdate == 0) revert IErrors.NotConfigured(IErrors.Resource.ORACLE, tokenNorm);
+        if (acc.lastUpdate == 0) revert Err.NotConfigured(Err.Resource.ORACLE, tokenNorm);
         // Reconstruct TWAP from spot price and offset
         // For now, return spot price since TWAP = spot * (1 + offset) and offset is small
         return acc.lastPriceB64;
@@ -128,8 +128,8 @@ contract InternalOracleV1 is BaseV1 {
     ) external {
         // Allow owner OR internal pool calls (AdminV1 calls via proxy self-call)
         if (msg.sender != _s().owner && msg.sender != address(this)) revert Ownable.Unauthorized();
-        if (initialPrice == 0) revert IErrors.ZeroValue();
-        if (accDecimals > 18) revert IErrors.InvalidInput(); // Max 18 decimals
+        if (initialPrice == 0) revert Err.ZeroValue();
+        if (accDecimals > 18) revert Err.InvalidInput(); // Max 18 decimals
 
         IPoolV1.PoolStorage storage $ = _s();
         address tokenNorm = _wrap($, token);
@@ -165,7 +165,7 @@ contract InternalOracleV1 is BaseV1 {
         uint64,
         uint32
     ) external pure {
-        revert IErrors.InvalidInput();
+        revert Err.InvalidInput();
     }
 
     // ========== SWAP-BASED FEED UPDATES ==========

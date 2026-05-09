@@ -4,7 +4,7 @@ pragma solidity ^0.8.33;
 import {IRouterV1} from "./interfaces/IRouterV1.sol";
 import {IPoolProxyFactoryV1} from "./interfaces/IPoolProxyFactoryV1.sol";
 import {IExchangeV1} from "./interfaces/modules/IExchangeV1.sol";
-import {IErrors} from "./interfaces/IErrors.sol";
+import {Err} from "./Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
@@ -43,8 +43,8 @@ contract RouterV1 is IRouterV1, Ownable, ReentrancyGuard, UUPSUpgradeable {
     /// @param _factory Pool proxy factory address
     function initialize(address newOwner, address _factory) external {
         // Ensure initialize is only called once
-        if (factory != address(0)) revert IErrors.InvalidState();
-        if (_factory == address(0)) revert IErrors.ZeroValue();
+        if (factory != address(0)) revert Err.InvalidState();
+        if (_factory == address(0)) revert Err.ZeroValue();
 
         factory = _factory;
         _initializeOwner(newOwner);
@@ -403,8 +403,8 @@ contract RouterV1 is IRouterV1, Ownable, ReentrancyGuard, UUPSUpgradeable {
         uint256 minAmountOut,
         address recipient
     ) external payable override nonReentrant returns (uint256 amountOut) {
-        if (route.steps.length == 0) revert IErrors.InvalidInput();
-        if (route.steps.length > MAX_HOPS) revert IErrors.InvalidInput();
+        if (route.steps.length == 0) revert Err.InvalidInput();
+        if (route.steps.length > MAX_HOPS) revert Err.InvalidInput();
 
         // Transfer input tokens
         RouteStep memory firstStep = route.steps[0];
@@ -464,7 +464,7 @@ contract RouterV1 is IRouterV1, Ownable, ReentrancyGuard, UUPSUpgradeable {
         bytes calldata outputs,
         address recipient
     ) external payable override nonReentrant returns (uint256[] memory amountsOut) {
-        if (pool == address(0)) revert IErrors.ZeroValue();
+        if (pool == address(0)) revert Err.ZeroValue();
         if (!IPoolProxyFactoryV1(factory).isPool(pool)) revert Ownable.Unauthorized();
 
         // Delegate to pool's batch swap
@@ -508,8 +508,8 @@ contract RouterV1 is IRouterV1, Ownable, ReentrancyGuard, UUPSUpgradeable {
 
     /// @notice Request contract upgrade (timelocked)
     function requestUpgrade(address implementation) external override onlyOwner {
-        if (implementation == address(0)) revert IErrors.ZeroValue();
-        if (pendingUpgradeOp != 0) revert IErrors.PendingTimelock(uint48(block.timestamp));
+        if (implementation == address(0)) revert Err.ZeroValue();
+        if (pendingUpgradeOp != 0) revert Err.PendingTimelock(uint48(block.timestamp));
 
         pendingUpgradeId = keccak256(abi.encode(implementation, block.timestamp));
         pendingImplementation = implementation;
@@ -535,7 +535,7 @@ contract RouterV1 is IRouterV1, Ownable, ReentrancyGuard, UUPSUpgradeable {
 
     /// @notice Cancel pending upgrade
     function cancelUpgrade() external onlyOwner {
-        if (pendingUpgradeOp == 0) revert IErrors.InvalidState();
+        if (pendingUpgradeOp == 0) revert Err.InvalidState();
 
         delete pendingUpgradeId;
         delete pendingImplementation;

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {IPoolV1} from "./interfaces/IPoolV1.sol";
-import {IErrors} from "./interfaces/IErrors.sol";
+import {Err} from "./Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {LibConstants as C} from "./libraries/LibConstants.sol";
 import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
@@ -55,10 +55,10 @@ contract PoolProxyV1 {
     /// @param trusted Whether the module should be trusted
     function setModuleTrust(address impl, bool trusted) external {
         if (msg.sender != DEPLOYER) revert Ownable.Unauthorized();
-        if (impl == address(0)) revert IErrors.InvalidInput();
+        if (impl == address(0)) revert Err.InvalidInput();
 
         bytes32 codeHash = impl.codehash;
-        if (codeHash == bytes32(0)) revert IErrors.InvalidInput(); // No code at address
+        if (codeHash == bytes32(0)) revert Err.InvalidInput(); // No code at address
 
         trustedModules[codeHash] = trusted;
         emit ModuleTrustUpdated(impl, codeHash, trusted);
@@ -71,9 +71,9 @@ contract PoolProxyV1 {
         if (impls.length != trusted.length) revert ArrayLengthMismatch();
 
         for (uint256 i = 0; i < impls.length; i++) {
-            if (impls[i] == address(0)) revert IErrors.InvalidInput();
+            if (impls[i] == address(0)) revert Err.InvalidInput();
             bytes32 codeHash = impls[i].codehash;
-            if (codeHash == bytes32(0)) revert IErrors.InvalidInput();
+            if (codeHash == bytes32(0)) revert Err.InvalidInput();
 
             trustedModules[codeHash] = trusted[i];
             emit ModuleTrustUpdated(impls[i], codeHash, trusted[i]);
@@ -97,7 +97,7 @@ contract PoolProxyV1 {
         IPoolV1.FeeParams calldata _feeParams
     ) external {
         IPoolV1.PoolStorage storage $ = _s();
-        if ($.initialized) revert IErrors.InvalidState();
+        if ($.initialized) revert Err.InvalidState();
 
         $.owner = _owner;
         $.baseToken = _baseToken;
@@ -182,7 +182,7 @@ contract PoolProxyV1 {
         uint96 tl = moduleTimelocks[selector];
         address newImpl = pendingModules[selector];
 
-        if (newImpl == address(0)) revert IErrors.InvalidState();
+        if (newImpl == address(0)) revert Err.InvalidState();
 
         // SECURITY FIX (CRITICAL-10): Re-validate trust at execution time
         // Module bytecode could have changed between queueing and execution (selfdestruct + create2)
@@ -203,7 +203,7 @@ contract PoolProxyV1 {
         IPoolV1.PoolStorage storage $ = _s();
         address impl = $.modules[msg.sig];
 
-        if (impl == address(0)) revert IErrors.InvalidInput();
+        if (impl == address(0)) revert Err.InvalidInput();
 
         assembly {
             // Copy calldata to memory

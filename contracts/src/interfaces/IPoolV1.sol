@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
-import {IErrors} from "./IErrors.sol";
 import {IExchangeV1} from "./modules/IExchangeV1.sol";
 import {ILiquidityV1} from "./modules/ILiquidityV1.sol";
 import {IAdminV1} from "./modules/IAdminV1.sol";
@@ -15,7 +14,7 @@ import {IRescueV1} from "./modules/IRescueV1.sol";
 /// @title IPoolV1
 /// @notice Adaptive Inventory Market Maker - Complete interface
 /// @dev Consolidates structs, events, errors, and all module function signatures
-interface IPoolV1 is IErrors, IExchangeV1, ILiquidityV1, IAdminV1, IFlashV1, ILendV1, IStakingV1, IDistributorV1, IOracleV1, IRescueV1 {
+interface IPoolV1 is IExchangeV1, ILiquidityV1, IAdminV1, IFlashV1, ILendV1, IStakingV1, IDistributorV1, IOracleV1, IRescueV1 {
     // ========== STRUCTS ==========
 
     struct Asset {
@@ -226,7 +225,7 @@ interface IPoolV1 is IErrors, IExchangeV1, ILiquidityV1, IAdminV1, IFlashV1, ILe
     event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);
 
     // ========== ERRORS ==========
-    // All common errors inherited from IErrors - see IErrors.sol for details
+    // All common errors inherited from IErrors - see Err.sol for details
 
     // ========== INITIALIZATION ==========
 

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {FixedPointMathLib as FPMath} from "solady/utils/FixedPointMathLib.sol";
-import {IErrors} from "../interfaces/IErrors.sol";
+import {Err} from "../Errors.sol";
 
 /// @title LibMaths
 /// @notice Optimized library for mathematical operations and B64 (52/5/7) floating point encoding
@@ -50,7 +50,7 @@ library LibMaths {
     /// @param decimals Token decimal count (0-31)
     /// @return packed Encoded uint64
     function encodeB64(uint256 x, uint8 decimals) internal pure returns (uint64 packed) {
-        if (x == 0) revert IErrors.ZeroValue();
+        if (x == 0) revert Err.ZeroValue();
         if (decimals > 31) revert InvalidDecimals();
 
         unchecked {
@@ -88,7 +88,7 @@ library LibMaths {
     /// @param tarb64Decimals Target decimal precision
     /// @return x Decoded uint256 in target decimals
     function decodeB64(uint64 packed, uint8 tarb64Decimals) internal pure returns (uint256 x) {
-        if (packed == 0) revert IErrors.ZeroValue();
+        if (packed == 0) revert Err.ZeroValue();
 
         unchecked {
             // Unpack using assembly
@@ -102,7 +102,7 @@ library LibMaths {
                 exponent := sub(and(packed, 0x7F), EXPONENT_BIAS)
             }
 
-            if (mant == 0) revert IErrors.ZeroValue();
+            if (mant == 0) revert Err.ZeroValue();
 
             // totalShift = exponent + target - stored
             int256 totalShift = exponent + int256(uint256(tarb64Decimals)) - int256(storedDecimals);
