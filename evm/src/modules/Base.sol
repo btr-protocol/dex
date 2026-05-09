@@ -7,6 +7,7 @@ import {IOracle} from "../interfaces/IOracle.sol";
 import {IERC20} from "../interfaces/external/IERC20.sol";
 import {IWETH9} from "../interfaces/external/IWETH9.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {IAccessControl} from "../interfaces/external/IAccessControl.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
@@ -34,8 +35,21 @@ abstract contract Base {
     }
 
     modifier onlyOwner() virtual {
-        if (msg.sender != _s().owner) revert Ownable.Unauthorized();
+        if (msg.sender != _owner()) revert Ownable.Unauthorized();
         _;
+    }
+
+    /// @notice Path α: prefer singleton AC owner when configured, else legacy per-pool owner.
+    /// @dev Static call — AC.owner() is `view`. Failure → revert (mis-set ac is operator error).
+    /// @dev Phase 42D A2-5 DISCARD (by-design): if `$.ac` is set to a contract without a working
+    ///      `owner()` view, every onlyOwner gate reverts → pool is bricked. Recovery posture:
+    ///      mis-setting `ac` is itself an `onlyOwner` action (Admin.setAc), so a sane multisig
+    ///      cannot accidentally brick. Defence-in-depth: deploy AC and verify `owner()` returns
+    ///      the expected address BEFORE calling `setAc`. Setting `ac = address(0)` rolls back
+    ///      to legacy `$.owner`; this requires a working owner at the moment of the rollback call.
+    function _owner() internal view returns (address) {
+        address ac = _s().ac;
+        return ac == address(0) ? _s().owner : IAccessControl(ac).owner();
     }
 
     modifier whenInitialized() virtual {

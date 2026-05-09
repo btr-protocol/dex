@@ -36,10 +36,18 @@ abstract contract StakedToken is ERC20 {
     function transferFrom(address, address, uint256) public pure override returns (bool) { _disabled(); return false; }
     function approve(address, uint256) public pure override returns (bool) { _disabled(); return false; }
 
-    /// @dev Only Staking can mint/burn; no transfers
-    function _update(address from, address to, uint256 amount) internal virtual {
+    /// @notice Mint sToken to user. Caller MUST be the Staking module (pool delegate).
+    /// @dev F-A1-R16-3 (R16 CRITICAL): Solady ERC20 exposes _mint/_burn as `internal` only and
+    ///      bypasses _update via raw assembly on _BALANCE_SLOT_SEED. Without these public surfaces
+    ///      the Staking module's IMintable(sLP).mint(...) reverts on a missing selector. Gate by
+    ///      STAKING immutable (pool address; sToken is owned by exactly one pool by construction).
+    function mint(address to, uint256 amount) external {
         if (msg.sender != STAKING) revert Ownable.Unauthorized();
-        if (from != address(0) && to != address(0)) revert Err.FeatureDisabled(Err.Resource.TRANSFER);
-        emit Transfer(from, to, amount);
+        _mint(to, amount);
+    }
+
+    function burn(address from, uint256 amount) external {
+        if (msg.sender != STAKING) revert Ownable.Unauthorized();
+        _burn(from, amount);
     }
 }

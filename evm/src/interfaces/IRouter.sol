@@ -5,7 +5,7 @@ import {IExchange} from "./modules/IExchange.sol";
 
 /// @title IRouter — stateless router, route discovery + execution
 interface IRouter {
-    struct RouteStep { address pool; address tokenIn; address tokenOut; }
+    struct RouteStep { address pool; address tokenIn; address tokenOut; uint256 minOut; }
     struct Route { RouteStep[] steps; uint256 amountOut; uint256 gasEstimate; }
     struct BatchInput { address pool; address tokenIn; uint256 amount; }
 

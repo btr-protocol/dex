@@ -32,6 +32,9 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
 
     constructor() {}
 
+    /// @dev F-A2-R10-1 (LOW) NOT FIXED (intentional): unguarded `initialize`. Deployment script
+    ///      atomically deploys + initializes (single tx) → front-run window = 0. One-shot guard
+    ///      via `factory != address(0)` blocks repeat. Mirrors Bridge.initialize disposition.
     function initialize(address newOwner, address _factory) external {
         if (factory != address(0)) revert Err.InvalidState();
         if (_factory == address(0)) revert Err.ZeroValue();
@@ -41,6 +44,13 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
 
     // ─── route discovery ───
 
+    /// @notice Returns best 1/2/3-hop route for `tokenIn → tokenOut` at size `amountIn`.
+    /// @dev Phase 42D R2-A3-1 DISCARD (by-design): per-hop `minOut` is set to the in-block
+    ///      quoted amount → ZERO slippage tolerance. Block-N+1 execution will revert if any
+    ///      pool has moved. This is conservatively safe vs sandwich attacks. Integrators that
+    ///      need slippage tolerance MUST construct their own `Route` with discounted per-hop
+    ///      `minOut` values (e.g. `quote * 9_995 / 10_000` for 5 bps tolerance) before calling
+    ///      `executeSwap`. The `getBestRoute` view is a discovery helper, not a settlement primitive.
     function getBestRoute(address tokenIn, address tokenOut, uint256 amountIn)
         external view override returns (Route memory route, uint256 amountOut)
     {
@@ -51,7 +61,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
         route.gasEstimate = 150000;
         if (bestPool != address(0)) {
             route.steps = new RouteStep[](1);
-            route.steps[0] = RouteStep({pool: bestPool, tokenIn: tokenIn, tokenOut: tokenOut});
+            route.steps[0] = RouteStep({pool: bestPool, tokenIn: tokenIn, tokenOut: tokenOut, minOut: bestQuote.amountOut});
         }
 
         (Route memory twoHop, uint256 twoHopOut) = _getBestTwoHopRoute(tokenIn, tokenOut, amountIn);
@@ -128,11 +138,11 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
                 address mid = poolTokens[j];
                 if (mid == tokenIn || mid == tokenOut) continue;
 
-                address poolOut = _findBestPoolForPair(mid, tokenOut, officialCount);
-                if (poolOut == address(0)) continue;
-
                 uint256 hop1 = _quoteOrZero(poolIn, tokenIn, mid, amountIn);
                 if (hop1 == 0) continue;
+                // R2-A3-2: probe downstream pool w/ realistic hop1 output (price-impact aware)
+                address poolOut = _findBestPoolForPair(mid, tokenOut, officialCount, hop1);
+                if (poolOut == address(0)) continue;
                 uint256 hop2 = _quoteOrZero(poolOut, mid, tokenOut, hop1);
                 if (hop2 > bestOut) {
                     bestOut = hop2;
@@ -144,9 +154,10 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
         }
 
         if (bestOut > 0) {
+            uint256 hop1Out = _quoteOrZero(bestPoolIn, tokenIn, bestMid, amountIn);
             route.steps = new RouteStep[](2);
-            route.steps[0] = RouteStep({pool: bestPoolIn, tokenIn: tokenIn, tokenOut: bestMid});
-            route.steps[1] = RouteStep({pool: bestPoolOut, tokenIn: bestMid, tokenOut: tokenOut});
+            route.steps[0] = RouteStep({pool: bestPoolIn, tokenIn: tokenIn, tokenOut: bestMid, minOut: hop1Out});
+            route.steps[1] = RouteStep({pool: bestPoolOut, tokenIn: bestMid, tokenOut: tokenOut, minOut: bestOut});
             route.amountOut = bestOut;
             route.gasEstimate = 300000;
         }
@@ -175,24 +186,24 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
                 if (i == j) continue;
                 address b1 = baseTokens[i];
                 address b2 = baseTokens[j];
-                address p1 = _findBestPoolForPair(tokenIn, b1, officialCount);
+                // R2-A3-2: probe each pool w/ realistic hop input (price-impact aware)
+                address p1 = _findBestPoolForPair(tokenIn, b1, officialCount, amountIn);
                 if (p1 == address(0)) continue;
-                address p2 = _findBestPoolForPair(b1, b2, officialCount);
-                if (p2 == address(0)) continue;
-                address p3 = _findBestPoolForPair(b2, tokenOut, officialCount);
-                if (p3 == address(0)) continue;
-
                 uint256 a2 = _quoteOrZero(p1, tokenIn, b1, amountIn);
                 if (a2 == 0) continue;
+                address p2 = _findBestPoolForPair(b1, b2, officialCount, a2);
+                if (p2 == address(0)) continue;
                 uint256 a3 = _quoteOrZero(p2, b1, b2, a2);
                 if (a3 == 0) continue;
+                address p3 = _findBestPoolForPair(b2, tokenOut, officialCount, a3);
+                if (p3 == address(0)) continue;
                 uint256 outAmt = _quoteOrZero(p3, b2, tokenOut, a3);
                 if (outAmt > bestOut) {
                     bestOut = outAmt;
                     route.steps = new RouteStep[](3);
-                    route.steps[0] = RouteStep({pool: p1, tokenIn: tokenIn, tokenOut: b1});
-                    route.steps[1] = RouteStep({pool: p2, tokenIn: b1, tokenOut: b2});
-                    route.steps[2] = RouteStep({pool: p3, tokenIn: b2, tokenOut: tokenOut});
+                    route.steps[0] = RouteStep({pool: p1, tokenIn: tokenIn, tokenOut: b1, minOut: a2});
+                    route.steps[1] = RouteStep({pool: p2, tokenIn: b1, tokenOut: b2, minOut: a3});
+                    route.steps[2] = RouteStep({pool: p3, tokenIn: b2, tokenOut: tokenOut, minOut: outAmt});
                     route.amountOut = bestOut;
                     route.gasEstimate = 450000;
                 }
@@ -201,15 +212,19 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
         return (route, bestOut);
     }
 
-    function _findBestPoolForPair(address tokenA, address tokenB, uint256 officialCount)
+    /// @dev R2-A3-2: probeAmount sourced from upstream realistic flow → ranks pools by
+    ///      price-impact-adjusted output rather than fixed 1e18 (which biased toward
+    ///      shallow pools when actual trade size was larger).
+    function _findBestPoolForPair(address tokenA, address tokenB, uint256 officialCount, uint256 probeAmount)
         internal view returns (address bestPool)
     {
         IPoolProxyFactory f = IPoolProxyFactory(factory);
+        if (probeAmount == 0) probeAmount = 1e18;
         uint256 best;
         for (uint256 i = 0; i < officialCount; i++) {
             address pool = f.officialPools(i);
             if (!f.tokenInPool(tokenA, pool) || !f.tokenInPool(tokenB, pool)) continue;
-            uint256 q = _quoteOrZero(pool, tokenA, tokenB, 1e18);
+            uint256 q = _quoteOrZero(pool, tokenA, tokenB, probeAmount);
             if (q > best) { best = q; bestPool = pool; }
         }
     }
@@ -252,14 +267,22 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
 
         uint256 currentAmount = amountIn;
         address currentToken = firstStep.tokenIn;
+        IPoolProxyFactory f = IPoolProxyFactory(factory);
 
         for (uint256 i = 0; i < nSteps; i++) {
             RouteStep memory step = route.steps[i];
+            // Phase 42D R2-A2-1: tighten exec to isOfficialPool — symmetric with quote-discovery
+            // (_getBestDirectQuote uses isOfficialPool). Pool registration is owner-gated, but
+            // exec must match discovery to avoid integrator surprise via hand-crafted Routes.
+            if (!f.isOfficialPool(step.pool)) revert Ownable.Unauthorized();
             if (currentToken != ETH) currentToken.safeApprove(step.pool, currentAmount);
 
-            currentAmount = currentToken == ETH || step.pool == address(0)
-                ? IExchange(step.pool).swap{value: currentAmount}(currentToken, step.tokenOut, currentAmount, 0, address(this))
-                : IExchange(step.pool).swap(currentToken, step.tokenOut, currentAmount, 0, address(this));
+            currentAmount = currentToken == ETH
+                ? IExchange(step.pool).swap{value: currentAmount}(currentToken, step.tokenOut, currentAmount, step.minOut, address(this))
+                : IExchange(step.pool).swap(currentToken, step.tokenOut, currentAmount, step.minOut, address(this));
+
+            // Reset residual approval (defence-in-depth vs malicious / partial-consume pools).
+            if (currentToken != ETH) currentToken.safeApprove(step.pool, 0);
             currentToken = step.tokenOut;
         }
 
@@ -277,7 +300,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
         address recipient
     ) external payable override nonReentrant returns (uint256[] memory amountsOut) {
         if (pool == address(0)) revert Err.ZeroValue();
-        if (!IPoolProxyFactory(factory).isPool(pool)) revert Ownable.Unauthorized();
+        if (!IPoolProxyFactory(factory).isOfficialPool(pool)) revert Ownable.Unauthorized();
         amountsOut = IExchange(pool).batchSwap{value: msg.value}(inputs, outputs, recipient);
         emit BatchSwapExecuted(msg.sender, recipient, pool, inputs.length / 32, outputs.length / 32);
     }
@@ -312,7 +335,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
         emit UpgradeRequested(implementation, uint48(pendingUpgradeOp >> 48));
     }
 
-    function executeUpgrade() external override {
+    function executeUpgrade() external override onlyOwner {
         TL.validate(pendingUpgradeOp);
         address newImpl = pendingImplementation;
         delete pendingUpgradeId;

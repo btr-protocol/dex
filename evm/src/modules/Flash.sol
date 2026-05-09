@@ -50,9 +50,18 @@ contract Flash is Base, IFlash {
         if (result != keccak256("ERC3156FlashBorrower.postFlashLoan")) revert Err.OperationFailed();
 
         uint256 balanceAfter = _balanceOf(token);
-        if (balanceAfter < balanceBefore + amount + fee) revert Err.OperationFailed();
+        // F-A1-R12-1 (R13 fix): borrower repays `amount + fee`. balanceBefore was captured BEFORE
+        // _push debited `amount`, so post-callback balanceAfter == balanceBefore - amount + (amount + fee)
+        // == balanceBefore + fee. Prior `>= balanceBefore + amount + fee` was off by `amount` and
+        // DoS'd ALL standards-compliant ERC-3156 borrowers.
+        if (balanceAfter < balanceBefore + fee) revert Err.OperationFailed();
 
-        asset.reserves = uint128(balanceAfter - protoFee);
+        // F-A1-R12-2 (R13 fix): delta-credit reserves with LP-portion of fee only.
+        // Prior `asset.reserves = uint128(balanceAfter - protoFee)` overwrote reserves with the full
+        // pool balance minus protoFee, silently absorbing pre-existing $.protocolFees[token] +
+        // residual into reserves while ALSO incrementing protocolFees[token] += protoFee →
+        // double-count, breaks pool.balance == Σreserves + Σprotocolfees invariant.
+        unchecked { asset.reserves += uint128(fee - protoFee); }
         $.protocolFees[tokenNorm] += protoFee;
 
         hook = _hook($, tokenNorm, C.HOOK_POST_FLASH_LOAN);

@@ -148,7 +148,6 @@ Based on comprehensive analysis of all 12 libraries:
 
 ### INFRASTRUCTURE (P2) - 30 tests
 - **LibTransientCache.sol**: 8 tests
-- **LibRescue.sol**: 12 tests
 - **LibTimelock.sol**: 6 tests
 - **LibTransientOracle.sol**: 4 tests
 
@@ -199,7 +198,7 @@ forge test test/unit/ -v
 - [ ] LibAnchorTree tests (16 cases)
 
 ### Phase 3 (Medium Term)
-- [ ] Infrastructure library tests (cache, timelock, rescue, poseidon)
+- [ ] Infrastructure library tests (cache, timelock, poseidon)
 - [ ] E2E scenarios (multi-swap paths, flash loans, coverage dynamics)
 - [ ] Stress tests and gas optimization verification
 

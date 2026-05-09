@@ -34,6 +34,14 @@ contract PoolProxy {
 
     // ─── module trust ───
 
+    /// @notice Mark module impls as trusted (or untrusted) by codehash. DEPLOYER-only.
+    /// @dev Phase 42D #10 DISCARD (by-design): codehash trust persists across DEPLOYER turnover.
+    ///      DEPLOYER is set once at construction; if compromised or rotated, prior-trusted codehashes
+    ///      remain trusted. There is no `revokeModuleTrust` by codehash — revocation must be done
+    ///      by the new DEPLOYER calling this with `trusted=false` for the codehashes to revoke.
+    ///      Trust model: DEPLOYER is a one-shot deployment role, NOT a runtime governance principal.
+    ///      For runtime-governable module updates, rely on the `addModules` + `executeModuleUpdate`
+    ///      timelock flow which re-validates trust at exec time.
     function setModuleTrustBatch(address[] calldata impls, bool[] calldata trusted) external {
         if (msg.sender != DEPLOYER) revert Ownable.Unauthorized();
         if (impls.length != trusted.length) revert ArrayLengthMismatch();
@@ -53,6 +61,10 @@ contract PoolProxy {
 
     // ─── init ───
 
+    /// @dev F-A2-R10-1 (LOW) NOT FIXED (intentional): unguarded `initialize`. Production flow has
+    ///      `PoolProxyFactory.createPool` deploy + initialize atomically in a single tx →
+    ///      front-run window = 0. One-shot guard via `$.initialized` blocks repeat. Mirrors the
+    ///      same disposition as Bridge / Treasury / Router.
     function initialize(
         address _owner,
         address _baseToken,
@@ -61,6 +73,8 @@ contract PoolProxy {
     ) external {
         IPool.PoolStorage storage $ = _s();
         if ($.initialized) revert Err.InvalidState();
+        // F-A3-R12-2 (R13 fix): protoShare ∈ [0,100] (LibPricing.splitFee invariant).
+        if (_feeParams.protoShare > 100) revert Err.InvalidInput();
         $.owner = _owner;
         $.baseToken = _baseToken;
         $.wnative = _wnative;
@@ -73,6 +87,13 @@ contract PoolProxy {
     // ─── module mgmt ───
 
     /// @notice Add modules with selectors. Existing selectors are timelocked; new register instantly.
+    /// @dev F-A2-R14-1 (R14 INFO, DISCARDED): selectors that collide with PoolProxy's own concrete
+    ///      functions (e.g. `initialize`, `addModules`, `executeModuleUpdate`, ...) can be written
+    ///      to `$.modules[sel]` here, but Solidity's built-in dispatch resolves concrete functions
+    ///      BEFORE entering `fallback`, so the registered impl is dead-storage. No security impact;
+    ///      DEPLOYER-only entrypoint and worst case is a self-grief silent no-op. Adding an explicit
+    ///      blacklist would couple this module to PoolProxy's selector set and complicate future
+    ///      upgrades — accepted constraint.
     function addModules(address[] calldata impls, bytes4[][] calldata selectors) external {
         if (msg.sender != DEPLOYER) revert Ownable.Unauthorized();
         if (impls.length != selectors.length) revert ArrayLengthMismatch();
@@ -96,6 +117,7 @@ contract PoolProxy {
 
     /// @notice Execute timelocked module update. Re-validates trust at exec time.
     function executeModuleUpdate(bytes4 selector) external {
+        if (msg.sender != DEPLOYER) revert Ownable.Unauthorized();
         uint96 tl = moduleTimelocks[selector];
         address newImpl = pendingModules[selector];
         if (newImpl == address(0)) revert Err.InvalidState();

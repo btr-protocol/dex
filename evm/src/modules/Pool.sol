@@ -20,7 +20,16 @@ contract Pool is Base {
     using SafeTransferLib for address;
     using {M.b64To1e18} for uint64;
 
-    /// @dev Initial liquidity index (1e12 → ~18M× growth before uint64 overflow)
+    /// @dev Initial liquidity index (1e12 → ~18M× growth before uint64 overflow).
+    /// @dev F-LOW-R10 NOT FIXED (intentional): `asset.liquidityIndex` is uint64. Truncation horizon
+    ///      is ~18M× growth from initial 1e12 — accepted constraint per design.
+    /// @dev F-A1-R14-2 (R14 LOW, doc) update: prior wording ("sustained donate-rebases") under-stated
+    ///      the threshold. A SINGLE donate against `liabBefore == 1` (1-wei first deposit) followed
+    ///      by `donate(amt)` produces `idx_new = idx * (1 + amt) / 1` and silently truncates to
+    ///      uint64 once `idx*(1+amt) >= 2^64` (≈ 1.8e7 amount at INIT_INDEX=1e12). The depositor-
+    ///      seeded factory pattern (deploy + immediate seed-deposit by deployer) is the canonical
+    ///      mitigation; in normal operation the index grows linearly with yield. Widen this slot
+    ///      append-only if a future asset class warrants higher dynamic range.
     uint256 private constant INIT_LIQUIDITY_INDEX = 1e12;
 
     // ── Liquidity events (mirrored from ICore to avoid import) ──
@@ -138,7 +147,10 @@ contract Pool is Base {
             // Direct internal quote — replaces former IExchangeQuote delegatecall shim
             IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, fromTk, toTk, withdrawValue);
             (amt, haircut) = _applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
-            if (assetTo.reserves < amt) revert Err.InsufficientAmount(assetTo.reserves, amt);
+            // F-A4-2 (LOW, R9 carry-over): floor must include q.protoFee since reserves are debited
+            // by `amt + q.protoFee` below; check against `amt` alone allowed silent underflow on
+            // edge when reserves ∈ [amt, amt+protoFee).
+            if (assetTo.reserves < amt + q.protoFee) revert Err.InsufficientAmount(assetTo.reserves, amt + q.protoFee);
 
             uint256 liabRed = withdrawValue > assetFrom.liabilities ? assetFrom.liabilities : withdrawValue;
             assetFrom.liabilities -= uint128(liabRed);
@@ -194,6 +206,12 @@ contract Pool is Base {
         if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
 
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, inTk, outTk, liabIn);
+        // F-INFO (R10): q.protoFee is INTENTIONALLY DROPPED on this path. swapLiability is a
+        // pure LP-share rebalance across token buckets — no actual swap, no token push, no
+        // reserves debit. Both sides of the trade are LP-owned, so there is no protocol cut to
+        // collect. q.protoFee is computed by getAnchorPathQuote but discarded. Conservation
+        // holds (no balance flow). If a future change adds a real fee transfer here, this
+        // omission becomes load-bearing — re-evaluate.
         uint256 liabOut = q.amountOut;
         uint256 haircut;
 
@@ -275,7 +293,7 @@ contract Pool is Base {
         address[2] memory tk,
         uint256 actualIn,
         IPool.SwapQuote memory q
-    ) private returns (uint256 out) {
+    ) internal returns (uint256 out) {
         (uint256 extraFee, uint16 feeOverride) = _preSwap($, tk[0], tk[1], actualIn, q.amountOut);
         out = q.amountOut;
 
@@ -292,10 +310,32 @@ contract Pool is Base {
         _exec($, tk[0], tk[1], actualIn, q);
 
         int256 delta = _postSwap($, tk[0], tk[1], actualIn, out);
-        if (delta > 0) out = _applyHookFee($, uint256(delta), q, out);
-        else if (delta < 0) out += uint256(-delta);
+        uint256 protoDelta = 0;
+        if (delta > 0) {
+            uint256 protoBefore = q.protoFee;
+            out = _applyHookFee($, uint256(delta), q, out);
+            // Phase 42D R4-A1-1: persist post-swap hook proto-fee delta to ledger
+            // (was: silently donated to LP reserves; event over-reported vs storage).
+            protoDelta = q.protoFee - protoBefore;
+            if (protoDelta != 0) {
+                $.protocolFees[tk[1]] += protoDelta;
+            }
+        } else if (delta < 0) {
+            out += uint256(-delta);
+        }
 
         _reconcile($.assets[tk[1]], out, q.amountOut);
+
+        // Phase 42C R6: explicit reserves debit AFTER _reconcile.
+        // R5 attempted `out += protoDelta` BEFORE _reconcile, but `out` is the named return
+        // propagated to swap()'s `_push(tokenOut, recipient, out)` (Pool.sol:269) — this leaked
+        // protoDelta of tokenOut to the swap user. Correct flow: leave `out` at the user-facing
+        // value; _reconcile over-credits reserves by (q.amountOut - out) = (LP-fee + protoDelta);
+        // subtract protoDelta here so reserves capture only the LP-fee portion. Ledger entry above
+        // retains protoDelta for Treasury collection. Pool balance == Σreserves + Σprotocolfees.
+        if (protoDelta != 0) {
+            $.assets[tk[1]].reserves -= uint128(protoDelta);
+        }
     }
 
     function getSwapQuote(
@@ -399,7 +439,7 @@ contract Pool is Base {
     }
 
     // ── Views ──
-    function owner() external view returns (address) { return _s().owner; }
+    function owner() external view returns (address) { return _owner(); }
     function baseToken() external view returns (address) { return _s().baseToken; }
     function wnative() external view returns (address) { return _s().wnative; }
 
@@ -429,12 +469,28 @@ contract Pool is Base {
         IPool.Asset storage aIn = $.assets[tkIn];
         IPool.Asset storage aOut = $.assets[tkOut];
 
-        // Pre-exec reserve check (protects against hook drains in _postSwap/_reconcile)
-        uint256 minReq = q.amountOut + aOut.minLiquidity;
+        // Pre-exec reserve check (protects against hook drains in _postSwap/_reconcile).
+        // Phase 42C R8: include q.protoFee in the check ∵ both q.amountOut and q.protoFee
+        // are debited from reserves below.
+        uint256 minReq = q.amountOut + q.protoFee + aOut.minLiquidity;
         if (aOut.reserves < minReq) revert Err.InsufficientAmount(aOut.reserves, minReq);
 
-        aIn.reserves += uint128(amtIn - (amtIn * q.spreadBps / 2) / 1_000_000);
-        aOut.reserves -= uint128(q.amountOut);
+        // A1-1 fix: route IN-side half-spread to protocolFees[tkIn] (was silently dropped).
+        // Phase 42D A4-3 DISCARD: floor-rounding on odd PBPS — 1-PBPS impact, ceil-rounding
+        // would add complexity for negligible LP gain. Rounding favors user by ≤ 1 wei.
+        uint256 inFee = (amtIn * q.spreadBps / 2) / 1_000_000;
+        aIn.reserves += uint128(amtIn - inFee);
+        $.protocolFees[tkIn] += inFee;
+        // Phase 42C R8 A1-R8-1 (HIGH) + A1-R8-2 (LOW): carve all quote-time + pre-hook
+        // protoFee from LP-owned reserves into protocol-owned escrow. Prior code debited only
+        // q.amountOut; the q.protoFee credit to $.protocolFees[tkOut] silently inflated the
+        // ledger relative to actual reserves backing it (HIGH: drains LP on Treasury collect).
+        // q.protoFee at this site equals pf₀ (quote-time) + pf_pre (pre-hook); both must be
+        // carved here because _processSwap invokes _applyHookFee(extraFee, ...) BEFORE _exec,
+        // so the pre-hook proto increment is already folded into q.protoFee. The post-hook
+        // increment (pf_post) is handled separately at the R6 debit site after _reconcile.
+        // Conservation post-fix: B(t) = ΣR(t) + ΣP(t) over all swaps.
+        aOut.reserves -= uint128(q.amountOut + q.protoFee);
         $.protocolFees[tkOut] += q.protoFee;
 
         uint64 floor = aOut.reservationPrice;

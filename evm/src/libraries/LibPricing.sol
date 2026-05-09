@@ -10,6 +10,7 @@ import {LibAnchorTree} from "./LibAnchorTree.sol";
 import {LibOracle} from "./LibOracle.sol";
 import {LibTransientCache as TCache} from "./LibTransientCache.sol";
 import {LibConstants as C} from "./LibConstants.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title LibPricing — coverage-adjusted pricing + bi-factor fee model.
 /// @dev Units: see LibConstants. BPS=0.01%, PBPS=0.0001%, WAD=1e18.
@@ -215,6 +216,9 @@ library LibPricing {
     }
 
     /// @dev skew∈[-100,+100] → depth∈[0,10000]. -100→0, 0→5000, +100→10000.
+    /// @dev Phase 42D A4-4 DISCARD: unchecked add is sound — precondition `skew ∈ [-100,+100]`
+    ///      is enforced by `computeInventorySkew` clamps; range `[5000 - 5000, 5000 + 5000] = [0, 10000]`
+    ///      always non-negative. Caller MUST pass a clamped skew (int8 alone is insufficient).
     function _skewToDepth(int8 inventorySkew) internal pure returns (uint256) {
         unchecked { return uint256(5000 + int256(inventorySkew) * 50); }
     }
@@ -291,7 +295,7 @@ library LibPricing {
             uint16 lambdaSpread = cacheIn.lambda > cacheOut.lambda ? cacheIn.lambda : cacheOut.lambda;
             int256 impact = netCoverageImpact(
                 cacheIn.reserves, cacheIn.liabilities, cacheOut.reserves, cacheOut.liabilities,
-                amountIn, acc.currentAmount, cacheIn.price, cacheOut.price
+                amountIn, acc.currentAmount, cacheIn.price, cacheOut.price, acc.maxFeePath
             );
             uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(vegaSpread)) / (100 * C.BPS);
             uint256 u = (uint256(acc.deltaPair) * uint256(lambdaSpread)) / C.BPS;
@@ -341,6 +345,10 @@ library LibPricing {
         bool isEdge,
         bool isSelling
     ) private returns (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minFee, uint16 maxFee, uint64 execPriceB64) {
+        // F-A4-3 (LOW): guard against zero amountIn — mirrors HIGH-style explicit zero checks.
+        // Prior code did execPriceB64 derivation by `amountOut * 1e18 ... / amountIn`, which divides
+        // by zero on amountIn==0; revert here gives a clean error vs panic.
+        if (amountIn == 0) revert Err.ZeroValue();
         // profileAsset = child in parent↔child edge.
         bool isUpward = $.assets[from].anchor == to;
         address profileAsset = isUpward ? from : to;
@@ -386,7 +394,8 @@ library LibPricing {
         uint256 price18 = (amountOut * 1e18 * (10 ** uint256(18 - decimalsTo))) /
             (amountIn * (10 ** uint256(18 - decimalsFrom)));
         uint256 priceOut = price18 / (10 ** uint256(18 - decimalsTo));
-        if (priceOut == 0) priceOut = 1;
+        // Phase 42D A4-2: revert on degenerate zero (was: silent clamp to 1, which poisoned oracle).
+        if (priceOut == 0) revert Err.ZeroValue();
         execPriceB64 = M.encodeB64(priceOut, decimalsTo);
     }
 
@@ -500,9 +509,12 @@ library LibPricing {
         uint256 amountIn,
         uint256 amountOut,
         uint256 priceIn,
-        uint256 priceOut
+        uint256 priceOut,
+        uint16 feeBps
     ) internal pure returns (int256) {
-        uint256 totalOut = amountOut + (amountOut * 100) / 100000; // 0.1% heuristic fee
+        // A3-2 fix: config-sourced fee replaces hard-coded 0.1% heuristic.
+        // feeBps in PBPS (1e6 = 100%). Conservative upper-bound from path acc.maxFeePath.
+        uint256 totalOut = amountOut + (amountOut * uint256(feeBps)) / 1_000_000;
         if (totalOut > reservesOut) return int256(C.WAD);
         if (amountIn > type(uint128).max || totalOut > type(uint128).max) return int256(C.WAD);
         uint128 newResIn = reservesIn + uint128(amountIn);
@@ -560,25 +572,16 @@ library LibPricing {
         return rawDecay > maxDecay ? uint128(maxDecay) : uint128(rawDecay);
     }
 
-    /// @dev x^y in WAD via binary exp on integer part + linear approx on fractional remainder.
-    ///      Targets x ∈ (0, WAD], y ≥ WAD. SECURITY: hand-rolled, defer Solady swap to audit.
+    /// @dev x^y in WAD via Solady FixedPointMathLib.powWad. A4-1 fix: replaces hand-rolled approx.
+    ///      Targets x ∈ (0, WAD], y ≥ 0. Guards x=0 (returns 0) + x=WAD (returns WAD) to skip
+    ///      Solady's ln-based path on degenerate inputs.
     function _powWad(uint256 x, uint256 y) private pure returns (uint256 result) {
         if (x == 0) return 0;
         if (x == C.WAD) return C.WAD;
+        if (y == 0) return C.WAD;
         if (y == C.WAD) return x;
-        uint256 expInt = y / C.WAD;
-        uint256 rem = y % C.WAD;
-        uint256 acc = C.WAD;
-        uint256 base = x;
-        for (uint256 i = 0; i < 256 && expInt > 0; i++) {
-            if ((expInt & 1) == 1) acc = (acc * base) / C.WAD;
-            base = (base * base) / C.WAD;
-            expInt >>= 1;
-        }
-        result = acc;
-        if (rem > 0 && x < C.WAD) {
-            uint256 adj = (rem * (C.WAD - x)) / C.WAD;
-            if (result > adj) result -= (result * adj) / (C.WAD * 10);
-        }
+        // x ≤ WAD ≪ 2^255, y ≪ 2^255 in our domain → safe int256 cast.
+        int256 r = FixedPointMathLib.powWad(int256(x), int256(y));
+        return r < 0 ? 0 : uint256(r);
     }
 }
