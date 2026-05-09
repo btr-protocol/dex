@@ -1,0 +1,211 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.35;
+
+import {IOracle} from "../interfaces/IOracle.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+import {Err} from "../Errors.sol";
+import {LibConstants as C} from "../libraries/LibConstants.sol";
+
+/// @title ExternalOracle
+/// @notice Push-based external oracle with dual TWAP (fast/slow) and volatility tracking
+contract ExternalOracle is IOracle, Ownable {
+    // ─── errors ───
+    error FeedNotFound(bytes32 feedId);
+    error FeedAlreadyExists(bytes32 feedId);
+
+    // ─── constants ───
+    uint32 public constant MAX_VOLATILITY = 100 * uint32(C.PBPS);
+    uint16 public constant MAX_DEV_THRESHOLD = 65_000; // 6.5% in C.BPS precision
+    uint16 public constant DEFAULT_TTL = 3600;
+
+    // ─── storage ───
+    mapping(address => bool) public oracles;
+    mapping(bytes32 => FeedData) private feeds;
+    bytes32[] public feedIds;
+
+    // ─── events ───
+    event FeedAdded(
+        bytes32 indexed feedId,
+        address indexed base,
+        address indexed quote,
+        uint64 fastEMA,
+        uint64 slowEMA,
+        uint32 fastVolEMA,
+        uint32 slowVolEMA,
+        uint16 maxDeviation
+    );
+    event FeedUpdated(bytes32 indexed feedId, uint16 maxDeviation, uint16 ttl);
+    event Pushed(
+        bytes32 indexed feedId,
+        uint64 fastEMA,
+        uint64 slowEMA,
+        uint32 fastVolEMA,
+        uint32 slowVolEMA,
+        address indexed pusher
+    );
+    event BatchPushed(bytes32[] feedIds, address indexed pusher);
+    event OracleGranted(address indexed oracle);
+    event OracleRevoked(address indexed oracle);
+
+    // ─── modifiers ───
+    modifier onlyOracle() {
+        if (!oracles[msg.sender]) revert Ownable.Unauthorized();
+        _;
+    }
+
+    constructor(address _owner, address _oracle) {
+        if (_owner == address(0) || _oracle == address(0)) revert Err.ZeroValue();
+        _initializeOwner(_owner);
+        oracles[_oracle] = true;
+        emit OracleGranted(_oracle);
+    }
+
+    // ─── owner ───
+    function addFeed(
+        address base,
+        address quote,
+        uint64 fastEMA,
+        uint64 slowEMA,
+        uint32 fastVolEMA,
+        uint32 slowVolEMA,
+        uint16 maxDeviation,
+        uint16 ttl
+    ) external onlyOwner {
+        if (base == address(0) || quote == address(0)) revert Err.ZeroValue();
+        _validate(fastEMA, slowEMA, fastVolEMA, slowVolEMA);
+        if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
+
+        bytes32 feedId = keccak256(abi.encodePacked(base, quote));
+        if (feeds[feedId].updatedAt != 0) revert FeedAlreadyExists(feedId);
+
+        feeds[feedId] = FeedData({
+            lastPriceB64: fastEMA,
+            fastOffset: 0,
+            slowOffset: 0,
+            fastVolEMA: fastVolEMA,
+            slowVolEMA: slowVolEMA,
+            updatedAt: uint32(block.timestamp),
+            ttl: ttl,
+            confidence: 100
+        });
+        feedIds.push(feedId);
+        emit FeedAdded(feedId, base, quote, fastEMA, slowEMA, fastVolEMA, slowVolEMA, maxDeviation);
+    }
+
+    function updateFeed(bytes32 feedId, uint16 maxDeviation, uint16 ttl) external onlyOwner {
+        if (feeds[feedId].updatedAt == 0) revert FeedNotFound(feedId);
+        if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
+        feeds[feedId].ttl = ttl;
+        // NB: maxDeviation event-only; deviation checks done off-chain pre-push
+        emit FeedUpdated(feedId, maxDeviation, ttl);
+    }
+
+    function grantOracle(address oracle) external onlyOwner {
+        if (oracle == address(0)) revert Err.ZeroValue();
+        oracles[oracle] = true;
+        emit OracleGranted(oracle);
+    }
+
+    function revokeOracle(address oracle) external onlyOwner {
+        oracles[oracle] = false;
+        emit OracleRevoked(oracle);
+    }
+
+    // ─── oracle ───
+    function pushFeed(
+        bytes32 feedId,
+        uint64 newFastEMA,
+        uint64 newSlowEMA,
+        uint32 newFastVolEMA,
+        uint32 newSlowVolEMA
+    ) external onlyOracle {
+        _pushInternal(feedId, newFastEMA, newSlowEMA, newFastVolEMA, newSlowVolEMA);
+        emit Pushed(feedId, newFastEMA, newSlowEMA, newFastVolEMA, newSlowVolEMA, msg.sender);
+    }
+
+    function batchPush(
+        bytes32[] calldata _feedIds,
+        uint64[] calldata fastEMAs,
+        uint64[] calldata slowEMAs,
+        uint32[] calldata fastVolEMAs,
+        uint32[] calldata slowVolEMAs
+    ) external onlyOracle {
+        uint256 length = _feedIds.length;
+        if (
+            length == 0 ||
+            fastEMAs.length != length ||
+            slowEMAs.length != length ||
+            fastVolEMAs.length != length ||
+            slowVolEMAs.length != length
+        ) revert Err.InvalidInput();
+
+        for (uint256 i = 0; i < length; i++) {
+            _pushInternal(_feedIds[i], fastEMAs[i], slowEMAs[i], fastVolEMAs[i], slowVolEMAs[i]);
+        }
+        emit BatchPushed(_feedIds, msg.sender);
+    }
+
+    // ─── internal ───
+    function _validate(uint64 fastEMA, uint64 slowEMA, uint32 fastVol, uint32 slowVol) internal pure {
+        if (fastEMA == 0 || slowEMA == 0) revert Err.ZeroValue();
+        if (fastVol > MAX_VOLATILITY || slowVol > MAX_VOLATILITY) {
+            revert Err.ThresholdViolation(fastVol > slowVol ? fastVol : slowVol, MAX_VOLATILITY);
+        }
+    }
+
+    function _pushInternal(
+        bytes32 feedId,
+        uint64 newFastEMA,
+        uint64 newSlowEMA,
+        uint32 newFastVolEMA,
+        uint32 newSlowVolEMA
+    ) internal {
+        FeedData storage feed = feeds[feedId];
+        if (feed.updatedAt == 0) revert FeedNotFound(feedId);
+        _validate(newFastEMA, newSlowEMA, newFastVolEMA, newSlowVolEMA);
+
+        feed.lastPriceB64 = newFastEMA;
+        feed.fastOffset = 0;
+        if (newSlowEMA >= newFastEMA) {
+            uint256 delta = uint256(newSlowEMA - newFastEMA);
+            feed.slowOffset = int16(uint16(delta > type(uint16).max ? type(uint16).max : delta));
+        } else {
+            uint256 delta = uint256(newFastEMA - newSlowEMA);
+            feed.slowOffset = -int16(uint16(delta > type(uint16).max ? type(uint16).max : delta));
+        }
+        feed.fastVolEMA = newFastVolEMA;
+        feed.slowVolEMA = newSlowVolEMA;
+        feed.updatedAt = uint32(block.timestamp);
+        feed.confidence = 100;
+    }
+
+    // ─── IOracle ───
+    function getFeed(bytes32 feedId) external view override returns (FeedData memory data) {
+        data = feeds[feedId];
+        if (data.updatedAt == 0) revert FeedNotFound(feedId);
+    }
+
+    function isFeedFresh(bytes32 feedId, uint32 maxAge) external view override returns (bool) {
+        FeedData storage f = feeds[feedId];
+        if (f.updatedAt == 0) return false;
+        unchecked { return block.timestamp - f.updatedAt <= maxAge; }
+    }
+
+    function isFeedFresh(bytes32 feedId) external view override returns (bool) {
+        FeedData storage f = feeds[feedId];
+        if (f.updatedAt == 0) return false;
+        unchecked { return block.timestamp - f.updatedAt <= f.ttl; }
+    }
+
+    function getFastEMA(bytes32 feedId) external view override returns (uint64) {
+        FeedData storage f = feeds[feedId];
+        if (f.updatedAt == 0) revert FeedNotFound(feedId);
+        return f.lastPriceB64;
+    }
+
+    // ─── views ───
+    function getFeedIds() external view returns (bytes32[] memory) { return feedIds; }
+    function getFeedCount() external view returns (uint256) { return feedIds.length; }
+    function hasFeed(bytes32 feedId) external view returns (bool) { return feeds[feedId].updatedAt != 0; }
+    function isOracle(address account) external view returns (bool) { return oracles[account]; }
+}
