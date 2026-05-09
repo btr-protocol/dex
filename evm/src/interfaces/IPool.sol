@@ -8,10 +8,9 @@ import {IFlash} from "./modules/IFlash.sol";
 import {IStaking} from "./modules/IStaking.sol";
 import {IDistributor} from "./modules/IDistributor.sol";
 import {IOracle} from "./IOracle.sol";
-import {IRescue} from "./modules/IRescue.sol";
 
 /// @title IPool — Adaptive Inventory Market Maker (aggregate)
-interface IPool is IExchange, ILiquidity, IAdmin, IFlash, IStaking, IDistributor, IOracle, IRescue {
+interface IPool is IExchange, ILiquidity, IAdmin, IFlash, IStaking, IDistributor, IOracle {
     struct Asset {
         uint128 reserves;
         uint128 liabilities;
@@ -150,6 +149,10 @@ interface IPool is IExchange, ILiquidity, IAdmin, IFlash, IStaking, IDistributor
         StakingConfig stakingConfig;
         mapping(address user => mapping(address lpToken => uint256)) lpStaked;
         mapping(address lpToken => uint256) totalLPStaked;
+        /// @dev Path α — peripheral AccessControl singleton. When non-zero, owner() reads
+        ///      delegate to IAccessControl(ac).owner() enabling atomic multisig rotation
+        ///      across alm + dex. Zero = legacy per-pool $.owner path. Append-only (ERC-7201).
+        address ac;
     }
 
     event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);

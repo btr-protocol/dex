@@ -18,7 +18,7 @@ import {LibTimelock as TL} from "../libraries/LibTimelock.sol";
 ///      single copy of asset-init helpers.
 contract Admin is Base, IAdmin {
     modifier onlyOwner() override {
-        if (msg.sender != _s().owner) revert Ownable.Unauthorized();
+        if (msg.sender != _owner()) revert Ownable.Unauthorized();
         _;
     }
 
@@ -84,6 +84,40 @@ contract Admin is Base, IAdmin {
         }
     }
 
+    /// @notice One-shot wiring of the staked-gov receipt token (sGov) into PoolStorage.
+    /// @dev F-A1-R16-2 (R16 CRITICAL): `$.sGovToken` was declared in PoolStorage but never
+    ///      assigned anywhere → `Staking.stakeGov` called `IMintable(address(0)).mint(...)`
+    ///      which reverts. Idempotent: only assignable while currently zero. `_govToken`
+    ///      MUST be a contract that exposes `IMintable.mint(address,uint256)` /
+    ///      `IMintable.burn(address,uint256)` and accepts the pool address as authorized
+    ///      caller (e.g. `StakedGov` deployed with `STAKING = address(this)`).
+    /// @dev Append-only storage: PoolStorage.sGovToken slot already exists per IPool layout.
+    ///      No factory-init path used because the gov token wiring (`$.govToken`) itself
+    ///      is set out-of-band via owner-controlled storage; this setter symmetrically
+    ///      lets the owner attach the matching sGov receipt without a timelock (one-shot,
+    ///      non-destructive: cannot re-target once set, preventing stake-balance theft).
+    function setStakedGovToken(address sGov) external onlyOwner {
+        if (sGov == address(0)) revert Err.ZeroValue();
+        IPool.PoolStorage storage $ = _s();
+        if ($.sGovToken != address(0)) revert Err.AlreadyConfigured(Err.Resource.STAKING, $.sGovToken);
+        $.sGovToken = sGov;
+        emit StakedGovTokenSet(sGov);
+    }
+
+    /// @notice One-shot wiring of the gov underlying token. Symmetric to setStakedGovToken.
+    /// @dev `$.govToken` is read by `Staking.stakeGov`/`unstakeGov` for safeTransferFrom/safeTransfer.
+    ///      Idempotent guard: settable only while zero.
+    function setGovToken(address govToken) external onlyOwner {
+        if (govToken == address(0)) revert Err.ZeroValue();
+        IPool.PoolStorage storage $ = _s();
+        if ($.govToken != address(0)) revert Err.AlreadyConfigured(Err.Resource.STAKING, $.govToken);
+        $.govToken = govToken;
+        emit GovTokenSet(govToken);
+    }
+
+    event StakedGovTokenSet(address indexed sGov);
+    event GovTokenSet(address indexed govToken);
+
     function setFlowCooldown(uint16 cooldownSeconds) external override onlyOwner {
         IPool.PoolStorage storage $ = _s();
         uint16 old = $.flowCooldownSeconds;
@@ -91,6 +125,15 @@ contract Admin is Base, IAdmin {
         emit IAdminConfig.FlowCooldownUpdated(old, cooldownSeconds);
     }
 
+    /// @dev F-A1-R14-1 (R14 LOW, DISCARDED): re-anchoring `token` does NOT cascade depth
+    ///      revalidation to its descendants. If `token` had children whose new depth would
+    ///      exceed `MAX_DEPTH`, future `findRoutingPath` calls touching those descendants
+    ///      revert `InvalidPath` until owner manually re-anchors them. Discarded because:
+    ///      (1) PoolStorage does NOT track descendant sets — cascading would require a new
+    ///      append-only adjacency map AND a bounded BFS in `setAnchor`, both invasive;
+    ///      (2) the failure mode is owner-induced, recoverable in one tx (re-anchor child),
+    ///      and never causes value loss; (3) the calling owner is the same role that authored
+    ///      the original anchor topology and is expected to plan reshuffles holistically.
     function setAnchor(address token, address anchor) external onlyOwner {
         IPool.PoolStorage storage $ = _s();
         address t = _wrap($, token);
@@ -133,6 +176,20 @@ contract Admin is Base, IAdmin {
 
     function getModule(bytes4 sel) external view override returns (address) {
         return _s().modules[sel];
+    }
+
+    /// @notice Path α — assign peripheral AccessControl singleton. Idempotent.
+    /// @dev Gated by current onlyOwner (legacy or AC, depending on prior state).
+    ///      Setting ac=0 reverts to legacy per-pool $.owner.
+    function setAc(address ac) external override onlyOwner {
+        IPool.PoolStorage storage $ = _s();
+        address old = $.ac;
+        $.ac = ac;
+        emit IAdminConfig.AcUpdated(old, ac);
+    }
+
+    function getAc() external view override returns (address) {
+        return _s().ac;
     }
 
     // ─── Timelocked governance ───
@@ -205,6 +262,9 @@ contract Admin is Base, IAdmin {
 
     function executeUpdateFeeParams() external override nonReentrant onlyOwner {
         IPool.FeeParams memory params = abi.decode(_consumeRaw(C.TIMELOCK_ID_FEE_PARAMS), (IPool.FeeParams));
+        // F-A3-R12-2 (R13 fix): protoShare ∈ [0,100] (LibPricing.splitFee invariant).
+        // protoShare > 100 → splitFee underflow → swap DoS.
+        if (params.protoShare > 100) revert Err.InvalidInput();
         _s().feeParams = params;
         emit IAdminTimelock.FeeParamsUpdated(params.protoShare, params.flashFeeBps);
     }
@@ -214,7 +274,7 @@ contract Admin is Base, IAdmin {
         _emitQueued(C.TIMELOCK_ID_OWNERSHIP, C.HIGH_TIMELOCK, abi.encode(newOwner), uint8(IPool.OpType.TRANSFER_OWNERSHIP));
     }
 
-    function executeOwnershipTransfer() external override nonReentrant {
+    function executeOwnershipTransfer() external override nonReentrant onlyOwner {
         address newOwner = abi.decode(_consumeRaw(C.TIMELOCK_ID_OWNERSHIP), (address));
         IPool.PoolStorage storage $ = _s();
         address oldOwner = $.owner;

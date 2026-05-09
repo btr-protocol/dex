@@ -15,7 +15,12 @@ contract ExternalOracle is IOracle, Ownable {
 
     // ─── constants ───
     uint32 public constant MAX_VOLATILITY = 100 * uint32(C.PBPS);
-    uint16 public constant MAX_DEV_THRESHOLD = 65_000; // 6.5% in C.BPS precision
+    /// @dev Phase 42D A4-5 DISCARD (by-design): event-only enforcement. The on-chain code does
+    ///      NOT check deviation against this threshold; deviation checks are done off-chain by the
+    ///      oracle pusher pre-push. The constant is a UX hint emitted via `FeedAdded.maxDeviation`
+    ///      so integrators understand what the off-chain pusher's policy is. Integrators MUST NOT
+    ///      treat this as an on-chain safety guarantee — only as a published policy.
+    uint16 public constant MAX_DEV_THRESHOLD = 65_000; // 6.5% in C.BPS precision (off-chain hint)
     uint16 public constant DEFAULT_TTL = 3600;
 
     // ─── storage ───
@@ -112,6 +117,13 @@ contract ExternalOracle is IOracle, Ownable {
     }
 
     // ─── oracle ───
+    /// @dev F-A3-R14-1 (R14 LOW, DESIGN-DISCARDED): on-chain `maxDeviation` is event-only
+    ///      (see `updateFeed`); deviation enforcement is delegated to the off-chain oracle key
+    ///      pipeline pre-push. An oracle-key compromise can therefore push arbitrary EMAs
+    ///      subject only to `_validate` (non-zero, vol < MAX_VOLATILITY). Mitigation lives
+    ///      in oracle-key governance + off-chain monitoring + revokeOracle. Adding an on-chain
+    ///      bound would change the push-based design + couple oracle latency to the latest
+    ///      committed snapshot, which conflicts with the multi-source aggregation contract.
     function pushFeed(
         bytes32 feedId,
         uint64 newFastEMA,

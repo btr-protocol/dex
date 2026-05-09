@@ -12,8 +12,6 @@ library LibConstants {
         0x766bf381716de468c3786fcb5a0edf7a42b3746246e7a3aecdb4d0deb9a98400;
     bytes32 internal constant ORACLE_STORAGE_LOC =
         0x66393ec7629409eaa0af43f8ebdc702f7bad499202b191e5b6258c2b0cb09d00;
-    bytes32 internal constant RESCUE_STORAGE_LOC =
-        0x2cadec949cb31ebc38ad0d5c8be85faee8d3748c72806270425530d755894600;
     bytes32 internal constant FLOW_GUARD_STORAGE_LOC =
         0x8a7c9f2e5b3d1a4c6e8f0d2b4a6c8e0f2d4b6a8c0e2f4d6b8a0c2e4f6d8b0a00;
 

@@ -4,6 +4,7 @@ pragma solidity ^0.8.35;
 import {IOracle} from "../interfaces/IOracle.sol";
 import {LibMaths as M} from "./LibMaths.sol";
 import {LibConstants as C} from "./LibConstants.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title LibOracle — pure oracle math (decode/encode offsets, σ, Δ).
 /// @dev Caching @ LibTransientCache; no external calls here.
@@ -16,7 +17,8 @@ library LibOracle {
         if (offset == 0) return price1e18;
         int256 multiplier = int256(ORACLE_PBPS) + int256(offset);
         if (multiplier <= 0) return 1;
-        return (price1e18 * uint256(multiplier)) / ORACLE_PBPS;
+        // Phase 42D R3-A4-1: fullMulDiv hardens vs theoretical b64-extreme overflow.
+        return FixedPointMathLib.fullMulDiv(price1e18, uint256(multiplier), ORACLE_PBPS);
     }
 
     /// @notice Decode feed → (priceFast, priceSlow) in 1e18.

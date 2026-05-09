@@ -32,12 +32,20 @@ contract Staking is Base, IStaking {
         IPool.PoolStorage storage $ = _s();
         StakingStorage storage ss = _ss();
 
+        if ($.govToken == address(0) || $.sGovToken == address(0)) {
+            revert Err.NotConfigured(Err.Resource.STAKING, address(0));
+        }
+
         $.govToken.safeTransferFrom(msg.sender, address(this), amount);
         IMintable($.sGovToken).mint(msg.sender, amount);
 
         ss.govStaked[msg.sender] += amount;
         ss.totalGovStaked += amount;
 
+        // F-A4-R16-1 (R16 INFO, DISCARD): unchecked uint48 add. Realistic
+        // `stakeLockDuration` (days–years) leaves ~8.9M-year headroom vs uint48 timestamp;
+        // reachable only by owner setting `stakeLockDuration` near uint48.max — itself bounded
+        // post-R16 to ≤ 365 days at requestStakeLockDurationUpdate. Theoretical only.
         uint48 newUnlock = uint48(block.timestamp) + $.stakingConfig.stakeLockDuration;
         if (newUnlock > ss.govUnlockTime[msg.sender]) ss.govUnlockTime[msg.sender] = newUnlock;
 
@@ -99,10 +107,17 @@ contract Staking is Base, IStaking {
         address t = _wrap($, lpToken);
         if (($.riskConfigs[t].flags & C.STAKEABLE_BIT) == 0) revert Err.InvalidInput();
 
-        uint256 alreadyStaked = $.lpStaked[msg.sender][lpToken];
+        // F-A1-R16-1 (R16 HIGH): conservation invariant — user's total LP claim
+        //   `lp_effective(user, t) = $.lpBalances[user][t] + IMintable(sLP).balanceOf(user)`
+        // is preserved across stake/unstake. `stakeLP` MOVES `amount` from `lpBalances` →
+        // sLP-minted. Without this debit, a user could `stakeLP(amount)` and then
+        // `Pool.withdraw(amount)` against the unchanged `lpBalances` slot, draining the
+        // underlying reserves while retaining a non-zero sLP balance — bypassing the lock.
+        // (Symmetric restore on `unstakeLP`.)
         uint256 available = $.lpBalances[msg.sender][t];
-        if (available < alreadyStaked + amount) revert Err.InsufficientAmount(available, alreadyStaked + amount);
+        if (available < amount) revert Err.InsufficientAmount(available, amount);
 
+        $.lpBalances[msg.sender][t] = available - amount;
         IMintable(sLP).mint(msg.sender, amount);
         $.lpStaked[msg.sender][lpToken] += amount;
         $.totalLPStaked[lpToken] += amount;
@@ -131,11 +146,20 @@ contract Staking is Base, IStaking {
         IMintable(sLP).burn(msg.sender, amount);
         $.lpStaked[msg.sender][lpToken] -= amount;
         $.totalLPStaked[lpToken] -= amount;
+        // F-A1-R16-1: restore lpBalances (symmetric to stakeLP debit). Conservation invariant
+        // preserved end-to-end.
+        address t = _wrap($, lpToken);
+        $.lpBalances[msg.sender][t] += amount;
 
         emit LPUnstaked(msg.sender, lpToken, amount);
     }
 
 
+    /// @dev F-A2-R16-1 (R16 LOW, DISCARDED): `delegateOf` write surface has no on-chain
+    ///      read consumer (no voting-power view in `src/`). Retained as off-chain
+    ///      governance signal (snapshot/Tally-style). Wiring an on-chain voting-power view
+    ///      requires a sToken→delegate aggregation pass; deferred. Off-chain consumers MUST
+    ///      treat `delegateOf` as advisory; no on-chain enforcement of delegated voting weight.
     function delegateVoting(address to) external {
         // self-delegation == clear
         if (to == msg.sender) to = address(0);
@@ -160,8 +184,17 @@ contract Staking is Base, IStaking {
         emit StakingUnpaused(msg.sender);
     }
 
+    /// @dev F-A2-R16-2 (R16 LOW): bound + re-entry guard. Bound `newLockDuration ≤ 365 days`
+    ///      prevents owner-induced permanent-lock griefing AND keeps `block.timestamp +
+    ///      stakeLockDuration` headroom comfortable below uint48 horizon (resolves F-A4-R16-1
+    ///      INFO numerical concern). Reject double-queue to align with `Treasury` pattern
+    ///      (`requestEmissionsCapChange:271`); avoids silent overwrite of grace clock.
     function requestStakeLockDurationUpdate(uint48 newLockDuration) external onlyOwner {
+        if (newLockDuration > 365 days) revert Err.InvalidInput();
         IPool.PoolStorage storage $ = _s();
+        if ($.pendingOps[C.TIMELOCK_ID_STAKING] != 0) {
+            revert Err.PendingTimelock(uint48(block.timestamp));
+        }
         $.pendingOps[C.TIMELOCK_ID_STAKING] = TL.pack(C.BASE_TIMELOCK, C.GRACE_PERIOD);
         $.pendingData[C.TIMELOCK_ID_STAKING] = abi.encode(newLockDuration);
         emit StakingConfigUpdateRequested(newLockDuration, uint48(block.timestamp) + C.BASE_TIMELOCK);

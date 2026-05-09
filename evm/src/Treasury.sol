@@ -5,13 +5,14 @@ import {ITreasury} from "./interfaces/ITreasury.sol";
 import {IMintable} from "./interfaces/IMintable.sol";
 import {IPool} from "./interfaces/IPool.sol";
 import {IAdmin} from "./interfaces/modules/IAdmin.sol";
+import {IPoolModule} from "./interfaces/modules/IPool.sol";
 import {IBridge} from "./interfaces/IBridge.sol";
 import {Err} from "@btr-peripheral/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
-import {LibRescue} from "./libraries/LibRescue.sol";
 import {LibConstants as C} from "./libraries/LibConstants.sol";
 
 /// @title Treasury
@@ -49,15 +50,24 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
         govToken = _govToken;
     }
 
+    /// @dev F-A2-R10-1 (LOW) NOT FIXED (intentional): unguarded `initialize`. Deployment script
+    ///      atomically deploys + initializes (single tx) → front-run window = 0. One-shot guard
+    ///      via `owner() != address(0)` blocks repeat. Mirrors Bridge.initialize disposition.
     function initialize(address newOwner) external {
         if (newOwner == address(0)) revert Err.ZeroValue();
         if (owner() != address(0)) revert Err.InvalidState();
         _initializeOwner(newOwner);
     }
 
+    /// @dev F-A1-R11-1 (INFO) fix: forbid post-TGE init. `initializeTGE` snapshots
+    ///      `maxSupply = treasury + seeding + vesting + emissionsSchedule.totalAllocation`.
+    ///      If emissions were initialized AFTER TGE, the cap would silently exclude the late
+    ///      emissions allocation and `mintEmissionsToDistributor` would revert via
+    ///      `_enforceMaxSupply`. Use `requestEmissionsCapChange` post-TGE for cap edits.
     function initializeEmissions(uint256 _emissionsCap) external onlyOwner {
         if (_emissionsCap == 0) revert Err.ZeroValue();
         if (emissionsSchedule.totalAllocation != 0) revert Err.InvalidState();
+        if (tgeTimestamp != 0) revert Err.InvalidState();
         emissionsSchedule = VestingSchedule({
             totalAllocation: _emissionsCap,
             claimed: 0,
@@ -190,8 +200,10 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
 
     function collectProtocolFees(address pool, address token) external override nonReentrant {
         if (pool == address(0) || token == address(0)) revert Err.ZeroValue();
+        // F-A4-R12-1 (R13 fix): emit actual collected amount (was hardcoded 0).
+        uint256 amount = IPoolModule(pool).getProtocolFees(token);
         IAdmin(pool).collectProtocolFees(token, address(this));
-        emit ProtocolFeesCollected(pool, token, 0);
+        emit ProtocolFeesCollected(pool, token, amount);
     }
 
     // ─── ownership timelock ───
@@ -203,7 +215,7 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
         pendingOwner = newOwner;
     }
 
-    function executeOwnershipTransfer() external override {
+    function executeOwnershipTransfer() external override onlyOwner {
         TL.validate(pendingOwnershipOp);
         address oldOwner = owner();
         address newOwner = pendingOwner;
@@ -233,6 +245,19 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
         emit BridgeSet(_bridge);
     }
 
+    /// @notice Explicit `getBridge()` selector for IBridgeProvider consumers (e.g. GovToken).
+    /// @dev F-A2-R15-1 (HIGH) fix: GovToken._getBridge() calls IBridgeProvider(TREASURY).getBridge().
+    ///      Treasury's `bridge` storage var auto-getter exposes selector `bridge()`, NOT `getBridge()`.
+    ///      Without this explicit function, the try/catch in GovToken silently returned address(0),
+    ///      bricking BridgeableERC20.onlyBridge ⇒ all crosschain mint/burn reverted UnauthorizedBridge.
+    ///      Inbound LZ messages would queue in failedMessages permanently (recovery also reverts).
+    ///      Adding getBridge() is non-breaking (additive ABI surface, storage layout unchanged).
+    function getBridge() external view returns (address) { return bridge; }
+
+    /// @notice Authorize remote-chain distributor address for cross-chain emissions.
+    /// @dev Phase 42D A2-4 DISCARD: no timelock by design. Treasury owner is multisig-trusted
+    ///      (matches setBridge/setDistributor — adding timelock here only would create asymmetric
+    ///      cross-chain trust UX. Cross-chain trust changes are infrequent + multisig-gated.)
     function authorizeRemoteDistributor(uint32 dstEid, address remoteDistributor) external override onlyOwner {
         if (remoteDistributor == address(0)) revert Err.ZeroValue();
         authorizedRemoteDistributor[dstEid] = remoteDistributor;
@@ -248,11 +273,17 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
         pendingEmissionsCap = newCap;
     }
 
-    function executeEmissionsCapChange() external override {
+    function executeEmissionsCapChange() external override onlyOwner {
         TL.validate(pendingEmissionsCapOp);
         VestingSchedule storage es = emissionsSchedule;
         uint256 oldCap = es.totalAllocation;
         uint256 newCap = pendingEmissionsCap;
+        // F-A1-R15-1 (LOW) fix: re-validate `newCap >= claimed` at execution time. If emissions
+        // were minted during the timelock window, `claimed` may have grown above the originally
+        // requested `newCap`. Without this guard, executing would leave `claimed > totalAllocation`,
+        // wedging all subsequent `mintEmissionsToDistributor` calls (revert ExceedsMaxSupply via
+        // `_checkAndUpdateEmissions`). Recoverable via re-request, but better to fail loudly here.
+        if (newCap < es.claimed) revert Err.InvalidState();
         es.totalAllocation = newCap;
         maxSupply = (maxSupply - oldCap) + newCap;
         delete pendingEmissionsCapOp;
@@ -266,8 +297,17 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
         delete pendingEmissionsCap;
     }
 
-    function rescueTokens(address token, address to, uint256 amount) external onlyOwner {
-        LibRescue.rescueToken(token, to, amount);
+    /// @notice Owner-only sweep of stuck ERC20 / native (alm Vault.salvage parity).
+    /// @dev    Native sentinel: C.NATIVE (0xEeee..EEeE). Timelock comes from owner = multisig.
+    function salvage(address token, address to, uint256 amount) external onlyOwner {
+        if (to == address(0) || amount == 0) revert Err.ZeroValue();
+        if (token == C.NATIVE) {
+            SafeTransferLib.safeTransferETH(to, amount);
+        } else {
+            if (token == address(0)) revert Err.InvalidInput();
+            SafeTransferLib.safeTransfer(token, to, amount);
+        }
+        emit Salvaged(token, to, amount);
     }
 
     // ─── upgrades ───

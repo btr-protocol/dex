@@ -268,7 +268,8 @@ contract LibPricingTest is BaseTestSetup {
             deltaReservesIn,
             deltaReservesOut,
             WAD,  // priceIn = 1.0
-            WAD   // priceOut = 1.0
+            WAD,  // priceOut = 1.0
+            1000  // feeBps in PBPS (0.1%)
         );
 
         // Improving coverage should give negative impact
@@ -292,7 +293,8 @@ contract LibPricingTest is BaseTestSetup {
             deltaReservesIn,
             deltaReservesOut,
             WAD,  // priceIn = 1.0
-            WAD   // priceOut = 1.0
+            WAD,  // priceOut = 1.0
+            1000  // feeBps in PBPS (0.1%)
         );
 
         // Worsening coverage should give positive impact
@@ -316,7 +318,8 @@ contract LibPricingTest is BaseTestSetup {
             deltaReservesIn,
             deltaReservesOut,
             WAD,  // priceIn = 1.0
-            WAD   // priceOut = 1.0
+            WAD,  // priceOut = 1.0
+            1000  // feeBps in PBPS (0.1%)
         );
 
         // Neutral swap should have near-zero impact (tolerance increased for new implementation)

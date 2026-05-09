@@ -10,6 +10,11 @@ import {IPool} from "../IPool.sol";
 interface IAdminConfig {
     function getModule(bytes4 selector) external view returns (address);
 
+    /// @notice Path α: set peripheral AccessControl singleton. ac=0 → legacy per-pool owner.
+    function setAc(address ac) external;
+    /// @notice Read configured peripheral AccessControl (0 = legacy mode).
+    function getAc() external view returns (address);
+
     function freezeAsset(address token) external;
     function unfreezeAsset(address token) external;
 
@@ -57,6 +62,7 @@ interface IAdminConfig {
     event EmergencyFreeze(address indexed token);
     event EmergencyUnfreeze(address indexed token);
     event FlowCooldownUpdated(uint16 oldCooldown, uint16 newCooldown);
+    event AcUpdated(address indexed oldAc, address indexed newAc);
 }
 
 interface IAdminTimelock {

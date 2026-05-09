@@ -27,6 +27,13 @@ contract Distributor is Base, IDistributor {
         if (c.id == 0) revert Err.NotConfigured(Err.Resource.CAMPAIGN, address(uint160(campaignId)));
     }
 
+    /// @dev F-A2-R14-3 (MED) fix: nextCampaignId defaults to 0 in fresh storage. Without this
+    ///      lazy bump, the first `create*Campaign` call would assign `c.id = 0`, then `_campaign()`
+    ///      would reject every mutating op for it (DoS + orphaned SBT). We always emit ids ≥ 1.
+    function _nextId(DistributorStorage storage ds) private returns (uint256 id) {
+        if (ds.nextCampaignId == 0) ds.nextCampaignId = 1;
+        id = ds.nextCampaignId++;
+    }
 
     function createPointsCampaign(
         string calldata name,
@@ -35,7 +42,7 @@ contract Distributor is Base, IDistributor {
     ) external onlyOwner returns (uint256 campaignId, address sbtToken) {
         if (manager == address(0)) revert Err.ZeroValue();
         DistributorStorage storage ds = _ds();
-        campaignId = ds.nextCampaignId++;
+        campaignId = _nextId(ds);
         sbtToken = address(new SoulboundToken(name, symbol, address(this)));
 
         Campaign storage c = ds.campaigns[campaignId];
@@ -50,7 +57,7 @@ contract Distributor is Base, IDistributor {
     function createTokenCampaign(address rewardToken, address manager) external onlyOwner returns (uint256 campaignId) {
         if (rewardToken == address(0) || manager == address(0)) revert Err.ZeroValue();
         DistributorStorage storage ds = _ds();
-        campaignId = ds.nextCampaignId++;
+        campaignId = _nextId(ds);
 
         Campaign storage c = ds.campaigns[campaignId];
         c.id = campaignId;
@@ -71,6 +78,11 @@ contract Distributor is Base, IDistributor {
         if (msg.sender != c.manager) revert Ownable.Unauthorized();
         if (c.status != CampaignStatus.ACTIVE && c.status != CampaignStatus.PAUSED) revert Err.InvalidState();
         if (merkleRoot == bytes32(0)) revert Err.InvalidInput();
+
+        // F-A1-R11-2 (INFO) fix: forbid lowering totalAllocated below already-claimed.
+        // Otherwise `claimCampaign` line `ds.totalClaimed[campaignId] > c.totalAllocated`
+        // (Phase 42D A3-4 guard) would revert for ALL future claimants until next root update.
+        if (totalClaimable < ds.totalClaimed[campaignId]) revert Err.InvalidInput();
 
         if (c.campaignType == CampaignType.TOKENS && totalClaimable > 0) {
             uint256 balance = SafeTransferLib.balanceOf(c.rewardToken, address(this));
@@ -100,6 +112,9 @@ contract Distributor is Base, IDistributor {
 
         ds.campaignClaimed[campaignId][account] = totalEarned;
         ds.totalClaimed[campaignId] += claimable;
+        // Phase 42D A3-4: enforce totalClaimed cap; prevents over-spend if off-chain root signer
+        // mistakenly publishes a tree summing > totalAllocated.
+        if (ds.totalClaimed[campaignId] > c.totalAllocated) revert Err.InvalidState();
 
         if (c.campaignType == CampaignType.POINTS) {
             SoulboundToken(c.rewardToken).mint(account, claimable);
@@ -141,7 +156,7 @@ contract Distributor is Base, IDistributor {
     ) external {
         (, Campaign storage c) = _campaign(campaignId);
         if (c.campaignType != CampaignType.POINTS) revert Err.InvalidInput();
-        if (msg.sender != _s().owner) revert Ownable.Unauthorized();
+        if (msg.sender != _owner()) revert Ownable.Unauthorized();
         if (c.status == CampaignStatus.REDEEMABLE) revert Err.InvalidState();
         if (redeemToken == address(0) || redeemRate == 0) revert Err.ZeroValue();
 
@@ -160,6 +175,12 @@ contract Distributor is Base, IDistributor {
         if (c.campaignType != CampaignType.POINTS) revert Err.InvalidInput();
         if (c.status != CampaignStatus.REDEEMABLE) revert Err.InvalidState();
 
+        // F-A4-R15-1 (INFO): `amount * c.redeemRate` is unchecked-arith. Realistic bound analysis:
+        // `amount` is bounded by the redeemer's SBT balance, itself bounded by `c.totalAllocated`
+        // (Phase 42D A3-4 guard caps `totalClaimed <= totalAllocated`). `c.redeemRate` is operator-set
+        // at finalize time (typically ≤ 1e18 for ≤ 1:1 redemption). Headroom: 2^256 / 1e18 ≈ 1.16e59.
+        // For overflow, `amount * redeemRate > 2^256` ⇒ requires e.g. amount > 1e58 with redeemRate=1e18,
+        // far exceeding any realistic SBT supply. INFO-level theoretical surface; not reachable.
         uint256 tokensOut = (amount * c.redeemRate) / 1e18;
 
         // budget cap check BEFORE state changes
@@ -175,7 +196,10 @@ contract Distributor is Base, IDistributor {
         if (available < tokensOut) revert Err.InsufficientAmount(available, tokensOut);
 
         SoulboundToken(c.rewardToken).burn(msg.sender, amount);
-        if (c.maxRedeemable > 0) c.totalRedeemed += tokensOut;
+        // F-A2-R15-2 (INFO) fix: accumulate `totalRedeemed` unconditionally (was gated on
+        // `maxRedeemable > 0`). Off-chain dashboards rely on this counter for unbounded campaigns
+        // too. No on-chain logic depends on the gating; safe & non-breaking sweep.
+        c.totalRedeemed += tokensOut;
         c.redeemToken.safeTransfer(msg.sender, tokensOut);
 
         emit PointsRedeemed(campaignId, msg.sender, amount, tokensOut);
@@ -215,7 +239,9 @@ contract Distributor is Base, IDistributor {
         uint256 claimed = ds.campaignClaimed[campaignId][account];
         if (totalEarned <= claimed) return 0;
 
-        bytes32 leaf = keccak256(abi.encodePacked(index, account, totalEarned));
+        // F-A2-R14-2 (LOW) fix: include campaignId in leaf for domain separation.
+        // Pre-fix: managers reusing the same root across campaigns enabled cross-campaign proof replay.
+        bytes32 leaf = keccak256(abi.encodePacked(campaignId, index, account, totalEarned));
         if (!MerkleProofLib.verify(merkleProof, c.merkleRoot, leaf)) return 0;
         return totalEarned - claimed;
     }

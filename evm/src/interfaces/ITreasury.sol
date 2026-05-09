@@ -26,6 +26,7 @@ interface ITreasury {
     event BridgeSet(address indexed bridge);
     event RemoteDistributorAuthorized(uint32 indexed dstEid, address indexed remoteDistributor);
     event EmissionsCapChanged(uint256 oldCap, uint256 newCap);
+    event Salvaged(address indexed token, address indexed to, uint256 amount);
 
     function mintGovToken(address to, uint256 amount) external;
     function mintEmissionsToDistributor(uint256 amount) external;

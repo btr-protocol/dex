@@ -9,6 +9,7 @@ import {IPool} from "../interfaces/IPool.sol";
 import {LibMaths as M} from "../libraries/LibMaths.sol";
 import {LibOracle} from "../libraries/LibOracle.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title InternalOracle
 /// @notice Internal TWAP oracle, swap-driven updates, single-slot accumulators
@@ -56,13 +57,26 @@ contract InternalOracle is Base {
         unchecked { return block.timestamp - acc.lastUpdate <= acc.ttl; }
     }
 
-    /// @dev Returns spot (not real TWAP). NB: dependents should use getFeed.fastOffset for true TWAP.
+    /// @notice Time-weighted average price over fast window (5min).
+    /// @dev R2-A1-1 fix: symmetric to LibOracle._applyOffset / encodeOffset1e18.
+    ///      Encoding: offset = (twap*ORACLE_PBPS/spot) - ORACLE_PBPS  (LibOracle.encodeOffset1e18)
+    ///      Decoding: twap   = spot*(ORACLE_PBPS+offset)/ORACLE_PBPS  (LibOracle._applyOffset)
+    ///      Degenerate (multiplier ≤ 0): clamp to 1 wei (matches _applyOffset). Reverts if feed not configured.
     function getFastTWAP(address token) external view returns (uint64 fastTWAP) {
         IPool.PoolStorage storage $ = _s();
         address t = _wrap($, token);
         IPool.FeedAccumulator storage acc = _os().accumulators[t];
         if (acc.lastUpdate == 0) revert Err.NotConfigured(Err.Resource.ORACLE, t);
-        return acc.lastPriceB64;
+
+        int32 off = acc.fastOffset;
+        if (off == 0) return acc.lastPriceB64;
+        uint256 spot = M.b64To1e18(acc.lastPriceB64);
+        int256 mult = int256(LibOracle.ORACLE_PBPS) + int256(off);
+        if (mult <= 0) return M.encodeB64(1, 18); // degenerate: clamp to 1 wei (matches _applyOffset)
+        // Phase 42D R3-A4-1: fullMulDiv hardens against theoretical b64-extreme overflow
+        // (spot up to ~4.5e76 × mult up to ~2.16e9 > uint256.max). Realistic spot ≤ 1e30 → safe.
+        uint256 twap = FixedPointMathLib.fullMulDiv(spot, uint256(mult), LibOracle.ORACLE_PBPS);
+        return M.encodeB64(twap, 18);
     }
 
 
@@ -74,7 +88,7 @@ contract InternalOracle is Base {
         uint32 fastVolEMA,
         uint32 slowVolEMA
     ) external {
-        if (msg.sender != _s().owner && msg.sender != address(this)) revert Ownable.Unauthorized();
+        if (msg.sender != _owner() && msg.sender != address(this)) revert Ownable.Unauthorized();
         if (initialPrice == 0) revert Err.ZeroValue();
         if (accDecimals > 18) revert Err.InvalidInput();
 
@@ -140,6 +154,15 @@ contract InternalOracle is Base {
 
         unchecked {
             uint256 dt = currentTime - acc.lastUpdate;
+            // Phase 42D A3-5 DISCARD (by-design): first-swap-wins within a block.
+            // Manipulation guard against last-swap-wins; front-runner cannot "pin" oracle
+            // any worse than first-swapper. Acceptable trade-off — multi-block TWAP smooths.
+            // F-A4-R14-1 (R14 INFO, DISCARDED): `lastPriceInAccDec * dt` and accumulator add
+            // are unchecked. Realistic decoded prices (≤ ~1e30 even for extreme b64 mantissas
+            // with accDec ≤ 18) × MAX_STALENESS (6.048e5) ≤ ~6e35 << uint256.max (~1.16e77).
+            // Pathological b64 inputs would require accDec at the upper bound AND mantissa near
+            // uint64.max — neither reachable through the validated push paths. Wrapping the
+            // mul in checked arith would burn gas on every swap with no realistic safety gain.
             if (dt == 0) return; // same block — manipulation guard
 
             // Stale > 7d → cap dt + reset snapshots so TWAP rebuilds clean

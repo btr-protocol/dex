@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 /// @title LibTimelock
 /// @notice Ultra-compact timelock library with packed storage.
-/// @dev    Used by Bridge, Admin, Rescue, Staking, Treasury, Router, PoolProxy + LibUpgradeQueue
+/// @dev    Used by Bridge, Admin, Staking, Treasury, Router, PoolProxy + LibUpgradeQueue
 ///         for unified governance. Field naming aligned with alm/evm AccessControl.Queued
 ///         semantics: the post-delay executable timestamp is referred to as `eta`
 ///         (cf. `struct Queued { address addr; uint64 eta; }` in alm/evm/src/AccessControl.sol).

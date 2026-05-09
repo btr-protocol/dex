@@ -32,6 +32,7 @@ interface IBridge {
     event TokenPaused(address indexed token, bool paused);
     event UpgradeAuthorized(bytes32 indexed upgradeId, address newImplementation, uint48 executableAt);
     event UpgradeCancelled(bytes32 indexed upgradeId);
+    event Salvaged(address indexed token, address indexed to, uint256 amount);
 
     function bridgeViaLayerZero(
         address token,

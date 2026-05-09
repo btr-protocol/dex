@@ -9,8 +9,8 @@ import {Err} from "@btr-peripheral/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
-import {LibRescue} from "./libraries/LibRescue.sol";
 import {LibMaths as M} from "./libraries/LibMaths.sol";
 import {LibConstants as C} from "./libraries/LibConstants.sol";
 
@@ -58,6 +58,12 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
         LZ_ENDPOINT = endpoint;
     }
 
+    /// @dev F-A2-R10-1 (LOW) NOT FIXED (intentional): `initialize` has no caller gate, only a
+    ///      one-shot guard (`owner() != address(0)`). Front-running risk is zero in production
+    ///      because deployment scripts atomically deploy + initialize in the same tx. Adding a
+    ///      caller gate would require a deployer immutable mirroring PoolProxy's pattern, but
+    ///      Bridge is deployed once by an EOA / multisig — no factory in the loop. Documented
+    ///      to anti-recur.
     function initialize(address newOwner) external {
         if (newOwner == address(0)) revert Err.ZeroValue();
         if (owner() != address(0)) revert Err.InvalidState();
@@ -100,6 +106,12 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
     }
 
     /// @notice LayerZero receive callback. Queues failed messages for recovery instead of reverting.
+    /// @dev Phase 42D #3 DISCARD (by-design): replay-safety relies on LZ Endpoint's per-`_guid`
+    ///      uniqueness + ordered-delivery guarantee. We additionally peer-verify (`peers[srcEid] == sender`)
+    ///      and on `crosschainMint` failure we store `failedMessages[guid]`; recovery deletes the
+    ///      entry pre-mint (`recoverFailedMessage`) so a successful recovery cannot be re-triggered.
+    ///      A duplicate `lzReceive` for the same guid would be filtered by LZ; if it bypassed LZ
+    ///      `msg.sender == LZ_ENDPOINT` blocks it. Trust chain: LZ Endpoint contract correctness.
     function lzReceive(
         LZEndpointV2.Origin calldata _origin,
         bytes32 _guid,
@@ -161,13 +173,39 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
         emit MessageFailed(guid, recipient, token, amount, failureCode);
     }
 
+    /// @notice F-A4-R10-2 (MED) fix: shared day-rollover for inbound + outbound paths.
+    /// @dev Pre-fix `_tryCheckAndUpdateLimit` skipped the rollover the outbound twin performed,
+    ///      letting `bridgedInB64` accumulate across calendar days; once cumulative > daily cap,
+    ///      every subsequent lzReceive silently queued as failedMessage(FC_RATE_LIMIT) — DoS until
+    ///      owner manual recovery. View `getRemainingLimits` virtualizes rollover correctly →
+    ///      view↔logic divergence. Both call sites now share this helper.
+    function _rolloverIfNeeded(IBridge.TokenConfig storage cfg) private {
+        uint16 today = uint16(block.timestamp / 1 days);
+        if (cfg.day != today) {
+            cfg.day = today;
+            cfg.bridgedOutB64 = 0;
+            cfg.bridgedInB64 = 0;
+        }
+    }
+
     function _tryCheckAndUpdateLimit(address token, uint256 amount, TokenConfig memory cfg) internal returns (bool) {
         if ((cfg.flags & FLAG_UNLIMITED) != 0) return true;
-        uint256 outLimit = M.decodeB64(cfg.limitOutB64, 18);
-        uint256 inLimit = (outLimit * uint256(cfg.inRatio)) / RATIO_DENOM;
-        uint256 currentIn = M.decodeB64(cfg.bridgedInB64, 18);
+
+        // Day-rollover via shared helper, identical semantics to outbound `_checkAndUpdateLimit`.
+        IBridge.TokenConfig storage cfgS = tokenConfigs[token];
+        _rolloverIfNeeded(cfgS);
+
+        // F-A3-R11-1 (LOW) fix: align inbound bucket decimals with outbound logic + view.
+        // Pre-fix hardcoded 18 caused `getRemainingLimits` (which decodes inbound bucket via
+        // `b64Decimals(limitOutB64)`) to misreport `inbound` whenever admin configured a
+        // token with decimals != 18. Now both encode and decode use the limit's decimals tag.
+        uint8 decimals = M.b64Decimals(cfgS.limitOutB64);
+        uint256 outLimit = M.decodeB64(cfgS.limitOutB64, decimals);
+        uint256 inLimit = (outLimit * uint256(cfgS.inRatio)) / RATIO_DENOM;
+        // decodeB64(0,..) reverts; treat empty bucket as 0 (post-rollover or fresh config).
+        uint256 currentIn = cfgS.bridgedInB64 == 0 ? 0 : M.decodeB64(cfgS.bridgedInB64, decimals);
         if (currentIn + amount > inLimit) return false;
-        tokenConfigs[token].bridgedInB64 = M.encodeB64(currentIn + amount, 18);
+        cfgS.bridgedInB64 = M.encodeB64(currentIn + amount, decimals);
         return true;
     }
 
@@ -315,8 +353,16 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
         delete pendingData[id];
     }
 
-    function rescueTokens(address token, address to, uint256 amount) external onlyOwner {
-        LibRescue.rescueToken(token, to, amount);
+    /// @notice Owner-only sweep of stuck ERC20 / native (alm Vault.salvage parity).
+    function salvage(address token, address to, uint256 amount) external onlyOwner {
+        if (to == address(0) || amount == 0) revert Err.ZeroValue();
+        if (token == C.NATIVE) {
+            SafeTransferLib.safeTransferETH(to, amount);
+        } else {
+            if (token == address(0)) revert Err.InvalidInput();
+            SafeTransferLib.safeTransfer(token, to, amount);
+        }
+        emit Salvaged(token, to, amount);
     }
 
     // ─── upgrades (UUPS w/ timelock) ───
@@ -392,12 +438,8 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
         if ((cfg.flags & FLAG_PAUSED) != 0) revert Err.FeatureDisabled(Err.Resource.BRIDGE);
         if ((cfg.flags & FLAG_UNLIMITED) != 0) return;
 
-        uint16 today = uint16(block.timestamp / 1 days);
-        if (cfg.day != today) {
-            cfg.day = today;
-            cfg.bridgedOutB64 = 0;
-            cfg.bridgedInB64 = 0;
-        }
+        // F-A4-R10-2 (MED) — shared rollover across inbound + outbound paths (DRY).
+        _rolloverIfNeeded(cfg);
 
         uint8 decimals = M.b64Decimals(cfg.limitOutB64);
         uint64 amountB64 = M.encodeB64(amount, decimals);
