@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {LibTimelock as TL} from "./LibTimelock.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 
 /// @title LibUpgradeQueue
 /// @notice Generic queue/consume/cancel API for timelocked upgrade operations.

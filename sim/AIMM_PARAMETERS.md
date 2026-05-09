@@ -477,8 +477,8 @@ To fully implement AIMM in the simulation:
 ## References
 
 - **Parametrization Docs**: `/docs/1. AIMM/1.2. Pricing/1.2.5. Parametrization.md`
-- **Admin Contract**: `/contracts/src/modules/AdminV1.sol` (lines 96-105)
-- **Pricing Library**: `/contracts/src/libraries/LibPricing.sol` (comprehensive implementation)
+- **Admin Contract**: `/evm/src/modules/Admin.sol` (lines 96-105)
+- **Pricing Library**: `/evm/src/libraries/LibPricing.sol` (comprehensive implementation)
 - **Test Plots**: `/contracts/test/unit/plots/` (parameter impact visualization)
 
 ---

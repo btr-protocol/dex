@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {IExchange} from "../interfaces/modules/IExchange.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";

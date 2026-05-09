@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {IRescue} from "../interfaces/modules/IRescue.sol";
 import {LibConstants as C} from "../libraries/LibConstants.sol";
 import {LibTimelock as TL} from "../libraries/LibTimelock.sol";

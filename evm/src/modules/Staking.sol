@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
-import {Err} from "../Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {IMintable} from "../interfaces/IMintable.sol";
 import {IStaking} from "../interfaces/modules/IStaking.sol";
 import {IPool} from "../interfaces/IPool.sol";

@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {IPoolProxyFactory} from "./interfaces/IPoolProxyFactory.sol";
 import {IPool} from "./interfaces/IPool.sol";
-import {Err} from "./Errors.sol";
+import {Err} from "@btr-peripheral/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 

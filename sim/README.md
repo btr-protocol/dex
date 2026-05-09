@@ -290,7 +290,7 @@ See `IMPLEMENTATION.md` for detailed checklist.
 
 ## Related
 
-- **Contracts**: `~/Work/btr/dex/contracts` - BTR AIMM Solidity implementation
+- **Contracts**: `~/Work/btr/dex/evm` - BTR AIMM Solidity implementation
 - **Frontend**: `~/Work/btr/dex/front` - Web interface
 - **Research**: `~/Work/btr/research` - Series factory data pipeline
 - **SDK**: `~/Work/btr/dex/sdk` - TypeScript SDK

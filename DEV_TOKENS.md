@@ -6,7 +6,7 @@ The deployment uses **mock ERC20 tokens** instead of real BSC tokens for clean, 
 
 ## Mock Token Contract
 
-Location: `contracts/src/mocks/MockERC20.sol`
+Location: `evm/src/mocks/MockERC20.sol`
 
 Features:
 - Simple ERC20 implementation using Solady

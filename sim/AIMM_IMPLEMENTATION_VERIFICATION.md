@@ -13,7 +13,7 @@ This document verifies that the AIMM simulator implementation will match the pro
 
 ## 1. Oracle Data Structure (IOracleV1.FeedData)
 
-**Solidity Definition** (`contracts/src/interfaces/IOracleV1.sol`):
+**Solidity Definition** (`evm/src/interfaces/IOracle.sol`):
 ```solidity
 struct FeedData {
     uint64 lastPriceB64;    // Current price in B64 format (base per token)

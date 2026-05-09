@@ -115,7 +115,7 @@ which anvil  # Should show /path/to/anvil
 
 ```bash
 # Run deployment manually to see detailed output
-cd contracts
+cd evm
 forge script script/DeployBSCFork.s.sol --rpc-url http://localhost:8545 --broadcast --code-size-limit 100000
 ```
 
@@ -163,7 +163,7 @@ Tokens:  100000 mUSDC, 100 mWETH, etc. (all mintable)
 - Deploys contracts using `DeployBSCFork.s.sol`
 - Exports addresses to `front/public/deployment.json`
 
-### `contracts/script/DeployBSCFork.s.sol`
+### `evm/script/DeployBSCFork.s.sol`
 
 - Uses CREATE3 via CreateX factory
 - Deploys mock tokens (deterministic addresses from `salts/bbbb_bb.txt`)

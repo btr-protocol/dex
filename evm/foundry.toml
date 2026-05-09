@@ -2,6 +2,7 @@
 src = "src"
 out = "out"
 libs = [".deps"]
+remappings = ["@btr-peripheral/=../../peripheral/src/"]
 optimizer = true
 optimizer_runs = 10000
 via_ir = true
