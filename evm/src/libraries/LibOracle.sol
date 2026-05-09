@@ -28,22 +28,6 @@ library LibOracle {
         priceSlow = _applyOffset(cur, feed.slowOffset);
     }
 
-    /// @notice Fast EMA in 1e18 (hot path).
-    function getFastEMA(IOracle.FeedData memory feed) internal pure returns (uint256) {
-        return _applyOffset(M.b64To1e18(feed.lastPriceB64), feed.fastOffset);
-    }
-
-    /// @notice Slow EMA in 1e18.
-    function getSlowPrice(IOracle.FeedData memory feed) internal pure returns (uint256) {
-        return _applyOffset(M.b64To1e18(feed.lastPriceB64), feed.slowOffset);
-    }
-
-    /// @notice Encode offset from B64 prices: ((ema/cur) - 1) * ORACLE_PBPS.
-    function encodeOffset(uint64 current, uint64 ema) internal pure returns (int32) {
-        if (current == 0) return 0;
-        return encodeOffset1e18(M.b64To1e18(current), M.b64To1e18(ema));
-    }
-
     /// @notice Encode offset from 1e18 prices.
     function encodeOffset1e18(uint256 currentPrice, uint256 emaPrice) internal pure returns (int32) {
         if (currentPrice == 0) return 0;
@@ -57,18 +41,6 @@ library LibOracle {
     /// @notice σ = mean(σ_fast, σ_slow) in 1e6 units.
     function getSigma(IOracle.FeedData memory feed) internal pure returns (uint32) {
         return (feed.fastVolEMA + feed.slowVolEMA) / 2;
-    }
-
-    /// @notice Δ = max(|fastOff - slowOff|, |fastOff|), capped at uint32 max.
-    function getDelta(IOracle.FeedData memory feed) internal pure returns (uint32) {
-        uint256 dfs = feed.fastOffset > feed.slowOffset
-            ? uint256(int256(feed.fastOffset - feed.slowOffset))
-            : uint256(int256(feed.slowOffset - feed.fastOffset));
-        uint256 dfc = feed.fastOffset >= 0
-            ? uint256(int256(feed.fastOffset))
-            : uint256(-int256(feed.fastOffset));
-        uint256 m = dfs > dfc ? dfs : dfc;
-        return m > type(uint32).max ? type(uint32).max : uint32(m);
     }
 
     /// @notice Synthetic feed for base token (price 1.0, never expires).

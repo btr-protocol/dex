@@ -200,131 +200,6 @@ contract LibMathsTest is BaseTestSetup {
         assertApproxEqRel(decoded, 15e17, 0.01e18); // 1% tolerance
     }
 
-    function test_sub64_same_decimal() public pure {
-        uint64 a = M.encodeB64(100, 0);
-        uint64 b = M.encodeB64(30, 0);
-
-        uint64 result = M.sub64(a, b);
-        uint256 decoded = M.decodeB64(result, 0);
-
-        assertApproxEqAbs(decoded, 70, 1);
-    }
-
-    function test_sub64_underflow_returns_zero() public pure {
-        uint64 a = M.encodeB64(30, 0);
-        uint64 b = M.encodeB64(100, 0);
-
-        uint64 result = M.sub64(a, b);
-        assertEq(result, 0);
-    }
-
-    function test_sub64_equal_values() public pure {
-        uint64 a = M.encodeB64(100, 0);
-        uint64 b = M.encodeB64(100, 0);
-
-        uint64 result = M.sub64(a, b);
-        assertEq(result, 0);
-    }
-
-    function test_mul64_same_decimal() public pure {
-        uint64 a = M.encodeB64(2, 0);
-        uint64 b = M.encodeB64(3, 0);
-
-        uint64 result = M.mul64(a, b);
-        uint256 decoded = M.decodeB64(result, 0);
-
-        assertApproxEqAbs(decoded, 6, 1);
-    }
-
-    function test_mul64_identity() public pure {
-        uint64 a = M.encodeB64(123, 2);
-        uint64 one = M.encodeB64(1, 2);
-
-        uint64 result = M.mul64(a, one);
-        uint256 decodedA = M.decodeB64(a, 2);
-        uint256 decodedResult = M.decodeB64(result, 2);
-
-        assertApproxEqAbs(decodedResult, decodedA, 1);
-    }
-
-    function test_mul64_mantissa_normalization_after_multiply() public pure {
-        uint64 a = M.encodeB64(50, 0);
-        uint64 b = M.encodeB64(40, 0);
-
-        uint64 result = M.mul64(a, b);
-        uint256 decoded = M.decodeB64(result, 0);
-
-        assertApproxEqAbs(decoded, 2000, 10);
-    }
-
-    function test_mul64_large_precision() public pure {
-        // Use smaller values that work better with B64 format
-        uint64 a = M.encodeB64(1000, 6);
-        uint64 b = M.encodeB64(2000, 6);
-
-        uint64 result = M.mul64(a, b);
-        uint256 decoded = M.decodeB64(result, 6);
-
-        // 1000 * 2000 = 2,000,000
-        assertApproxEqRel(decoded, 2_000_000, 0.01e18); // 1% tolerance
-    }
-
-    function test_div64_same_decimal() public pure {
-        uint64 a = M.encodeB64(100, 0);
-        uint64 b = M.encodeB64(2, 0);
-
-        uint64 result = M.div64(a, b);
-        uint256 decoded = M.decodeB64(result, 0);
-
-        assertApproxEqAbs(decoded, 50, 1);
-    }
-
-    function test_div64_precision_preservation() public pure {
-        uint64 a = M.encodeB64(100, 5);
-        uint64 b = M.encodeB64(10, 5);
-
-        uint64 result = M.div64(a, b);
-        uint256 decoded = M.decodeB64(result, 5);
-
-        assertApproxEqAbs(decoded, 10, 1);
-    }
-
-    function test_div64_identity() public pure {
-        uint64 a = M.encodeB64(456, 2);
-        uint64 one = M.encodeB64(1, 2);
-
-        uint64 result = M.div64(a, one);
-        uint256 decodedA = M.decodeB64(a, 2);
-        uint256 decodedResult = M.decodeB64(result, 2);
-
-        assertApproxEqAbs(decodedResult, decodedA, 1);
-    }
-
-    function test_mul64_and_div64_roundtrip() public pure {
-        uint64 a = M.encodeB64(123, 2);
-        uint64 b = M.encodeB64(456, 2);
-
-        uint64 multiplied = M.mul64(a, b);
-        uint64 divided = M.div64(multiplied, b);
-
-        uint256 decodedA = M.decodeB64(a, 2);
-        uint256 decodedResult = M.decodeB64(divided, 2);
-
-        assertApproxEqRel(decodedResult, decodedA, 0.01e18); // 1% tolerance
-    }
-
-    function test_div64_large_precision() public pure {
-        // Use smaller values that work better with B64 format
-        uint64 a = M.encodeB64(1000, 6);
-        uint64 b = M.encodeB64(2000, 6);
-
-        uint64 result = M.div64(a, b);
-        uint256 decoded = M.decodeB64(result, 6);
-
-        // 1000 / 2000 = 0.5
-        assertApproxEqAbs(decoded, 0, 1); // Should be very close to 0 due to integer division
-    }
-
     // ═══════════════════════════════════════════════════════════════════════════
     // COMPARISON TESTS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -352,38 +227,10 @@ contract LibMathsTest is BaseTestSetup {
         assertFalse(M.gt64(small, large));
     }
 
-    function test_lt64_equal_values() public pure {
-        uint64 a = M.encodeB64(100, 0);
-        uint64 b = M.encodeB64(100, 0);
-
-        assertFalse(M.lt64(a, b));
-    }
-
-    function test_lt64_different_values() public pure {
-        uint64 a = M.encodeB64(50, 0);
-        uint64 b = M.encodeB64(100, 0);
-
-        assertTrue(M.lt64(a, b));
-        assertFalse(M.lt64(b, a));
-    }
-
-    function test_lt64_asymmetric_bounds() public pure {
-        uint64 small = M.encodeB64(1, 0);
-        uint64 large = M.encodeB64(1000000, 0);
-
-        assertTrue(M.lt64(small, large));
-        assertFalse(M.lt64(large, small));
-    }
-
     function test_comparison_transitivity() public pure {
         uint64 a = M.encodeB64(10, 0);
         uint64 b = M.encodeB64(20, 0);
         uint64 c = M.encodeB64(30, 0);
-
-        // If a < b and b < c, then a < c
-        assertTrue(M.lt64(a, b));
-        assertTrue(M.lt64(b, c));
-        assertTrue(M.lt64(a, c));
 
         // If c > b and b > a, then c > a
         assertTrue(M.gt64(c, b));
@@ -587,22 +434,4 @@ contract LibMathsTest is BaseTestSetup {
         assertApproxEqAbs(decodedLeft, decodedRight, 1);
     }
 
-    function test_division_by_self_returns_one() public pure {
-        uint64 a = M.encodeB64(123456, 6);
-        uint64 result = M.div64(a, a);
-
-        uint256 decoded = M.decodeB64(result, 6);
-
-        assertApproxEqAbs(decoded, 1, 1);
-    }
-
-    function test_multiplication_by_zero_behavior() public pure {
-        uint64 a = M.encodeB64(100, 0);
-        uint64 verySmall = M.encodeB64(1, 18); // Extremely small value
-
-        uint64 result = M.mul64(a, verySmall);
-
-        // Result should be very small but not necessarily zero
-        assertGt(result, 0);
-    }
 }

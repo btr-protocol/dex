@@ -85,11 +85,6 @@ abstract contract BaseTestSetup is Test {
         return LibOracle.getSigma(feed);
     }
 
-    /// @notice Get delta (deviation) from feed data
-    function getDelta(IOracle.FeedData memory feed) internal pure returns (uint32) {
-        return LibOracle.getDelta(feed);
-    }
-
     // ═══════════════════════════════════════════════════════════════════════════
     // ASSERTION HELPERS
     // ═══════════════════════════════════════════════════════════════════════════

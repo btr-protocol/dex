@@ -119,66 +119,14 @@ library LibMaths {
         }
     }
 
-    /// @notice a - b (B64). Returns 0 on underflow / decimal mismatch reverts.
-    function sub64(uint64 a, uint64 b) internal pure returns (uint64 c) {
+    /// @notice a > b (B64). Reverts on decimal mismatch.
+    function gt64(uint64 a, uint64 b) internal pure returns (bool result) {
         assembly {
-            function doSub(x, y) -> result {
-                let maxMant := 0xFFFFFFFFFFFFF
-                let mask64 := 0xFFFFFFFFFFFFFFFF
-                x := and(x, mask64)
-                y := and(y, mask64)
-                if iszero(y) { result := x leave }
-                if iszero(x) { result := 0 leave }
-                let mantX := shr(12, x)
-                let mantY := shr(12, y)
-                let decX := and(shr(7, x), 0x1F)
-                let decY := and(shr(7, y), 0x1F)
-                let expX := sub(and(x, 0x7F), 64)
-                let expY := sub(and(y, 0x7F), 64)
-                if iszero(eq(decX, decY)) { revert(0, 0) }
-                if gt(expY, expX) {
-                    let diff := sub(expY, expX)
-                    if gt(diff, 18) { result := 0 leave }
-                    for { let i := 0 } lt(i, diff) { i := add(i, 1) } { mantX := div(mantX, 10) }
-                }
-                if gt(expX, expY) {
-                    let diff := sub(expX, expY)
-                    if gt(diff, 18) { result := x leave }
-                    for { let i := 0 } lt(i, diff) { i := add(i, 1) } { mantY := div(mantY, 10) }
-                }
-                if gt(mantY, mantX) { result := 0 leave }
-                let mantR := sub(mantX, mantY)
-                if iszero(mantR) { result := 0 leave }
-                let resultExp := expX
-                if gt(expY, expX) { resultExp := expY }
-                for { } lt(mantR, div(maxMant, 10)) { } {
-                    if slt(resultExp, sub(0, 63)) { break }
-                    mantR := mul(mantR, 10) resultExp := sub(resultExp, 1)
-                }
-                if or(slt(resultExp, sub(0, 64)), sgt(resultExp, 63)) { revert(0, 0) }
-                let biased := add(resultExp, 64)
-                result := and(or(shl(12, mantR), or(shl(7, decX), biased)), mask64)
-            }
-            c := doSub(a, b)
-        }
-    }
-
-    /// @dev Compare core: dir=1 ⇒ gt, dir=0 ⇒ lt. Reverts on decimal mismatch.
-    function _cmp64(uint64 a, uint64 b, bool gtMode) private pure returns (bool result) {
-        assembly {
-            function doCmp(x, y, dir) -> res {
+            function doGt(x, y) -> res {
                 x := and(x, 0xFFFFFFFFFFFFFFFF)
                 y := and(y, 0xFFFFFFFFFFFFFFFF)
-                if iszero(x) {
-                    // x==0: gt always false; lt true iff y!=0
-                    if iszero(dir) { if iszero(iszero(y)) { res := 1 } }
-                    leave
-                }
-                if iszero(y) {
-                    // y==0: gt true (x!=0); lt false
-                    if dir { res := 1 }
-                    leave
-                }
+                if iszero(x) { leave }
+                if iszero(y) { res := 1 leave }
                 let mantX := shr(12, x)
                 let mantY := shr(12, y)
                 let decX := and(shr(7, x), 0x1F)
@@ -190,8 +138,8 @@ library LibMaths {
                 let effExpY := expY
                 for { let m := mantX } gt(m, 9999999999999) { } { m := div(m, 10) effExpX := add(effExpX, 1) }
                 for { let m := mantY } gt(m, 9999999999999) { } { m := div(m, 10) effExpY := add(effExpY, 1) }
-                if gt(effExpX, effExpY) { if dir { res := 1 } leave }
-                if lt(effExpX, effExpY) { if iszero(dir) { res := 1 } leave }
+                if gt(effExpX, effExpY) { res := 1 leave }
+                if lt(effExpX, effExpY) { leave }
                 if gt(expX, expY) {
                     let diff := sub(expX, expY)
                     for { let i := 0 } lt(i, diff) { i := add(i, 1) } { mantY := div(mantY, 10) }
@@ -200,75 +148,9 @@ library LibMaths {
                     let diff := sub(expY, expX)
                     for { let i := 0 } lt(i, diff) { i := add(i, 1) } { mantX := div(mantX, 10) }
                 }
-                if dir { res := gt(mantX, mantY) }
-                if iszero(dir) { res := lt(mantX, mantY) }
+                res := gt(mantX, mantY)
             }
-            result := doCmp(a, b, gtMode)
-        }
-    }
-
-    /// @notice a > b (B64).
-    function gt64(uint64 a, uint64 b) internal pure returns (bool) { return _cmp64(a, b, true); }
-
-    /// @notice a < b (B64).
-    function lt64(uint64 a, uint64 b) internal pure returns (bool) { return _cmp64(a, b, false); }
-
-    /// @notice a * b (B64). Result inherits a's decimals (fixed-point mul).
-    function mul64(uint64 a, uint64 b) internal pure returns (uint64 c) {
-        assembly {
-            function doMul(x, y) -> result {
-                let maxMant := 0xFFFFFFFFFFFFF
-                x := and(x, 0xFFFFFFFFFFFFFFFF)
-                y := and(y, 0xFFFFFFFFFFFFFFFF)
-                if or(iszero(x), iszero(y)) { result := 0 leave }
-                let mantX := shr(12, x)
-                let mantY := shr(12, y)
-                let decX := and(shr(7, x), 0x1F)
-                let expX := sub(and(x, 0x7F), 64)
-                let expY := sub(and(y, 0x7F), 64)
-                let mantR := mul(mantX, mantY)
-                let resultExp := add(expX, expY)
-                for { } gt(mantR, maxMant) { } { mantR := div(add(mantR, 5), 10) resultExp := add(resultExp, 1) }
-                if or(slt(resultExp, sub(0, 64)), sgt(resultExp, 63)) { revert(0, 0) }
-                let biased := add(resultExp, 64)
-                result := and(or(shl(12, mantR), or(shl(7, decX), biased)), 0xFFFFFFFFFFFFFFFF)
-            }
-            c := doMul(a, b)
-        }
-    }
-
-    /// @notice a / b (B64). Result inherits a's (numerator's) decimals.
-    function div64(uint64 a, uint64 b) internal pure returns (uint64 c) {
-        assembly {
-            function doDiv(x, y) -> result {
-                let maxMant := 0xFFFFFFFFFFFFF
-                x := and(x, 0xFFFFFFFFFFFFFFFF)
-                y := and(y, 0xFFFFFFFFFFFFFFFF)
-                if iszero(y) { revert(0, 0) }
-                if iszero(x) { result := 0 leave }
-                let mantX := shr(12, x)
-                let mantY := shr(12, y)
-                let decX := and(shr(7, x), 0x1F)
-                let expX := sub(and(x, 0x7F), 64)
-                let expY := sub(and(y, 0x7F), 64)
-                let scaled := mantX
-                let scaleExp := 0
-                for { } lt(scaled, mul(maxMant, 1000)) { } {
-                    if sgt(scaleExp, 18) { break }
-                    scaled := mul(scaled, 10) scaleExp := add(scaleExp, 1)
-                }
-                let mantR := div(scaled, mantY)
-                let resultExp := sub(sub(expX, expY), scaleExp)
-                for { } gt(mantR, maxMant) { } { mantR := div(add(mantR, 5), 10) resultExp := add(resultExp, 1) }
-                for { } lt(mantR, div(maxMant, 10)) { } {
-                    if slt(resultExp, sub(0, 63)) { break }
-                    mantR := mul(mantR, 10) resultExp := sub(resultExp, 1)
-                }
-                if or(slt(resultExp, sub(0, 64)), sgt(resultExp, 63)) { revert(0, 0) }
-                let biased := add(resultExp, 64)
-                result := and(or(shl(12, mantR), or(shl(7, decX), biased)), 0xFFFFFFFFFFFFFFFF)
-            }
-            c := doDiv(a, b)
+            result := doGt(a, b)
         }
     }
 
@@ -284,14 +166,4 @@ library LibMaths {
         }
     }
 
-    // --- Helpers ---
-
-    /// @notice Fast hash combiner (gas-optimal alternative to keccak256(abi.encode(a,b))).
-    function hashFast(bytes32 a, bytes32 b) internal pure returns (bytes32 r) {
-        assembly {
-            mstore(0x00, a)
-            mstore(0x20, b)
-            r := keccak256(0x00, 0x40)
-        }
-    }
 }
