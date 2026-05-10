@@ -7,7 +7,7 @@ import {ILZOAppReceiver} from "./interfaces/external/ILZOAppReceiver.sol";
 import {IBridge} from "./interfaces/IBridge.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
+import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Timelock as TL} from "@btr-shared/Timelock.sol";
@@ -17,7 +17,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title Bridge
 /// @notice Compact LayerZero bridge w/ timelocked upgrades. UUPS, single-slot TokenConfig w/ B64 limits.
-contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, IBridge {
+contract Bridge is Ownable, ReentrancyGuardTransient, ILZOAppReceiver, UUPSUpgradeable, IBridge {
     uint8 constant RATIO_DENOM = 100;
     uint8 constant FLAG_SUPPORTED = 0x01;
     uint8 constant FLAG_PAUSED = 0x02;
@@ -54,9 +54,9 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
     event MessageFailed(bytes32 indexed guid, address recipient, address token, uint256 amount, uint8 failureCode);
     event MessageRecovered(bytes32 indexed guid, address recipient, address token, uint256 amount);
 
-    constructor(address endpoint) {
-        if (endpoint == address(0)) revert Err.ZeroValue();
-        LZ_ENDPOINT = endpoint;
+    constructor(address endpoint_) {
+        if (endpoint_ == address(0)) revert Err.ZeroValue();
+        LZ_ENDPOINT = endpoint_;
     }
 
     /// @dev F-A2-R10-1 (LOW) NOT FIXED (intentional): `initialize` has no caller gate, only a
@@ -65,10 +65,10 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
     ///      caller gate would require a deployer immutable mirroring PoolProxy's pattern, but
     ///      Bridge is deployed once by an EOA / multisig — no factory in the loop. Documented
     ///      to anti-recur.
-    function initialize(address newOwner) external {
-        if (newOwner == address(0)) revert Err.ZeroValue();
+    function initialize(address newOwner_) external {
+        if (newOwner_ == address(0)) revert Err.ZeroValue();
         if (owner() != address(0)) revert Err.InvalidState();
-        _initializeOwner(newOwner);
+        _initializeOwner(newOwner_);
     }
 
     // ─── bridge ops ───

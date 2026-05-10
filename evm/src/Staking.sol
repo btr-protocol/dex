@@ -6,6 +6,7 @@ import {IPool} from "./interfaces/IPool.sol";
 import {IMintable} from "./interfaces/IMintable.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {CREATE3} from "solady/utils/CREATE3.sol";
 import {Err} from "@btr-shared/Errors.sol";
@@ -19,7 +20,7 @@ import {StakedLP} from "./tokens/StakedLP.sol";
 ///      restricted setters via standard external calls. Each public function takes
 ///      `address pool` as the first arg. State is keyed (pool, ...) for cross-pool support.
 ///      Owner check goes through the shared singleton AccessControl.
-contract Staking is IStaking {
+contract Staking is IStaking, ReentrancyGuardTransient {
     using SafeTransferLib for address;
 
     /// @notice Risk flag mirror — STAKEABLE_BIT (kept here to avoid pulling dex-internal Constants).
@@ -64,25 +65,9 @@ contract Staking is IStaking {
     mapping(bytes32 => uint96) public pendingOps;
     mapping(bytes32 => bytes) public pendingData;
 
-    // ── reentrancy guard (transient) ──
-    bytes32 private constant REENTRANCY_GUARD_SLOT =
-        0xe22c27e8d25bc3725093027126bd674994df6625365bae10cf4b95c8b45f98b6;
-
     constructor(address ac_) {
         if (ac_ == address(0)) revert Err.ZeroAddr();
         AC = ac_;
-    }
-
-    modifier nonReentrant() {
-        assembly {
-            if tload(REENTRANCY_GUARD_SLOT) {
-                mstore(0x00, 0x92f0d5b4)
-                revert(0x00, 0x04)
-            }
-            tstore(REENTRANCY_GUARD_SLOT, 1)
-        }
-        _;
-        assembly { tstore(REENTRANCY_GUARD_SLOT, 0) }
     }
 
     modifier onlyOwner() {

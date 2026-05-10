@@ -59,11 +59,11 @@ contract ExternalOracle is IOracle, Ownable {
         _;
     }
 
-    constructor(address _owner, address _oracle) {
-        if (_owner == address(0) || _oracle == address(0)) revert Err.ZeroValue();
-        _initializeOwner(_owner);
-        oracles[_oracle] = true;
-        emit OracleGranted(_oracle);
+    constructor(address owner_, address oracle_) {
+        if (owner_ == address(0) || oracle_ == address(0)) revert Err.ZeroValue();
+        _initializeOwner(owner_);
+        oracles[oracle_] = true;
+        emit OracleGranted(oracle_);
     }
 
     // ─── owner ───

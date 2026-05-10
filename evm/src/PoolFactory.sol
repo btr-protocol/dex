@@ -19,6 +19,17 @@ contract PoolFactory is IPoolFactory, Ownable {
 
     address public override referencePool;
     address public pendingReferencePool;
+    /// @notice Earliest block timestamp at which the pending impl swap may be executed.
+    /// @dev Phase 42H.D · G3 — kept as raw `uint256` (≠ shared/Timelock.sol packed `uint96`)
+    ///      because:
+    ///        1. PoolFactory has a SINGLE in-flight pending upgrade (no per-op keying), so
+    ///           the packed (eta|grace) optimisation buys no slot reuse — `pendingReferencePool`
+    ///           lives in its own slot anyway.
+    ///        2. The grace window concept (auto-expiry) is undesirable here: if governance
+    ///           misses the execution window, the upgrade should NOT silently void — admins
+    ///           MUST explicitly cancel via `cancelReferenceUpgrade`. Equivalent semantics =
+    ///           grace = ∞, which the packed lib does not encode (uint48 grace).
+    ///        3. `uint256` is ABI-stable for downstream front-ends already reading this slot.
     uint256 public upgradeTimelock;
     address public override protocolDeployer;
 
@@ -42,11 +53,11 @@ contract PoolFactory is IPoolFactory, Ownable {
     mapping(address token => mapping(address pool => bool)) public override tokenInPool;
     mapping(address pool => address) public override poolBaseTokens;
 
-    constructor(address _referencePool, address _protocolDeployer, address _ac) {
-        if (_referencePool == address(0) || _protocolDeployer == address(0) || _ac == address(0)) revert Err.ZeroValue();
-        referencePool = _referencePool;
-        protocolDeployer = _protocolDeployer;
-        AC = _ac;
+    constructor(address referencePool_, address protocolDeployer_, address ac_) {
+        if (referencePool_ == address(0) || protocolDeployer_ == address(0) || ac_ == address(0)) revert Err.ZeroValue();
+        referencePool = referencePool_;
+        protocolDeployer = protocolDeployer_;
+        AC = ac_;
         _initializeOwner(msg.sender);
     }
 

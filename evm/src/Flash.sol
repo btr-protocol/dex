@@ -6,6 +6,7 @@ import {IPool} from "./interfaces/IPool.sol";
 import {IPoolHooks} from "./interfaces/IPoolHooks.sol";
 import {IERC3156FlashBorrower} from "./interfaces/external/IERC3156FlashBorrower.sol";
 import {Err} from "@btr-shared/Errors.sol";
+import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Pricing} from "./libraries/Pricing.sol";
 import {Constants as C} from "./libraries/Constants.sol";
@@ -17,24 +18,8 @@ import {Constants as C} from "./libraries/Constants.sol";
 ///      via standard external calls. Each public fn takes `address pool` as the first
 ///      arg. Reserves + protocolFees accounting deltas semantically match the prior
 ///      module logic (R13 fix preserved — see Pool.flashAccount).
-contract Flash is IFlash {
+contract Flash is IFlash, ReentrancyGuardTransient {
     using SafeTransferLib for address;
-
-    // ── reentrancy guard (transient) ──
-    bytes32 private constant REENTRANCY_GUARD_SLOT =
-        0xe22c27e8d25bc3725093027126bd674994df6625365bae10cf4b95c8b45f98b6;
-
-    modifier nonReentrant() {
-        assembly {
-            if tload(REENTRANCY_GUARD_SLOT) {
-                mstore(0x00, 0x92f0d5b4)
-                revert(0x00, 0x04)
-            }
-            tstore(REENTRANCY_GUARD_SLOT, 1)
-        }
-        _;
-        assembly { tstore(REENTRANCY_GUARD_SLOT, 0) }
-    }
 
     function flashLoan(
         address pool,

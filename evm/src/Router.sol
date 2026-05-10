@@ -6,7 +6,7 @@ import {IPoolFactory} from "./interfaces/IPoolFactory.sol";
 import {IExchange} from "./interfaces/modules/IExchange.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
+import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Timelock as TL} from "@btr-shared/Timelock.sol";
@@ -15,7 +15,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title Router
 /// @notice Stateless router for optimal route discovery and execution.
-contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
+contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
     using SafeTransferLib for address;
 
     error SlippageExceeded();
@@ -36,11 +36,11 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
     /// @dev F-A2-R10-1 (LOW) NOT FIXED (intentional): unguarded `initialize`. Deployment script
     ///      atomically deploys + initializes (single tx) → front-run window = 0. One-shot guard
     ///      via `factory != address(0)` blocks repeat. Mirrors Bridge.initialize disposition.
-    function initialize(address newOwner, address _factory) external {
+    function initialize(address newOwner_, address factory_) external {
         if (factory != address(0)) revert Err.InvalidState();
-        if (_factory == address(0)) revert Err.ZeroValue();
-        factory = _factory;
-        _initializeOwner(newOwner);
+        if (factory_ == address(0)) revert Err.ZeroValue();
+        factory = factory_;
+        _initializeOwner(newOwner_);
     }
 
     // ─── route discovery ───
