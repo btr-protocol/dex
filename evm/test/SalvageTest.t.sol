@@ -4,8 +4,9 @@ pragma solidity ^0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {BTRToken} from "./fixtures/BTRToken.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
+import {Err} from "@btr-shared/Errors.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
 /// @title SalvageTest
@@ -41,7 +42,7 @@ contract SalvageTest is Test {
         uint256 amount = 2 ether;
         uint256 prev = receiver.balance;
         vm.prank(owner);
-        treasury.salvage(C.NATIVE, receiver, amount);
+        treasury.salvage(SC.NATIVE, receiver, amount);
         assertEq(receiver.balance, prev + amount);
     }
 

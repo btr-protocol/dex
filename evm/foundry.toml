@@ -2,7 +2,11 @@
 src = "src"
 out = "out"
 libs = [".deps"]
-remappings = ["@btr-peripheral/=../../peripheral/src/"]
+remappings = [
+  "@btr-shared/=../../shared/src/",
+  "@btr-shared-test/=../../shared/test/",
+  "@btr-shared-script/=../../shared/script/",
+]
 optimizer = true
 optimizer_runs = 10000
 via_ir = true

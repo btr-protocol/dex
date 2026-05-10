@@ -4,13 +4,14 @@ pragma solidity ^0.8.35;
 import {IRouter} from "./interfaces/IRouter.sol";
 import {IPoolProxyFactory} from "./interfaces/IPoolProxyFactory.sol";
 import {IExchange} from "./interfaces/modules/IExchange.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
-import {LibConstants as C} from "./libraries/LibConstants.sol";
+import {Timelock as TL} from "@btr-shared/Timelock.sol";
+import {Constants as C} from "./libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title Router
 /// @notice Stateless router for optimal route discovery and execution.
@@ -331,7 +332,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
         if (pendingUpgradeOp != 0) revert Err.PendingTimelock(uint48(block.timestamp));
         pendingUpgradeId = keccak256(abi.encode(implementation, block.timestamp));
         pendingImplementation = implementation;
-        pendingUpgradeOp = TL.pack(C.UPGRADE_TIMELOCK, C.GRACE_PERIOD);
+        pendingUpgradeOp = TL.pack(SC.UPGRADE_TIMELOCK, SC.GRACE_PERIOD);
         emit UpgradeRequested(implementation, uint48(pendingUpgradeOp >> 48));
     }
 

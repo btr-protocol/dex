@@ -3,8 +3,9 @@ pragma solidity ^0.8.35;
 
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
-import {LibConstants as C} from "../libraries/LibConstants.sol";
+import {Err} from "@btr-shared/Errors.sol";
+import {Constants as C} from "../libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title ExternalOracle
 /// @notice Push-based external oracle with dual TWAP (fast/slow) and volatility tracking
@@ -14,13 +15,13 @@ contract ExternalOracle is IOracle, Ownable {
     error FeedAlreadyExists(bytes32 feedId);
 
     // ─── constants ───
-    uint32 public constant MAX_VOLATILITY = 100 * uint32(C.PBPS);
+    uint32 public constant MAX_VOLATILITY = 100 * uint32(SC.PBPS);
     /// @dev Phase 42D A4-5 DISCARD (by-design): event-only enforcement. The on-chain code does
     ///      NOT check deviation against this threshold; deviation checks are done off-chain by the
     ///      oracle pusher pre-push. The constant is a UX hint emitted via `FeedAdded.maxDeviation`
     ///      so integrators understand what the off-chain pusher's policy is. Integrators MUST NOT
     ///      treat this as an on-chain safety guarantee — only as a published policy.
-    uint16 public constant MAX_DEV_THRESHOLD = 65_000; // 6.5% in C.BPS precision (off-chain hint)
+    uint16 public constant MAX_DEV_THRESHOLD = 65_000; // 6.5% in SC.BPS precision (off-chain hint)
     uint16 public constant DEFAULT_TTL = 3600;
 
     // ─── storage ───

@@ -14,9 +14,9 @@ import {StakedLP} from "../src/tokens/StakedLP.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IAdminConfig, IAdminTimelock} from "../src/interfaces/modules/IAdmin.sol";
 import {IStaking} from "../src/interfaces/modules/IStaking.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
-import {LibMaths as M} from "../src/libraries/LibMaths.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {Maths as M} from "../src/libraries/Maths.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {BTRToken} from "./fixtures/BTRToken.sol";
 

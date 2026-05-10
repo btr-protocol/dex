@@ -11,20 +11,20 @@ import {PoolProxyFactory} from "../src/PoolProxyFactory.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IAdmin, IAdminConfig} from "../src/interfaces/modules/IAdmin.sol";
 import {IPoolModule} from "../src/interfaces/modules/IPool.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
-import {LibMaths as M} from "../src/libraries/LibMaths.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {Maths as M} from "../src/libraries/Maths.sol";
 
 /// @title Phase42CR8Test
 /// @notice R8 HIGH (A1-R8-1): structural conservation — quote-side q.protoFee was credited
 ///         to ledger without being carved from reserves. Pre-existing bug invisible to the
-///         R6 harness (which bypasses LibPricing.getAnchorPathQuote, leaving q.protoFee = 0).
+///         R6 harness (which bypasses Pricing.getAnchorPathQuote, leaving q.protoFee = 0).
 ///
 /// @dev    Real factory integration test:
 ///           - Deploy via REAL PoolProxyFactory.createPool
 ///           - Configure assets via REAL Admin.addAsset (delegates through proxy)
 ///           - Configure oracle feeds via REAL InternalOracle.updateFeed
 ///           - Configure protoShare via real PoolProxy.initialize FeeParams
-///           - Perform real swap() — exercises LibPricing.getAnchorPathQuote → non-zero q.protoFee
+///           - Perform real swap() — exercises Pricing.getAnchorPathQuote → non-zero q.protoFee
 ///           - Assert pool balance invariant: balanceOf(pool) == Σreserves + Σprotocolfees
 ///             post-swap AND post-collect.
 contract Phase42CR8Test is Test {
@@ -235,7 +235,7 @@ contract Phase42CR8Test is Test {
 
         uint256 amtIn = 1_000e18;
 
-        // Real swap exercising LibPricing.getAnchorPathQuote → non-zero q.protoFee.
+        // Real swap exercising Pricing.getAnchorPathQuote → non-zero q.protoFee.
         vm.prank(USER);
         uint256 out = Pool(payable(address(proxy))).swap(
             address(base), address(quote), amtIn, 0, USER

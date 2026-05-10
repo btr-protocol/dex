@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
-import {LibSpline as S} from "../../src/libraries/LibSpline.sol";
+import {Spline as S} from "../../src/libraries/Spline.sol";
 
 /// @title LibSplineTest
 /// @notice Comprehensive unit tests for LibSpline monotone cubic Hermite spline

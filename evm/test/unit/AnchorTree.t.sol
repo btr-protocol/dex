@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
-import {LibAnchorTree as T} from "../../src/libraries/LibAnchorTree.sol";
+import {AnchorTree as T} from "../../src/libraries/AnchorTree.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 
 /// @title LibAnchorTreeHarness

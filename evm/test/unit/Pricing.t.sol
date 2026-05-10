@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
-import {LibPricing as P} from "../../src/libraries/LibPricing.sol";
+import {Pricing as P} from "../../src/libraries/Pricing.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 
 /// @title LibPricingTest

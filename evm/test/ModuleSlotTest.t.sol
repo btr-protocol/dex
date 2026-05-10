@@ -6,8 +6,8 @@ import {IPool} from "../src/interfaces/IPool.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
 import {Pool} from "../src/modules/Pool.sol";
 import {Admin} from "../src/modules/Admin.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
-import {LibMaths} from "../src/libraries/LibMaths.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {Maths} from "../src/libraries/Maths.sol";
 
 contract ModuleSlotTest is Test {
     PoolProxy pool;
@@ -103,22 +103,22 @@ contract ModuleSlotTest is Test {
 
     function test_priceEncoding() public pure {
         // Test price encoding for WETH at $3500 with 18 decimals
-        uint64 wethPrice = LibMaths.encodeB64(3500 * 1e18, 18);
+        uint64 wethPrice = Maths.encodeB64(3500 * 1e18, 18);
         console2.log("WETH price B64:", wethPrice);
 
         // Decode back to verify
-        uint256 decoded = LibMaths.decodeB64(wethPrice, 18);
+        uint256 decoded = Maths.decodeB64(wethPrice, 18);
         console2.log("WETH price decoded:", decoded);
         console2.log("Expected:", uint256(3500 * 1e18));
 
         // Check BTC price too
-        uint64 btcPrice = LibMaths.encodeB64(95000 * 1e18, 18);
-        uint256 btcDecoded = LibMaths.decodeB64(btcPrice, 18);
+        uint64 btcPrice = Maths.encodeB64(95000 * 1e18, 18);
+        uint256 btcDecoded = Maths.decodeB64(btcPrice, 18);
         console2.log("BTC price decoded:", btcDecoded);
 
         // Check stablecoin $1
-        uint64 usdcPrice = LibMaths.encodeB64(1e18, 18);
-        uint256 usdcDecoded = LibMaths.decodeB64(usdcPrice, 18);
+        uint64 usdcPrice = Maths.encodeB64(1e18, 18);
+        uint256 usdcDecoded = Maths.decodeB64(usdcPrice, 18);
         console2.log("USDC price decoded:", usdcDecoded);
     }
 }

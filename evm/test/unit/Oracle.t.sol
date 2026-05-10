@@ -2,10 +2,10 @@
 pragma solidity ^0.8.35;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
-import {LibOracle} from "../../src/libraries/LibOracle.sol";
-import {LibMaths as M} from "../../src/libraries/LibMaths.sol";
+import {Oracle} from "../../src/libraries/Oracle.sol";
+import {Maths as M} from "../../src/libraries/Maths.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 
 /// @title LibOracleTest
 /// @notice Comprehensive unit tests for LibOracle offset encoding/decoding and risk signals
@@ -25,7 +25,7 @@ contract LibOracleTest is BaseTestSetup {
             VOL_1_PCT
         );
 
-        (uint256 priceFast, uint256 priceSlow) = LibOracle.decodeB64s(feed);
+        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
 
         // With zero offset, should equal current price
         assertEq(priceFast, 100e18);
@@ -42,7 +42,7 @@ contract LibOracleTest is BaseTestSetup {
             VOL_1_PCT
         );
 
-        (uint256 priceFast, uint256 priceSlow) = LibOracle.decodeB64s(feed);
+        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
 
         // Prices should be higher than current (100e18)
         assertGt(priceFast, 100e18);
@@ -63,7 +63,7 @@ contract LibOracleTest is BaseTestSetup {
             VOL_1_PCT
         );
 
-        (uint256 priceFast, uint256 priceSlow) = LibOracle.decodeB64s(feed);
+        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
 
         // Prices should be lower than current
         assertLt(priceFast, 100e18);
@@ -79,12 +79,12 @@ contract LibOracleTest is BaseTestSetup {
         IOracle.FeedData memory feed = makeFeedData(
             current,
             type(int32).min,  // Most negative offset for fast
-            -int32(uint32(LibOracle.ORACLE_PBPS)),  // -100% for slow
+            -int32(uint32(Oracle.ORACLE_PBPS)),  // -100% for slow
             VOL_1_PCT,
             VOL_1_PCT
         );
 
-        (uint256 priceFast, uint256 priceSlow) = LibOracle.decodeB64s(feed);
+        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
 
         // Should clamp to minimum (1 wei in 1e18)
         assertEq(priceFast, 1);
@@ -99,7 +99,7 @@ contract LibOracleTest is BaseTestSetup {
         uint256 current = 100e18;
         uint256 ema = 110e18;  // 10% higher
 
-        int32 result = LibOracle.encodeOffset1e18(current, ema);
+        int32 result = Oracle.encodeOffset1e18(current, ema);
 
         // Should be +10% = 1,000,000 in offset units
         assertEq(result, 1_000_000);
@@ -109,7 +109,7 @@ contract LibOracleTest is BaseTestSetup {
         uint256 current = 100e18;
         uint256 ema = 90e18;  // 10% lower
 
-        int32 result = LibOracle.encodeOffset1e18(current, ema);
+        int32 result = Oracle.encodeOffset1e18(current, ema);
 
         // Should be -10% = -1,000,000 in offset units
         assertEq(result, -1_000_000);
@@ -141,10 +141,10 @@ contract LibOracleTest is BaseTestSetup {
             );
 
             // Decode to get fast EMA via decodeB64s
-            (uint256 emaPrice,) = LibOracle.decodeB64s(feed);
+            (uint256 emaPrice,) = Oracle.decodeB64s(feed);
 
             // Re-encode the offset using 1e18 values
-            int32 recoveredOffset = LibOracle.encodeOffset1e18(100e18, emaPrice);
+            int32 recoveredOffset = Oracle.encodeOffset1e18(100e18, emaPrice);
 
             // Should approximately match (small precision loss acceptable)
             assertApproxEqAbs(recoveredOffset, offsets[i], 100);
@@ -164,7 +164,7 @@ contract LibOracleTest is BaseTestSetup {
             VOL_1_PCT       // 1% slow
         );
 
-        uint32 sigma = LibOracle.getSigma(feed);
+        uint32 sigma = Oracle.getSigma(feed);
 
         // Sigma should be average of fast and slow
         assertEq(sigma, VOL_1_PCT);
@@ -179,7 +179,7 @@ contract LibOracleTest is BaseTestSetup {
             VOL_10_PCT      // 10% slow
         );
 
-        uint32 sigma = LibOracle.getSigma(feed);
+        uint32 sigma = Oracle.getSigma(feed);
 
         // Sigma = (50% + 10%) / 2 = 30%
         assertEq(sigma, 300_000);
@@ -194,7 +194,7 @@ contract LibOracleTest is BaseTestSetup {
             0
         );
 
-        uint32 sigma = LibOracle.getSigma(feed);
+        uint32 sigma = Oracle.getSigma(feed);
 
         assertEq(sigma, 0);
     }
@@ -208,7 +208,7 @@ contract LibOracleTest is BaseTestSetup {
             VOL_MAX
         );
 
-        uint32 sigma = LibOracle.getSigma(feed);
+        uint32 sigma = Oracle.getSigma(feed);
 
         assertEq(sigma, VOL_MAX);
     }
@@ -223,7 +223,7 @@ contract LibOracleTest is BaseTestSetup {
             200_000         // 20%
         );
 
-        uint32 sigma = LibOracle.getSigma(feed);
+        uint32 sigma = Oracle.getSigma(feed);
 
         // Blended = (80% + 20%) / 2 = 50%
         assertEq(sigma, 500_000);
@@ -238,7 +238,7 @@ contract LibOracleTest is BaseTestSetup {
     // ═══════════════════════════════════════════════════════════════════════════
 
     function test_getBaseFeed_returns_stable_feed() public {
-        IOracle.FeedData memory feed = LibOracle.getBaseFeed();
+        IOracle.FeedData memory feed = Oracle.getBaseFeed();
 
         // Check all fields
         assertEq(M.b64To1e18(feed.lastPriceB64), 1e18);  // Price should be 1.0
@@ -251,7 +251,7 @@ contract LibOracleTest is BaseTestSetup {
         assertEq(feed.confidence, 100);
 
         // Test that decoding works correctly
-        (uint256 priceFast, uint256 priceSlow) = LibOracle.decodeB64s(feed);
+        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
         assertEq(priceFast, 1e18);
         assertEq(priceSlow, 1e18);
     }

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 
-/// @title LibMaths — B64 (52/5/7) float ops + helpers.
-/// @dev Constants WAD/PBPS @ LibConstants. B64 layout: mantissa(52)|decimals(5)|exp+bias(7).
-library LibMaths {
+/// @title Maths — B64 (52/5/7) float ops + helpers.
+/// @dev Constants WAD/PBPS @ Constants. B64 layout: mantissa(52)|decimals(5)|exp+bias(7).
+library Maths {
     // --- B64 constants ---
     uint256 internal constant B64_MANTISSA_BITS = 52;
     uint256 internal constant B64_EXPONENT_BITS = 5;

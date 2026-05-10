@@ -5,7 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IAdminConfig} from "../src/interfaces/modules/IAdmin.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
 import {Admin} from "../src/modules/Admin.sol";
 
