@@ -55,21 +55,24 @@ abstract contract UUPSTimelockHarness is Test {
         _executeUpgrade(OWNER);
     }
 
-    // ─── 3. executeUpgrade timelock validation passes after delay ───
-    /// @dev We assert the timelock guard clears (no PendingTimelock revert) after delay.
-    ///      The actual UUPS impl swap path (`this.upgradeToAndCall`) executes from the
-    ///      proxy itself → msg.sender = proxy → `_authorizeUpgrade` onlyOwner reverts
-    ///      with `Unauthorized`. Distinguishing these two failure modes is the test:
-    ///      pre-delay = timelock revert; post-delay = downstream Unauthorized.
+    // ─── 3. executeUpgrade actually swaps the implementation post-delay ───
+    /// @dev G18 (Round 5) fix verification: `executeUpgrade` arms a transient auth flag,
+    ///      `this.upgradeToAndCall` self-calls into the proxy, `_authorizeUpgrade` reads
+    ///      the flag, and the ERC1967 implementation slot is updated to `newImpl`.
+    ///      This test asserts the impl slot reflects the new impl, that pending state
+    ///      clears, and the upgrade is genuinely live (not just timelock-validated).
+    bytes32 internal constant _ERC1967_IMPL_SLOT =
+        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     function test_executeUpgrade_succeedsAfterDelay() public {
         _requestUpgrade(OWNER, newImpl);
         vm.warp(block.timestamp + UPGRADE_TL + 1);
-        // Post-delay: timelock guard PASSES; only the inner self-call _authorizeUpgrade
-        // path can revert (Unauthorized). Verify exact post-delay revert selector.
-        vm.expectRevert(Ownable.Unauthorized.selector);
         _executeUpgrade(OWNER);
-        // Pending state remains (executeUpgrade reverted before clearing).
-        assertTrue(_hasPendingUpgrade(), "pending state intact post-revert");
+        // Impl slot must be the freshly deployed `newImpl`.
+        bytes32 raw = vm.load(proxy, _ERC1967_IMPL_SLOT);
+        address implAddr = address(uint160(uint256(raw)));
+        assertEq(implAddr, newImpl, "impl slot updated to newImpl");
+        // Pending state cleared by executeUpgrade pre-self-call.
+        assertFalse(_hasPendingUpgrade(), "pending cleared post-execute");
     }
 
     // ─── 4. cancelUpgrade clears state ───

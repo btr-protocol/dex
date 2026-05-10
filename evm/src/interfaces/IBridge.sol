@@ -60,7 +60,8 @@ interface IBridge {
 
     function requestSetPeer(uint32 eid, bytes32 peer) external;
     function executeSetPeer(uint32 eid) external;
-    function cancelOperation(bytes32 id) external;
+    function cancelConfigChange(address token) external;
+    function cancelSetPeer(uint32 eid) external;
 
     function requestUpgrade(address newImplementation) external;
     function executeUpgrade() external;

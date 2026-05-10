@@ -31,6 +31,10 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
     bytes32 public pendingUpgradeId;
     address public pendingImplementation;
 
+    /// @dev G18 fix: transient slot for self-call upgrade auth. See Treasury.sol for details.
+    bytes32 private constant _UPGRADE_AUTH_TSLOT =
+        0x9f1c8b7e3f6a4d2c5b8e1a0f7d9c4e2b5a8f1c7e4b9d6a3c0e7f1b8d5a2c9e62;
+
     constructor() {}
 
     /// @dev F-A2-R10-1 (LOW) NOT FIXED (intentional): unguarded `initialize`. Deployment script
@@ -342,7 +346,9 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
         delete pendingUpgradeId;
         delete pendingImplementation;
         delete pendingUpgradeOp;
+        assembly { tstore(_UPGRADE_AUTH_TSLOT, 1) }
         this.upgradeToAndCall(newImpl, "");
+        assembly { tstore(_UPGRADE_AUTH_TSLOT, 0) }
         emit Upgraded(newImpl);
     }
 
@@ -353,5 +359,13 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
         delete pendingUpgradeOp;
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    /// @dev G18 fix: see Treasury.sol comment.
+    function _authorizeUpgrade(address) internal override {
+        if (msg.sender == address(this)) {
+            uint256 auth;
+            assembly { auth := tload(_UPGRADE_AUTH_TSLOT) }
+            if (auth == 1) return;
+        }
+        if (msg.sender != owner()) revert Ownable.Unauthorized();
+    }
 }
