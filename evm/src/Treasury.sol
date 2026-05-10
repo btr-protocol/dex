@@ -9,7 +9,7 @@ import {IPoolModule} from "./interfaces/modules/IPool.sol";
 import {IBridge} from "./interfaces/IBridge.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
+import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Timelock as TL} from "@btr-shared/Timelock.sol";
@@ -18,7 +18,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title Treasury
 /// @notice Standalone treasury for gov token, TGE, vesting, and protocol fee collection.
-contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
+contract Treasury is Ownable, ReentrancyGuardTransient, UUPSUpgradeable, ITreasury {
     // Vesting params: 5yr linear, 6mo cliff, 15% at cliff.
     uint48 constant CLIFF_DURATION = 180 days;
     uint48 constant VESTING_DURATION = 5 * 365 days;
@@ -46,18 +46,18 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
     bytes32 public pendingUpgrade;
     address public pendingImplementation;
 
-    constructor(address _govToken) {
-        if (_govToken == address(0)) revert Err.ZeroValue();
-        govToken = _govToken;
+    constructor(address govToken_) {
+        if (govToken_ == address(0)) revert Err.ZeroValue();
+        govToken = govToken_;
     }
 
     /// @dev F-A2-R10-1 (LOW) NOT FIXED (intentional): unguarded `initialize`. Deployment script
     ///      atomically deploys + initializes (single tx) → front-run window = 0. One-shot guard
     ///      via `owner() != address(0)` blocks repeat. Mirrors Bridge.initialize disposition.
-    function initialize(address newOwner) external {
-        if (newOwner == address(0)) revert Err.ZeroValue();
+    function initialize(address newOwner_) external {
+        if (newOwner_ == address(0)) revert Err.ZeroValue();
         if (owner() != address(0)) revert Err.InvalidState();
-        _initializeOwner(newOwner);
+        _initializeOwner(newOwner_);
     }
 
     /// @dev F-A1-R11-1 (INFO) fix: forbid post-TGE init. `initializeTGE` snapshots
@@ -65,19 +65,19 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
     ///      If emissions were initialized AFTER TGE, the cap would silently exclude the late
     ///      emissions allocation and `mintEmissionsToDistributor` would revert via
     ///      `_enforceMaxSupply`. Use `requestEmissionsCapChange` post-TGE for cap edits.
-    function initializeEmissions(uint256 _emissionsCap) external onlyOwner {
-        if (_emissionsCap == 0) revert Err.ZeroValue();
+    function initializeEmissions(uint256 emissionsCap_) external onlyOwner {
+        if (emissionsCap_ == 0) revert Err.ZeroValue();
         if (emissionsSchedule.totalAllocation != 0) revert Err.InvalidState();
         if (tgeTimestamp != 0) revert Err.InvalidState();
         emissionsSchedule = VestingSchedule({
-            totalAllocation: _emissionsCap,
+            totalAllocation: emissionsCap_,
             claimed: 0,
             cliffTime: 0,
             endTime: 0,
             cliffAmount: 0,
             suppressor: 10000
         });
-        emit EmissionsInitialized(_emissionsCap);
+        emit EmissionsInitialized(emissionsCap_);
     }
 
     function _enforceMaxSupply(uint256 amount) internal view {

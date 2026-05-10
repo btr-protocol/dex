@@ -10,21 +10,37 @@ import {IWETH9} from "./interfaces/external/IWETH9.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Pricing} from "./libraries/Pricing.sol";
 import {Maths as M} from "./libraries/Maths.sol";
-import {Oracle} from "./libraries/Oracle.sol";
 import {Constants as C} from "./libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {AnchorTree} from "./libraries/AnchorTree.sol";
-import {TransientCache as TCache} from "./libraries/TransientCache.sol";
+import {PoolOracle} from "./libraries/PoolOracle.sol";
+import {PoolDecay} from "./libraries/PoolDecay.sol";
+import {PoolAdmin} from "./libraries/PoolAdmin.sol";
 
 /// @title Pool — standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
 /// @notice Phase 42H.B.3d — drops ERC-7201, deletes Base.sol, collapses PoolProxy.
 ///         Each pool instance is now a direct EIP-1167 minimal-proxy clone of this impl
 ///         (deployment via PoolFactory). Per-clone state is initialized via initialize().
-contract Pool {
+/// @dev STORAGE LAYOUT (Phase 42H.B.3d intentional decision):
+///      `IPool.PoolStorage $` lives at slot 0 of every clone. We do NOT use ERC-7201
+///      namespaced slots because:
+///        1. Each Pool is a fresh EIP-1167 clone (its own storage space) — no slot
+///           collision risk with delegate-callers, libraries, or other state.
+///        2. Pool is non-upgradeable per-instance (clones cannot upgrade); the
+///           `referencePool` impl is replaceable only via PoolFactory's 7d-timelocked
+///           swap, which produces NEW clones rather than mutating live storage.
+///        3. Slot-0 layout removes the keccak deref overhead on every storage access
+///           (hot path: swap, deposit, withdraw) — material gas saving across the
+///           thousands of `$.<field>` accesses in this contract.
+///      UPGRADE-SAFETY NOTE: any change to `IPool.PoolStorage` field order or types
+///      would break existing clones if they were ever migrated. New `referencePool`
+///      impls MUST keep `PoolStorage` append-only (new fields appended; existing
+///      fields' offsets/types unchanged). See Phase 42H.B.3d ADR.
+contract Pool is ReentrancyGuardTransient {
     using SafeTransferLib for address;
     using {M.b64To1e18} for uint64;
 
@@ -66,21 +82,16 @@ contract Pool {
     // CONSTANTS
     // ────────────────────────────────────────────────────────────────
 
-    /// @dev keccak256("pool.reentrancy.guard")
-    bytes32 private constant REENTRANCY_GUARD_SLOT =
-        0xe22c27e8d25bc3725093027126bd674994df6625365bae10cf4b95c8b45f98b6;
-
     /// @dev Initial liquidity index (1e12 → ~18M× growth before uint64 overflow).
     uint256 private constant INIT_LIQUIDITY_INDEX = 1e12;
 
-    // Internal oracle TWAP constants (was: InternalOracle.sol).
-    uint32 public constant FAST_WINDOW = 300;
-    uint32 public constant SLOW_WINDOW = 3600;
-    uint32 public constant FAST_VOL_ALPHA = 200;
-    uint32 public constant SLOW_VOL_ALPHA = 1800;
+    /// @notice Public-facing oracle constants (mirror `PoolOracle` lib values for ABI stability).
+    uint32 public constant FAST_WINDOW = PoolOracle.FAST_WINDOW;
+    uint32 public constant SLOW_WINDOW = PoolOracle.SLOW_WINDOW;
+    uint32 public constant FAST_VOL_ALPHA = PoolOracle.FAST_VOL_ALPHA;
+    uint32 public constant SLOW_VOL_ALPHA = PoolOracle.SLOW_VOL_ALPHA;
     uint32 public constant MAX_VOLATILITY = 100 * uint32(SC.PBPS);
-    uint16 public constant DEFAULT_TTL = 3600;
-    uint256 private constant MAX_STALENESS = 604800;
+    uint16 public constant DEFAULT_TTL = PoolOracle.DEFAULT_TTL;
 
     // ────────────────────────────────────────────────────────────────
     // EVENTS
@@ -94,18 +105,6 @@ contract Pool {
     // ────────────────────────────────────────────────────────────────
     // MODIFIERS
     // ────────────────────────────────────────────────────────────────
-
-    modifier nonReentrant() {
-        assembly {
-            if tload(REENTRANCY_GUARD_SLOT) {
-                mstore(0x00, 0x92f0d5b4) // ReentrancyDetected()
-                revert(0x00, 0x04)
-            }
-            tstore(REENTRANCY_GUARD_SLOT, 1)
-        }
-        _;
-        assembly { tstore(REENTRANCY_GUARD_SLOT, 0) }
-    }
 
     modifier onlyOwner() {
         if (msg.sender != _owner()) revert Ownable.Unauthorized();
@@ -241,120 +240,16 @@ contract Pool {
         }
     }
 
-    /// @dev Read internal oracle accumulator
-    function _readInternalOracle(
-        address token,
-        bool requireConfigured
-    ) internal view returns (IOracle.FeedData memory data, bool isFresh) {
-        IPool.FeedAccumulator storage acc = $.accumulators[token];
-
-        if (acc.lastUpdate == 0) {
-            if (requireConfigured) revert Err.NotConfigured(Err.Resource.ORACLE, token);
-            return (data, false);
-        }
-
-        data = IOracle.FeedData({
-            lastPriceB64: acc.lastPriceB64,
-            fastOffset: 0,
-            slowOffset: 0,
-            fastVolEMA: acc.fastVolEMA,
-            slowVolEMA: acc.slowVolEMA,
-            updatedAt: acc.lastUpdate,
-            ttl: acc.ttl,
-            confidence: acc.confidence
-        });
-
-        if (block.timestamp < acc.lastUpdate) {
-            isFresh = false;
-        } else {
-            unchecked { isFresh = block.timestamp - acc.lastUpdate <= acc.ttl; }
-        }
+    /// @dev Read internal oracle accumulator (delegates to PoolOracle library).
+    function _readInternalOracle(address token, bool requireConfigured)
+        internal view returns (IOracle.FeedData memory data, bool isFresh)
+    {
+        return PoolOracle.readInternalOracle($, token, requireConfigured);
     }
 
     /// @notice Read oracle with primary→fallback. DoS-resistant via try/catch.
     function _readOracle(address token) internal returns (IOracle.FeedData memory data) {
-        bool found;
-        (found, data) = TCache.tryLoadOracleFeed(token);
-        if (found) return data;
-
-        IPool.OracleConfig memory cfg = $.oracleConfigs[token];
-        if (cfg.primary == address(0)) revert Err.NotConfigured(Err.Resource.ORACLE, token);
-
-        uint256 lastAge;
-        uint256 lastMaxAge;
-        bool isFresh;
-        bool primaryFailed;
-
-        if (cfg.primary == address(this)) {
-            (data, isFresh) = _readInternalOracle(token, true);
-            if (isFresh) { TCache.cacheOracleFeed(token, data); return data; }
-            unchecked { lastAge = block.timestamp - data.updatedAt; lastMaxAge = data.ttl; }
-        } else {
-            try IOracle(cfg.primary).getFeed(cfg.feedId) returns (IOracle.FeedData memory feedData) {
-                data = feedData;
-                try IOracle(cfg.primary).isFeedFresh(cfg.feedId) returns (bool fresh) {
-                    if (fresh) { TCache.cacheOracleFeed(token, data); return data; }
-                    unchecked { lastAge = block.timestamp - data.updatedAt; lastMaxAge = data.ttl; }
-                } catch { primaryFailed = true; }
-            } catch { primaryFailed = true; }
-        }
-
-        if ((cfg.modeFlags & C.MODE_ALLOW_FALLBACK) != 0 && cfg.secondary != address(0)) {
-            if (cfg.secondary == address(this)) {
-                (data, isFresh) = _readInternalOracle(token, false);
-                if (isFresh) { TCache.cacheOracleFeed(token, data); return data; }
-                unchecked { lastAge = block.timestamp - data.updatedAt; lastMaxAge = data.ttl; }
-            } else {
-                try IOracle(cfg.secondary).getFeed(cfg.feedId) returns (IOracle.FeedData memory feedData) {
-                    data = feedData;
-                    try IOracle(cfg.secondary).isFeedFresh(cfg.feedId) returns (bool fresh) {
-                        if (fresh) { TCache.cacheOracleFeed(token, data); return data; }
-                        unchecked { lastAge = block.timestamp - data.updatedAt; lastMaxAge = data.ttl; }
-                    } catch {}
-                } catch {
-                    if (primaryFailed) revert Err.NotConfigured(Err.Resource.ORACLE, token);
-                }
-            }
-        } else if (primaryFailed) {
-            revert Err.NotConfigured(Err.Resource.ORACLE, token);
-        }
-
-        revert Err.StaleData(uint32(lastAge), uint32(lastMaxAge));
-    }
-
-    /// @notice Apply liability decay
-    function _applyDecay(address token, IPool.Asset storage asset) internal {
-        IPool.RiskConfig storage rc = $.riskConfigs[token];
-        if ((rc.flags & C.DECAY_ENABLED_BIT) == 0 || rc.decaySlope == 0) {
-            asset.lastUpdate = uint32(block.timestamp);
-            return;
-        }
-
-        uint32 dt = uint32(block.timestamp) - asset.lastUpdate;
-        if (dt == 0) return;
-
-        uint128 decayAmount = _calculateDecay(
-            asset.liabilities, asset.reserves, rc.decayStartRatioBps, rc.decaySlope, dt
-        );
-
-        if (decayAmount > 0) asset.liabilities -= decayAmount;
-        asset.lastUpdate = uint32(block.timestamp);
-    }
-
-    function _calculateDecay(
-        uint128 liabilities,
-        uint128 reserves,
-        uint16 decayStartRatioBps,
-        uint32 decaySlope,
-        uint32 dt
-    ) private pure returns (uint128) {
-        if (dt == 0 || decaySlope == 0 || liabilities == 0) return 0;
-        uint256 coverage = liabilities == 0 ? type(uint256).max : (uint256(reserves) * 1e18) / uint256(liabilities);
-        uint256 threshold = (uint256(decayStartRatioBps) * 1e18) / 1_000_000;
-        if (coverage >= threshold) return 0;
-        uint256 rawDecay = (uint256(liabilities) * uint256(decaySlope) * uint256(dt)) / 1e18;
-        uint256 maxDecay = liabilities > reserves ? liabilities - reserves : 0;
-        return uint128(rawDecay > maxDecay ? maxDecay : rawDecay);
+        return PoolOracle.readOracle($, address(this), token);
     }
 
     /// @notice ERC7802 bridge auth — bridgeable tokens query this.
@@ -395,16 +290,7 @@ contract Pool {
     }
 
     function getFastTWAP(address token) external view returns (uint64) {
-        address t = _wrap(token);
-        IPool.FeedAccumulator storage acc = $.accumulators[t];
-        if (acc.lastUpdate == 0) revert Err.NotConfigured(Err.Resource.ORACLE, t);
-        int32 off = acc.fastOffset;
-        if (off == 0) return acc.lastPriceB64;
-        uint256 spot = M.b64To1e18(acc.lastPriceB64);
-        int256 mult = int256(Oracle.ORACLE_PBPS) + int256(off);
-        if (mult <= 0) return M.encodeB64(1, 18);
-        uint256 twap = FixedPointMathLib.fullMulDiv(spot, uint256(mult), Oracle.ORACLE_PBPS);
-        return M.encodeB64(twap, 18);
+        return PoolOracle.computeFastTWAP($, _wrap(token));
     }
 
     /// @notice Init/reset feed.
@@ -416,145 +302,14 @@ contract Pool {
         uint32 slowVolEMA
     ) external {
         if (msg.sender != _owner() && msg.sender != address(this)) revert Ownable.Unauthorized();
-        if (initialPrice == 0) revert Err.ZeroValue();
-        if (accDecimals > 18) revert Err.InvalidInput();
-
         address t = _wrap(token);
-        IPool.FeedAccumulator storage acc = $.accumulators[t];
-
-        acc.lastPriceB64 = initialPrice;
-        acc.accDecimals = accDecimals;
-        acc.fastVolEMA = fastVolEMA;
-        acc.slowVolEMA = slowVolEMA;
-        acc.lastUpdate = uint32(block.timestamp);
-        acc.ttl = DEFAULT_TTL;
-        acc.confidence = 100;
-        acc.priceAccB64 = 0;
-        acc.fastSnapB64 = 0;
-        acc.slowSnapB64 = 0;
-        acc.fastSnapshotTime = uint32(block.timestamp);
-        acc.slowSnapshotTime = uint32(block.timestamp);
-        acc.fastOffset = 0;
-        acc.slowOffset = 0;
-
+        PoolOracle.initFeed($, t, initialPrice, accDecimals, fastVolEMA, slowVolEMA);
         emit IOracle.OracleUpdated(t, initialPrice, fastVolEMA, slowVolEMA);
     }
 
     /// @dev Disabled — internal oracle updates via pushFeedInternal on swaps.
     function pushFeed(address, uint64, uint32) external pure {
         revert Err.InvalidInput();
-    }
-
-    /// @dev Inlined hot path. Skips msg.sender guard ∵ internal-only caller.
-    function _pushFeedInternal(
-        address tokenA,
-        address tokenB,
-        uint64 priceA,
-        uint64 priceB
-    ) internal {
-        if (tokenA != address(0) && priceA != 0) _updateFeeds(tokenA, priceA);
-        if (tokenB != address(0) && priceB != 0) _updateFeeds(tokenB, priceB);
-    }
-
-    function _updateFeeds(address token, uint64 newPrice) private {
-        address t = _wrap(token);
-        IPool.FeedAccumulator storage acc = $.accumulators[t];
-        uint32 currentTime = uint32(block.timestamp);
-
-        if (acc.lastUpdate == 0) {
-            acc.lastPriceB64 = newPrice;
-            acc.fastVolEMA = uint32(SC.ONE_PCT_PBPS / 100);
-            acc.slowVolEMA = uint32(SC.ONE_PCT_PBPS / 100);
-            acc.lastUpdate = currentTime;
-            acc.ttl = DEFAULT_TTL;
-            acc.confidence = 100;
-            acc.accDecimals = 6;
-            acc.fastSnapshotTime = currentTime;
-            acc.slowSnapshotTime = currentTime;
-            return;
-        }
-
-        unchecked {
-            uint256 dt = currentTime - acc.lastUpdate;
-            if (dt == 0) return;
-
-            if (dt > MAX_STALENESS) {
-                dt = MAX_STALENESS;
-                acc.fastSnapB64 = acc.priceAccB64;
-                acc.slowSnapB64 = acc.priceAccB64;
-                acc.fastSnapshotTime = acc.lastUpdate;
-                acc.slowSnapshotTime = acc.lastUpdate;
-            }
-
-            uint8 accDec = acc.accDecimals;
-            uint256 lastPriceInAccDec = M.decodeB64(acc.lastPriceB64, accDec);
-            uint256 currentAcc = acc.priceAccB64 == 0 ? 0 : M.decodeB64(acc.priceAccB64, accDec);
-            currentAcc += lastPriceInAccDec * dt;
-            acc.priceAccB64 = M.encodeB64(currentAcc, accDec);
-
-            uint256 lastPriceInt = M.b64To1e18(acc.lastPriceB64);
-            _rollWindow(acc, accDec, currentAcc, lastPriceInt, currentTime, true);
-            _rollWindow(acc, accDec, currentAcc, lastPriceInt, currentTime, false);
-
-            uint32 priceChange = M.diff1e6(acc.lastPriceB64, newPrice);
-            acc.fastVolEMA = _updateVolEMA(acc.fastVolEMA, priceChange, FAST_VOL_ALPHA);
-            acc.slowVolEMA = _updateVolEMA(acc.slowVolEMA, priceChange, SLOW_VOL_ALPHA);
-
-            acc.lastPriceB64 = newPrice;
-            acc.lastUpdate = currentTime;
-            acc.confidence = 100;
-        }
-    }
-
-    function _rollWindow(
-        IPool.FeedAccumulator storage acc,
-        uint8 accDec,
-        uint256 currentAcc,
-        uint256 lastPriceInt,
-        uint32 currentTime,
-        bool isFast
-    ) private {
-        uint32 windowSize = isFast ? FAST_WINDOW : SLOW_WINDOW;
-        uint32 snapTime = isFast ? acc.fastSnapshotTime : acc.slowSnapshotTime;
-        uint64 snapB64 = isFast ? acc.fastSnapB64 : acc.slowSnapB64;
-
-        unchecked {
-            uint256 dt = currentTime - snapTime;
-            if (dt < windowSize) return;
-
-            uint256 snapAcc = snapB64 == 0 ? 0 : M.decodeB64(snapB64, accDec);
-            if (snapAcc > currentAcc) {
-                if (isFast) { acc.fastSnapB64 = acc.priceAccB64; acc.fastSnapshotTime = currentTime; }
-                else { acc.slowSnapB64 = acc.priceAccB64; acc.slowSnapshotTime = currentTime; }
-                return;
-            }
-
-            uint256 twapInAccDec = (currentAcc - snapAcc) / dt;
-            uint256 twap = twapInAccDec * (10 ** (18 - accDec));
-            int32 offset = Oracle.encodeOffset1e18(lastPriceInt, twap);
-            if (isFast) {
-                acc.fastOffset = offset;
-                acc.fastSnapB64 = acc.priceAccB64;
-                acc.fastSnapshotTime = currentTime;
-            } else {
-                acc.slowOffset = offset;
-                acc.slowSnapB64 = acc.priceAccB64;
-                acc.slowSnapshotTime = currentTime;
-            }
-        }
-    }
-
-    function _updateVolEMA(uint32 oldVol, uint32 newVol, uint32 alpha) private pure returns (uint32) {
-        unchecked {
-            uint256 o = oldVol;
-            uint256 n = newVol;
-            uint256 delta = n > o ? ((n - o) * alpha) / SC.PBPS : ((o - n) * alpha) / SC.PBPS;
-            if (n > o) {
-                uint256 r = o + delta;
-                return r > type(uint32).max ? type(uint32).max : uint32(r);
-            }
-            return uint32(o - delta);
-        }
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -570,7 +325,7 @@ contract Pool {
         address tkn = _wrap(token);
         IPool.Asset storage asset = _asset(tkn);
 
-        _applyDecay(tkn, asset);
+        PoolDecay.applyDecay($, tkn, asset);
         if (($.riskConfigs[tkn].flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
 
         uint256 amt = _pull(token, amount);
@@ -593,7 +348,7 @@ contract Pool {
         address tkn = _wrap(token);
         IPool.Asset storage asset = _asset(tkn);
 
-        _applyDecay(tkn, asset);
+        PoolDecay.applyDecay($, tkn, asset);
         _checkRisk(tkn, 0);
 
         uint256 amt = _pull(token, amount);
@@ -644,8 +399,8 @@ contract Pool {
 
         IPool.Asset storage assetFrom = _asset(fromTk);
         IPool.Asset storage assetTo = _asset(toTk);
-        _applyDecay(fromTk, assetFrom);
-        _applyDecay(toTk, assetTo);
+        PoolDecay.applyDecay($, fromTk, assetFrom);
+        PoolDecay.applyDecay($, toTk, assetTo);
 
         uint256 withdrawValue = (lpAmount * (assetFrom.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetFrom.liquidityIndex)) / SC.WAD;
         uint256 amt;
@@ -704,8 +459,8 @@ contract Pool {
         if (assetIn.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, inTk);
         if (assetOut.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, outTk);
 
-        _applyDecay(inTk, assetIn);
-        _applyDecay(outTk, assetOut);
+        PoolDecay.applyDecay($, inTk, assetIn);
+        PoolDecay.applyDecay($, outTk, assetOut);
         _checkRisk(inTk, C.LIABILITY_SWAP_ENABLED_BIT);
         _checkRisk(outTk, C.LIABILITY_SWAP_ENABLED_BIT);
 
@@ -769,8 +524,8 @@ contract Pool {
 
         _checkRisk(tk[0], C.SWAP_ENABLED_BIT);
         _checkRisk(tk[1], C.SWAP_ENABLED_BIT);
-        _applyDecay(tk[0], $.assets[tk[0]]);
-        _applyDecay(tk[1], $.assets[tk[1]]);
+        PoolDecay.applyDecay($, tk[0], $.assets[tk[0]]);
+        PoolDecay.applyDecay($, tk[1], $.assets[tk[1]]);
 
         uint256 actualIn = _pull(tokenIn, amountIn);
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk[0], tk[1], actualIn);
@@ -863,7 +618,7 @@ contract Pool {
             if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
 
             _checkRisk(tk, C.SWAP_ENABLED_BIT);
-            _applyDecay(tk, a);
+            PoolDecay.applyDecay($, tk, a);
 
             uint256 amt = _pull(tk == $.wnative ? SC.NATIVE : tk, M.decodeB64(amtB64, a.decimals));
 
@@ -897,7 +652,7 @@ contract Pool {
             uint256 baseIn = (baseTotal * w) / 10000;
 
             _checkRisk(tk, C.SWAP_ENABLED_BIT);
-            _applyDecay(tk, a);
+            PoolDecay.applyDecay($, tk, a);
 
             if (tk == base) {
                 amountsOut[j] = baseIn;
@@ -988,9 +743,9 @@ contract Pool {
             address b = q.routeHops[i + 1];
             uint64 p = q.hopPrices[i];
 
-            if (a == base) _pushFeedInternal(b, address(0), p, 0);
-            else if (b == base) _pushFeedInternal(a, address(0), p, 0);
-            else _pushFeedInternal(a, b, p, p);
+            if (a == base) PoolOracle.pushFeedInternal($, b, address(0), p, 0);
+            else if (b == base) PoolOracle.pushFeedInternal($, a, address(0), p, 0);
+            else PoolOracle.pushFeedInternal($, a, b, p, p);
 
             unchecked { ++i; }
         }
@@ -1100,10 +855,10 @@ contract Pool {
         address t = _wrap(token);
         if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
 
-        _validateProfileMemory(profile);
-        _validateOracleConfig(oracleCfg);
-        _initAsset(t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
-        _setupOracleAndConfig(t, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
+        PoolAdmin.validateProfileMemory(profile);
+        PoolAdmin.validateOracleConfig(oracleCfg, address(this));
+        PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
+        PoolAdmin.setupOracleAndConfig($, address(this), t, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
     }
 
     function adminCollectProtocolFees(address token, address recipient)
@@ -1163,7 +918,7 @@ contract Pool {
     }
 
     function adminSetOracleConfig(address token, IPool.OracleConfig calldata cfg) external onlyAdmin {
-        _validateOracleConfig(cfg);
+        PoolAdmin.validateOracleConfig(cfg, address(this));
         $.oracleConfigs[token] = cfg;
     }
 
@@ -1208,7 +963,7 @@ contract Pool {
     function flashSend(address token, uint256 amount, address to) external onlyFlash whenInitialized nonReentrant {
         address t = _wrap(token);
         IPool.Asset storage asset = _asset(t);
-        _applyDecay(t, asset);
+        PoolDecay.applyDecay($, t, asset);
         if (amount == 0) revert Err.ZeroValue();
         if (asset.reserves < amount || asset.reserves - amount < asset.minLiquidity) {
             revert Err.InsufficientAmount(asset.reserves, amount);
@@ -1226,95 +981,6 @@ contract Pool {
 
     // ── helpers ──
 
-    function _validateProfileMemory(IPool.LiquidityProfile memory profile) internal pure {
-        if (profile.weights[0] == 0) revert Err.InvalidInput();
-
-        uint256 sum = 0;
-        uint256 segmentCount = 0;
-        unchecked {
-            for (uint256 i = 0; i < 16; ++i) {
-                if (profile.weights[i] == 0) { segmentCount = i; break; }
-                sum += profile.weights[i];
-                if (i == 15) segmentCount = 16;
-            }
-        }
-        if (segmentCount == 0 || sum != 200) revert Err.InvalidInput();
-
-        uint256 knotCount = segmentCount + 1;
-        unchecked {
-            for (uint256 i = 1; i < knotCount; ++i) {
-                if (profile.knots[i] < profile.knots[i - 1]) revert Err.InvalidInput();
-            }
-        }
-        if (int16(profile.knots[knotCount - 1]) - int16(profile.knots[0]) != 100) revert Err.InvalidInput();
-    }
-
-    function _validateOracleConfig(IPool.OracleConfig memory cfg) internal view {
-        if (cfg.primary == address(0)) revert Err.InvalidInput();
-        if (cfg.primary != address(this)) {
-            try IOracle(cfg.primary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {} catch {
-                revert Err.InvalidInput();
-            }
-        }
-        if (cfg.secondary != address(0) && cfg.secondary != address(this)) {
-            try IOracle(cfg.secondary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {} catch {
-                revert Err.InvalidInput();
-            }
-        }
-    }
-
-    function _initAsset(
-        address t,
-        uint8 decimals,
-        uint16 minFeeBps,
-        uint32 minDispersion,
-        uint32 maxDispersion,
-        uint16 gamma,
-        uint16 vega,
-        uint16 lambda
-    ) internal {
-        IPool.Asset storage asset = $.assets[t];
-        asset.decimals = decimals;
-        asset.minFeeBps = minFeeBps;
-        asset.maxFeeBps = 10000;
-        asset.minLiquidity = 0;
-        asset.minDispersion = minDispersion == 0 ? 1000 : minDispersion;
-        asset.maxDispersion = maxDispersion == 0 ? 100000 : maxDispersion;
-        asset.gamma = gamma == 0 ? 10000 : gamma;
-        asset.vega = vega == 0 ? 10000 : vega;
-        asset.lambda = lambda == 0 ? 10000 : lambda;
-        asset.haircutSuppressor = 10000;
-
-        if (t == $.baseToken) {
-            asset.anchor = address(0);
-            asset.anchorDepth = 0;
-        } else {
-            asset.anchor = $.baseToken;
-            asset.anchorDepth = 1;
-        }
-    }
-
-    function _setupOracleAndConfig(
-        address t,
-        IPool.OracleConfig memory oracleCfg,
-        IPool.RiskConfig memory riskCfg,
-        IPool.LiquidityProfile memory profile,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA
-    ) internal {
-        $.oracleConfigs[t] = oracleCfg;
-        $.riskConfigs[t] = riskCfg;
-        $.profiles[t] = profile;
-
-        if (oracleCfg.primary == address(this)) {
-            uint8 accDec = oracleCfg.accDecimals == 0 ? 6 : oracleCfg.accDecimals;
-            // Self-call to satisfy `msg.sender == address(this)` gate inside updateFeed.
-            try Pool(payable(address(this))).updateFeed(t, initialPrice, accDec, initialFastVolEMA, initialSlowVolEMA) {} catch {
-                revert Err.OperationFailed();
-            }
-        }
-    }
 
     receive() external payable {}
 }

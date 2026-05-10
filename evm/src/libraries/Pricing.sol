@@ -160,6 +160,9 @@ library Pricing {
             }
             return (midPrice * (SC.WAD + k)) / SC.WAD;
         }
+        // Phase 42H.D · G5.b — `points` built once, reused for both `Spline.eval`
+        // (zero-width path, line 176) AND `Spline.area` (line 181). Avoids double
+        // O(N) array rebuild on the swap hot path (~5–8k gas saved per swap).
         Spline.Point[] memory points = _buildSplinePoints(profile, dispersion);
         uint256 startDepth = _skewToDepth(inventorySkew);
         uint256 volumeFraction = (amountIn * 10000) / depth;
