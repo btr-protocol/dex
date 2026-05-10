@@ -31,7 +31,6 @@ contract Admin is IAdmin {
     bytes32 private constant OP_ADD_ASSET            = keccak256("ADD_ASSET");
     bytes32 private constant OP_UPDATE_RISK          = keccak256("UPDATE_RISK");
     bytes32 private constant OP_UPDATE_FEES          = keccak256("UPDATE_FEES");
-    bytes32 private constant OP_TRANSFER_OWNERSHIP   = keccak256("TRANSFER_OWNERSHIP");
     bytes32 private constant OP_UPDATE_BRIDGE        = keccak256("UPDATE_BRIDGE");
     bytes32 private constant OP_UPDATE_TREASURY      = keccak256("UPDATE_TREASURY");
     bytes32 private constant OP_BASE_MIGRATION       = keccak256("BASE_MIGRATION");
@@ -120,16 +119,6 @@ contract Admin is IAdmin {
         if (msg.sender != ITreasuryView(pool).treasury()) revert Ownable.Unauthorized();
         uint256 amount = IPool(pool).adminCollectProtocolFees(token, recipient);
         emit ProtocolFeesCollected(pool, token, recipient, amount);
-    }
-
-    function setStakedGovToken(address pool, address sGov) external onlyOwner {
-        IPool(pool).adminSetStakedGovToken(sGov);
-        emit StakedGovTokenSet(pool, sGov);
-    }
-
-    function setGovToken(address pool, address govToken) external onlyOwner {
-        IPool(pool).adminSetGovToken(govToken);
-        emit GovTokenSet(pool, govToken);
     }
 
     function setFlowCooldown(address pool, uint16 cooldownSeconds) external onlyOwner {
@@ -230,17 +219,6 @@ contract Admin is IAdmin {
         emit FeeParamsUpdated(pool, params.protoShare, params.flashFeeBps);
     }
 
-    function requestOwnershipTransfer(address pool, address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert Err.ZeroValue();
-        _emitQueued(_key(pool, OP_TRANSFER_OWNERSHIP), SC.HIGH_TIMELOCK, abi.encode(newOwner), pool, uint8(IPool.OpType.TRANSFER_OWNERSHIP));
-    }
-
-    function executeOwnershipTransfer(address pool) external onlyOwner {
-        address newOwner = abi.decode(_consume(_key(pool, OP_TRANSFER_OWNERSHIP)), (address));
-        IPool(pool).adminSetOwner(newOwner);
-        emit OwnershipTransferred(pool, address(0), newOwner);
-    }
-
     function requestBridgeUpdate(address pool, address newBridge) external onlyOwner {
         _emitQueued(_key(pool, OP_UPDATE_BRIDGE), SC.HIGH_TIMELOCK, abi.encode(newBridge), pool, uint8(IPool.OpType.UPDATE_BRIDGE));
     }
@@ -291,8 +269,7 @@ contract Admin is IAdmin {
 
     function cancelTimelock(address pool, uint8 opType) external onlyOwner {
         bytes32 key;
-        if (opType == uint8(IPool.OpType.TRANSFER_OWNERSHIP)) key = _key(pool, OP_TRANSFER_OWNERSHIP);
-        else if (opType == uint8(IPool.OpType.MIGRATE_BASE_TOKEN)) key = _key(pool, OP_BASE_MIGRATION);
+        if (opType == uint8(IPool.OpType.MIGRATE_BASE_TOKEN)) key = _key(pool, OP_BASE_MIGRATION);
         else if (opType == uint8(IPool.OpType.UPDATE_BRIDGE)) key = _key(pool, OP_UPDATE_BRIDGE);
         else if (opType == uint8(IPool.OpType.UPDATE_TREASURY)) key = _key(pool, OP_UPDATE_TREASURY);
         else if (opType == uint8(IPool.OpType.UPDATE_FEES)) key = _key(pool, OP_UPDATE_FEES);

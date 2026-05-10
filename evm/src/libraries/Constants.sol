@@ -4,17 +4,7 @@ pragma solidity ^0.8.35;
 /// @title Constants — AIMM-specific constants (dex-local)
 /// @dev Generic precision/timelock/sentinel constants live in @btr-shared/Constants.sol.
 library Constants {
-    // --- ERC-7201 storage locations ---
-    bytes32 internal constant CORE_STORAGE_LOC =
-        0x434e413f32fd441540d3f7cfa17fcdb1fe3e5bbbfbfad41a2edc933ab3d8f000;
-    bytes32 internal constant STAKING_STORAGE_LOC =
-        0xd170c8f7d48e01914fe8e334f1586822533b7239bd77d321e7e2463e4c2aa800;
-    bytes32 internal constant DISTRIBUTOR_STORAGE_LOC =
-        0x766bf381716de468c3786fcb5a0edf7a42b3746246e7a3aecdb4d0deb9a98400;
-    bytes32 internal constant ORACLE_STORAGE_LOC =
-        0x66393ec7629409eaa0af43f8ebdc702f7bad499202b191e5b6258c2b0cb09d00;
-    bytes32 internal constant FLOW_GUARD_STORAGE_LOC =
-        0x8a7c9f2e5b3d1a4c6e8f0d2b4a6c8e0f2d4b6a8c0e2f4d6b8a0c2e4f6d8b0a00;
+    // Phase 42H.B.3d — ERC-7201 storage locations removed (plain state vars on Pool).
 
     // --- Risk flags ---
     uint16 internal constant FROZEN_BIT = 1 << 0;

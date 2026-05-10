@@ -457,20 +457,14 @@ library Pricing {
         if (cfg.primary == address(0)) revert Err.NotConfigured(Err.Resource.ORACLE, token);
         // primary == address(this) → internal storage; else external IOracle.
         data = cfg.primary == address(this)
-            ? _readInternalOracle(token)
+            ? _readInternalOracle($, token)
             : IOracle(cfg.primary).getFeed(cfg.feedId);
         TCache.cacheOracleFeed(token, data);
     }
 
-    /// @dev ERC-7201 oracle storage.
-    function _os() private pure returns (IPool.OracleStorage storage os) {
-        bytes32 slot = C.ORACLE_STORAGE_LOC;
-        assembly { os.slot := slot }
-    }
-
     /// @dev Read from internal oracle storage (when cfg.primary == address(this)).
-    function _readInternalOracle(address token) private view returns (IOracle.FeedData memory data) {
-        IPool.FeedAccumulator storage acc = _os().accumulators[token];
+    function _readInternalOracle(IPool.PoolStorage storage $, address token) private view returns (IOracle.FeedData memory data) {
+        IPool.FeedAccumulator storage acc = $.accumulators[token];
         if (acc.lastUpdate == 0) revert Err.NotConfigured(Err.Resource.ORACLE, token);
         data = IOracle.FeedData({
             lastPriceB64: acc.lastPriceB64,

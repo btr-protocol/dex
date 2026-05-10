@@ -112,19 +112,12 @@ interface IPool is IExchange, ILiquidity, IOracle {
         UPDATE_TREASURY
     }
 
-    struct OracleStorage {
-        mapping(address token => FeedAccumulator) accumulators;
-    }
-
-    struct FlowGuardStorage {
-        mapping(address user => mapping(address asset => uint32)) lastDepositTime;
-        mapping(address user => uint32) lastGovStakeTime;
-        mapping(address user => mapping(address lpToken => uint32)) lastLPStakeTime;
-    }
-
-    /// @dev ERC-7201 namespaced storage shared across modules
+    /// @dev Phase 42H.B.3d — ERC-7201 indirection dropped. Pool storage is now plain
+    ///      state vars at slot 0+. PoolStorage struct moved into Pool.sol as a
+    ///      single instance variable for library compat (Pricing/AnchorTree pass-by-ref).
+    /// @dev Dead-state from earlier phases removed: govToken/sGovToken/stakingConfig/
+    ///      lpStaked/totalLPStaked/modules/pendingOps/pendingData/owner.
     struct PoolStorage {
-        address owner;
         address baseToken;
         address wnative;
         address bridge;
@@ -138,21 +131,18 @@ interface IPool is IExchange, ILiquidity, IOracle {
         mapping(address => uint32) hookFlags;
         mapping(address => mapping(address => uint256)) lpBalances;
         mapping(address => uint256) protocolFees;
-        mapping(bytes4 => address) modules;
         IPool.FeeParams feeParams;
         uint16 flowCooldownSeconds;
-        mapping(bytes32 => uint96) pendingOps;
-        mapping(bytes32 => bytes) pendingData;
-        address govToken;
-        address sGovToken;
-        StakingConfig stakingConfig;
-        mapping(address user => mapping(address lpToken => uint256)) lpStaked;
-        mapping(address lpToken => uint256) totalLPStaked;
+        // Oracle accumulators (was: OracleStorage @ ORACLE_STORAGE_LOC).
+        mapping(address token => FeedAccumulator) accumulators;
+        // Flow-guard cooldown timestamps (was: FlowGuardStorage @ FLOW_GUARD_STORAGE_LOC).
+        mapping(address user => mapping(address asset => uint32)) lastDepositTime;
+        mapping(address user => mapping(address lpToken => uint32)) lastLPStakeTime;
     }
 
     event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);
 
-    function initialize(address owner, address baseToken, address wnative) external;
+    function initialize(address baseToken, address wnative, FeeParams calldata feeParams) external;
 
     // ── Phase 42H.B.3a: restricted setters gated by `admin` singleton ──
     function adminFreezeAsset(address token) external;
@@ -174,8 +164,6 @@ interface IPool is IExchange, ILiquidity, IOracle {
         uint16 lambda
     ) external;
     function adminCollectProtocolFees(address token, address recipient) external returns (uint256);
-    function adminSetGovToken(address govToken) external;
-    function adminSetStakedGovToken(address sGov) external;
     function adminSetFlowCooldown(uint16 cooldownSeconds) external;
     function adminSetAnchor(address token, address anchor) external;
     function adminSetAssetParams(
@@ -192,7 +180,6 @@ interface IPool is IExchange, ILiquidity, IOracle {
     function adminSetRiskConfig(address token, RiskConfig calldata cfg) external;
     function adminSetOracleConfig(address token, OracleConfig calldata cfg) external;
     function adminSetFeeParams(FeeParams calldata params) external;
-    function adminSetOwner(address newOwner) external;
     function adminSetBridge(address newBridge) external;
     function adminSetTreasury(address newTreasury) external;
     function adminSetBaseToken(address newBase) external;
