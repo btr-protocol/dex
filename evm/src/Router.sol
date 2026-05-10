@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {IRouter} from "./interfaces/IRouter.sol";
-import {IPoolProxyFactory} from "./interfaces/IPoolProxyFactory.sol";
+import {IPoolFactory} from "./interfaces/IPoolFactory.sol";
 import {IExchange} from "./interfaces/modules/IExchange.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -104,7 +104,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
     function _getBestDirectQuote(address tokenIn, address tokenOut, uint256 amountIn)
         internal view returns (address pool, IExchange.SwapQuote memory quote)
     {
-        IPoolProxyFactory f = IPoolProxyFactory(factory);
+        IPoolFactory f = IPoolFactory(factory);
         address[] memory commonPools = f.getCommonPools(tokenIn, tokenOut);
         uint256 best;
         for (uint256 i = 0; i < commonPools.length; i++) {
@@ -122,7 +122,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
     function _getBestTwoHopRoute(address tokenIn, address tokenOut, uint256 amountIn)
         internal view returns (Route memory route, uint256)
     {
-        IPoolProxyFactory f = IPoolProxyFactory(factory);
+        IPoolFactory f = IPoolFactory(factory);
         uint256 officialCount = f.getOfficialPoolsCount();
 
         uint256 bestOut;
@@ -168,7 +168,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
     function _getBestThreeHopRoute(address tokenIn, address tokenOut, uint256 amountIn)
         internal view returns (Route memory route, uint256)
     {
-        IPoolProxyFactory f = IPoolProxyFactory(factory);
+        IPoolFactory f = IPoolFactory(factory);
         uint256 officialCount = f.getOfficialPoolsCount();
 
         address[] memory baseTokens = new address[](officialCount);
@@ -219,7 +219,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
     function _findBestPoolForPair(address tokenA, address tokenB, uint256 officialCount, uint256 probeAmount)
         internal view returns (address bestPool)
     {
-        IPoolProxyFactory f = IPoolProxyFactory(factory);
+        IPoolFactory f = IPoolFactory(factory);
         if (probeAmount == 0) probeAmount = 1e18;
         uint256 best;
         for (uint256 i = 0; i < officialCount; i++) {
@@ -235,7 +235,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
     function getBestBatchPool(BatchInput[] calldata inputs, BatchOutput[] calldata outputs)
         external view override returns (address pool, uint256 totalBaseValue)
     {
-        IPoolProxyFactory f = IPoolProxyFactory(factory);
+        IPoolFactory f = IPoolFactory(factory);
         uint256 officialCount = f.getOfficialPoolsCount();
         for (uint256 i = 0; i < officialCount; i++) {
             address candidate = f.officialPools(i);
@@ -268,7 +268,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
 
         uint256 currentAmount = amountIn;
         address currentToken = firstStep.tokenIn;
-        IPoolProxyFactory f = IPoolProxyFactory(factory);
+        IPoolFactory f = IPoolFactory(factory);
 
         for (uint256 i = 0; i < nSteps; i++) {
             RouteStep memory step = route.steps[i];
@@ -301,7 +301,7 @@ contract Router is IRouter, Ownable, ReentrancyGuard, UUPSUpgradeable {
         address recipient
     ) external payable override nonReentrant returns (uint256[] memory amountsOut) {
         if (pool == address(0)) revert Err.ZeroValue();
-        if (!IPoolProxyFactory(factory).isOfficialPool(pool)) revert Ownable.Unauthorized();
+        if (!IPoolFactory(factory).isOfficialPool(pool)) revert Ownable.Unauthorized();
         amountsOut = IExchange(pool).batchSwap{value: msg.value}(inputs, outputs, recipient);
         emit BatchSwapExecuted(msg.sender, recipient, pool, inputs.length / 32, outputs.length / 32);
     }

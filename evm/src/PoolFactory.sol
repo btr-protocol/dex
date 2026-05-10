@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-import {IPoolProxyFactory} from "./interfaces/IPoolProxyFactory.sol";
+import {IPoolFactory} from "./interfaces/IPoolFactory.sol";
 import {IPool} from "./interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title PoolProxyFactory
-/// @notice Non-upgradeable factory deploying pool proxies w/ token registry.
-contract PoolProxyFactory is IPoolProxyFactory, Ownable {
+/// @title PoolFactory
+/// @notice Phase 42H.B.3d — non-upgradeable factory deploying EIP-1167 minimal-proxy clones
+///         of the Pool impl. PoolProxy is gone; each clone IS a Pool with its own storage.
+contract PoolFactory is IPoolFactory, Ownable {
     using SafeTransferLib for address;
 
     uint256 public constant UPGRADE_TIMELOCK = 7 days;

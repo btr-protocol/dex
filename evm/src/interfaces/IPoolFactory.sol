@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-/// @title IPoolProxyFactory — pool proxy factory + token registry
-interface IPoolProxyFactory {
+/// @title IPoolFactory — Pool clone factory + token registry (Phase 42H.B.3d)
+/// @dev Each pool is an EIP-1167 minimal-proxy clone of the singleton Pool impl.
+interface IPoolFactory {
     struct PoolParams { address baseToken; address[] tokens; bytes initdata; }
 
     function referencePool() external view returns (address);

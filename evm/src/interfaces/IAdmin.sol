@@ -30,8 +30,6 @@ interface IAdmin {
         uint16 lambda
     ) external;
     function collectProtocolFees(address pool, address token, address recipient) external;
-    function setStakedGovToken(address pool, address sGov) external;
-    function setGovToken(address pool, address govToken) external;
     function setFlowCooldown(address pool, uint16 cooldownSeconds) external;
     function setAnchor(address pool, address token, address anchor) external;
     function setAssetParams(
@@ -67,8 +65,6 @@ interface IAdmin {
     function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external;
     function executeUpdateFeeParams(address pool) external;
 
-    function requestOwnershipTransfer(address pool, address newOwner) external;
-    function executeOwnershipTransfer(address pool) external;
     function requestBridgeUpdate(address pool, address newBridge) external;
     function executeBridgeUpdate(address pool) external;
     function requestTreasuryUpdate(address pool, address newTreasury) external;
@@ -88,14 +84,11 @@ interface IAdmin {
     event EmergencyFreeze(address indexed pool, address indexed token);
     event EmergencyUnfreeze(address indexed pool, address indexed token);
     event FlowCooldownUpdated(address indexed pool, uint16 oldCooldown, uint16 newCooldown);
-    event StakedGovTokenSet(address indexed pool, address indexed sGov);
-    event GovTokenSet(address indexed pool, address indexed govToken);
 
     event TimelockRequested(address indexed pool, bytes32 indexed id, uint8 opType, uint48 executableAt);
     event TimelockCancelled(address indexed pool, bytes32 indexed id, uint8 opType);
     event RiskConfigUpdated(address indexed pool, address indexed token, uint128 minLiquidity, uint16 flags);
     event FeeParamsUpdated(address indexed pool, uint16 protoShare, uint16 flashFeeBps);
-    event OwnershipTransferred(address indexed pool, address indexed previousOwner, address indexed newOwner);
     event BridgeUpdated(address indexed pool, address indexed oldBridge, address indexed newBridge);
     event TreasuryUpdated(address indexed pool, address indexed oldTreasury, address indexed newTreasury);
     event BaseTokenMigrated(address indexed pool, address indexed oldBase, address indexed newBase);
