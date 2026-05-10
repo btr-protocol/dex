@@ -21,6 +21,12 @@ contract PoolProxyFactory is IPoolProxyFactory, Ownable {
     uint256 public upgradeTimelock;
     address public override protocolDeployer;
 
+    /// @notice Shared singleton AccessControl — single source of truth for pool ownership.
+    /// @dev Phase 42H.B.1 — wired once at factory construction, exposed for consumers
+    ///      (front-ends, keepers, integrators) to verify which AC governs all pools spun
+    ///      by this factory. Module impls hold their own immutable AC; this is informational.
+    address public immutable AC;
+
     address[] public override allPools;
     mapping(address => bool) public override isPool;
     address[] public override officialPools;
@@ -35,10 +41,11 @@ contract PoolProxyFactory is IPoolProxyFactory, Ownable {
     mapping(address token => mapping(address pool => bool)) public override tokenInPool;
     mapping(address pool => address) public override poolBaseTokens;
 
-    constructor(address _referencePool, address _protocolDeployer) {
-        if (_referencePool == address(0) || _protocolDeployer == address(0)) revert Err.ZeroValue();
+    constructor(address _referencePool, address _protocolDeployer, address _ac) {
+        if (_referencePool == address(0) || _protocolDeployer == address(0) || _ac == address(0)) revert Err.ZeroValue();
         referencePool = _referencePool;
         protocolDeployer = _protocolDeployer;
+        AC = _ac;
         _initializeOwner(msg.sender);
     }
 

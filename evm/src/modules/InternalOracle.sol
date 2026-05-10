@@ -17,6 +17,8 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 contract InternalOracle is Base {
     using {M.b64To1e18} for uint64;
 
+    constructor(address ac_) Base(ac_) {}
+
     uint32 public constant FAST_WINDOW = 300;          // 5min
     uint32 public constant SLOW_WINDOW = 3600;         // 1h
     uint32 public constant FAST_VOL_ALPHA = 200;       // 0.02% PBPS
@@ -122,6 +124,9 @@ contract InternalOracle is Base {
 
 
     /// @notice Push prices from swap exec. Called only by self.
+    /// @dev Phase 42H.B.2: kept for module-routed calls (Pool no longer self-calls; it inherits
+    ///      and uses _pushFeedInternal directly). Still registered as a selector on PoolProxy
+    ///      until 42H.B.3 promotes modules out of the Diamond.
     function pushFeedInternal(
         address tokenA,
         address tokenB,
@@ -129,6 +134,17 @@ contract InternalOracle is Base {
         uint64 priceB
     ) external {
         if (msg.sender != address(this)) revert Ownable.Unauthorized();
+        _pushFeedInternal(tokenA, tokenB, priceA, priceB);
+    }
+
+    /// @dev Inlined hot path for inheriting modules (Pool). Skips msg.sender guard ∵ caller
+    ///      is in-contract code, ! external entrypoint.
+    function _pushFeedInternal(
+        address tokenA,
+        address tokenB,
+        uint64 priceA,
+        uint64 priceB
+    ) internal {
         IPool.PoolStorage storage $ = _s();
         if (tokenA != address(0) && priceA != 0) _updateFeeds($, tokenA, priceA);
         if (tokenB != address(0) && priceB != 0) _updateFeeds($, tokenB, priceB);

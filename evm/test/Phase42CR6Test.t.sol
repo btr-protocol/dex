@@ -7,6 +7,7 @@ import {Pool} from "../src/modules/Pool.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IPoolHooks} from "../src/interfaces/IPoolHooks.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
+import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
 /// @title PoolHarness — exposes _processSwap end-to-end so tests can deploy a real Pool,
 ///        set up real reserves + real ERC20s + real IPoolHooks, and exercise the actual
@@ -16,6 +17,8 @@ import {Constants as C} from "../src/libraries/Constants.sol";
 ///        _postSwap, _reconcile, _push) are the real Pool internals — exactly the surface where
 ///        Phase 42C R5/R6 lived.
 contract PoolHarness is Pool {
+    constructor(address ac_, address admin_, address staking_, address flash_) Pool(ac_, admin_, staking_, flash_) {}
+
     function harnessSwap(
         address tokenIn,
         address tokenOut,
@@ -107,7 +110,7 @@ contract Phase42CR6Test is Test {
     uint8 constant PROTO_SHARE = 25;
 
     function setUp() public {
-        pool = new PoolHarness();
+        pool = new PoolHarness(address(new MockAC(address(this))), address(0xADBEEF), address(0xC0FFEE), address(0xF1A571));
         hooks = new MockHooks();
         tokenIn = new MockERC20("In", "IN", 18);
         tokenOut = new MockERC20("Out", "OUT", 18);

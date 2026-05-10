@@ -3,14 +3,13 @@ pragma solidity ^0.8.35;
 
 import {IExchange} from "./modules/IExchange.sol";
 import {ILiquidity} from "./modules/ILiquidity.sol";
-import {IAdmin} from "./modules/IAdmin.sol";
-import {IFlash} from "./modules/IFlash.sol";
-import {IStaking} from "./modules/IStaking.sol";
-import {IDistributor} from "./modules/IDistributor.sol";
 import {IOracle} from "./IOracle.sol";
 
 /// @title IPool — Adaptive Inventory Market Maker (aggregate)
-interface IPool is IExchange, ILiquidity, IAdmin, IFlash, IStaking, IDistributor, IOracle {
+/// @dev Phase 42H.B.3c — IFlash + IDistributor removed from inheritance; both are now
+///      standalone singletons with pool-keyed APIs (see /interfaces/IFlash.sol +
+///      /interfaces/IDistributor.sol).
+interface IPool is IExchange, ILiquidity, IOracle {
     struct Asset {
         uint128 reserves;
         uint128 liabilities;
@@ -149,13 +148,66 @@ interface IPool is IExchange, ILiquidity, IAdmin, IFlash, IStaking, IDistributor
         StakingConfig stakingConfig;
         mapping(address user => mapping(address lpToken => uint256)) lpStaked;
         mapping(address lpToken => uint256) totalLPStaked;
-        /// @dev Path α — peripheral AccessControl singleton. When non-zero, owner() reads
-        ///      delegate to IAccessControl(ac).owner() enabling atomic multisig rotation
-        ///      across alm + dex. Zero = legacy per-pool $.owner path. Append-only (ERC-7201).
-        address ac;
     }
 
     event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);
 
     function initialize(address owner, address baseToken, address wnative) external;
+
+    // ── Phase 42H.B.3a: restricted setters gated by `admin` singleton ──
+    function adminFreezeAsset(address token) external;
+    function adminUnfreezeAsset(address token) external;
+    function adminInitAsset(
+        address token,
+        OracleConfig calldata oracleCfg,
+        RiskConfig calldata riskCfg,
+        LiquidityProfile calldata profile,
+        uint16 minFeeBps,
+        uint8 decimals,
+        uint64 initialPrice,
+        uint32 initialFastVolEMA,
+        uint32 initialSlowVolEMA,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda
+    ) external;
+    function adminCollectProtocolFees(address token, address recipient) external returns (uint256);
+    function adminSetGovToken(address govToken) external;
+    function adminSetStakedGovToken(address sGov) external;
+    function adminSetFlowCooldown(uint16 cooldownSeconds) external;
+    function adminSetAnchor(address token, address anchor) external;
+    function adminSetAssetParams(
+        address token,
+        uint128 minLiquidity,
+        uint16 minFeeBps,
+        uint16 maxFeeBps,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda,
+        uint16 haircutSuppressor,
+        uint64 reservationPrice
+    ) external;
+    function adminSetRiskConfig(address token, RiskConfig calldata cfg) external;
+    function adminSetOracleConfig(address token, OracleConfig calldata cfg) external;
+    function adminSetFeeParams(FeeParams calldata params) external;
+    function adminSetOwner(address newOwner) external;
+    function adminSetBridge(address newBridge) external;
+    function adminSetTreasury(address newTreasury) external;
+    function adminSetBaseToken(address newBase) external;
+
+    // ── Phase 42H.B.3b: restricted setter gated by `staking` singleton ──
+    function stakingAdjustLpBalance(address user, address token, int256 delta) external;
+
+    // ── Phase 42H.B.3c: restricted setters gated by `flash` singleton ──
+    function flashSend(address token, uint256 amount, address to) external;
+    function flashAccount(address token, uint256 fee, uint256 protoFee) external;
+
+    // ── views consumed by Staking + Flash singletons ──
+    function getAsset(address token) external view returns (Asset memory);
+    function getLPBalance(address user, address token) external view returns (uint256);
+    function getRiskFlags(address token) external view returns (uint16);
+    function getFeeParams() external view returns (FeeParams memory);
+    function getHookForFlag(address token, uint32 flag) external view returns (address);
 }

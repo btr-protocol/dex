@@ -7,9 +7,10 @@ import {IBridge} from "../src/interfaces/IBridge.sol";
 import {LZEndpointV2} from "../src/interfaces/external/ILZEndpointV2.sol";
 import {IERC7802} from "../src/interfaces/external/IERC7802.sol";
 import {Treasury} from "../src/Treasury.sol";
-import {Distributor} from "../src/modules/Distributor.sol";
-import {IDistributor} from "../src/interfaces/modules/IDistributor.sol";
+import {Distributor} from "../src/Distributor.sol";
+import {IDistributor} from "../src/interfaces/IDistributor.sol";
 import {BTRToken} from "./fixtures/BTRToken.sol";
+import {MockAC} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
@@ -155,20 +156,12 @@ contract Phase42CR11Test is Test {
     // F-A1-R11-2 — Distributor.updateCampaignRoot floor at totalClaimed
     // ─────────────────────────────────────────────────────────────────────
 
-    /// @dev Set CORE_STORAGE_LOC.owner (slot 0) so Base.onlyOwner gate passes.
-    function _setOwner(address dist, address newOwner) internal {
-        bytes32 slot = bytes32(uint256(C.CORE_STORAGE_LOC) + 0);
-        bytes32 cur = vm.load(dist, slot);
-        uint256 cleared = uint256(cur) & ~uint256(type(uint160).max);
-        vm.store(dist, slot, bytes32(cleared | uint256(uint160(newOwner))));
-    }
-
-    /// @dev Seed `ds.totalClaimed[campaignId]` directly. DistributorStorage layout:
-    ///      slot 0 = nextCampaignId, slot 1 = campaigns, slot 2 = campaignClaimed,
-    ///      slot 3 = totalClaimed. mapping(uint256=>uint256).
-    function _seedTotalClaimed(address dist, uint256 campaignId, uint256 amount) internal {
-        uint256 totalClaimedSlot = uint256(C.DISTRIBUTOR_STORAGE_LOC) + 3;
-        bytes32 slot = keccak256(abi.encode(campaignId, totalClaimedSlot));
+    /// @dev Seed `_totalClaimed[pool][campaignId]` on the singleton Distributor (Phase 42H.B.3c).
+    ///      Layout: slot 0 = nextCampaignId, slot 1 = _campaigns, slot 2 = _campaignClaimed,
+    ///      slot 3 = _totalClaimed (mapping(address pool => mapping(uint256 => uint256))).
+    function _seedTotalClaimed(address dist, address pool, uint256 campaignId, uint256 amount) internal {
+        bytes32 inner = keccak256(abi.encode(pool, uint256(3)));
+        bytes32 slot = keccak256(abi.encode(campaignId, uint256(inner)));
         vm.store(dist, slot, bytes32(amount));
     }
 
@@ -176,37 +169,33 @@ contract Phase42CR11Test is Test {
     ///         Pre-fix: would silently brick all subsequent claims (the Phase 42D A3-4 cap
     ///         guard at claimCampaign reverts when totalClaimed > totalAllocated).
     function test_F_A1_R11_2_updateCampaignRoot_belowTotalClaimed_reverts() public {
-        Distributor dist = new Distributor();
+        // MockAC owner = address(this) so onlyOwner gate passes for createTokenCampaign.
+        Distributor dist = new Distributor(address(new MockAC(address(this))));
         address distAddr = address(dist);
-        _setOwner(distAddr, address(this));
-        // Seed nextCampaignId=1 so created campaign has id != 0 (the `c.id == 0` sentinel
-        // in `_campaign` would otherwise reject the freshly-created entry).
-        vm.store(distAddr, bytes32(uint256(C.DISTRIBUTOR_STORAGE_LOC) + 0), bytes32(uint256(1)));
+        address pool = address(0xB001);
 
         BTRToken reward = new BTRToken("RWD", "RWD", 18);
 
         address manager = address(0xA8A6E7);
-        uint256 campaignId = dist.createTokenCampaign(address(reward), manager);
+        uint256 campaignId = dist.createTokenCampaign(pool, address(reward), manager);
 
         // Initial root: totalClaimable = 1000e18.
         bytes32 root1 = bytes32(uint256(0x1));
         // Pre-fund Distributor so the balance check inside updateCampaignRoot passes.
         reward.mint(distAddr, 1_000e18);
         vm.prank(manager);
-        dist.updateCampaignRoot(campaignId, root1, uint32(block.timestamp), 1_000e18);
+        dist.updateCampaignRoot(pool, campaignId, root1, uint32(block.timestamp), 1_000e18);
 
         // Simulate accumulated claims: totalClaimed = 600e18.
-        _seedTotalClaimed(distAddr, campaignId, 600e18);
+        _seedTotalClaimed(distAddr, pool, campaignId, 600e18);
 
         // Manager mistakenly lowers totalAllocated below totalClaimed → must revert.
         vm.prank(manager);
         vm.expectRevert(Err.InvalidInput.selector);
-        dist.updateCampaignRoot(campaignId, bytes32(uint256(0x2)), uint32(block.timestamp), 500e18);
+        dist.updateCampaignRoot(pool, campaignId, bytes32(uint256(0x2)), uint32(block.timestamp), 500e18);
 
         // At-or-above totalClaimed allowed (no revert on equality boundary).
-        // Need balance to cover the (newTotalAllocated - totalClaimed) requirement.
-        // Already pre-funded 1000e18; totalClaimed=600e18, newTotal=600e18 → required=0 → OK.
         vm.prank(manager);
-        dist.updateCampaignRoot(campaignId, bytes32(uint256(0x3)), uint32(block.timestamp), 600e18);
+        dist.updateCampaignRoot(pool, campaignId, bytes32(uint256(0x3)), uint32(block.timestamp), 600e18);
     }
 }

@@ -7,8 +7,7 @@ import {ERC20} from "solady/tokens/ERC20.sol";
 /// @title StakedLP (sLP)
 /// @notice Soulbound receipt for staked LP positions; cloneable; chain-local
 contract StakedLP is StakedToken {
-    /// @dev Pool param kept for CREATE3-deploy compat
-    constructor(address _staking, address _underlying, address /* _pool */) StakedToken(_staking, _underlying) {}
+    constructor(address _staking, address _underlying, address _pool) StakedToken(_staking, _underlying, _pool) {}
 
     function name() public view override returns (string memory) {
         try ERC20(UNDERLYING).name() returns (string memory n) { return string(abi.encodePacked("Staked ", n)); } catch { return "Staked LP"; }

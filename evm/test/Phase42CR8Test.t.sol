@@ -4,15 +4,16 @@ pragma solidity ^0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/modules/Pool.sol";
-import {Admin} from "../src/modules/Admin.sol";
+import {Admin} from "../src/Admin.sol";
 import {InternalOracle} from "../src/modules/InternalOracle.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
 import {PoolProxyFactory} from "../src/PoolProxyFactory.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
-import {IAdmin, IAdminConfig} from "../src/interfaces/modules/IAdmin.sol";
+import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {IPoolModule} from "../src/interfaces/modules/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
+import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
 /// @title Phase42CR8Test
 /// @notice R8 HIGH (A1-R8-1): structural conservation — quote-side q.protoFee was credited
@@ -30,13 +31,14 @@ import {Maths as M} from "../src/libraries/Maths.sol";
 contract Phase42CR8Test is Test {
     PoolProxyFactory factory;
     Pool poolImpl;
-    Admin adminImpl;
+    Admin admin;
     InternalOracle oracleImpl;
     PoolProxy refProxy;
     PoolProxy proxy;
 
     MockERC20 base;   // base token
     MockERC20 quote;  // non-base, anchored to base
+    MockAC ac;
 
     address constant OWNER = address(0xA11CE);
     address constant USER = address(0xBEEF);
@@ -45,7 +47,7 @@ contract Phase42CR8Test is Test {
 
     // ── Module selector lists ──
     function _poolSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](7);
+        s = new bytes4[](10);
         s[0] = Pool.deposit.selector;
         s[1] = Pool.swap.selector;
         s[2] = Pool.getAsset.selector;
@@ -53,12 +55,9 @@ contract Phase42CR8Test is Test {
         s[4] = Pool.baseToken.selector;
         s[5] = Pool.owner.selector;
         s[6] = Pool.getMidPrice.selector;
-    }
-
-    function _adminSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](2);
-        s[0] = Admin.addAsset.selector;
-        s[1] = IAdminConfig.collectProtocolFees.selector;
+        s[7] = Pool.adminInitAsset.selector;
+        s[8] = Pool.adminCollectProtocolFees.selector;
+        s[9] = Pool.treasury.selector;
     }
 
     function _oracleSelectors() internal pure returns (bytes4[] memory s) {
@@ -113,17 +112,20 @@ contract Phase42CR8Test is Test {
     }
 
     function setUp() public {
-        // 1. Deploy module impls.
-        poolImpl = new Pool();
-        adminImpl = new Admin();
-        oracleImpl = new InternalOracle();
+        // 1. Deploy module impls + shared AC + singleton Admin (Phase 42H.B.3a).
+        ac = new MockAC(OWNER);
+        admin = new Admin(address(ac));
+        // Phase 42H.B.3b: Pool ctor now takes (ac, admin, staking). Tests not exercising staking
+        // can pass a sentinel non-zero address.
+        poolImpl = new Pool(address(ac), address(admin), address(0xC0FFEE), address(0xF1A571));
+        oracleImpl = new InternalOracle(address(ac));
 
         // 2. Deploy a PoolProxy reference (minimal proxies delegatecall its code).
         refProxy = new PoolProxy();
 
         // 3. Deploy factory with refProxy as reference (NOT a module impl — the proxy IS
         //    the diamond router; minimal proxies need to inherit its fallback dispatcher).
-        factory = new PoolProxyFactory(address(refProxy), address(this));
+        factory = new PoolProxyFactory(address(refProxy), address(this), address(ac));
 
         // 3. Tokens.
         base  = new MockERC20("Base",  "BASE", 18);
@@ -154,7 +156,6 @@ contract Phase42CR8Test is Test {
         //    This is a test-only shortcut; the production trust flow is exercised by
         //    Phase42CR1Test (A2-1) and PathAlphaACTest.
         _registerModule(proxyAddr, address(poolImpl),   _poolSelectors());
-        _registerModule(proxyAddr, address(adminImpl),  _adminSelectors());
         _registerModule(proxyAddr, address(oracleImpl), _oracleSelectors());
 
         // 8. Set treasury (so collectProtocolFees passes the gate).
@@ -171,7 +172,8 @@ contract Phase42CR8Test is Test {
         uint64 priceB64 = M.encodeB64(1e18, 18);
 
         vm.startPrank(OWNER);
-        Admin(proxyAddr).addAsset(
+        admin.addAsset(
+            proxyAddr,
             address(base),
             ocBase, rc, pf,
             /* minFeeBps */ 1000,   // 0.1% PBPS
@@ -185,7 +187,8 @@ contract Phase42CR8Test is Test {
             /* vega  */ 10000,
             /* lambda */ 10000
         );
-        Admin(proxyAddr).addAsset(
+        admin.addAsset(
+            proxyAddr,
             address(quote),
             ocQuote, rc, pf,
             1000,
@@ -250,11 +253,11 @@ contract Phase42CR8Test is Test {
 
         // Drain protocolFees via real Admin.collectProtocolFees → Treasury.
         vm.prank(TREASURY);
-        IAdminConfig(address(proxy)).collectProtocolFees(address(quote), TREASURY);
+        admin.collectProtocolFees(address(proxy), address(quote), TREASURY);
 
         // tIn ledger drained too.
         vm.prank(TREASURY);
-        IAdminConfig(address(proxy)).collectProtocolFees(address(base), TREASURY);
+        admin.collectProtocolFees(address(proxy), address(base), TREASURY);
 
         // After collect: ledger == 0 ∀ tokens; pool balance == Σreserves (no LP raid).
         assertEq(Pool(payable(address(proxy))).getProtocolFees(address(quote)), 0, "post-collect quote ledger must be 0");
@@ -306,9 +309,9 @@ contract Phase42CR8Test is Test {
 
         // Now collect; must not raid LP.
         vm.prank(TREASURY);
-        IAdminConfig(address(proxy)).collectProtocolFees(address(quote), TREASURY);
+        admin.collectProtocolFees(address(proxy), address(quote), TREASURY);
         vm.prank(TREASURY);
-        IAdminConfig(address(proxy)).collectProtocolFees(address(base), TREASURY);
+        admin.collectProtocolFees(address(proxy), address(base), TREASURY);
         _assertConservation("multi-swap post-collect");
     }
 }

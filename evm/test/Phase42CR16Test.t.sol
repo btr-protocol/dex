@@ -4,39 +4,34 @@ pragma solidity ^0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/modules/Pool.sol";
-import {Admin} from "../src/modules/Admin.sol";
-import {Staking} from "../src/modules/Staking.sol";
+import {Admin} from "../src/Admin.sol";
+import {Staking} from "../src/Staking.sol";
 import {InternalOracle} from "../src/modules/InternalOracle.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
 import {PoolProxyFactory} from "../src/PoolProxyFactory.sol";
 import {StakedGov} from "../src/tokens/StakedGov.sol";
 import {StakedLP} from "../src/tokens/StakedLP.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
-import {IAdminConfig, IAdminTimelock} from "../src/interfaces/modules/IAdmin.sol";
-import {IStaking} from "../src/interfaces/modules/IStaking.sol";
+import {IAdmin} from "../src/interfaces/IAdmin.sol";
+import {IStaking} from "../src/interfaces/IStaking.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {BTRToken} from "./fixtures/BTRToken.sol";
+import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
-/// @title Phase42CR16Test
-/// @notice Phase 42C R16 remediation:
-///   - F-A1-R16-2 (CRITICAL): sGovToken never wired → Admin.setStakedGovToken + setGovToken.
-///   - F-A1-R16-3 (CRITICAL): StakedGov/StakedLP missing public mint/burn → added on StakedToken.
-///   - F-A1-R16-1 (HIGH): stakeLP did not debit lpBalances → withdraw drained pool while sLP held.
-///   - F-A2-R16-1 (LOW): delegateOf documented DISCARD.
-///   - F-A2-R16-2 (LOW): requestStakeLockDurationUpdate gains pending guard + 365 day bound.
-///   - F-A4-R16-1 (INFO): unchecked uint48 add — DISCARDED with rationale (lock bound makes safe).
-///
-/// Conservation invariant (LP):
-///   ∀ user u, asset t: lpBalances[u][t] + sLP(t).balanceOf(u) ==
-///   (Σ deposit(u,t,x) - Σ withdraw(u,t,x)) preserved across stake/unstake.
+/// @title Phase42CR16Test (post-42H.B.3b — Staking promoted to singleton)
+/// @notice Phase 42C R16 remediation re-asserted on the singleton-Staking topology:
+///   - F-A1-R16-2 (CRITICAL): sGovToken wiring → Staking.configurePool.
+///   - F-A1-R16-3 (CRITICAL): StakedGov/StakedLP public mint/burn auth (gated by singleton STAKING).
+///   - F-A1-R16-1 (HIGH): stakeLP debits Pool.lpBalances via stakingAdjustLpBalance.
+///   - F-A2-R16-2 (LOW): requestStakeLockDurationUpdate gains pending guard + 365d bound.
 contract Phase42CR16Test is Test {
     PoolProxyFactory factory;
     Pool poolImpl;
-    Admin adminImpl;
-    Staking stakingImpl;
+    Admin admin;
+    Staking stakingSingleton;
     InternalOracle oracleImpl;
     PoolProxy refProxy;
     PoolProxy proxy;
@@ -45,44 +40,27 @@ contract Phase42CR16Test is Test {
     MockERC20 quote;
     BTRToken gov;
     StakedGov sGov;
+    MockAC ac;
 
     address constant OWNER = address(0xA11CE);
     address constant USER  = address(0xBEEF);
     uint8  constant PROTO_SHARE = 25;
     uint16 constant FLASH_FEE_BPS = 100;
 
-    // ── selector lists ──
+    // Pool selector wiring — only Pool selectors (Staking is no longer a Diamond module).
     function _poolSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](6);
+        s = new bytes4[](11);
         s[0] = Pool.deposit.selector;
         s[1] = Pool.withdraw.selector;
         s[2] = Pool.getAsset.selector;
         s[3] = Pool.getLPBalance.selector;
-        s[4] = Pool.baseToken.selector;
-        s[5] = Pool.owner.selector;
-    }
-
-    function _adminSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](4);
-        s[0] = Admin.addAsset.selector;
-        s[1] = Admin.setStakedGovToken.selector;
-        s[2] = Admin.setGovToken.selector;
-        s[3] = IAdminConfig.getModule.selector;
-    }
-
-    function _stakingSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](11);
-        s[0] = Staking.stakeGov.selector;
-        s[1] = Staking.unstakeGov.selector;
-        s[2] = Staking.updateStakingConfig.selector;
-        s[3] = Staking.stakeLP.selector;
-        s[4] = Staking.unstakeLP.selector;
-        s[5] = Staking.getStakedGov.selector;
-        s[6] = Staking.getSLPToken.selector;
-        s[7] = Staking.getStakedBalance.selector;
-        s[8] = Staking.getTotalStaked.selector;
-        s[9] = Staking.requestStakeLockDurationUpdate.selector;
-        s[10] = Staking.executeStakeLockDurationUpdate.selector;
+        s[4] = Pool.getRiskFlags.selector;
+        s[5] = Pool.baseToken.selector;
+        s[6] = Pool.owner.selector;
+        s[7] = Pool.adminInitAsset.selector;
+        s[8] = Pool.adminSetGovToken.selector;
+        s[9] = Pool.adminSetStakedGovToken.selector;
+        s[10] = Pool.stakingAdjustLpBalance.selector;
     }
 
     function _oracleSelectors() internal pure returns (bytes4[] memory s) {
@@ -110,7 +88,6 @@ contract Phase42CR16Test is Test {
         r.coverageMax = 20000;
         r.decaySlope = 0;
         r.depthAmplifier = 10000;
-        // STAKEABLE_BIT required for stakeLP path; SWAP/LIAB enabled for completeness.
         r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT | C.STAKEABLE_BIT;
     }
 
@@ -123,13 +100,15 @@ contract Phase42CR16Test is Test {
     }
 
     function setUp() public {
-        poolImpl    = new Pool();
-        adminImpl   = new Admin();
-        stakingImpl = new Staking();
-        oracleImpl  = new InternalOracle();
+        ac = new MockAC(OWNER);
+
+        admin            = new Admin(address(ac));
+        stakingSingleton = new Staking(address(ac));
+        poolImpl         = new Pool(address(ac), address(admin), address(stakingSingleton), address(0xF1A571));
+        oracleImpl       = new InternalOracle(address(ac));
 
         refProxy = new PoolProxy();
-        factory  = new PoolProxyFactory(address(refProxy), address(this));
+        factory  = new PoolProxyFactory(address(refProxy), address(this), address(ac));
 
         base  = new MockERC20("Base",  "BASE", 18);
         quote = new MockERC20("Quote", "QUOT", 18);
@@ -153,43 +132,38 @@ contract Phase42CR16Test is Test {
         proxy = PoolProxy(payable(proxyAddr));
 
         _registerModule(proxyAddr, address(poolImpl),    _poolSelectors());
-        _registerModule(proxyAddr, address(adminImpl),   _adminSelectors());
-        _registerModule(proxyAddr, address(stakingImpl), _stakingSelectors());
         _registerModule(proxyAddr, address(oracleImpl),  _oracleSelectors());
 
-        // Add base + quote as assets w/ STAKEABLE_BIT set.
         IPool.OracleConfig memory oc = _oracleCfg();
         IPool.RiskConfig    memory rc = _defaultRisk();
         IPool.LiquidityProfile memory pf = _defaultProfile();
         uint64 priceB64 = M.encodeB64(1e18, 18);
 
         vm.startPrank(OWNER);
-        Admin(proxyAddr).addAsset(address(base),  oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
-        Admin(proxyAddr).addAsset(address(quote), oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(proxyAddr, address(base),  oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(proxyAddr, address(quote), oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
         vm.stopPrank();
 
-        // Wire gov token + sGov receipt (R16 CRITICAL fixes).
-        sGov = new StakedGov(proxyAddr, address(gov), "sBTR", "sBTR");
+        // sGov bound to (singleton, gov, pool).
+        sGov = new StakedGov(address(stakingSingleton), address(gov), proxyAddr, "sBTR", "sBTR");
+        // Configure pool on the singleton (one-shot).
         vm.prank(OWNER);
-        Admin(proxyAddr).setGovToken(address(gov));
-        vm.prank(OWNER);
-        Admin(proxyAddr).setStakedGovToken(address(sGov));
+        stakingSingleton.configurePool(proxyAddr, address(gov), address(sGov), 15);
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // F-A1-R16-2 — sGovToken setter / one-shot guard
+    // F-A1-R16-2 — pool config one-shot
     // ════════════════════════════════════════════════════════════════════
 
-    function test_R16_setStakedGovToken_idempotent() public {
-        // Already set in setUp; second call must revert AlreadyConfigured.
-        StakedGov s2 = new StakedGov(address(proxy), address(gov), "sBTR2", "sBTR2");
+    function test_R16_configurePool_idempotent() public {
+        StakedGov s2 = new StakedGov(address(stakingSingleton), address(gov), address(proxy), "sBTR2", "sBTR2");
         vm.prank(OWNER);
-        vm.expectRevert(abi.encodeWithSelector(Err.AlreadyConfigured.selector, Err.Resource.STAKING, address(sGov)));
-        Admin(address(proxy)).setStakedGovToken(address(s2));
+        vm.expectRevert(abi.encodeWithSelector(Err.AlreadyConfigured.selector, Err.Resource.STAKING, address(gov)));
+        stakingSingleton.configurePool(address(proxy), address(gov), address(s2), 15);
     }
 
-    function test_R16_setStakedGovToken_zeroAddress_reverts() public {
-        // Fresh proxy w/o sGov set.
+    function test_R16_configurePool_zeroAddress_reverts() public {
+        // Fresh proxy w/o pool config set.
         address[] memory toks = new address[](1);
         toks[0] = address(base);
         uint8[29] memory pad;
@@ -198,25 +172,24 @@ contract Phase42CR16Test is Test {
             PoolProxy.initialize.selector, OWNER, address(base), address(0xCAFE), fp
         );
         address p2 = factory.createPool(address(base), toks, initdata);
-        _registerModule(p2, address(adminImpl), _adminSelectors());
+        _registerModule(p2, address(poolImpl), _poolSelectors());
         vm.prank(OWNER);
         vm.expectRevert(Err.ZeroValue.selector);
-        Admin(p2).setStakedGovToken(address(0));
+        stakingSingleton.configurePool(p2, address(gov), address(0), 15);
     }
 
-    function test_R16_setStakedGovToken_onlyOwner() public {
-        StakedGov s2 = new StakedGov(address(proxy), address(gov), "sBTR2", "sBTR2");
+    function test_R16_configurePool_onlyOwner() public {
+        StakedGov s2 = new StakedGov(address(stakingSingleton), address(gov), address(proxy), "sBTR2", "sBTR2");
         vm.prank(USER);
         vm.expectRevert(Ownable.Unauthorized.selector);
-        Admin(address(proxy)).setStakedGovToken(address(s2));
+        stakingSingleton.configurePool(address(proxy), address(gov), address(s2), 15);
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // F-A1-R16-3 — StakedToken public mint/burn auth
+    // F-A1-R16-3 — StakedToken public mint/burn auth (gated by singleton STAKING)
     // ════════════════════════════════════════════════════════════════════
 
     function test_R16_StakedToken_mint_unauthorized_reverts() public {
-        // Direct external call from non-pool caller must revert.
         vm.expectRevert(Ownable.Unauthorized.selector);
         sGov.mint(USER, 1e18);
     }
@@ -227,8 +200,7 @@ contract Phase42CR16Test is Test {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // stakeGov full round-trip (deposit→stake→unstake→withdraw not relevant
-    // since gov is independent of pool reserves; we test stake/unstake balance flow).
+    // stakeGov full round-trip
     // ════════════════════════════════════════════════════════════════════
 
     function test_R16_stakeGov_roundTrip() public {
@@ -236,36 +208,32 @@ contract Phase42CR16Test is Test {
         gov.mint(USER, amount);
 
         vm.prank(USER);
-        gov.approve(address(proxy), type(uint256).max);
+        gov.approve(address(stakingSingleton), type(uint256).max);
 
         vm.prank(USER);
-        IStaking(address(proxy)).stakeGov(amount);
-        assertEq(gov.balanceOf(USER), 0, "gov pulled to pool");
-        assertEq(gov.balanceOf(address(proxy)), amount, "pool holds gov");
-        assertEq(IStaking(address(proxy)).getStakedGov(USER), amount, "staked tracked");
+        stakingSingleton.stakeGov(address(proxy), amount);
+        assertEq(gov.balanceOf(USER), 0, "gov pulled");
+        assertEq(gov.balanceOf(address(stakingSingleton)), amount, "singleton holds gov");
+        assertEq(stakingSingleton.getStakedGov(address(proxy), USER), amount, "staked tracked");
 
-        // Warp past lock (default 0 from StakingConfig — unlock = block.timestamp + 0).
-        // Cooldown: lastGovStakeTime → flowCooldownSeconds (default 15).
         skip(30);
 
         vm.prank(USER);
-        IStaking(address(proxy)).unstakeGov(amount);
+        stakingSingleton.unstakeGov(address(proxy), amount);
         assertEq(gov.balanceOf(USER), amount, "gov returned");
-        assertEq(IStaking(address(proxy)).getStakedGov(USER), 0, "staked cleared");
+        assertEq(stakingSingleton.getStakedGov(address(proxy), USER), 0, "staked cleared");
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // F-A1-R16-1 — stakeLP full round-trip + lpBalances debit invariant
+    // F-A1-R16-1 — stakeLP debits lpBalances via singleton + Pool restricted setter
     // ════════════════════════════════════════════════════════════════════
 
     function test_R16_stakeLP_decrements_lpBalances_and_mints_sLP() public {
-        // Configure LP staking on `base`.
         vm.prank(OWNER);
-        IStaking(address(proxy)).updateStakingConfig(address(base), keccak256("salt-base"));
-        address sLP = IStaking(address(proxy)).getSLPToken(address(base));
+        stakingSingleton.updateStakingConfig(address(proxy), address(base), keccak256("salt-base"));
+        address sLP = stakingSingleton.getSLPToken(address(proxy), address(base));
         assertTrue(sLP != address(0), "sLP deployed");
 
-        // Seed user w/ deposit → lpBalances credited.
         uint256 depAmt = 1_000e18;
         base.mint(USER, depAmt);
         vm.prank(USER);
@@ -276,25 +244,20 @@ contract Phase42CR16Test is Test {
         uint256 lpBefore = Pool(payable(address(proxy))).getLPBalance(USER, address(base));
         assertGt(lpBefore, 0, "lp credited");
 
-        // Wait flow cooldown (deposit → stake gated by cooldown? stakeLP not gated by deposit cooldown).
         skip(30);
 
-        // Stake all LP.
         vm.prank(USER);
-        IStaking(address(proxy)).stakeLP(address(base), lpBefore);
+        stakingSingleton.stakeLP(address(proxy), address(base), lpBefore);
 
-        // Invariant: lpBalances debited; sLP minted.
         uint256 lpAfter = Pool(payable(address(proxy))).getLPBalance(USER, address(base));
-        assertEq(lpAfter, 0, "lpBalances fully debited (R16 HIGH fix)");
-        assertEq(IStaking(address(proxy)).getStakedBalance(USER, address(base)), lpBefore, "lpStaked credited");
-        // sLP balanceOf reads from getStakedBalance (override) — equals lpStaked.
+        assertEq(lpAfter, 0, "lpBalances fully debited");
+        assertEq(stakingSingleton.getStakedBalance(address(proxy), USER, address(base)), lpBefore, "lpStaked credited");
         assertEq(StakedLP(sLP).balanceOf(USER), lpBefore, "sLP minted to user");
     }
 
-    function test_R16_stakeLP_then_withdraw_reverts_F_A1_R16_1() public {
-        // Configure + deposit.
+    function test_R16_stakeLP_then_withdraw_reverts() public {
         vm.prank(OWNER);
-        IStaking(address(proxy)).updateStakingConfig(address(base), keccak256("salt-base-2"));
+        stakingSingleton.updateStakingConfig(address(proxy), address(base), keccak256("salt-base-2"));
 
         uint256 depAmt = 1_000e18;
         base.mint(USER, depAmt);
@@ -306,10 +269,8 @@ contract Phase42CR16Test is Test {
 
         skip(30);
         vm.prank(USER);
-        IStaking(address(proxy)).stakeLP(address(base), lp);
+        stakingSingleton.stakeLP(address(proxy), address(base), lp);
 
-        // Attack vector: try to withdraw the same lpBalances slot. Pre-fix, this would drain.
-        // Post-fix, lpBalances == 0 ⇒ InsufficientAmount(0, lp).
         skip(30);
         vm.prank(USER);
         vm.expectRevert(abi.encodeWithSelector(Err.InsufficientAmount.selector, 0, lp));
@@ -318,8 +279,8 @@ contract Phase42CR16Test is Test {
 
     function test_R16_stakeLP_unstakeLP_roundTrip_conservation() public {
         vm.prank(OWNER);
-        IStaking(address(proxy)).updateStakingConfig(address(base), keccak256("salt-base-3"));
-        address sLP = IStaking(address(proxy)).getSLPToken(address(base));
+        stakingSingleton.updateStakingConfig(address(proxy), address(base), keccak256("salt-base-3"));
+        address sLP = stakingSingleton.getSLPToken(address(proxy), address(base));
 
         uint256 depAmt = 500e18;
         base.mint(USER, depAmt);
@@ -329,14 +290,12 @@ contract Phase42CR16Test is Test {
         Pool(payable(address(proxy))).deposit(address(base), depAmt);
         uint256 lp = Pool(payable(address(proxy))).getLPBalance(USER, address(base));
 
-        // Conservation pre-stake: lp_effective = lpBalances + sLP = lp + 0.
         assertEq(lp + StakedLP(sLP).balanceOf(USER), lp, "pre-stake conservation");
 
         skip(30);
         vm.prank(USER);
-        IStaking(address(proxy)).stakeLP(address(base), lp);
+        stakingSingleton.stakeLP(address(proxy), address(base), lp);
 
-        // Conservation post-stake: lp_effective = 0 + lp = lp. INVARIANT HOLDS.
         assertEq(
             Pool(payable(address(proxy))).getLPBalance(USER, address(base)) + StakedLP(sLP).balanceOf(USER),
             lp,
@@ -345,9 +304,8 @@ contract Phase42CR16Test is Test {
 
         skip(30);
         vm.prank(USER);
-        IStaking(address(proxy)).unstakeLP(address(base), lp);
+        stakingSingleton.unstakeLP(address(proxy), address(base), lp);
 
-        // Conservation post-unstake: lp_effective = lp + 0 = lp.
         assertEq(
             Pool(payable(address(proxy))).getLPBalance(USER, address(base)) + StakedLP(sLP).balanceOf(USER),
             lp,
@@ -356,8 +314,6 @@ contract Phase42CR16Test is Test {
         assertEq(Pool(payable(address(proxy))).getLPBalance(USER, address(base)), lp, "lpBalances restored");
         assertEq(StakedLP(sLP).balanceOf(USER), 0, "sLP burned");
 
-        // Withdraw now succeeds. Cooldown gates: lastDepositTime (t0) + 15s & lastLPStakeTime
-        // is not consulted on withdraw. We've warped well past t0+15 in setup.
         skip(60);
         vm.prank(USER);
         Pool(payable(address(proxy))).withdraw(address(base), lp, 0);
@@ -371,34 +327,20 @@ contract Phase42CR16Test is Test {
     function test_R16_requestStakeLockDurationUpdate_boundsAt365days() public {
         vm.prank(OWNER);
         vm.expectRevert(Err.InvalidInput.selector);
-        IStaking(address(proxy)).requestStakeLockDurationUpdate(uint48(366 days));
+        stakingSingleton.requestStakeLockDurationUpdate(address(proxy), uint48(366 days));
     }
 
     function test_R16_requestStakeLockDurationUpdate_acceptsAt365days() public {
         vm.prank(OWNER);
-        IStaking(address(proxy)).requestStakeLockDurationUpdate(uint48(365 days));
-        // No revert ⇒ pass.
+        stakingSingleton.requestStakeLockDurationUpdate(address(proxy), uint48(365 days));
     }
 
     function test_R16_requestStakeLockDurationUpdate_rejectsDoubleQueue() public {
         vm.prank(OWNER);
-        IStaking(address(proxy)).requestStakeLockDurationUpdate(uint48(7 days));
+        stakingSingleton.requestStakeLockDurationUpdate(address(proxy), uint48(7 days));
 
         vm.prank(OWNER);
         vm.expectRevert(abi.encodeWithSelector(Err.PendingTimelock.selector, uint48(block.timestamp)));
-        IStaking(address(proxy)).requestStakeLockDurationUpdate(uint48(14 days));
+        stakingSingleton.requestStakeLockDurationUpdate(address(proxy), uint48(14 days));
     }
-
-    // ════════════════════════════════════════════════════════════════════
-    // Regression sentinels: revert each fix locally → confirm test fails.
-    // We don't actually revert source here; we encode the regression assertion in
-    // the test names + comments above. Each fix has a dedicated negative-path test
-    // that would fail without the fix:
-    //   - test_R16_setStakedGovToken_idempotent       ⇐ F-A1-R16-2
-    //   - test_R16_StakedToken_mint_unauthorized_reverts ⇐ F-A1-R16-3
-    //   - test_R16_stakeLP_decrements_lpBalances_and_mints_sLP ⇐ F-A1-R16-1
-    //   - test_R16_stakeLP_then_withdraw_reverts_F_A1_R16_1    ⇐ F-A1-R16-1 attack vector
-    //   - test_R16_requestStakeLockDurationUpdate_boundsAt365days ⇐ F-A2-R16-2
-    //   - test_R16_requestStakeLockDurationUpdate_rejectsDoubleQueue ⇐ F-A2-R16-2
-    // ════════════════════════════════════════════════════════════════════
 }

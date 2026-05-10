@@ -4,16 +4,16 @@ pragma solidity ^0.8.35;
 import {Test, Vm} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/modules/Pool.sol";
-import {Admin} from "../src/modules/Admin.sol";
-import {Flash} from "../src/modules/Flash.sol";
+import {Admin} from "../src/Admin.sol";
+import {Flash} from "../src/Flash.sol";
 import {InternalOracle} from "../src/modules/InternalOracle.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
 import {PoolProxyFactory} from "../src/PoolProxyFactory.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
-import {IAdmin, IAdminConfig, IAdminTimelock} from "../src/interfaces/modules/IAdmin.sol";
+import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {IPoolModule} from "../src/interfaces/modules/IPool.sol";
-import {IFlash} from "../src/interfaces/modules/IFlash.sol";
+import {IFlash} from "../src/interfaces/IFlash.sol";
 import {ITreasury} from "../src/interfaces/ITreasury.sol";
 import {IERC3156FlashBorrower} from "../src/interfaces/external/IERC3156FlashBorrower.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
@@ -21,6 +21,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
 /// @title Phase42CR13Test
 /// @notice Round-13 remediation tests:
@@ -36,14 +37,14 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 contract Phase42CR13Test is Test {
     PoolProxyFactory factory;
     Pool poolImpl;
-    Admin adminImpl;
-    Flash flashImpl;
-    InternalOracle oracleImpl;
+    Admin admin;
+    Flash flashSingleton;
     PoolProxy refProxy;
     PoolProxy proxy;
 
     MockERC20 base;
     MockERC20 quote;
+    MockAC ac;
 
     address constant OWNER = address(0xA11CE);
     address constant USER  = address(0xBEEF);
@@ -53,35 +54,27 @@ contract Phase42CR13Test is Test {
 
     // ── Module selector lists ──
     function _poolSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](7);
-        s[0] = Pool.deposit.selector;
-        s[1] = Pool.swap.selector;
-        s[2] = Pool.getAsset.selector;
-        s[3] = Pool.getProtocolFees.selector;
-        s[4] = Pool.baseToken.selector;
-        s[5] = Pool.owner.selector;
-        s[6] = Pool.getMidPrice.selector;
-    }
-
-    function _adminSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](4);
-        s[0] = Admin.addAsset.selector;
-        s[1] = IAdminConfig.collectProtocolFees.selector;
-        s[2] = IAdminTimelock.requestUpdateFeeParams.selector;
-        s[3] = IAdminTimelock.executeUpdateFeeParams.selector;
-    }
-
-    function _flashSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](3);
-        s[0] = Flash.flashLoan.selector;
-        s[1] = Flash.maxFlashLoan.selector;
-        s[2] = Flash.flashFee.selector;
-    }
-
-    function _oracleSelectors() internal pure returns (bytes4[] memory s) {
-        s = new bytes4[](2);
-        s[0] = InternalOracle.updateFeed.selector;
-        s[1] = InternalOracle.pushFeedInternal.selector;
+        s = new bytes4[](18);
+        s[0]  = Pool.deposit.selector;
+        s[1]  = Pool.swap.selector;
+        s[2]  = Pool.getAsset.selector;
+        s[3]  = Pool.getProtocolFees.selector;
+        s[4]  = Pool.baseToken.selector;
+        s[5]  = Pool.owner.selector;
+        s[6]  = Pool.getMidPrice.selector;
+        s[7]  = Pool.adminInitAsset.selector;
+        s[8]  = Pool.adminCollectProtocolFees.selector;
+        s[9]  = Pool.adminSetFeeParams.selector;
+        s[10] = Pool.treasury.selector;
+        // Phase 42H.B.3c: views consumed by Flash + restricted setters gated on Flash.
+        s[11] = Pool.getRiskFlags.selector;
+        s[12] = Pool.getFeeParams.selector;
+        s[13] = Pool.getHookForFlag.selector;
+        s[14] = Pool.flashSend.selector;
+        s[15] = Pool.flashAccount.selector;
+        // Phase 42H.B.2: InternalOracle now inherited by Pool.
+        s[16] = InternalOracle.updateFeed.selector;
+        s[17] = InternalOracle.pushFeedInternal.selector;
     }
 
     function _registerModule(address proxyAddr, address impl, bytes4[] memory sels) internal {
@@ -122,13 +115,13 @@ contract Phase42CR13Test is Test {
     }
 
     function setUp() public {
-        poolImpl   = new Pool();
-        adminImpl  = new Admin();
-        flashImpl  = new Flash();
-        oracleImpl = new InternalOracle();
+        ac = new MockAC(OWNER);
+        admin           = new Admin(address(ac));
+        flashSingleton  = new Flash();
+        poolImpl        = new Pool(address(ac), address(admin), address(0xC0FFEE), address(flashSingleton));
 
         refProxy = new PoolProxy();
-        factory  = new PoolProxyFactory(address(refProxy), address(this));
+        factory  = new PoolProxyFactory(address(refProxy), address(this), address(ac));
 
         base  = new MockERC20("Base",  "BASE", 18);
         quote = new MockERC20("Quote", "QUOT", 18);
@@ -150,10 +143,7 @@ contract Phase42CR13Test is Test {
         address proxyAddr = factory.createPool(address(base), toks, initdata);
         proxy = PoolProxy(payable(proxyAddr));
 
-        _registerModule(proxyAddr, address(poolImpl),   _poolSelectors());
-        _registerModule(proxyAddr, address(adminImpl),  _adminSelectors());
-        _registerModule(proxyAddr, address(flashImpl),  _flashSelectors());
-        _registerModule(proxyAddr, address(oracleImpl), _oracleSelectors());
+        _registerModule(proxyAddr, address(poolImpl), _poolSelectors());
 
         _setTreasury(proxyAddr, TREASURY_ADDR);
 
@@ -163,8 +153,8 @@ contract Phase42CR13Test is Test {
         uint64 priceB64 = M.encodeB64(1e18, 18);
 
         vm.startPrank(OWNER);
-        Admin(proxyAddr).addAsset(address(base),  oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
-        Admin(proxyAddr).addAsset(address(quote), oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(proxyAddr, address(base),  oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(proxyAddr, address(quote), oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
         vm.stopPrank();
 
         base.mint(OWNER, 1_000_000e18);
@@ -208,7 +198,7 @@ contract Phase42CR13Test is Test {
 
         _assertConservation("pre-flashLoan");
 
-        bool ok = IFlash(address(proxy)).flashLoan(borrower, address(base), amount, "");
+        bool ok = flashSingleton.flashLoan(address(proxy), borrower, address(base), amount, "");
         assertTrue(ok, "flashLoan must return true");
 
         // Borrower received `amount` mid-call. It was pre-funded with `fee` to cover repayment,
@@ -238,7 +228,7 @@ contract Phase42CR13Test is Test {
         base.mint(address(borrower), feePerLoop * 5);
 
         for (uint256 i; i < 5; ++i) {
-            IFlash(address(proxy)).flashLoan(borrower, address(base), amount, "");
+            flashSingleton.flashLoan(address(proxy), borrower, address(base), amount, "");
             _assertConservation(string.concat("flash-loop ", vm.toString(i)));
         }
     }
@@ -249,7 +239,7 @@ contract Phase42CR13Test is Test {
         uint256 fee = (amount * uint256(FLASH_FEE_BPS)) / 1_000_000;
         base.mint(address(borrower), fee);
 
-        IFlash(address(proxy)).flashLoan(borrower, address(base), amount, "");
+        flashSingleton.flashLoan(address(proxy), borrower, address(base), amount, "");
         uint256 expected = Pool(payable(address(proxy))).getProtocolFees(address(base));
         assertGt(expected, 0, "expected non-zero proto fees");
 
@@ -263,7 +253,7 @@ contract Phase42CR13Test is Test {
 
         // Capture log; event signature: ProtocolFeesCollected(address pool, address token, uint256 amount).
         vm.recordLogs();
-        tr.collectProtocolFees(address(proxy), address(base));
+        tr.collectProtocolFees(address(admin), address(proxy), address(base));
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         bytes32 sig = keccak256("ProtocolFeesCollected(address,address,uint256)");
@@ -307,10 +297,10 @@ contract Phase42CR13Test is Test {
         uint8[29] memory pad;
         IPool.FeeParams memory bad = IPool.FeeParams({protoShare: 101, flashFeeBps: 5, _pad: pad});
         vm.startPrank(OWNER);
-        IAdminTimelock(address(proxy)).requestUpdateFeeParams(bad);
+        admin.requestUpdateFeeParams(address(proxy), bad);
         vm.warp(block.timestamp + uint256(SC.LOW_TIMELOCK) + 1);
         vm.expectRevert(Err.InvalidInput.selector);
-        IAdminTimelock(address(proxy)).executeUpdateFeeParams();
+        admin.executeUpdateFeeParams(address(proxy));
         vm.stopPrank();
     }
 
