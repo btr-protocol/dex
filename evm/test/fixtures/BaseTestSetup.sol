@@ -7,6 +7,14 @@ import {Oracle} from "../../src/libraries/Oracle.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 
+/// @notice Minimal mock AccessControl exposing only `owner()`. Used to satisfy module
+///         constructors after Phase 42H.B.1 dropped the per-pool $.owner auth path.
+contract MockAC {
+    address public owner;
+    constructor(address o) { owner = o; }
+    function rotate(address newOwner) external { owner = newOwner; }
+}
+
 /// @title BaseTestSetup
 /// @notice Base contract for all tests, provides common utilities and fixtures
 abstract contract BaseTestSetup is Test {

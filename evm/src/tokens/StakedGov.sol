@@ -12,9 +12,10 @@ contract StakedGov is StakedToken {
     constructor(
         address _staking,
         address _gov,
+        address _pool,
         string memory tokenName,
         string memory tokenSymbol
-    ) StakedToken(_staking, _gov) {
+    ) StakedToken(_staking, _gov, _pool) {
         _name = tokenName;
         _symbol = tokenSymbol;
     }

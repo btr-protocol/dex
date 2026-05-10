@@ -43,7 +43,7 @@ interface ITreasury {
 
     function claimVested() external;
     function getClaimableVested(address beneficiary) external view returns (uint256 claimable);
-    function collectProtocolFees(address pool, address token) external;
+    function collectProtocolFees(address admin, address pool, address token) external;
 
     function requestOwnershipTransfer(address newOwner) external;
     function executeOwnershipTransfer() external;

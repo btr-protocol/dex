@@ -14,6 +14,7 @@ import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
+import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
 /// @notice Mock LZ endpoint — quote returns fixed fee, send is a no-op recorder.
 contract MockLZEndpoint {
@@ -200,7 +201,7 @@ contract Phase42CR10Test is Test {
         // This test contract IS the DEPLOYER (msg.sender at constructor).
         PoolProxy proxy = new PoolProxy();
 
-        Pool poolImpl = new Pool();
+        Pool poolImpl = new Pool(address(new MockAC(address(this))), address(0xADBEEF), address(0xC0FFEE), address(0xF1A571));
 
         // Step 1: untrusted impl → addModules MUST revert.
         address[] memory impls = new address[](1);
@@ -230,7 +231,7 @@ contract Phase42CR10Test is Test {
         proxy.addModules(impls, sels);
 
         // Step 4: queue an update (different impl, same selector → timelocked).
-        Pool poolImpl2 = new Pool();
+        Pool poolImpl2 = new Pool(address(new MockAC(address(this))), address(0xADBEEF), address(0xC0FFEE), address(0xF1A571));
         address[] memory impls2 = new address[](1);
         impls2[0] = address(poolImpl2);
         bool[] memory t2 = new bool[](1);
@@ -257,7 +258,7 @@ contract Phase42CR10Test is Test {
     /// @notice Non-DEPLOYER cannot call addModules (auth gate sanity).
     function test_F_A2_2_addModules_nonDeployer_reverts() public {
         PoolProxy proxy = new PoolProxy();
-        Pool poolImpl = new Pool();
+        Pool poolImpl = new Pool(address(new MockAC(address(this))), address(0xADBEEF), address(0xC0FFEE), address(0xF1A571));
 
         // Trust setup as DEPLOYER.
         address[] memory impls = new address[](1);

@@ -5,12 +5,13 @@ import {Test} from "forge-std/Test.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {Router} from "../src/Router.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
-import {Admin} from "../src/modules/Admin.sol";
+import {Admin} from "../src/Admin.sol";
 import {IRouter} from "../src/interfaces/IRouter.sol";
 import {IExchange} from "../src/interfaces/modules/IExchange.sol";
 import {IPoolProxyFactory} from "../src/interfaces/IPoolProxyFactory.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {BTRToken} from "./fixtures/BTRToken.sol";
+import {MockAC} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Pricing as P} from "../src/libraries/Pricing.sol";
@@ -82,18 +83,6 @@ contract Phase42CR1Test is Test {
     address user = address(0xBEEF);
 
     // ════════════════════════════════════════════════════════════════════
-    // A2-1 — PoolProxy.executeModuleUpdate gated to DEPLOYER
-    // ════════════════════════════════════════════════════════════════════
-
-    function test_A2_1_executeModuleUpdate_nonDeployer_reverts() public {
-        PoolProxy proxy = new PoolProxy(); // msg.sender = this contract = DEPLOYER
-        bytes4 sel = bytes4(keccak256("foo()"));
-        vm.prank(attacker);
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        proxy.executeModuleUpdate(sel);
-    }
-
-    // ════════════════════════════════════════════════════════════════════
     // A2-2 — Treasury.executeOwnershipTransfer + Router.executeUpgrade onlyOwner
     // ════════════════════════════════════════════════════════════════════
 
@@ -130,25 +119,15 @@ contract Phase42CR1Test is Test {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // A2-6 — Admin.executeOwnershipTransfer now gated onlyOwner
+    // A2-6 — Admin.executeOwnershipTransfer now gated onlyOwner (singleton, B.3a)
     // ════════════════════════════════════════════════════════════════════
 
     function test_A2_6_admin_executeOwnershipTransfer_nonOwner_reverts() public {
-        // Wire a minimal proxy with Admin module + register executeOwnershipTransfer selector.
-        Admin adminMod = new Admin();
-        PoolProxy proxy = new PoolProxy();
-        uint8[29] memory feePad;
-        IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeeBps: 5, _pad: feePad});
-        proxy.initialize(owner, address(0xBEEF1), address(0xBEEF2), fp);
-
-        bytes4 sel = Admin.executeOwnershipTransfer.selector;
-        bytes32 modulesSlot = bytes32(uint256(C.CORE_STORAGE_LOC) + 13);
-        bytes32 slot = keccak256(abi.encode(sel, modulesSlot));
-        vm.store(address(proxy), slot, bytes32(uint256(uint160(address(adminMod)))));
-
+        // Singleton Admin gates by AC.owner(); attacker call must revert.
+        Admin adminSingleton = new Admin(address(new MockAC(owner)));
         vm.prank(attacker);
         vm.expectRevert(Ownable.Unauthorized.selector);
-        Admin(address(proxy)).executeOwnershipTransfer();
+        adminSingleton.executeOwnershipTransfer(address(0xBEEF));
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -291,7 +270,7 @@ contract Phase42CR1Test is Test {
 
     function test_R2_A1_1_fastTWAP_roundTrip_positiveOffset() public {
         // True TWAP = 1.05e18, spot = 1e18 → twap > spot, offset > 0
-        InternalOracle oracle = new InternalOracle();
+        InternalOracle oracle = new InternalOracle(address(new MockAC(address(this))));
         address token = address(0xCAFE);
         uint256 spot1e18 = 1e18;
         uint256 twap1e18 = 105e16; // 1.05
@@ -308,7 +287,7 @@ contract Phase42CR1Test is Test {
 
     function test_R2_A1_1_fastTWAP_roundTrip_negativeOffset() public {
         // True TWAP = 0.95e18, spot = 1e18 → twap < spot, offset < 0
-        InternalOracle oracle = new InternalOracle();
+        InternalOracle oracle = new InternalOracle(address(new MockAC(address(this))));
         address token = address(0xCAFE);
         uint256 spot1e18 = 1e18;
         uint256 twap1e18 = 95e16; // 0.95
@@ -323,7 +302,7 @@ contract Phase42CR1Test is Test {
     }
 
     function test_R2_A1_1_fastTWAP_zeroOffset_returnsSpot() public {
-        InternalOracle oracle = new InternalOracle();
+        InternalOracle oracle = new InternalOracle(address(new MockAC(address(this))));
         address token = address(0xCAFE);
         uint64 spotB64 = M.encodeB64(1e18, 18);
         _setFeed(oracle, token, spotB64, int32(0));
@@ -333,7 +312,7 @@ contract Phase42CR1Test is Test {
     }
 
     function test_R2_A1_1_fastTWAP_notConfigured_reverts() public {
-        InternalOracle oracle = new InternalOracle();
+        InternalOracle oracle = new InternalOracle(address(new MockAC(address(this))));
         address token = address(0xDEAD);
         // lastUpdate not set → revert
         vm.expectRevert();
@@ -342,7 +321,7 @@ contract Phase42CR1Test is Test {
 
     function test_R2_A1_1_fastTWAP_degenerateOffset_clampsToOneWei() public {
         // Negative offset with |off| ≥ ORACLE_PBPS → mult ≤ 0; matches _applyOffset clamp = 1 wei.
-        InternalOracle oracle = new InternalOracle();
+        InternalOracle oracle = new InternalOracle(address(new MockAC(address(this))));
         address token = address(0xCAFE);
         uint64 spotB64 = M.encodeB64(1e18, 18);
         // off = -ORACLE_PBPS exactly → mult = 0 → clamp

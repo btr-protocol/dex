@@ -1,25 +1,65 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-import {Base} from "./Base.sol";
 import {InternalOracle} from "./InternalOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {IPoolHooks} from "../interfaces/IPoolHooks.sol";
 import {IPoolModule} from "../interfaces/modules/IPool.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Pricing as Pricing} from "../libraries/Pricing.sol";
 import {Maths as M} from "../libraries/Maths.sol";
 import {Constants as C} from "../libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
+import {AnchorTree} from "../libraries/AnchorTree.sol";
 
 /// @title Pool — merged Liquidity + Exchange module
 /// @notice deposit/withdraw/donate/swapLiability + swap/batchSwap/quotes/views
 /// @dev Single module replaces former Liquidity + Exchange. Internal calls
 ///      replace the prior IExchangeQuote delegatecall shim.
-contract Pool is Base {
+contract Pool is InternalOracle {
     using SafeTransferLib for address;
     using {M.b64To1e18} for uint64;
+
+    /// @notice Phase 42H.B.3a — singleton Admin contract gating restricted setters.
+    /// @dev Admin no longer delegatecalls; it CALLS Pool via standard external calls.
+    ///      Immutable lives in Pool's bytecode (set at Pool deployment), identical for
+    ///      all proxies sharing this Pool impl. Same pattern as `AC` from B.1.
+    address public immutable admin;
+
+    /// @notice Phase 42H.B.3b — singleton Staking contract.
+    /// @dev Staking calls Pool's restricted `stakingAdjustLpBalance` via standard external calls.
+    ///      Immutable; identical for all proxies sharing this Pool impl.
+    address public immutable staking;
+
+    /// @notice Phase 42H.B.3c — singleton Flash contract.
+    /// @dev Flash calls Pool's restricted `flashSend` + `flashAccount` via standard external calls.
+    ///      Immutable; identical for all proxies sharing this Pool impl.
+    address public immutable flash;
+
+    constructor(address ac_, address admin_, address staking_, address flash_) InternalOracle(ac_) {
+        if (admin_ == address(0) || staking_ == address(0) || flash_ == address(0)) revert Err.ZeroAddr();
+        admin = admin_;
+        staking = staking_;
+        flash = flash_;
+    }
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin) revert Ownable.Unauthorized();
+        _;
+    }
+
+    modifier onlyStaking() {
+        if (msg.sender != staking) revert Ownable.Unauthorized();
+        _;
+    }
+
+    modifier onlyFlash() {
+        if (msg.sender != flash) revert Ownable.Unauthorized();
+        _;
+    }
 
     /// @dev Initial liquidity index (1e12 → ~18M× growth before uint64 overflow).
     /// @dev F-LOW-R10 NOT FIXED (intentional): `asset.liquidityIndex` is uint64. Truncation horizon
@@ -443,6 +483,7 @@ contract Pool is Base {
     function owner() external view returns (address) { return _owner(); }
     function baseToken() external view returns (address) { return _s().baseToken; }
     function wnative() external view returns (address) { return _s().wnative; }
+    function treasury() external view returns (address) { return _s().treasury; }
 
     function getAsset(address tk) external view returns (IPool.Asset memory) {
         IPool.PoolStorage storage $ = _s(); return $.assets[_wrap($, tk)];
@@ -452,6 +493,14 @@ contract Pool is Base {
     }
     function getProtocolFees(address tk) external view returns (uint256) {
         IPool.PoolStorage storage $ = _s(); return $.protocolFees[_wrap($, tk)];
+    }
+    function getRiskFlags(address tk) external view returns (uint16) {
+        IPool.PoolStorage storage $ = _s(); return $.riskConfigs[_wrap($, tk)].flags;
+    }
+    function getFeeParams() external view returns (IPool.FeeParams memory) { return _s().feeParams; }
+    function getHookForFlag(address tk, uint32 flag) external view returns (address) {
+        IPool.PoolStorage storage $ = _s();
+        return _hook($, _wrap($, tk), flag);
     }
     function getMidPrice(address tk) external returns (uint256) {
         IPool.PoolStorage storage $ = _s();
@@ -510,9 +559,11 @@ contract Pool is Base {
             address b = q.routeHops[i + 1];
             uint64 p = q.hopPrices[i];
 
-            if (a == base) InternalOracle(address(this)).pushFeedInternal(b, address(0), p, 0);
-            else if (b == base) InternalOracle(address(this)).pushFeedInternal(a, address(0), p, 0);
-            else InternalOracle(address(this)).pushFeedInternal(a, b, p, p);
+            // Phase 42H.B.2: direct internal call (was: external self-call → Diamond fallback
+            // → delegatecall → InternalOracle module). Pool now inherits InternalOracle.
+            if (a == base) _pushFeedInternal(b, address(0), p, 0);
+            else if (b == base) _pushFeedInternal(a, address(0), p, 0);
+            else _pushFeedInternal(a, b, p, p);
 
             unchecked { ++i; }
         }
@@ -586,5 +637,305 @@ contract Pool is Base {
         if (d > type(uint128).max) revert Err.ExcessiveAmount(d, type(uint128).max);
         if (actual > expected) a.reserves -= uint128(d);
         else a.reserves += uint128(d);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // ADMIN DOMAIN — restricted setters gated by `admin` singleton (42H.B.3a)
+    // ─────────────────────────────────────────────────────────────────
+
+    function adminFreezeAsset(address token) external onlyAdmin {
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        _asset($, t);
+        $.riskConfigs[t].flags |= C.FROZEN_BIT;
+    }
+
+    function adminUnfreezeAsset(address token) external onlyAdmin {
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        _asset($, t);
+        $.riskConfigs[t].flags &= ~C.FROZEN_BIT;
+    }
+
+    function adminInitAsset(
+        address token,
+        IPool.OracleConfig calldata oracleCfg,
+        IPool.RiskConfig calldata riskCfg,
+        IPool.LiquidityProfile calldata profile,
+        uint16 minFeeBps,
+        uint8 decimals,
+        uint64 initialPrice,
+        uint32 initialFastVolEMA,
+        uint32 initialSlowVolEMA,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda
+    ) external onlyAdmin {
+        if (initialPrice == 0) revert Err.ZeroValue();
+        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
+
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
+
+        _validateProfileMemory(profile);
+        _validateOracleConfig(oracleCfg);
+        _initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
+        _setupOracleAndConfig($, t, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
+    }
+
+    function adminCollectProtocolFees(address token, address recipient)
+        external nonReentrant onlyAdmin returns (uint256 amount)
+    {
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        amount = $.protocolFees[t];
+        if (amount > 0) {
+            $.protocolFees[t] = 0;
+            _push(token, recipient, amount);
+        }
+    }
+
+    function adminSetGovToken(address govToken) external onlyAdmin {
+        if (govToken == address(0)) revert Err.ZeroValue();
+        IPool.PoolStorage storage $ = _s();
+        if ($.govToken != address(0)) revert Err.AlreadyConfigured(Err.Resource.STAKING, $.govToken);
+        $.govToken = govToken;
+    }
+
+    function adminSetStakedGovToken(address sGov) external onlyAdmin {
+        if (sGov == address(0)) revert Err.ZeroValue();
+        IPool.PoolStorage storage $ = _s();
+        if ($.sGovToken != address(0)) revert Err.AlreadyConfigured(Err.Resource.STAKING, $.sGovToken);
+        $.sGovToken = sGov;
+    }
+
+    function adminSetFlowCooldown(uint16 cooldownSeconds) external onlyAdmin {
+        _s().flowCooldownSeconds = cooldownSeconds;
+    }
+
+    function adminSetAnchor(address token, address anchor) external onlyAdmin {
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        IPool.Asset storage asset = $.assets[t];
+        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
+
+        uint8 depth = AnchorTree.validateAnchor($, t, anchor);
+        asset.anchor = anchor;
+        asset.anchorDepth = depth;
+    }
+
+    function adminSetAssetParams(
+        address token,
+        uint128 minLiquidity,
+        uint16 minFeeBps,
+        uint16 maxFeeBps,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda,
+        uint16 haircutSuppressor,
+        uint64 reservationPrice
+    ) external onlyAdmin {
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        IPool.Asset storage asset = $.assets[t];
+        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
+        if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
+
+        asset.minLiquidity = minLiquidity;
+        asset.minFeeBps = minFeeBps;
+        asset.maxFeeBps = maxFeeBps;
+        asset.gamma = gamma;
+        asset.vega = vega;
+        asset.lambda = lambda;
+        asset.haircutSuppressor = haircutSuppressor;
+        asset.reservationPrice = reservationPrice;
+    }
+
+    function adminSetRiskConfig(address token, IPool.RiskConfig calldata cfg) external onlyAdmin {
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        _asset($, t);
+        $.riskConfigs[t] = cfg;
+    }
+
+    function adminSetOracleConfig(address token, IPool.OracleConfig calldata cfg) external onlyAdmin {
+        _validateOracleConfig(cfg);
+        _s().oracleConfigs[token] = cfg;
+    }
+
+    function adminSetFeeParams(IPool.FeeParams calldata params) external onlyAdmin {
+        if (params.protoShare > 100) revert Err.InvalidInput();
+        _s().feeParams = params;
+    }
+
+    function adminSetOwner(address newOwner) external onlyAdmin {
+        if (newOwner == address(0)) revert Err.ZeroValue();
+        _s().owner = newOwner;
+    }
+
+    function adminSetBridge(address newBridge) external onlyAdmin {
+        _s().bridge = newBridge;
+    }
+
+    function adminSetTreasury(address newTreasury) external onlyAdmin {
+        if (newTreasury == address(0)) revert Err.ZeroValue();
+        _s().treasury = newTreasury;
+    }
+
+    function adminSetBaseToken(address newBase) external onlyAdmin {
+        _s().baseToken = newBase;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // STAKING DOMAIN — restricted setters gated by `staking` singleton (42H.B.3b)
+    // ─────────────────────────────────────────────────────────────────
+
+    /// @notice Adjust LP balance on behalf of the singleton Staking contract.
+    /// @dev Conservation invariant: stake → debit; unstake → credit.
+    ///      Only the singleton staking address may invoke. delta sign carries direction.
+    function stakingAdjustLpBalance(address user, address token, int256 delta) external onlyStaking {
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        if (delta > 0) {
+            $.lpBalances[user][t] += uint256(delta);
+        } else if (delta < 0) {
+            uint256 d = uint256(-delta);
+            uint256 cur = $.lpBalances[user][t];
+            if (cur < d) revert Err.InsufficientAmount(cur, d);
+            $.lpBalances[user][t] = cur - d;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // FLASH DOMAIN — restricted setters gated by `flash` singleton (42H.B.3c)
+    // ─────────────────────────────────────────────────────────────────
+
+    /// @notice Push `amount` of `token` to `to` on behalf of the singleton Flash contract.
+    /// @dev Applies decay + risk/min-liquidity gating; transfers tokens out of the Pool.
+    ///      Reserves are NOT decremented here: the balance-delta accounting in Flash +
+    ///      flashAccount() preserves the invariant `tokenBalance == Σreserves + Σprotocolfees`
+    ///      across the loan window (R13 fix preserved).
+    function flashSend(address token, uint256 amount, address to) external onlyFlash whenInitialized nonReentrant {
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        IPool.Asset storage asset = _asset($, t);
+
+        _applyDecay($, t, asset);
+
+        if (amount == 0) revert Err.ZeroValue();
+        if (asset.reserves < amount || asset.reserves - amount < asset.minLiquidity) {
+            revert Err.InsufficientAmount(asset.reserves, amount);
+        }
+
+        _push(token, to, amount);
+    }
+
+    /// @notice Credit reserves with LP-portion of fee + protocolFees with proto-portion.
+    /// @dev R13 fix preserved (F-A1-R12-2): delta-credit ONLY (no balance overwrite). Flash
+    ///      verifies the borrower repaid `amount + fee` to Pool before invoking this.
+    function flashAccount(address token, uint256 fee, uint256 protoFee) external onlyFlash {
+        if (protoFee > fee) revert Err.InvalidInput();
+        IPool.PoolStorage storage $ = _s();
+        address t = _wrap($, token);
+        IPool.Asset storage asset = _asset($, t);
+        unchecked { asset.reserves += uint128(fee - protoFee); }
+        $.protocolFees[t] += protoFee;
+    }
+
+    // ── helpers (relocated from former Admin module) ──
+
+    function _validateProfileMemory(IPool.LiquidityProfile memory profile) internal pure {
+        if (profile.weights[0] == 0) revert Err.InvalidInput();
+
+        uint256 sum = 0;
+        uint256 segmentCount = 0;
+        unchecked {
+            for (uint256 i = 0; i < 16; ++i) {
+                if (profile.weights[i] == 0) { segmentCount = i; break; }
+                sum += profile.weights[i];
+                if (i == 15) segmentCount = 16;
+            }
+        }
+        if (segmentCount == 0 || sum != 200) revert Err.InvalidInput();
+
+        uint256 knotCount = segmentCount + 1;
+        unchecked {
+            for (uint256 i = 1; i < knotCount; ++i) {
+                if (profile.knots[i] < profile.knots[i - 1]) revert Err.InvalidInput();
+            }
+        }
+        if (int16(profile.knots[knotCount - 1]) - int16(profile.knots[0]) != 100) revert Err.InvalidInput();
+    }
+
+    function _validateOracleConfig(IPool.OracleConfig memory cfg) internal view {
+        if (cfg.primary == address(0)) revert Err.InvalidInput();
+        if (cfg.primary != address(this)) {
+            try IOracle(cfg.primary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {} catch {
+                revert Err.InvalidInput();
+            }
+        }
+        if (cfg.secondary != address(0) && cfg.secondary != address(this)) {
+            try IOracle(cfg.secondary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {} catch {
+                revert Err.InvalidInput();
+            }
+        }
+    }
+
+    function _initAsset(
+        IPool.PoolStorage storage $,
+        address t,
+        uint8 decimals,
+        uint16 minFeeBps,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda
+    ) internal {
+        IPool.Asset storage asset = $.assets[t];
+        asset.decimals = decimals;
+        asset.minFeeBps = minFeeBps;
+        asset.maxFeeBps = 10000;
+        asset.minLiquidity = 0;
+        asset.minDispersion = minDispersion == 0 ? 1000 : minDispersion;
+        asset.maxDispersion = maxDispersion == 0 ? 100000 : maxDispersion;
+        asset.gamma = gamma == 0 ? 10000 : gamma;
+        asset.vega = vega == 0 ? 10000 : vega;
+        asset.lambda = lambda == 0 ? 10000 : lambda;
+        asset.haircutSuppressor = 10000;
+
+        if (t == $.baseToken) {
+            asset.anchor = address(0);
+            asset.anchorDepth = 0;
+        } else {
+            asset.anchor = $.baseToken;
+            asset.anchorDepth = 1;
+        }
+    }
+
+    function _setupOracleAndConfig(
+        IPool.PoolStorage storage $,
+        address t,
+        IPool.OracleConfig memory oracleCfg,
+        IPool.RiskConfig memory riskCfg,
+        IPool.LiquidityProfile memory profile,
+        uint64 initialPrice,
+        uint32 initialFastVolEMA,
+        uint32 initialSlowVolEMA
+    ) internal {
+        $.oracleConfigs[t] = oracleCfg;
+        $.riskConfigs[t] = riskCfg;
+        $.profiles[t] = profile;
+
+        if (oracleCfg.primary == address(this)) {
+            uint8 accDec = oracleCfg.accDecimals == 0 ? 6 : oracleCfg.accDecimals;
+            // Self-call to satisfy `msg.sender == address(this)` gate inside updateFeed.
+            try InternalOracle(address(this)).updateFeed(t, initialPrice, accDec, initialFastVolEMA, initialSlowVolEMA) {} catch {
+                revert Err.OperationFailed();
+            }
+        }
     }
 }

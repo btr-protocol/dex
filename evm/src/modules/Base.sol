@@ -7,7 +7,7 @@ import {IOracle} from "../interfaces/IOracle.sol";
 import {IERC20} from "../interfaces/external/IERC20.sol";
 import {IWETH9} from "../interfaces/external/IWETH9.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {IAccessControl} from "../interfaces/external/IAccessControl.sol";
+import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Maths as M} from "../libraries/Maths.sol";
 import {Constants as C} from "../libraries/Constants.sol";
@@ -22,6 +22,16 @@ abstract contract Base {
     /// @dev keccak256("pool.reentrancy.guard")
     bytes32 private constant REENTRANCY_GUARD_SLOT =
         0xe22c27e8d25bc3725093027126bd674994df6625365bae10cf4b95c8b45f98b6;
+
+    /// @notice Phase 42H.B.1 — singleton AccessControl address shared with alm.
+    /// @dev Immutable per module impl: set once at module deploy time, read via Pool delegatecall.
+    ///      Owner rotation propagates instantly to every module + every pool consuming this AC.
+    address public immutable AC;
+
+    constructor(address ac_) {
+        if (ac_ == address(0)) revert Err.ZeroAddr();
+        AC = ac_;
+    }
 
     modifier nonReentrant() {
         assembly {
@@ -40,17 +50,9 @@ abstract contract Base {
         _;
     }
 
-    /// @notice Path α: prefer singleton AC owner when configured, else legacy per-pool owner.
-    /// @dev Static call — AC.owner() is `view`. Failure → revert (mis-set ac is operator error).
-    /// @dev Phase 42D A2-5 DISCARD (by-design): if `$.ac` is set to a contract without a working
-    ///      `owner()` view, every onlyOwner gate reverts → pool is bricked. Recovery posture:
-    ///      mis-setting `ac` is itself an `onlyOwner` action (Admin.setAc), so a sane multisig
-    ///      cannot accidentally brick. Defence-in-depth: deploy AC and verify `owner()` returns
-    ///      the expected address BEFORE calling `setAc`. Setting `ac = address(0)` rolls back
-    ///      to legacy `$.owner`; this requires a working owner at the moment of the rollback call.
+    /// @notice Single source of truth: shared singleton AccessControl owner.
     function _owner() internal view returns (address) {
-        address ac = _s().ac;
-        return ac == address(0) ? _s().owner : IAccessControl(ac).owner();
+        return AccessControl(AC).owner();
     }
 
     modifier whenInitialized() virtual {

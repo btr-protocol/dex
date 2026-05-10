@@ -4,7 +4,7 @@ pragma solidity ^0.8.35;
 import {ITreasury} from "./interfaces/ITreasury.sol";
 import {IMintable} from "./interfaces/IMintable.sol";
 import {IPool} from "./interfaces/IPool.sol";
-import {IAdmin} from "./interfaces/modules/IAdmin.sol";
+import {IAdmin} from "./interfaces/IAdmin.sol";
 import {IPoolModule} from "./interfaces/modules/IPool.sol";
 import {IBridge} from "./interfaces/IBridge.sol";
 import {Err} from "@btr-shared/Errors.sol";
@@ -199,11 +199,14 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
 
     // ─── protocol fees ───
 
-    function collectProtocolFees(address pool, address token) external override nonReentrant {
-        if (pool == address(0) || token == address(0)) revert Err.ZeroValue();
-        // F-A4-R12-1 (R13 fix): emit actual collected amount (was hardcoded 0).
+    /// @notice Collect a pool's protocol fees via the singleton Admin contract.
+    /// @dev Phase 42H.B.3a — Admin moved out of the Diamond. Treasury now passes the
+    ///      Admin singleton address explicitly. Admin gates the call by verifying
+    ///      `msg.sender == pool.treasury()`, preserving the prior auth model.
+    function collectProtocolFees(address admin, address pool, address token) external nonReentrant {
+        if (pool == address(0) || token == address(0) || admin == address(0)) revert Err.ZeroValue();
         uint256 amount = IPoolModule(pool).getProtocolFees(token);
-        IAdmin(pool).collectProtocolFees(token, address(this));
+        IAdmin(admin).collectProtocolFees(pool, token, address(this));
         emit ProtocolFeesCollected(pool, token, amount);
     }
 
