@@ -40,6 +40,10 @@ contract Bridge is Ownable, ReentrancyGuardTransient, ILZOAppReceiver, UUPSUpgra
     bytes32 public pendingUpgrade;
     address public pendingImplementation;
 
+    /// @dev G18 fix: transient slot for self-call upgrade auth. See Treasury.sol for details.
+    bytes32 private constant _UPGRADE_AUTH_TSLOT =
+        0x9f1c8b7e3f6a4d2c5b8e1a0f7d9c4e2b5a8f1c7e4b9d6a3c0e7f1b8d5a2c9e61;
+
     struct FailedMessage {
         address recipient;
         address token;
@@ -348,7 +352,19 @@ contract Bridge is Ownable, ReentrancyGuardTransient, ILZOAppReceiver, UUPSUpgra
         emit PeerSet(eid, peer);
     }
 
-    function cancelOperation(bytes32 id) external onlyOwner {
+    /// @notice G20 fix: per-OpType cancel functions replace untyped `cancelOperation(bytes32)`.
+    ///         Caller specifies the typed key (token / eid) and the contract derives the id —
+    ///         eliminates risk of passing an unrelated id (different OpType, stale, or arbitrary
+    ///         hash) and silently clearing it.
+    function cancelConfigChange(address token) external onlyOwner {
+        bytes32 id = keccak256(abi.encode(IBridge.OpType.ConfigUpdate, token));
+        if (pendingOps[id] == 0) revert Err.InvalidState();
+        delete pendingOps[id];
+        delete pendingData[id];
+    }
+
+    function cancelSetPeer(uint32 eid) external onlyOwner {
+        bytes32 id = keccak256(abi.encode(IBridge.OpType.PeerUpdate, eid));
         if (pendingOps[id] == 0) revert Err.InvalidState();
         delete pendingOps[id];
         delete pendingData[id];
@@ -390,7 +406,9 @@ contract Bridge is Ownable, ReentrancyGuardTransient, ILZOAppReceiver, UUPSUpgra
         delete pendingImplementation;
         delete pendingOps[upgradeId];
 
+        assembly { tstore(_UPGRADE_AUTH_TSLOT, 1) }
         this.upgradeToAndCall(newImpl, "");
+        assembly { tstore(_UPGRADE_AUTH_TSLOT, 0) }
     }
 
     function cancelUpgrade() external onlyOwner {
@@ -402,7 +420,15 @@ contract Bridge is Ownable, ReentrancyGuardTransient, ILZOAppReceiver, UUPSUpgra
         emit UpgradeCancelled(upgradeId);
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    /// @dev G18 fix: see Treasury.sol comment.
+    function _authorizeUpgrade(address) internal override {
+        if (msg.sender == address(this)) {
+            uint256 auth;
+            assembly { auth := tload(_UPGRADE_AUTH_TSLOT) }
+            if (auth == 1) return;
+        }
+        if (msg.sender != owner()) revert Ownable.Unauthorized();
+    }
 
     // ─── views ───
 

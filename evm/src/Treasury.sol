@@ -46,6 +46,13 @@ contract Treasury is Ownable, ReentrancyGuardTransient, UUPSUpgradeable, ITreasu
     bytes32 public pendingUpgrade;
     address public pendingImplementation;
 
+    /// @dev G18 fix: transient flag scoped to single executeUpgrade tx. Authorizes the
+    ///      `this.upgradeToAndCall` re-entry (msg.sender = address(this)) only after the
+    ///      timelock has validated. Cleared post-call. tload/tstore = ~100 gas, no SSTORE.
+    ///      Slot constant — append-only storage layout preserved (transient ≠ persistent).
+    bytes32 private constant _UPGRADE_AUTH_TSLOT =
+        0x9f1c8b7e3f6a4d2c5b8e1a0f7d9c4e2b5a8f1c7e4b9d6a3c0e7f1b8d5a2c9e60;
+
     constructor(address govToken_) {
         if (govToken_ == address(0)) revert Err.ZeroValue();
         govToken = govToken_;
@@ -333,7 +340,12 @@ contract Treasury is Ownable, ReentrancyGuardTransient, UUPSUpgradeable, ITreasu
         delete pendingUpgrade;
         delete pendingImplementation;
         delete pendingUpgradeOp;
+        // G18 fix: arm transient auth flag → `this.upgradeToAndCall` self-call enters
+        // proxy w/ msg.sender = address(this); _authorizeUpgrade reads tload, allows it,
+        // then we clear the flag. tstore is auto-cleared at end-of-tx so no leak.
+        assembly { tstore(_UPGRADE_AUTH_TSLOT, 1) }
         this.upgradeToAndCall(newImpl, "");
+        assembly { tstore(_UPGRADE_AUTH_TSLOT, 0) }
     }
 
     function cancelUpgrade() external onlyOwner {
@@ -345,7 +357,18 @@ contract Treasury is Ownable, ReentrancyGuardTransient, UUPSUpgradeable, ITreasu
         emit UpgradeCancelled(upgradeId);
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    /// @dev G18 fix: dual auth — accept either (a) direct owner call (off-chain governance UI
+    ///      bypassing the timelock-wrapped path) OR (b) executeUpgrade's `this.upgradeToAndCall`
+    ///      self-call when transient flag is armed. Solady's Ownable.onlyOwner check is
+    ///      replicated inline since we cannot call super() w/ a virtual override that drops it.
+    function _authorizeUpgrade(address) internal override {
+        if (msg.sender == address(this)) {
+            uint256 auth;
+            assembly { auth := tload(_UPGRADE_AUTH_TSLOT) }
+            if (auth == 1) return;
+        }
+        if (msg.sender != owner()) revert Ownable.Unauthorized();
+    }
 
     // ─── views ───
 
