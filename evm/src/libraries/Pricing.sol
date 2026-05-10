@@ -3,24 +3,25 @@ pragma solidity ^0.8.35;
 
 import {IOracle} from "../interfaces/IOracle.sol";
 import {IPool} from "../interfaces/IPool.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
-import {LibMaths as M} from "./LibMaths.sol";
-import {LibSpline} from "./LibSpline.sol";
-import {LibAnchorTree} from "./LibAnchorTree.sol";
-import {LibOracle} from "./LibOracle.sol";
-import {LibTransientCache as TCache} from "./LibTransientCache.sol";
-import {LibConstants as C} from "./LibConstants.sol";
+import {Err} from "@btr-shared/Errors.sol";
+import {Maths as M} from "./Maths.sol";
+import {Spline} from "./Spline.sol";
+import {AnchorTree} from "./AnchorTree.sol";
+import {Oracle} from "./Oracle.sol";
+import {TransientCache as TCache} from "./TransientCache.sol";
+import {Constants as C} from "./Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @title LibPricing — coverage-adjusted pricing + bi-factor fee model.
-/// @dev Units: see LibConstants. BPS=0.01%, PBPS=0.0001%, WAD=1e18.
-library LibPricing {
+/// @title Pricing — coverage-adjusted pricing + bi-factor fee model.
+/// @dev Units: see Constants. BPS=0.01%, PBPS=0.0001%, WAD=1e18.
+library Pricing {
     using {M.b64To1e18} for uint64;
 
     /// @dev Profile weights sum (200 = 100%, 1 unit = 0.5% depth).
     uint256 private constant WEIGHT_SUM = 200;
-    uint256 private constant MAX_IMPACT = 2 * C.WAD;   // 200%
-    uint256 private constant MIN_ADJ = C.WAD / 1000;   // 0.1%
+    uint256 private constant MAX_IMPACT = 2 * SC.WAD;   // 200%
+    uint256 private constant MIN_ADJ = SC.WAD / 1000;   // 0.1%
 
     /// @notice Avellaneda-Stoikov inventory skew. Linear: skew = sign*γ*100*progress, clamp [-100,+100].
     ///         At critMin: +γ*100 (premium); target=WAD: 0; critMax: -γ*100 (discount).
@@ -34,15 +35,15 @@ library LibPricing {
     ) internal pure returns (int8) {
         if (liabilities == 0) return -100;
         uint256 coverage = calculateCoverage(reserves, liabilities);
-        uint256 critMin = (uint256(coverageMin) * C.WAD) / 10000;
-        uint256 critMax = (uint256(coverageMax) * C.WAD) / 10000;
+        uint256 critMin = (uint256(coverageMin) * SC.WAD) / 10000;
+        uint256 critMax = (uint256(coverageMax) * SC.WAD) / 10000;
         if (coverage <= critMin) return 100;
         if (coverage >= critMax) return -100;
-        bool under = coverage < C.WAD;
-        uint256 numer = under ? C.WAD - coverage : coverage - C.WAD;
-        uint256 denom = under ? C.WAD - critMin : critMax - C.WAD;
-        uint256 progress = (numer * C.WAD) / denom;
-        uint256 skew = (uint256(gamma) * 100 * progress) / (C.BPS * C.WAD);
+        bool under = coverage < SC.WAD;
+        uint256 numer = under ? SC.WAD - coverage : coverage - SC.WAD;
+        uint256 denom = under ? SC.WAD - critMin : critMax - SC.WAD;
+        uint256 progress = (numer * SC.WAD) / denom;
+        uint256 skew = (uint256(gamma) * 100 * progress) / (SC.BPS * SC.WAD);
         if (skew > 100) skew = 100;
         return under ? int8(int256(skew)) : int8(-int256(skew));
     }
@@ -77,8 +78,8 @@ library LibPricing {
             selling
         );
 
-        // executionPrice is in base per token units (1e18), so baseOut = amountIn * executionPrice / C.WAD
-        amountOut = (amountIn * executionPrice) / C.WAD;
+        // executionPrice is in base per token units (1e18), so baseOut = amountIn * executionPrice / SC.WAD
+        amountOut = (amountIn * executionPrice) / SC.WAD;
     }
 
     /// @dev κ⁻¹: dispersion ∝ σ. dispersion = clamp(1000 + σ·vega/1000/BPS, [min,max]).
@@ -91,7 +92,7 @@ library LibPricing {
         // Linear mapping: dispersion increases with volatility
         // Base dispersion + volatility scaled by vega
         // Vega controls sensitivity: 10000 (100%=1x) means vol/1000, 5000 (50%=0.5x) means vol/2000
-        uint256 scaledVol = (uint256(volatility) * uint256(vega)) / (1000 * C.BPS);
+        uint256 scaledVol = (uint256(volatility) * uint256(vega)) / (1000 * SC.BPS);
         uint256 raw = 1000 + scaledVol;
 
         // Clamp to [minDispersion, maxDispersion]
@@ -115,10 +116,10 @@ library LibPricing {
 
         // Build spline control points from liquidity profile
         // The profile defines segments with cumulative depth and price offsets
-        LibSpline.Point[] memory points = _buildSplinePoints(profile, dispersion);
+        Spline.Point[] memory points = _buildSplinePoints(profile, dispersion);
 
         // X-axis: cumulative depth percentage (0 to 10000 = 0% to 100%)
-        // Y-axis: price offset from TWAP (in C.PBPS units)
+        // Y-axis: price offset from TWAP (in SC.PBPS units)
         // inventorySkew maps to a position on this curve
 
         // Map inventorySkew (-100 to +100) to cumulative depth position
@@ -128,13 +129,13 @@ library LibPricing {
         uint256 targetDepth = _skewToDepth(inventorySkew);
 
         // Interpolate price offset at target depth using monotone cubic spline
-        int256 priceOffsetBps = LibSpline.eval(targetDepth, points);
+        int256 priceOffsetBps = Spline.eval(targetDepth, points);
 
         // Convert offset to absolute price
-        int256 multiplier = int256(C.PBPS) + priceOffsetBps;
+        int256 multiplier = int256(SC.PBPS) + priceOffsetBps;
         if (multiplier < 0) multiplier = 0;
 
-        midPrice = (twap * uint256(multiplier)) / C.PBPS;
+        midPrice = (twap * uint256(multiplier)) / SC.PBPS;
     }
 
     /// @dev Exact analytical Hermite-spline integration → VWAP over trade.
@@ -149,17 +150,17 @@ library LibPricing {
     ) internal view returns (uint256 avgPrice) {
         // No profile: linear fallback.
         if (profile.weights[0] == 0) {
-            uint256 impact = (amountIn * C.WAD) / depth;
+            uint256 impact = (amountIn * SC.WAD) / depth;
             if (impact > MAX_IMPACT) impact = MAX_IMPACT;
             uint256 midPrice = _skewToPrice(twap, inventorySkew, dispersion);
             uint256 k = impact / 2;
             if (selling) {
-                uint256 adj = k < C.WAD ? C.WAD - k : MIN_ADJ;
-                return (midPrice * adj) / C.WAD;
+                uint256 adj = k < SC.WAD ? SC.WAD - k : MIN_ADJ;
+                return (midPrice * adj) / SC.WAD;
             }
-            return (midPrice * (C.WAD + k)) / C.WAD;
+            return (midPrice * (SC.WAD + k)) / SC.WAD;
         }
-        LibSpline.Point[] memory points = _buildSplinePoints(profile, dispersion);
+        Spline.Point[] memory points = _buildSplinePoints(profile, dispersion);
         uint256 startDepth = _skewToDepth(inventorySkew);
         uint256 volumeFraction = (amountIn * 10000) / depth;
         if (volumeFraction > 10000) volumeFraction = 10000;
@@ -172,16 +173,16 @@ library LibPricing {
         }
         uint256 width = selling ? (startDepth - endDepth) : (endDepth - startDepth);
         if (width == 0) {
-            int256 off = LibSpline.eval(startDepth, points);
-            int256 mult = int256(C.PBPS) + off;
+            int256 off = Spline.eval(startDepth, points);
+            int256 mult = int256(SC.PBPS) + off;
             if (mult < 0) mult = 0;
-            return (twap * uint256(mult)) / C.PBPS;
+            return (twap * uint256(mult)) / SC.PBPS;
         }
-        int256 avgOffsetBps = LibSpline.area(points, startDepth, endDepth) / int256(width);
-        int256 MAX_NEG = -int256(C.PBPS) * 90 / 100; // floor: -90% (≥ 10% of TWAP)
+        int256 avgOffsetBps = Spline.area(points, startDepth, endDepth) / int256(width);
+        int256 MAX_NEG = -int256(SC.PBPS) * 90 / 100; // floor: -90% (≥ 10% of TWAP)
         if (avgOffsetBps < MAX_NEG) avgOffsetBps = MAX_NEG;
-        int256 multiplier = int256(C.PBPS) + avgOffsetBps;
-        avgPrice = (twap * uint256(multiplier)) / C.PBPS;
+        int256 multiplier = int256(SC.PBPS) + avgOffsetBps;
+        avgPrice = (twap * uint256(multiplier)) / SC.PBPS;
 
         // Add absolute minimum price floor (5% of TWAP)
         uint256 minPrice = (twap * 5) / 100;
@@ -194,21 +195,21 @@ library LibPricing {
     function _buildSplinePoints(
         IPool.LiquidityProfile storage profile,
         uint32 dispersion
-    ) internal view returns (LibSpline.Point[] memory points) {
+    ) internal view returns (Spline.Point[] memory points) {
         uint256 count = 0;
         for (uint256 i = 0; i < 16; i++) {
             if (profile.weights[i] == 0) break;
             count++;
         }
-        points = new LibSpline.Point[](count + 1);
-        points[0] = LibSpline.Point({
+        points = new Spline.Point[](count + 1);
+        points[0] = Spline.Point({
             x: 0,
             y: (int256(int16(profile.knots[0])) * int256(uint256(dispersion))) / 100
         });
         uint256 cumW = 0;
         for (uint256 i = 0; i < count; i++) {
             cumW += uint256(profile.weights[i]);
-            points[i + 1] = LibSpline.Point({
+            points[i + 1] = Spline.Point({
                 x: (cumW * 10000) / WEIGHT_SUM,
                 y: (int256(int16(profile.knots[i + 1])) * int256(uint256(dispersion))) / 100
             });
@@ -226,9 +227,9 @@ library LibPricing {
     /// @dev skew → absolute price (no-profile fallback). offsetBps = skew*disp/100.
     function _skewToPrice(uint256 twap, int8 skew, uint32 dispersion) internal pure returns (uint256) {
         int256 offsetBps = (int256(int16(skew)) * int256(uint256(dispersion))) / 100;
-        int256 multiplier = int256(C.PBPS) + offsetBps;
+        int256 multiplier = int256(SC.PBPS) + offsetBps;
         if (multiplier < 0) multiplier = 0;
-        return (twap * uint256(multiplier)) / C.PBPS;
+        return (twap * uint256(multiplier)) / SC.PBPS;
     }
 
     // --- Anchor-path routing & spread ---
@@ -260,7 +261,7 @@ library LibPricing {
         address tokenOut,
         uint256 amountIn
     ) internal returns (IPool.SwapQuote memory quote) {
-        IPool.RoutePath memory path = LibAnchorTree.findRoutingPath($, tokenIn, tokenOut);
+        IPool.RoutePath memory path = AnchorTree.findRoutingPath($, tokenIn, tokenOut);
 
         quote.routeHops = path.hops;
         quote.hopAmounts = new uint256[](path.hops.length);
@@ -297,8 +298,8 @@ library LibPricing {
                 cacheIn.reserves, cacheIn.liabilities, cacheOut.reserves, cacheOut.liabilities,
                 amountIn, acc.currentAmount, cacheIn.price, cacheOut.price, acc.maxFeePath
             );
-            uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(vegaSpread)) / (100 * C.BPS);
-            uint256 u = (uint256(acc.deltaPair) * uint256(lambdaSpread)) / C.BPS;
+            uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(vegaSpread)) / (100 * SC.BPS);
+            uint256 u = (uint256(acc.deltaPair) * uint256(lambdaSpread)) / SC.BPS;
             uint256 rawSpread = impact < 0 ? sVol : sVol + u;
             quote.spreadBps = rawSpread < uint256(acc.minFeePath)
                 ? acc.minFeePath
@@ -332,7 +333,7 @@ library LibPricing {
         if (token == $.baseToken) {
             cache.price = 1e18;
         } else {
-            (cache.price,) = LibOracle.decodeB64s(_readOracle($, token));
+            (cache.price,) = Oracle.decodeB64s(_readOracle($, token));
         }
     }
 
@@ -358,15 +359,15 @@ library LibPricing {
         IOracle.FeedData memory feed;
         uint256 twap;
         if (profileAsset == $.baseToken) {
-            feed = LibOracle.getBaseFeed();
+            feed = Oracle.getBaseFeed();
             twap = 1e18;
         } else {
             feed = _readOracle($, profileAsset);
-            (twap,) = LibOracle.decodeB64s(feed);
+            (twap,) = Oracle.decodeB64s(feed);
         }
         if (!isUpward) twap = (1e18 * 1e18) / twap; // child→parent
 
-        sigma = LibOracle.getSigma(feed);
+        sigma = Oracle.getSigma(feed);
         int32 fastSpread = feed.fastOffset - feed.slowOffset;
         delta = fastSpread < 0 ? uint32(-fastSpread) : uint32(fastSpread);
 
@@ -424,9 +425,9 @@ library LibPricing {
             uint32 dispersion = _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
             IPool.LiquidityProfile storage profile = $.profiles[profileAsset];
             uint256 midPrice = _getMidPriceFromProfile(twap, skew, dispersion, profile);
-            amountOut = (amountIn * C.WAD) / midPrice;
+            amountOut = (amountIn * SC.WAD) / midPrice;
             uint256 execPrice = _traverseSplineByVolume(twap, dispersion, profile, skew, amountOut, depth, false);
-            amountOut = (amountIn * C.WAD) / execPrice;
+            amountOut = (amountIn * SC.WAD) / execPrice;
         }
     }
 
@@ -496,7 +497,7 @@ library LibPricing {
     /// @notice Coverage ratio R/L. uint256.max if L == 0.
     function calculateCoverage(uint128 reserves, uint128 liabilities) internal pure returns (uint256) {
         if (liabilities == 0) return type(uint256).max;
-        return (uint256(reserves) * C.WAD) / uint256(liabilities);
+        return (uint256(reserves) * SC.WAD) / uint256(liabilities);
     }
 
     /// @notice Net coverage impact (value-weighted, base). neg=improves, pos=worsens.
@@ -515,8 +516,8 @@ library LibPricing {
         // A3-2 fix: config-sourced fee replaces hard-coded 0.1% heuristic.
         // feeBps in PBPS (1e6 = 100%). Conservative upper-bound from path acc.maxFeePath.
         uint256 totalOut = amountOut + (amountOut * uint256(feeBps)) / 1_000_000;
-        if (totalOut > reservesOut) return int256(C.WAD);
-        if (amountIn > type(uint128).max || totalOut > type(uint128).max) return int256(C.WAD);
+        if (totalOut > reservesOut) return int256(SC.WAD);
+        if (amountIn > type(uint128).max || totalOut > type(uint128).max) return int256(SC.WAD);
         uint128 newResIn = reservesIn + uint128(amountIn);
         uint128 newResOut = reservesOut - uint128(totalOut);
         // |R-L| ≡ |C-1|·L; portfolio imbalance = Σ(price·|gap|).
@@ -524,8 +525,8 @@ library LibPricing {
         uint256 gapOut0 = reservesOut > liabilitiesOut ? reservesOut - liabilitiesOut : liabilitiesOut - reservesOut;
         uint256 gapIn1 = newResIn > liabilitiesIn ? newResIn - liabilitiesIn : liabilitiesIn - newResIn;
         uint256 gapOut1 = newResOut > liabilitiesOut ? newResOut - liabilitiesOut : liabilitiesOut - newResOut;
-        uint256 imb0 = (priceIn * gapIn0 + priceOut * gapOut0) / C.WAD;
-        uint256 imb1 = (priceIn * gapIn1 + priceOut * gapOut1) / C.WAD;
+        uint256 imb0 = (priceIn * gapIn0 + priceOut * gapOut0) / SC.WAD;
+        uint256 imb1 = (priceIn * gapIn1 + priceOut * gapOut1) / SC.WAD;
         return int256(imb1) - int256(imb0);
     }
 
@@ -538,18 +539,18 @@ library LibPricing {
     ) internal pure returns (uint256 depth) {
         if (reserves == 0) return liabilities == 0 ? 1 : 1; // both zero or undercollateralized
         if (liabilities == 0) return uint256(reserves);
-        uint256 coverage = (uint256(reserves) * C.WAD) / uint256(liabilities);
-        if (coverage >= C.WAD) return uint256(reserves);
-        uint256 criticalFloor = C.WAD / 2;
+        uint256 coverage = (uint256(reserves) * SC.WAD) / uint256(liabilities);
+        if (coverage >= SC.WAD) return uint256(reserves);
+        uint256 criticalFloor = SC.WAD / 2;
         if (coverage <= criticalFloor || depthAmplifier == 0) return uint256(reserves);
 
         // progress = (c - 0.5) / 0.5; exponent = PBPS / (PBPS + 2k); virtualDepth = k·deficit·progress^exp.
-        uint256 progress = ((coverage - criticalFloor) * C.WAD) / (C.WAD - criticalFloor);
+        uint256 progress = ((coverage - criticalFloor) * SC.WAD) / (SC.WAD - criticalFloor);
         uint256 k = uint256(depthAmplifier);
         uint256 deficit = uint256(liabilities) - uint256(reserves);
-        uint256 exponentWad = (C.WAD * C.PBPS) / (C.PBPS + 2 * k);
+        uint256 exponentWad = (SC.WAD * SC.PBPS) / (SC.PBPS + 2 * k);
         uint256 concaveProgress = _powWad(progress, exponentWad);
-        depth = uint256(reserves) + (k * deficit * concaveProgress) / (C.PBPS * C.WAD);
+        depth = uint256(reserves) + (k * deficit * concaveProgress) / (SC.PBPS * SC.WAD);
         if (depth > uint256(liabilities)) depth = uint256(liabilities);
         if (depth == 0) depth = 1;
     }
@@ -565,9 +566,9 @@ library LibPricing {
     ) internal pure returns (uint128) {
         if (dt == 0 || decaySlope == 0 || liabilities == 0) return 0;
         uint256 coverage = calculateCoverage(reserves, liabilities);
-        uint256 threshold = (uint256(decayStartRatioBps) * C.WAD) / C.PBPS;
+        uint256 threshold = (uint256(decayStartRatioBps) * SC.WAD) / SC.PBPS;
         if (coverage >= threshold) return 0;
-        uint256 rawDecay = (uint256(liabilities) * uint256(decaySlope) * uint256(dt)) / C.WAD;
+        uint256 rawDecay = (uint256(liabilities) * uint256(decaySlope) * uint256(dt)) / SC.WAD;
         uint256 maxDecay = liabilities > reserves ? liabilities - reserves : 0; // cap @ 100% coverage
         return rawDecay > maxDecay ? uint128(maxDecay) : uint128(rawDecay);
     }
@@ -577,9 +578,9 @@ library LibPricing {
     ///      Solady's ln-based path on degenerate inputs.
     function _powWad(uint256 x, uint256 y) private pure returns (uint256 result) {
         if (x == 0) return 0;
-        if (x == C.WAD) return C.WAD;
-        if (y == 0) return C.WAD;
-        if (y == C.WAD) return x;
+        if (x == SC.WAD) return SC.WAD;
+        if (y == 0) return SC.WAD;
+        if (y == SC.WAD) return x;
         // x ≤ WAD ≪ 2^255, y ≪ 2^255 in our domain → safe int256 cast.
         int256 r = FixedPointMathLib.powWad(int256(x), int256(y));
         return r < 0 ? 0 : uint256(r);

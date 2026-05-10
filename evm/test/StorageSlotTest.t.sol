@@ -6,7 +6,7 @@ import {IPool} from "../src/interfaces/IPool.sol";
 import {ICore} from "../src/interfaces/modules/ICore.sol";
 import {IPoolModule} from "../src/interfaces/modules/IPool.sol";
 import {IAdmin, IAdminConfig, IAdminTimelock} from "../src/interfaces/modules/IAdmin.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
 import {Admin} from "../src/modules/Admin.sol";
 

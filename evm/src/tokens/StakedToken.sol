@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {IStaking} from "../interfaces/modules/IStaking.sol";
 
 /// @title StakedToken

@@ -5,20 +5,17 @@ import {Test} from "forge-std/Test.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {GovToken} from "../src/tokens/GovToken.sol";
 import {BridgeableERC20} from "../src/tokens/BridgeableERC20.sol";
-import {Distributor} from "../src/modules/Distributor.sol";
-import {IDistributor} from "../src/interfaces/modules/IDistributor.sol";
-import {SoulboundToken} from "../src/tokens/SoulboundToken.sol";
 import {BTRToken} from "./fixtures/BTRToken.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
+import {Err} from "@btr-shared/Errors.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
 /// @title Phase42CR15Test
 /// @notice Phase 42C R15 remediation:
 ///   - F-A2-R15-1 (HIGH): GovToken bridge selector mismatch — Treasury now exposes getBridge().
 ///   - F-A1-R15-1 (LOW): executeEmissionsCapChange re-validates `pendingCap >= claimed` at exec.
-///   - F-A2-R15-2 (INFO): redeemPoints accumulates totalRedeemed regardless of maxRedeemable.
-///   - F-A4-R15-1 (INFO): redeemPoints unchecked-arith bound — documented in source.
+///   (Phase 42H.A.2: SBT/POINTS redeem tests F-A2-R15-2 / F-A4-R15-1 dropped — feature removed.)
 contract Phase42CR15Test is Test {
     // ───────────────────────────────────────────── F-A2-R15-1 ──
     // Real GovToken crosschain mint/burn auth gate via Treasury.getBridge().
@@ -150,7 +147,7 @@ contract Phase42CR15Test is Test {
         assertEq(claimedMid, 800e18);
 
         // Warp past timelock.
-        vm.warp(block.timestamp + C.CRITICAL_TIMELOCK + 1);
+        vm.warp(block.timestamp + SC.CRITICAL_TIMELOCK + 1);
 
         // Pre-fix: execute would silently set totalAllocation=700 with claimed=800 ⇒ wedged.
         // Post-fix: execute reverts InvalidState.
@@ -180,90 +177,12 @@ contract Phase42CR15Test is Test {
         vm.prank(owner);
         t.requestEmissionsCapChange(2_000e18);
 
-        vm.warp(block.timestamp + C.CRITICAL_TIMELOCK + 1);
+        vm.warp(block.timestamp + SC.CRITICAL_TIMELOCK + 1);
         vm.prank(owner);
         t.executeEmissionsCapChange();
         assertEq(t.emissionsCap(), 2_000e18);
     }
 
-    // ───────────────────────────────────────────── F-A2-R15-2 ──
-    // redeemPoints accumulates totalRedeemed even when maxRedeemable == 0 (unbounded campaign).
-
-    function test_F_A2_R15_2_redeemPoints_accumulates_totalRedeemed_when_unbounded() public {
-        Distributor dist = new Distributor();
-        // Take ownership of distributor (CORE_STORAGE_LOC slot 0 = owner).
-        bytes32 slot = bytes32(uint256(C.CORE_STORAGE_LOC) + 0);
-        bytes32 cur = vm.load(address(dist), slot);
-        uint256 cleared = uint256(cur) & ~uint256(type(uint160).max);
-        vm.store(address(dist), slot, bytes32(cleared | uint256(uint160(address(this)))));
-
-        address mgr = address(0xA8A6E7);
-        (uint256 cid, address sbt) = dist.createPointsCampaign("Pts", "PTS", mgr);
-
-        // Single-leaf merkle so user can claim SBT.
-        uint256 earned = 1_000e18;
-        bytes32 root = keccak256(abi.encodePacked(cid, uint256(0), user, earned));
-        vm.prank(mgr);
-        dist.updateCampaignRoot(cid, root, uint32(block.timestamp), earned);
-        bytes32[] memory proof = new bytes32[](0);
-        vm.prank(user);
-        dist.claimCampaign(cid, 0, user, earned, proof);
-        assertEq(SoulboundToken(sbt).balanceOf(user), earned);
-
-        // Finalize as REDEEMABLE w/ maxRedeemable = 0 (unbounded).
-        BTRToken redeemTok = new BTRToken("RDM", "RDM", 18);
-        redeemTok.mint(address(dist), 10_000e18);
-        dist.finalizePointsCampaign(cid, address(redeemTok), 1e18, 0); // 1:1 rate, unbounded
-
-        // First redeem: 100 SBT → 100 redeemTok. totalRedeemed must increment from 0 → 100.
-        vm.prank(user);
-        dist.redeemPoints(cid, 100e18);
-        IDistributor.Campaign memory c1 = dist.getCampaign(cid);
-        assertEq(c1.totalRedeemed, 100e18, "totalRedeemed must accumulate even when maxRedeemable=0");
-
-        // Second redeem: another 250 SBT → totalRedeemed must reach 350.
-        vm.prank(user);
-        dist.redeemPoints(cid, 250e18);
-        IDistributor.Campaign memory c2 = dist.getCampaign(cid);
-        assertEq(c2.totalRedeemed, 350e18, "second unbounded redeem accumulates correctly");
-
-        // Bounded campaign sanity: still tracked.
-        assertEq(redeemTok.balanceOf(user), 350e18);
-    }
-
-    /// @notice Bounded campaign regression: cap enforcement still works post-fix.
-    function test_F_A2_R15_2_redeemPoints_bounded_capStillEnforced() public {
-        Distributor dist = new Distributor();
-        bytes32 slot = bytes32(uint256(C.CORE_STORAGE_LOC) + 0);
-        bytes32 cur = vm.load(address(dist), slot);
-        uint256 cleared = uint256(cur) & ~uint256(type(uint160).max);
-        vm.store(address(dist), slot, bytes32(cleared | uint256(uint160(address(this)))));
-
-        address mgr = address(0xA8A6E7);
-        (uint256 cid, address sbt) = dist.createPointsCampaign("Pts", "PTS", mgr);
-        uint256 earned = 500e18;
-        bytes32 root = keccak256(abi.encodePacked(cid, uint256(0), user, earned));
-        vm.prank(mgr);
-        dist.updateCampaignRoot(cid, root, uint32(block.timestamp), earned);
-        bytes32[] memory proof = new bytes32[](0);
-        vm.prank(user);
-        dist.claimCampaign(cid, 0, user, earned, proof);
-
-        BTRToken redeemTok = new BTRToken("RDM", "RDM", 18);
-        redeemTok.mint(address(dist), 10_000e18);
-        dist.finalizePointsCampaign(cid, address(redeemTok), 1e18, 200e18); // bounded cap=200
-
-        vm.prank(user);
-        dist.redeemPoints(cid, 150e18);
-        assertEq(dist.getCampaign(cid).totalRedeemed, 150e18);
-
-        // Exceeding the cap reverts.
-        vm.prank(user);
-        vm.expectRevert();
-        dist.redeemPoints(cid, 100e18); // would push to 250 > 200
-        // Sanity: the SBT not consumed by reverted call
-        assertEq(SoulboundToken(sbt).balanceOf(user), earned - 150e18);
-    }
 }
 
 // ─────────────────────────────────────────────────────────────

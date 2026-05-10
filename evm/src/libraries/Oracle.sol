@@ -2,13 +2,14 @@
 pragma solidity ^0.8.35;
 
 import {IOracle} from "../interfaces/IOracle.sol";
-import {LibMaths as M} from "./LibMaths.sol";
-import {LibConstants as C} from "./LibConstants.sol";
+import {Maths as M} from "./Maths.sol";
+import {Constants as C} from "./Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @title LibOracle — pure oracle math (decode/encode offsets, σ, Δ).
+/// @title Oracle — pure oracle math (decode/encode offsets, σ, Δ).
 /// @dev Caching @ LibTransientCache; no external calls here.
-library LibOracle {
+library Oracle {
     /// @notice Offset precision (0.00001%/unit, 10x finer than PBPS). int32 stored ⇒ ±21,474% range.
     uint256 public constant ORACLE_PBPS = 10_000_000;
 
@@ -48,11 +49,11 @@ library LibOracle {
     /// @notice Synthetic feed for base token (price 1.0, never expires).
     function getBaseFeed() internal view returns (IOracle.FeedData memory feed) {
         feed = IOracle.FeedData({
-            lastPriceB64: M.encodeB64(C.WAD, 18),
+            lastPriceB64: M.encodeB64(SC.WAD, 18),
             fastOffset: 0,
             slowOffset: 0,
-            fastVolEMA: uint32(C.ONE_PCT_PBPS),
-            slowVolEMA: uint32(C.ONE_PCT_PBPS),
+            fastVolEMA: uint32(SC.ONE_PCT_PBPS),
+            slowVolEMA: uint32(SC.ONE_PCT_PBPS),
             updatedAt: uint32(block.timestamp),
             ttl: type(uint16).max,
             confidence: 100

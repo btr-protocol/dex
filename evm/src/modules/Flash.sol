@@ -2,15 +2,15 @@
 pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {IFlash} from "../interfaces/modules/IFlash.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {IPoolHooks} from "../interfaces/IPoolHooks.sol";
 import {IERC3156FlashBorrower} from "../interfaces/external/IERC3156FlashBorrower.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-import {LibPricing as Pricing} from "../libraries/LibPricing.sol";
-import {LibConstants as C} from "../libraries/LibConstants.sol";
+import {Pricing as Pricing} from "../libraries/Pricing.sol";
+import {Constants as C} from "../libraries/Constants.sol";
 
 /// @title Flash — ERC-3156 flash loans
 contract Flash is Base, IFlash {

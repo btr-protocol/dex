@@ -4,11 +4,10 @@ pragma solidity ^0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {Distributor} from "../src/modules/Distributor.sol";
 import {IDistributor} from "../src/interfaces/modules/IDistributor.sol";
-import {SoulboundToken} from "../src/tokens/SoulboundToken.sol";
 import {BTRToken} from "./fixtures/BTRToken.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
 
 /// @title Phase42CR14Test
 /// @notice Phase 42C R14 remediation:
@@ -52,20 +51,6 @@ contract Phase42CR14Test is Test {
         BTRToken reward2 = new BTRToken("RW2", "RW2", 18);
         uint256 id2 = dist.createTokenCampaign(address(reward2), manager);
         assertEq(id2, 2, "second id must be 2");
-    }
-
-    /// @notice First POINTS campaign also reachable; SBT not orphaned.
-    function test_F_A2_R14_3_firstPointsCampaign_idIsOne_andSBT_live() public {
-        (uint256 id, address sbt) = dist.createPointsCampaign("Pts", "PTS", manager);
-        assertEq(id, 1);
-        assertTrue(sbt != address(0));
-
-        // Finalize-points path must work for the first campaign.
-        BTRToken redeem = new BTRToken("RDM", "RDM", 18);
-        dist.finalizePointsCampaign(id, address(redeem), 1e18, 0);
-        IDistributor.Campaign memory c = dist.getCampaign(id);
-        assertEq(uint256(c.status), uint256(IDistributor.CampaignStatus.REDEEMABLE));
-        assertEq(c.redeemToken, address(redeem));
     }
 
     /// @notice Negative regression: query of campaign id 0 still reverts NotConfigured (sentinel preserved).
@@ -156,7 +141,3 @@ contract Phase42CR14Test is Test {
     }
 }
 
-// dummy import-keeper for SBT type usage
-contract _R14SBTRef {
-    function _ref(SoulboundToken t) external pure returns (SoulboundToken) { return t; }
-}

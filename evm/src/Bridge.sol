@@ -5,14 +5,15 @@ import {IERC7802} from "./interfaces/external/IERC7802.sol";
 import {LZEndpointV2} from "./interfaces/external/ILZEndpointV2.sol";
 import {ILZOAppReceiver} from "./interfaces/external/ILZOAppReceiver.sol";
 import {IBridge} from "./interfaces/IBridge.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
-import {LibMaths as M} from "./libraries/LibMaths.sol";
-import {LibConstants as C} from "./libraries/LibConstants.sol";
+import {Timelock as TL} from "@btr-shared/Timelock.sol";
+import {Maths as M} from "./libraries/Maths.sol";
+import {Constants as C} from "./libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title Bridge
 /// @notice Compact LayerZero bridge w/ timelocked upgrades. UUPS, single-slot TokenConfig w/ B64 limits.
@@ -299,7 +300,7 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
         bytes32 id = keccak256(abi.encode(IBridge.OpType.ConfigUpdate, token));
         if (pendingOps[id] != 0) revert Err.PendingTimelock(uint48(block.timestamp));
 
-        pendingOps[id] = TL.pack(C.BASE_TIMELOCK, C.GRACE_PERIOD);
+        pendingOps[id] = TL.pack(SC.BASE_TIMELOCK, SC.GRACE_PERIOD);
         pendingData[id] = abi.encode(
             updateLimit ? M.encodeB64(newLimitRaw, decimals) : uint64(0),
             newRatio,
@@ -333,7 +334,7 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
     function requestSetPeer(uint32 eid, bytes32 peer) external onlyOwner {
         bytes32 id = keccak256(abi.encode(IBridge.OpType.PeerUpdate, eid));
         if (pendingOps[id] != 0) revert Err.PendingTimelock(uint48(block.timestamp));
-        pendingOps[id] = TL.pack(C.BASE_TIMELOCK, C.GRACE_PERIOD);
+        pendingOps[id] = TL.pack(SC.BASE_TIMELOCK, SC.GRACE_PERIOD);
         pendingData[id] = abi.encodePacked(peer);
     }
 
@@ -356,7 +357,7 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
     /// @notice Owner-only sweep of stuck ERC20 / native (alm Vault.salvage parity).
     function salvage(address token, address to, uint256 amount) external onlyOwner {
         if (to == address(0) || amount == 0) revert Err.ZeroValue();
-        if (token == C.NATIVE) {
+        if (token == SC.NATIVE) {
             SafeTransferLib.safeTransferETH(to, amount);
         } else {
             if (token == address(0)) revert Err.InvalidInput();
@@ -373,7 +374,7 @@ contract Bridge is Ownable, ReentrancyGuard, ILZOAppReceiver, UUPSUpgradeable, I
 
         pendingUpgrade = keccak256(abi.encode(newImplementation, block.timestamp));
         pendingImplementation = newImplementation;
-        uint96 timelock = TL.pack(C.UPGRADE_TIMELOCK, C.GRACE_PERIOD);
+        uint96 timelock = TL.pack(SC.UPGRADE_TIMELOCK, SC.GRACE_PERIOD);
         pendingOps[pendingUpgrade] = timelock;
 
         emit UpgradeAuthorized(pendingUpgrade, newImplementation, uint48(timelock >> 48));

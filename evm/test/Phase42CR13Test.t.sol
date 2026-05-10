@@ -16,9 +16,10 @@ import {IPoolModule} from "../src/interfaces/modules/IPool.sol";
 import {IFlash} from "../src/interfaces/modules/IFlash.sol";
 import {ITreasury} from "../src/interfaces/ITreasury.sol";
 import {IERC3156FlashBorrower} from "../src/interfaces/external/IERC3156FlashBorrower.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
-import {LibMaths as M} from "../src/libraries/LibMaths.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
+import {Maths as M} from "../src/libraries/Maths.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title Phase42CR13Test
@@ -307,7 +308,7 @@ contract Phase42CR13Test is Test {
         IPool.FeeParams memory bad = IPool.FeeParams({protoShare: 101, flashFeeBps: 5, _pad: pad});
         vm.startPrank(OWNER);
         IAdminTimelock(address(proxy)).requestUpdateFeeParams(bad);
-        vm.warp(block.timestamp + uint256(C.LOW_TIMELOCK) + 1);
+        vm.warp(block.timestamp + uint256(SC.LOW_TIMELOCK) + 1);
         vm.expectRevert(Err.InvalidInput.selector);
         IAdminTimelock(address(proxy)).executeUpdateFeeParams();
         vm.stopPrank();

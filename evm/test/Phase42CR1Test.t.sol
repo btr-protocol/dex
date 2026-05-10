@@ -11,13 +11,14 @@ import {IExchange} from "../src/interfaces/modules/IExchange.sol";
 import {IPoolProxyFactory} from "../src/interfaces/IPoolProxyFactory.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {BTRToken} from "./fixtures/BTRToken.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {LibPricing as P} from "../src/libraries/LibPricing.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
-import {LibTimelock as TL} from "../src/libraries/LibTimelock.sol";
-import {LibOracle} from "../src/libraries/LibOracle.sol";
-import {LibMaths as M} from "../src/libraries/LibMaths.sol";
+import {Pricing as P} from "../src/libraries/Pricing.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
+import {Timelock as TL} from "@btr-shared/Timelock.sol";
+import {Oracle} from "../src/libraries/Oracle.sol";
+import {Maths as M} from "../src/libraries/Maths.sol";
 import {InternalOracle} from "../src/modules/InternalOracle.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -104,7 +105,7 @@ contract Phase42CR1Test is Test {
         vm.prank(owner);
         t.requestOwnershipTransfer(address(0xCAFE));
 
-        vm.warp(block.timestamp + C.CRITICAL_TIMELOCK + 1);
+        vm.warp(block.timestamp + SC.CRITICAL_TIMELOCK + 1);
 
         vm.prank(attacker);
         vm.expectRevert(Ownable.Unauthorized.selector);
@@ -121,7 +122,7 @@ contract Phase42CR1Test is Test {
         vm.prank(owner);
         r.requestUpgrade(address(impl));
 
-        vm.warp(block.timestamp + C.UPGRADE_TIMELOCK + 1);
+        vm.warp(block.timestamp + SC.UPGRADE_TIMELOCK + 1);
 
         vm.prank(attacker);
         vm.expectRevert(Ownable.Unauthorized.selector);
@@ -259,9 +260,9 @@ contract Phase42CR1Test is Test {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // R2-A1-1 — InternalOracle.getFastTWAP symmetric to LibOracle._applyOffset
-    //   Encoding (LibOracle.encodeOffset1e18): off = (twap*ORACLE_PBPS/spot) - ORACLE_PBPS
-    //   Decoding (LibOracle._applyOffset):      twap = spot*(ORACLE_PBPS+off)/ORACLE_PBPS
+    // R2-A1-1 — InternalOracle.getFastTWAP symmetric to Oracle._applyOffset
+    //   Encoding (Oracle.encodeOffset1e18): off = (twap*ORACLE_PBPS/spot) - ORACLE_PBPS
+    //   Decoding (Oracle._applyOffset):      twap = spot*(ORACLE_PBPS+off)/ORACLE_PBPS
     //   Round-trip test: encode known (spot, twap) → set accumulator → call getFastTWAP → ≈twap.
     // ════════════════════════════════════════════════════════════════════
 
@@ -294,7 +295,7 @@ contract Phase42CR1Test is Test {
         address token = address(0xCAFE);
         uint256 spot1e18 = 1e18;
         uint256 twap1e18 = 105e16; // 1.05
-        int32 off = LibOracle.encodeOffset1e18(spot1e18, twap1e18);
+        int32 off = Oracle.encodeOffset1e18(spot1e18, twap1e18);
         assertGt(off, 0, "positive offset expected when twap>spot");
         _setFeed(oracle, token, M.encodeB64(spot1e18, 18), off);
 
@@ -311,7 +312,7 @@ contract Phase42CR1Test is Test {
         address token = address(0xCAFE);
         uint256 spot1e18 = 1e18;
         uint256 twap1e18 = 95e16; // 0.95
-        int32 off = LibOracle.encodeOffset1e18(spot1e18, twap1e18);
+        int32 off = Oracle.encodeOffset1e18(spot1e18, twap1e18);
         assertLt(off, 0, "negative offset expected when twap<spot");
         _setFeed(oracle, token, M.encodeB64(spot1e18, 18), off);
 
@@ -345,14 +346,14 @@ contract Phase42CR1Test is Test {
         address token = address(0xCAFE);
         uint64 spotB64 = M.encodeB64(1e18, 18);
         // off = -ORACLE_PBPS exactly → mult = 0 → clamp
-        _setFeed(oracle, token, spotB64, -int32(int256(LibOracle.ORACLE_PBPS)));
+        _setFeed(oracle, token, spotB64, -int32(int256(Oracle.ORACLE_PBPS)));
 
         uint64 result = oracle.getFastTWAP(token);
-        assertEq(result, M.encodeB64(1, 18), "degenerate must clamp to 1 wei (matches LibOracle._applyOffset)");
+        assertEq(result, M.encodeB64(1, 18), "degenerate must clamp to 1 wei (matches Oracle._applyOffset)");
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // A4-1 — LibPricing._powWad via Solady FixedPointMathLib.powWad
+    // A4-1 — Pricing._powWad via Solady FixedPointMathLib.powWad
     // Boundary inputs.
     // ════════════════════════════════════════════════════════════════════
 

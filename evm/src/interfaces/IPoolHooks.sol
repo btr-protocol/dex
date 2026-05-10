@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-/// @title IPoolHooks — per-asset lifecycle hooks (symmetric pre/post). Flags in LibConstants.
+/// @title IPoolHooks — per-asset lifecycle hooks (symmetric pre/post). Flags in Constants.
 interface IPoolHooks {
     function hookFlags() external pure returns (uint32);
 

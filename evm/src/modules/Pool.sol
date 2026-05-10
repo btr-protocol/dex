@@ -3,14 +3,15 @@ pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
 import {InternalOracle} from "./InternalOracle.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {IPoolHooks} from "../interfaces/IPoolHooks.sol";
 import {IPoolModule} from "../interfaces/modules/IPool.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {LibPricing as Pricing} from "../libraries/LibPricing.sol";
-import {LibMaths as M} from "../libraries/LibMaths.sol";
-import {LibConstants as C} from "../libraries/LibConstants.sol";
+import {Pricing as Pricing} from "../libraries/Pricing.sol";
+import {Maths as M} from "../libraries/Maths.sol";
+import {Constants as C} from "../libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title Pool — merged Liquidity + Exchange module
 /// @notice deposit/withdraw/donate/swapLiability + swap/batchSwap/quotes/views
@@ -58,7 +59,7 @@ contract Pool is Base {
         uint256 amt = _pull(token, amount);
         if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
-        uint256 lpAmt = (amt * C.WAD) / (asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex);
+        uint256 lpAmt = (amt * SC.WAD) / (asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex);
 
         asset.reserves += uint128(amt);
         asset.liabilities += uint128(amt);
@@ -131,7 +132,7 @@ contract Pool is Base {
         _applyDecay($, fromTk, assetFrom);
         _applyDecay($, toTk, assetTo);
 
-        uint256 withdrawValue = (lpAmount * (assetFrom.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetFrom.liquidityIndex)) / C.WAD;
+        uint256 withdrawValue = (lpAmount * (assetFrom.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetFrom.liquidityIndex)) / SC.WAD;
         uint256 amt;
         uint256 haircut;
 
@@ -202,7 +203,7 @@ contract Pool is Base {
             revert Err.InsufficientAmount($.lpBalances[msg.sender][inTk], lpAmountIn);
         }
 
-        uint256 liabIn = (lpAmountIn * (assetIn.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetIn.liquidityIndex)) / C.WAD;
+        uint256 liabIn = (lpAmountIn * (assetIn.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetIn.liquidityIndex)) / SC.WAD;
         if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
 
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, inTk, outTk, liabIn);
@@ -219,7 +220,7 @@ contract Pool is Base {
             (liabOut, haircut) = _applyHaircut(liabOut, assetOut.reserves, assetOut.liabilities, assetOut.haircutSuppressor);
         }
 
-        lpAmountOut = (liabOut * C.WAD) / (assetOut.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetOut.liquidityIndex);
+        lpAmountOut = (liabOut * SC.WAD) / (assetOut.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetOut.liquidityIndex);
 
         assetIn.liabilities -= uint128(liabIn);
         assetOut.liabilities += uint128(liabOut);
@@ -377,7 +378,7 @@ contract Pool is Base {
             _checkRisk($, tk, C.SWAP_ENABLED_BIT);
             _applyDecay($, tk, a);
 
-            uint256 amt = _pull(tk == $.wnative ? C.NATIVE : tk, M.decodeB64(amtB64, a.decimals));
+            uint256 amt = _pull(tk == $.wnative ? SC.NATIVE : tk, M.decodeB64(amtB64, a.decimals));
 
             if (tk == base) {
                 baseTotal += amt;
@@ -431,7 +432,7 @@ contract Pool is Base {
             address tk;
             assembly { tk := shr(96, calldataload(add(outputs.offset, mul(j, 32)))) }
             tk = _wrap($, tk);
-            _push(tk == $.wnative ? C.NATIVE : tk, recipient, amountsOut[j]);
+            _push(tk == $.wnative ? SC.NATIVE : tk, recipient, amountsOut[j]);
             unchecked { ++j; }
         }
 

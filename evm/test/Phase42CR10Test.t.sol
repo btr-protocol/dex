@@ -10,9 +10,10 @@ import {IERC7802} from "../src/interfaces/external/IERC7802.sol";
 import {PoolProxy} from "../src/PoolProxy.sol";
 import {Pool} from "../src/modules/Pool.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @notice Mock LZ endpoint — quote returns fixed fee, send is a no-op recorder.
 contract MockLZEndpoint {
@@ -88,7 +89,7 @@ contract Phase42CR10Test is Test {
         // Configure peer. Peer setup is timelocked; warp through it.
         vm.startPrank(BRIDGE_OWNER);
         bridge.requestSetPeer(SRC_EID, SRC_PEER);
-        vm.warp(block.timestamp + C.BASE_TIMELOCK + 1);
+        vm.warp(block.timestamp + SC.BASE_TIMELOCK + 1);
         bridge.executeSetPeer(SRC_EID);
         vm.stopPrank();
     }
@@ -244,7 +245,7 @@ contract Phase42CR10Test is Test {
         proxy.setModuleTrustBatch(impls2, revoke);
 
         // Warp past HIGH_TIMELOCK (used by addModules for occupied selectors).
-        vm.warp(block.timestamp + C.HIGH_TIMELOCK + 1);
+        vm.warp(block.timestamp + SC.HIGH_TIMELOCK + 1);
         vm.expectRevert(PoolProxy.UntrustedModule.selector);
         proxy.executeModuleUpdate(Pool.deposit.selector);
 

@@ -6,7 +6,7 @@ import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/modules/Pool.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IPoolHooks} from "../src/interfaces/IPoolHooks.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
 
 /// @title PoolHarness — exposes _processSwap end-to-end so tests can deploy a real Pool,
 ///        set up real reserves + real ERC20s + real IPoolHooks, and exercise the actual

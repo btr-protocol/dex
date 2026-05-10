@@ -2,9 +2,9 @@
 pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
-import {LibMaths as M} from "../../src/libraries/LibMaths.sol";
-import {LibOracle} from "../../src/libraries/LibOracle.sol";
-import {LibConstants as C} from "../../src/libraries/LibConstants.sol";
+import {Maths as M} from "../../src/libraries/Maths.sol";
+import {Oracle} from "../../src/libraries/Oracle.sol";
+import {Constants as C} from "../../src/libraries/Constants.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 
 /// @title BaseTestSetup
@@ -82,7 +82,7 @@ abstract contract BaseTestSetup is Test {
 
     /// @notice Get sigma (volatility) from feed data
     function getSigma(IOracle.FeedData memory feed) internal pure returns (uint32) {
-        return LibOracle.getSigma(feed);
+        return Oracle.getSigma(feed);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

@@ -3,14 +3,15 @@ pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {IAdmin, IAdminConfig, IAdminTimelock} from "../interfaces/modules/IAdmin.sol";
 import {IPool} from "../interfaces/IPool.sol";
-import {LibConstants as C} from "../libraries/LibConstants.sol";
+import {Constants as C} from "../libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {InternalOracle} from "./InternalOracle.sol";
-import {LibAnchorTree} from "../libraries/LibAnchorTree.sol";
-import {LibTimelock as TL} from "../libraries/LibTimelock.sol";
+import {AnchorTree} from "../libraries/AnchorTree.sol";
+import {Timelock as TL} from "@btr-shared/Timelock.sol";
 
 /// @title Admin
 /// @notice Unified admin module: emergency/setters/getters + timelocked governance ops.
@@ -140,7 +141,7 @@ contract Admin is Base, IAdmin {
         IPool.Asset storage asset = $.assets[t];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
 
-        uint8 depth = LibAnchorTree.validateAnchor($, t, anchor);
+        uint8 depth = AnchorTree.validateAnchor($, t, anchor);
         asset.anchor = anchor;
         asset.anchorDepth = depth;
         emit AnchorUpdated(t, anchor, depth);
@@ -209,7 +210,7 @@ contract Admin is Base, IAdmin {
         if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
         bytes32 id = keccak256(abi.encodePacked("ADD_ASSET", token));
         bytes memory data = abi.encode(token, oracleCfg, riskCfg, profile, minFeeBps, decimals, initialPrice, initialFastVolEMA, initialSlowVolEMA);
-        _emitQueued(id, C.LOW_TIMELOCK, data, uint8(IPool.OpType.ADD_ASSET));
+        _emitQueued(id, SC.LOW_TIMELOCK, data, uint8(IPool.OpType.ADD_ASSET));
     }
 
     function executeAddAsset(address token) external override nonReentrant onlyOwner {
@@ -241,7 +242,7 @@ contract Admin is Base, IAdmin {
 
     function requestUpdateRiskConfig(address token, IPool.RiskConfig calldata cfg) external override onlyOwner {
         bytes32 id = keccak256(abi.encodePacked("UPDATE_RISK", token));
-        _emitQueued(id, C.LOW_TIMELOCK, abi.encode(token, cfg), uint8(IPool.OpType.UPDATE_RISK));
+        _emitQueued(id, SC.LOW_TIMELOCK, abi.encode(token, cfg), uint8(IPool.OpType.UPDATE_RISK));
     }
 
     function executeUpdateRiskConfig(address token) external override nonReentrant onlyOwner {
@@ -257,12 +258,12 @@ contract Admin is Base, IAdmin {
     }
 
     function requestUpdateFeeParams(IPool.FeeParams calldata params) external override onlyOwner {
-        _emitQueued(C.TIMELOCK_ID_FEE_PARAMS, C.LOW_TIMELOCK, abi.encode(params), uint8(IPool.OpType.UPDATE_FEES));
+        _emitQueued(C.TIMELOCK_ID_FEE_PARAMS, SC.LOW_TIMELOCK, abi.encode(params), uint8(IPool.OpType.UPDATE_FEES));
     }
 
     function executeUpdateFeeParams() external override nonReentrant onlyOwner {
         IPool.FeeParams memory params = abi.decode(_consumeRaw(C.TIMELOCK_ID_FEE_PARAMS), (IPool.FeeParams));
-        // F-A3-R12-2 (R13 fix): protoShare ∈ [0,100] (LibPricing.splitFee invariant).
+        // F-A3-R12-2 (R13 fix): protoShare ∈ [0,100] (Pricing.splitFee invariant).
         // protoShare > 100 → splitFee underflow → swap DoS.
         if (params.protoShare > 100) revert Err.InvalidInput();
         _s().feeParams = params;
@@ -271,7 +272,7 @@ contract Admin is Base, IAdmin {
 
     function requestOwnershipTransfer(address newOwner) external override onlyOwner {
         if (newOwner == address(0)) revert Err.ZeroValue();
-        _emitQueued(C.TIMELOCK_ID_OWNERSHIP, C.HIGH_TIMELOCK, abi.encode(newOwner), uint8(IPool.OpType.TRANSFER_OWNERSHIP));
+        _emitQueued(C.TIMELOCK_ID_OWNERSHIP, SC.HIGH_TIMELOCK, abi.encode(newOwner), uint8(IPool.OpType.TRANSFER_OWNERSHIP));
     }
 
     function executeOwnershipTransfer() external override nonReentrant onlyOwner {
@@ -283,7 +284,7 @@ contract Admin is Base, IAdmin {
     }
 
     function requestBridgeUpdate(address newBridge) external override onlyOwner {
-        _emitQueued(C.TIMELOCK_ID_BRIDGE, C.HIGH_TIMELOCK, abi.encode(newBridge), uint8(IPool.OpType.UPDATE_BRIDGE));
+        _emitQueued(C.TIMELOCK_ID_BRIDGE, SC.HIGH_TIMELOCK, abi.encode(newBridge), uint8(IPool.OpType.UPDATE_BRIDGE));
     }
 
     function executeBridgeUpdate() external override nonReentrant onlyOwner {
@@ -296,7 +297,7 @@ contract Admin is Base, IAdmin {
 
     function requestTreasuryUpdate(address newTreasury) external override onlyOwner {
         if (newTreasury == address(0)) revert Err.ZeroValue();
-        _emitQueued(C.TIMELOCK_ID_TREASURY, C.HIGH_TIMELOCK, abi.encode(newTreasury), uint8(IPool.OpType.UPDATE_TREASURY));
+        _emitQueued(C.TIMELOCK_ID_TREASURY, SC.HIGH_TIMELOCK, abi.encode(newTreasury), uint8(IPool.OpType.UPDATE_TREASURY));
     }
 
     function executeTreasuryUpdate() external override nonReentrant onlyOwner {
@@ -308,7 +309,7 @@ contract Admin is Base, IAdmin {
     }
 
     function requestModuleUpdate(address impl, bytes4[] calldata selectors, bytes calldata initData) external override onlyOwner {
-        _emitQueued(C.TIMELOCK_ID_MODULE, C.HIGH_TIMELOCK, abi.encode(impl, selectors, initData), uint8(IPool.OpType.UPDATE_MODULE));
+        _emitQueued(C.TIMELOCK_ID_MODULE, SC.HIGH_TIMELOCK, abi.encode(impl, selectors, initData), uint8(IPool.OpType.UPDATE_MODULE));
     }
 
     function executeModuleUpdate() external override onlyOwner nonReentrant {
@@ -324,7 +325,7 @@ contract Admin is Base, IAdmin {
     }
 
     function requestBaseMigration(address newBase) external override onlyOwner {
-        _emitQueued(C.TIMELOCK_ID_BASE_MIGRATION, C.CRITICAL_TIMELOCK, abi.encode(newBase), uint8(IPool.OpType.MIGRATE_BASE_TOKEN));
+        _emitQueued(C.TIMELOCK_ID_BASE_MIGRATION, SC.CRITICAL_TIMELOCK, abi.encode(newBase), uint8(IPool.OpType.MIGRATE_BASE_TOKEN));
     }
 
     function executeBaseMigration() external override nonReentrant onlyOwner {
@@ -337,7 +338,7 @@ contract Admin is Base, IAdmin {
 
     function requestOracleUpdate(address token, IPool.OracleConfig calldata cfg) external override onlyOwner {
         bytes32 id = keccak256(abi.encodePacked("ORACLE_UPDATE", token));
-        _emitQueued(id, C.BASE_TIMELOCK, abi.encode(token, cfg), uint8(IPool.OpType.UPDATE_ORACLE));
+        _emitQueued(id, SC.BASE_TIMELOCK, abi.encode(token, cfg), uint8(IPool.OpType.UPDATE_ORACLE));
     }
 
     function executeOracleUpdate(address token) external nonReentrant onlyOwner {
@@ -371,7 +372,7 @@ contract Admin is Base, IAdmin {
 
     function _emitQueued(bytes32 id, uint48 delay, bytes memory data, uint8 opType) internal {
         IPool.PoolStorage storage $ = _s();
-        $.pendingOps[id] = TL.pack(delay, C.GRACE_PERIOD);
+        $.pendingOps[id] = TL.pack(delay, SC.GRACE_PERIOD);
         $.pendingData[id] = data;
         uint48 eta;
         unchecked { eta = uint48(block.timestamp) + delay; }

@@ -3,12 +3,13 @@ pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {IPool} from "../interfaces/IPool.sol";
-import {LibMaths as M} from "../libraries/LibMaths.sol";
-import {LibOracle} from "../libraries/LibOracle.sol";
-import {LibConstants as C} from "../libraries/LibConstants.sol";
+import {Maths as M} from "../libraries/Maths.sol";
+import {Oracle} from "../libraries/Oracle.sol";
+import {Constants as C} from "../libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title InternalOracle
@@ -20,7 +21,7 @@ contract InternalOracle is Base {
     uint32 public constant SLOW_WINDOW = 3600;         // 1h
     uint32 public constant FAST_VOL_ALPHA = 200;       // 0.02% PBPS
     uint32 public constant SLOW_VOL_ALPHA = 1800;      // 0.18% PBPS
-    uint32 public constant MAX_VOLATILITY = 100 * uint32(C.PBPS);
+    uint32 public constant MAX_VOLATILITY = 100 * uint32(SC.PBPS);
     uint16 public constant DEFAULT_TTL = 3600;
     uint256 private constant MAX_STALENESS = 604800;   // 7 days
 
@@ -58,9 +59,9 @@ contract InternalOracle is Base {
     }
 
     /// @notice Time-weighted average price over fast window (5min).
-    /// @dev R2-A1-1 fix: symmetric to LibOracle._applyOffset / encodeOffset1e18.
-    ///      Encoding: offset = (twap*ORACLE_PBPS/spot) - ORACLE_PBPS  (LibOracle.encodeOffset1e18)
-    ///      Decoding: twap   = spot*(ORACLE_PBPS+offset)/ORACLE_PBPS  (LibOracle._applyOffset)
+    /// @dev R2-A1-1 fix: symmetric to Oracle._applyOffset / encodeOffset1e18.
+    ///      Encoding: offset = (twap*ORACLE_PBPS/spot) - ORACLE_PBPS  (Oracle.encodeOffset1e18)
+    ///      Decoding: twap   = spot*(ORACLE_PBPS+offset)/ORACLE_PBPS  (Oracle._applyOffset)
     ///      Degenerate (multiplier ≤ 0): clamp to 1 wei (matches _applyOffset). Reverts if feed not configured.
     function getFastTWAP(address token) external view returns (uint64 fastTWAP) {
         IPool.PoolStorage storage $ = _s();
@@ -71,11 +72,11 @@ contract InternalOracle is Base {
         int32 off = acc.fastOffset;
         if (off == 0) return acc.lastPriceB64;
         uint256 spot = M.b64To1e18(acc.lastPriceB64);
-        int256 mult = int256(LibOracle.ORACLE_PBPS) + int256(off);
+        int256 mult = int256(Oracle.ORACLE_PBPS) + int256(off);
         if (mult <= 0) return M.encodeB64(1, 18); // degenerate: clamp to 1 wei (matches _applyOffset)
         // Phase 42D R3-A4-1: fullMulDiv hardens against theoretical b64-extreme overflow
         // (spot up to ~4.5e76 × mult up to ~2.16e9 > uint256.max). Realistic spot ≤ 1e30 → safe.
-        uint256 twap = FixedPointMathLib.fullMulDiv(spot, uint256(mult), LibOracle.ORACLE_PBPS);
+        uint256 twap = FixedPointMathLib.fullMulDiv(spot, uint256(mult), Oracle.ORACLE_PBPS);
         return M.encodeB64(twap, 18);
     }
 
@@ -141,8 +142,8 @@ contract InternalOracle is Base {
         // First update: init w/ defaults
         if (acc.lastUpdate == 0) {
             acc.lastPriceB64 = newPrice;
-            acc.fastVolEMA = uint32(C.ONE_PCT_PBPS / 100);
-            acc.slowVolEMA = uint32(C.ONE_PCT_PBPS / 100);
+            acc.fastVolEMA = uint32(SC.ONE_PCT_PBPS / 100);
+            acc.slowVolEMA = uint32(SC.ONE_PCT_PBPS / 100);
             acc.lastUpdate = currentTime;
             acc.ttl = DEFAULT_TTL;
             acc.confidence = 100;
@@ -221,7 +222,7 @@ contract InternalOracle is Base {
 
             uint256 twapInAccDec = (currentAcc - snapAcc) / dt;
             uint256 twap = twapInAccDec * (10 ** (18 - accDec));
-            int32 offset = LibOracle.encodeOffset1e18(lastPriceInt, twap);
+            int32 offset = Oracle.encodeOffset1e18(lastPriceInt, twap);
             if (isFast) {
                 acc.fastOffset = offset;
                 acc.fastSnapB64 = acc.priceAccB64;
@@ -238,7 +239,7 @@ contract InternalOracle is Base {
         unchecked {
             uint256 o = oldVol;
             uint256 n = newVol;
-            uint256 delta = n > o ? ((n - o) * alpha) / C.PBPS : ((o - n) * alpha) / C.PBPS;
+            uint256 delta = n > o ? ((n - o) * alpha) / SC.PBPS : ((o - n) * alpha) / SC.PBPS;
             if (n > o) {
                 uint256 r = o + delta;
                 return r > type(uint32).max ? type(uint32).max : uint32(r);

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-/// @title LibConstants — shared AIMM constants
-library LibConstants {
+/// @title Constants — AIMM-specific constants (dex-local)
+/// @dev Generic precision/timelock/sentinel constants live in @btr-shared/Constants.sol.
+library Constants {
     // --- ERC-7201 storage locations ---
     bytes32 internal constant CORE_STORAGE_LOC =
         0x434e413f32fd441540d3f7cfa17fcdb1fe3e5bbbfbfad41a2edc933ab3d8f000;
@@ -14,10 +15,6 @@ library LibConstants {
         0x66393ec7629409eaa0af43f8ebdc702f7bad499202b191e5b6258c2b0cb09d00;
     bytes32 internal constant FLOW_GUARD_STORAGE_LOC =
         0x8a7c9f2e5b3d1a4c6e8f0d2b4a6c8e0f2d4b6a8c0e2f4d6b8a0c2e4f6d8b0a00;
-
-    // --- Address ---
-    /// @notice EIP-7528 native sentinel.
-    address internal constant NATIVE = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     // --- Risk flags ---
     uint16 internal constant FROZEN_BIT = 1 << 0;
@@ -52,14 +49,6 @@ library LibConstants {
     /// @notice JIT cooldown (seconds) — chain-agnostic safe default.
     uint16 internal constant DEFAULT_FLOW_COOLDOWN = 15;
 
-    // --- Timelock delays ---
-    uint48 internal constant CRITICAL_TIMELOCK = 7 days;  // base token migration
-    uint48 internal constant HIGH_TIMELOCK = 3 days;       // ownership transfer
-    uint48 internal constant BASE_TIMELOCK = 2 days;       // oracle change
-    uint48 internal constant LOW_TIMELOCK = 1 days;        // add asset, fees
-    uint48 internal constant UPGRADE_TIMELOCK = 7 days;    // UUPS
-    uint48 internal constant GRACE_PERIOD = 7 days;        // execution window
-
     // --- Timelock IDs (precomputed keccak256) ---
     bytes32 internal constant TIMELOCK_ID_OWNERSHIP = 0xb23d8fa2f62c8a954db45521d1249908693b29ffd3d2dab6348898c4198996b2;
     bytes32 internal constant TIMELOCK_ID_MODULE = 0x9711820581f0923b8ce766818550d8de681ea05c98d406ede2cb99f547946483;
@@ -70,18 +59,6 @@ library LibConstants {
     bytes32 internal constant TIMELOCK_ID_FEE_PARAMS = 0x8b78c6d8bcad3b5cb6b93b4e61d52c5a7b9e8f4c2d1a0e3f6b5c4d8a7e9f1c2d;
     bytes32 internal constant TIMELOCK_ID_BRIDGE = 0x183169b8f82d189401b48b883d17402cedfd43bd2085165ddeb902945cc01676;
     bytes32 internal constant TIMELOCK_ID_TREASURY = 0x7c5d1f6de8c0b8f9c4a6d5b3e2a1c9f8d7e6b5a4c3d2e1f0a9b8c7d6e5f4a3b2;
-
-    // --- Precision ---
-    /// @notice 1e18 fixed-point (WAD). Coverage/prices/decay/exp.
-    uint256 constant WAD = 1e18;
-    /// @notice 0.0001% precision. Fees, spreads, vol, oracle offsets.
-    uint256 constant PBPS = 1_000_000;
-    /// @notice PBPS/2 for 50/50 fee split: fee = amt*spread / HALF_PBPS.
-    uint256 constant HALF_PBPS = 500_000;
-    /// @notice 1% in PBPS.
-    uint256 constant ONE_PCT_PBPS = 10_000;
-    /// @notice 0.01% per unit (BPS). For uint16 params (coverageMin/Max, gamma/vega/lambda, depth, position).
-    uint256 constant BPS = 10_000;
 
     // --- Greek var legend (auditors) ---
     // ψ inventorySkew [-100,+100] · π progress [0,1] · γ gamma BPS · ν vega BPS · λ lambda BPS

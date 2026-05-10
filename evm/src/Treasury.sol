@@ -7,13 +7,14 @@ import {IPool} from "./interfaces/IPool.sol";
 import {IAdmin} from "./interfaces/modules/IAdmin.sol";
 import {IPoolModule} from "./interfaces/modules/IPool.sol";
 import {IBridge} from "./interfaces/IBridge.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
-import {LibConstants as C} from "./libraries/LibConstants.sol";
+import {Timelock as TL} from "@btr-shared/Timelock.sol";
+import {Constants as C} from "./libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title Treasury
 /// @notice Standalone treasury for gov token, TGE, vesting, and protocol fee collection.
@@ -211,7 +212,7 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
     function requestOwnershipTransfer(address newOwner) external override onlyOwner {
         if (newOwner == address(0)) revert Err.ZeroValue();
         if (pendingOwnershipOp != 0) revert Err.PendingTimelock(uint48(block.timestamp));
-        pendingOwnershipOp = TL.pack(C.CRITICAL_TIMELOCK, C.GRACE_PERIOD);
+        pendingOwnershipOp = TL.pack(SC.CRITICAL_TIMELOCK, SC.GRACE_PERIOD);
         pendingOwner = newOwner;
     }
 
@@ -269,7 +270,7 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
     function requestEmissionsCapChange(uint256 newCap) external override onlyOwner {
         if (newCap < emissionsSchedule.claimed) revert Err.InvalidInput();
         if (pendingEmissionsCapOp != 0) revert Err.PendingTimelock(uint48(block.timestamp));
-        pendingEmissionsCapOp = TL.pack(C.CRITICAL_TIMELOCK, C.GRACE_PERIOD);
+        pendingEmissionsCapOp = TL.pack(SC.CRITICAL_TIMELOCK, SC.GRACE_PERIOD);
         pendingEmissionsCap = newCap;
     }
 
@@ -298,10 +299,10 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
     }
 
     /// @notice Owner-only sweep of stuck ERC20 / native (alm Vault.salvage parity).
-    /// @dev    Native sentinel: C.NATIVE (0xEeee..EEeE). Timelock comes from owner = multisig.
+    /// @dev    Native sentinel: SC.NATIVE (0xEeee..EEeE). Timelock comes from owner = multisig.
     function salvage(address token, address to, uint256 amount) external onlyOwner {
         if (to == address(0) || amount == 0) revert Err.ZeroValue();
-        if (token == C.NATIVE) {
+        if (token == SC.NATIVE) {
             SafeTransferLib.safeTransferETH(to, amount);
         } else {
             if (token == address(0)) revert Err.InvalidInput();
@@ -317,7 +318,7 @@ contract Treasury is Ownable, ReentrancyGuard, UUPSUpgradeable, ITreasury {
         if (pendingUpgrade != bytes32(0)) revert Err.PendingTimelock(uint48(block.timestamp));
         pendingUpgrade = keccak256(abi.encode(newImplementation, block.timestamp));
         pendingImplementation = newImplementation;
-        uint96 timelock = TL.pack(C.UPGRADE_TIMELOCK, C.GRACE_PERIOD);
+        uint96 timelock = TL.pack(SC.UPGRADE_TIMELOCK, SC.GRACE_PERIOD);
         pendingUpgradeOp = timelock;
         emit UpgradeAuthorized(pendingUpgrade, newImplementation, uint48(timelock >> 48));
     }

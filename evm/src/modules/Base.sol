@@ -2,16 +2,17 @@
 pragma solidity ^0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {IERC20} from "../interfaces/external/IERC20.sol";
 import {IWETH9} from "../interfaces/external/IWETH9.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {IAccessControl} from "../interfaces/external/IAccessControl.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {LibMaths as M} from "../libraries/LibMaths.sol";
-import {LibConstants as C} from "../libraries/LibConstants.sol";
-import {LibTransientCache as TCache} from "../libraries/LibTransientCache.sol";
+import {Maths as M} from "../libraries/Maths.sol";
+import {Constants as C} from "../libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
+import {TransientCache as TCache} from "../libraries/TransientCache.sol";
 
 /// @title Base
 /// @notice Shared storage + helpers for all modules (ERC-7201)
@@ -124,7 +125,7 @@ abstract contract Base {
     }
 
     function _wrap(IPool.PoolStorage storage $, address token) internal view returns (address) {
-        return token == C.NATIVE ? $.wnative : token;
+        return token == SC.NATIVE ? $.wnative : token;
     }
 
     function _toUint128(uint256 x) internal pure returns (uint128) {
@@ -137,7 +138,7 @@ abstract contract Base {
     }
 
     function _pull(address token, uint256 amount) internal returns (uint256 actual) {
-        if (token == C.NATIVE) {
+        if (token == SC.NATIVE) {
             if (msg.value < amount) revert Err.InsufficientAmount(msg.value, amount);
             IWETH9(_s().wnative).deposit{value: amount}();
             unchecked {
@@ -152,7 +153,7 @@ abstract contract Base {
     }
 
     function _push(address token, address to, uint256 amount) internal {
-        if (token == C.NATIVE) {
+        if (token == SC.NATIVE) {
             IWETH9(_s().wnative).withdraw(amount);
             SafeTransferLib.safeTransferETH(to, amount);
         } else {

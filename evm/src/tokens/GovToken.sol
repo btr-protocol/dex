@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {BridgeableERC20} from "./BridgeableERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 
 interface IBridgeProvider { function getBridge() external view returns (address); }
 

@@ -2,10 +2,11 @@
 pragma solidity ^0.8.35;
 
 import {IPool} from "./interfaces/IPool.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {LibConstants as C} from "./libraries/LibConstants.sol";
-import {LibTimelock as TL} from "./libraries/LibTimelock.sol";
+import {Constants as C} from "./libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
+import {Timelock as TL} from "@btr-shared/Timelock.sol";
 
 /// @title PoolProxy
 /// @notice Diamond-pattern proxy (EIP-2535 inspired) routing calls to modules.
@@ -73,7 +74,7 @@ contract PoolProxy {
     ) external {
         IPool.PoolStorage storage $ = _s();
         if ($.initialized) revert Err.InvalidState();
-        // F-A3-R12-2 (R13 fix): protoShare ∈ [0,100] (LibPricing.splitFee invariant).
+        // F-A3-R12-2 (R13 fix): protoShare ∈ [0,100] (Pricing.splitFee invariant).
         if (_feeParams.protoShare > 100) revert Err.InvalidInput();
         $.owner = _owner;
         $.baseToken = _baseToken;
@@ -108,7 +109,7 @@ contract PoolProxy {
                 if (existing == address(0)) {
                     $.modules[sel] = impl;
                 } else if (existing != impl) {
-                    moduleTimelocks[sel] = TL.pack(C.HIGH_TIMELOCK, C.GRACE_PERIOD);
+                    moduleTimelocks[sel] = TL.pack(SC.HIGH_TIMELOCK, SC.GRACE_PERIOD);
                     pendingModules[sel] = impl;
                 }
             }

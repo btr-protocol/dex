@@ -10,10 +10,11 @@ import {Treasury} from "../src/Treasury.sol";
 import {Distributor} from "../src/modules/Distributor.sol";
 import {IDistributor} from "../src/interfaces/modules/IDistributor.sol";
 import {BTRToken} from "./fixtures/BTRToken.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {LibConstants as C} from "../src/libraries/LibConstants.sol";
-import {LibMaths as M} from "../src/libraries/LibMaths.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
+import {Maths as M} from "../src/libraries/Maths.sol";
 
 /// @notice Mock LZ endpoint reused from R10.
 contract MockLZEndpointR11 {
@@ -68,7 +69,7 @@ contract Phase42CR11Test is Test {
 
         vm.startPrank(BRIDGE_OWNER);
         bridge.requestSetPeer(SRC_EID, SRC_PEER);
-        vm.warp(block.timestamp + C.BASE_TIMELOCK + 1);
+        vm.warp(block.timestamp + SC.BASE_TIMELOCK + 1);
         bridge.executeSetPeer(SRC_EID);
         vm.stopPrank();
     }

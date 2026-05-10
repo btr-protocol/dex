@@ -17,12 +17,12 @@ Comprehensive test infrastructure for the BTR DEX (Anchor Path Pricing AIMM).
 ```
 tests/
 ├── unit/
-│   ├── LibMaths.t.sol          (27 passing) - B64 codec testing
-│   ├── LibOracle.t.sol         (30 passing) - Risk signal computation
-│   ├── LibPricing.t.sol        (TODO - 32 cases)
-│   ├── LibSpline.t.sol         (TODO - 18 cases)
+│   ├── Maths.t.sol          (27 passing) - B64 codec testing
+│   ├── Oracle.t.sol         (30 passing) - Risk signal computation
+│   ├── Pricing.t.sol        (TODO - 32 cases)
+│   ├── Spline.t.sol         (TODO - 18 cases)
 │   ├── LibAnchorPathPricing.t.sol (TODO - 20 cases)
-│   ├── LibAnchorTree.t.sol     (TODO - 16 cases)
+│   ├── AnchorTree.t.sol     (TODO - 16 cases)
 │   └── [other lib tests]       (TODO)
 ├── integration/
 │   └── PoolDeployment.t.sol    (16 tests - pool/token/swap operations)
@@ -137,23 +137,23 @@ Tests oracle feed decoding and risk signal (σ, Δ) computation:
 Based on comprehensive analysis of all 12 libraries:
 
 ### CRITICAL (P0) - 76 tests
-- **LibMaths.sol**: 28 tests ✅ (27 completed, 1 placeholder)
-- **LibOracle.sol**: 16 tests ✅ (30 completed)
-- **LibPricing.sol**: 32 tests (TODO)
+- **Maths.sol**: 28 tests ✅ (27 completed, 1 placeholder)
+- **Oracle.sol**: 16 tests ✅ (30 completed)
+- **Pricing.sol**: 32 tests (TODO)
 
 ### IMPORTANT (P1) - 54 tests
-- **LibSpline.sol**: 18 tests
+- **Spline.sol**: 18 tests
 - **LibAnchorPathPricing.sol**: 20 tests
-- **LibAnchorTree.sol**: 16 tests
+- **AnchorTree.sol**: 16 tests
 
 ### INFRASTRUCTURE (P2) - 30 tests
-- **LibTransientCache.sol**: 8 tests
-- **LibTimelock.sol**: 6 tests
+- **TransientCache.sol**: 8 tests
+- **Timelock.sol**: 6 tests
 - **LibTransientOracle.sol**: 4 tests
 
 ### CONSTANTS (P3) - 5 tests
 - **LibPoseidon.sol**: 3 tests
-- **LibConstants.sol**: 2 tests
+- **Constants.sol**: 2 tests
 
 **Total Planned**: 165+ test cases
 

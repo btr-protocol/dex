@@ -2,15 +2,16 @@
 pragma solidity ^0.8.35;
 
 import {Base} from "./Base.sol";
-import {Err} from "@btr-peripheral/Errors.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {IMintable} from "../interfaces/IMintable.sol";
 import {IStaking} from "../interfaces/modules/IStaking.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {StakedLP} from "../tokens/StakedLP.sol";
 import {CREATE3} from "solady/utils/CREATE3.sol";
-import {LibConstants as C} from "../libraries/LibConstants.sol";
-import {LibTimelock as TL} from "../libraries/LibTimelock.sol";
+import {Constants as C} from "../libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
+import {Timelock as TL} from "@btr-shared/Timelock.sol";
 
 /// @title Staking — gov + LP staking, CREATE3 sLP deployment
 contract Staking is Base, IStaking {
@@ -195,9 +196,9 @@ contract Staking is Base, IStaking {
         if ($.pendingOps[C.TIMELOCK_ID_STAKING] != 0) {
             revert Err.PendingTimelock(uint48(block.timestamp));
         }
-        $.pendingOps[C.TIMELOCK_ID_STAKING] = TL.pack(C.BASE_TIMELOCK, C.GRACE_PERIOD);
+        $.pendingOps[C.TIMELOCK_ID_STAKING] = TL.pack(SC.BASE_TIMELOCK, SC.GRACE_PERIOD);
         $.pendingData[C.TIMELOCK_ID_STAKING] = abi.encode(newLockDuration);
-        emit StakingConfigUpdateRequested(newLockDuration, uint48(block.timestamp) + C.BASE_TIMELOCK);
+        emit StakingConfigUpdateRequested(newLockDuration, uint48(block.timestamp) + SC.BASE_TIMELOCK);
     }
 
     function executeStakeLockDurationUpdate() external onlyOwner {
