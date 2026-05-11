@@ -1,4 +1,0 @@
-$ bun run build:search-index && bun run build:markdown && vite build
-$ bun ../scripts/build-search-index.ts
-error: script "build" was terminated by signal SIGHUP (Terminal hung up)
-error: script "build:search-index" was terminated by signal SIGHUP (Terminal hung up)
