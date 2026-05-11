@@ -138,7 +138,7 @@ If the protocol fails or is exploited during the 21-day unlock window, staked fu
 - Large mint events dilute existing BTR holders
 - No hard cap on BTR supply is enforced by code
 
-**Soulbound Limitations**: sLP and sBTR tokens are soulbound—they cannot be sold, transferred, or traded. Users must unstake and wait 21 days to access liquidity, creating opportunity costs and trapping funds during emergencies.
+**Soulbound Limitations**: sLP and sBTR tokens are soulbound, they cannot be sold, transferred, or traded. Users must unstake and wait 21 days to access liquidity, creating opportunity costs and trapping funds during emergencies.
 
 **Voting Centralization**: BTR governance uses token-weighted voting. Large BTR holders (whales, Treasury, early adopters) can unilaterally pass proposals, including those that may be detrimental to smaller users. Governance power is proportional to BTR holdings, not user count.
 
@@ -183,7 +183,7 @@ If operators are unavailable during a crisis, circuit breakers may not trigger i
 
 #### 2.10. Counterparty and Custody Risks
 
-BTR does not act as a counterparty, broker, or custodian. All transactions occur peer-to-contract. You retain custody of your wallet and keys—lost or compromised keys result in permanent, irreversible loss of funds. Transactions on blockchains are final and irreversible.
+BTR does not act as a counterparty, broker, or custodian. All transactions occur peer-to-contract. You retain custody of your wallet and keys, lost or compromised keys result in permanent, irreversible loss of funds. Transactions on blockchains are final and irreversible.
 
 ---
 
@@ -294,7 +294,7 @@ While these risks are currently theoretical and distant, they represent a long-t
 
 #### 5.1. Frontend and Interface Risks
 
-The web interface at [https://btr.supply](https://btr.supply) is a convenience layer—you can interact with smart contracts directly if the interface is unavailable.
+The web interface at [https://btr.supply](https://btr.supply) is a convenience layer, you can interact with smart contracts directly if the interface is unavailable.
 
 **Frontend Downtime**: If the web interface goes offline due to:
 - Server failures
@@ -420,7 +420,7 @@ The protocol operates on Ethereum and other EVM-compatible blockchains. You ackn
 
 - **51% Attacks**: Theoretical attacks on blockchain consensus mechanisms could result in transaction reversals, double-spending, or other security compromises. While rare, you acknowledge this risk.
 
-- **Irreversibility**: Blockchain transactions are irreversible—errors cannot be corrected. BTR cannot reverse or refund any transaction once it has been confirmed on-chain.
+- **Irreversibility**: Blockchain transactions are irreversible, errors cannot be corrected. BTR cannot reverse or refund any transaction once it has been confirmed on-chain.
 
 #### 7.3. External Oracle Risks (Optional Integrations)
 

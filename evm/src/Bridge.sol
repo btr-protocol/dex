@@ -67,7 +67,7 @@ contract Bridge is Ownable, ReentrancyGuardTransient, ILZOAppReceiver, UUPSUpgra
     ///      one-shot guard (`owner() != address(0)`). Front-running risk is zero in production
     ///      because deployment scripts atomically deploy + initialize in the same tx. Adding a
     ///      caller gate would require a deployer immutable mirroring PoolProxy's pattern, but
-    ///      Bridge is deployed once by an EOA / multisig — no factory in the loop. Documented
+    ///      Bridge is deployed once by an EOA / multisig, no factory in the loop. Documented
     ///      to anti-recur.
     function initialize(address newOwner_) external {
         if (newOwner_ == address(0)) revert Err.ZeroValue();
@@ -181,7 +181,7 @@ contract Bridge is Ownable, ReentrancyGuardTransient, ILZOAppReceiver, UUPSUpgra
     /// @notice F-A4-R10-2 (MED) fix: shared day-rollover for inbound + outbound paths.
     /// @dev Pre-fix `_tryCheckAndUpdateLimit` skipped the rollover the outbound twin performed,
     ///      letting `bridgedInB64` accumulate across calendar days; once cumulative > daily cap,
-    ///      every subsequent lzReceive silently queued as failedMessage(FC_RATE_LIMIT) — DoS until
+    ///      every subsequent lzReceive silently queued as failedMessage(FC_RATE_LIMIT), DoS until
     ///      owner manual recovery. View `getRemainingLimits` virtualizes rollover correctly →
     ///      view↔logic divergence. Both call sites now share this helper.
     function _rolloverIfNeeded(IBridge.TokenConfig storage cfg) private {
@@ -353,7 +353,7 @@ contract Bridge is Ownable, ReentrancyGuardTransient, ILZOAppReceiver, UUPSUpgra
     }
 
     /// @notice G20 fix: per-OpType cancel functions replace untyped `cancelOperation(bytes32)`.
-    ///         Caller specifies the typed key (token / eid) and the contract derives the id —
+    ///         Caller specifies the typed key (token / eid) and the contract derives the id -
     ///         eliminates risk of passing an unrelated id (different OpType, stale, or arbitrary
     ///         hash) and silently clearing it.
     function cancelConfigChange(address token) external onlyOwner {
@@ -465,7 +465,7 @@ contract Bridge is Ownable, ReentrancyGuardTransient, ILZOAppReceiver, UUPSUpgra
         if ((cfg.flags & FLAG_PAUSED) != 0) revert Err.FeatureDisabled(Err.Resource.BRIDGE);
         if ((cfg.flags & FLAG_UNLIMITED) != 0) return;
 
-        // F-A4-R10-2 (MED) — shared rollover across inbound + outbound paths (DRY).
+        // F-A4-R10-2 (MED), shared rollover across inbound + outbound paths (DRY).
         _rolloverIfNeeded(cfg);
 
         uint8 decimals = M.b64Decimals(cfg.limitOutB64);
