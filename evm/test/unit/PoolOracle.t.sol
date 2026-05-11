@@ -125,8 +125,9 @@ contract PoolOracleTest is Test {
         uint64 p2 = M.encodeB64(1100e18, 6);
         h.updateFeeds(TKA, p1);
 
-        // Jump > MAX_STALENESS (1 week + 1d)
+        // Jump > MAX_STALENESS (1 week + 1d). Roll block for per-block rate-limit.
         vm.warp(block.timestamp + PoolOracle.MAX_STALENESS + 1 days);
+        vm.roll(block.number + 1);
         h.updateFeeds(TKA, p2);
 
         IPool.FeedAccumulator memory a = h.getAcc(TKA);
@@ -147,6 +148,7 @@ contract PoolOracleTest is Test {
         uint32 beforeSnapTime = before.fastSnapshotTime;
 
         vm.warp(block.timestamp + PoolOracle.FAST_WINDOW + 10);
+        vm.roll(block.number + 1);
         h.updateFeeds(TKA, p2);
 
         IPool.FeedAccumulator memory aft = h.getAcc(TKA);
@@ -162,6 +164,7 @@ contract PoolOracleTest is Test {
         IPool.FeedAccumulator memory before = h.getAcc(TKA);
 
         vm.warp(1_700_000_000 + 60);  // far below FAST_WINDOW (300)
+        vm.roll(block.number + 1);
         h.updateFeeds(TKA, p2);
 
         IPool.FeedAccumulator memory aft = h.getAcc(TKA);
@@ -174,6 +177,7 @@ contract PoolOracleTest is Test {
         h.updateFeeds(TKA, p1);
 
         vm.warp(block.timestamp + PoolOracle.SLOW_WINDOW + 1);
+        vm.roll(block.number + 1);
         h.updateFeeds(TKA, p2);
 
         IPool.FeedAccumulator memory a = h.getAcc(TKA);
@@ -189,6 +193,7 @@ contract PoolOracleTest is Test {
         h.updateFeeds(TKA, p1);
         h.setAccDecimals(TKA, 12);
         vm.warp(block.timestamp + 60);
+        vm.roll(block.number + 1);
         h.updateFeeds(TKA, p2);
         IPool.FeedAccumulator memory a = h.getAcc(TKA);
         assertEq(a.accDecimals, 12);
@@ -201,6 +206,7 @@ contract PoolOracleTest is Test {
         h.updateFeeds(TKA, p1);
         h.setAccDecimals(TKA, 18);
         vm.warp(block.timestamp + 30);
+        vm.roll(block.number + 1);
         h.updateFeeds(TKA, p2);
         IPool.FeedAccumulator memory a = h.getAcc(TKA);
         assertEq(a.accDecimals, 18);
@@ -234,5 +240,81 @@ contract PoolOracleTest is Test {
     function test_updateVolEMA_alphaZeroIsNoOp() public view {
         uint32 r = h.callUpdateVolEMA(777, 9999, 0);
         assertEq(r, 777);
+    }
+
+    // ─── Phase 42J.4 · F4 — per-block rate-limit (TWAP poisoning defense) ───
+
+    /// @notice Second push in same block must be a no-op on the accumulator.
+    function test_rateLimit_secondPushSameBlockIsNoOp() public {
+        uint64 p1 = M.encodeB64(1000e18, 6);
+        uint64 p2 = M.encodeB64(2000e18, 6);
+        h.updateFeeds(TKA, p1);
+        IPool.FeedAccumulator memory before = h.getAcc(TKA);
+
+        // Advance time but NOT block — simulates aggregator atomic batch.
+        vm.warp(block.timestamp + 60);
+        h.updateFeeds(TKA, p2);
+
+        IPool.FeedAccumulator memory aft = h.getAcc(TKA);
+        assertEq(aft.lastPriceB64, before.lastPriceB64, "lastPriceB64 must not change in same block");
+        assertEq(aft.lastUpdate,    before.lastUpdate,    "lastUpdate must not change in same block");
+        assertEq(aft.priceAccB64,   before.priceAccB64,   "priceAccB64 must not change in same block");
+    }
+
+    /// @notice Two pushes in different blocks both apply.
+    function test_rateLimit_differentBlocksBothApply() public {
+        uint64 p1 = M.encodeB64(1000e18, 6);
+        uint64 p2 = M.encodeB64(2000e18, 6);
+        h.updateFeeds(TKA, p1);
+
+        vm.warp(block.timestamp + 60);
+        vm.roll(block.number + 1);
+        h.updateFeeds(TKA, p2);
+
+        IPool.FeedAccumulator memory a = h.getAcc(TKA);
+        assertEq(a.lastPriceB64, p2, "second push (new block) must overwrite price");
+        assertGt(a.priceAccB64, 0, "accumulator must advance on second push");
+    }
+
+    /// @notice Rate-limit event emitted on in-block duplicate push.
+    function test_rateLimit_emitsEventOnSkip() public {
+        uint64 p1 = M.encodeB64(1000e18, 6);
+        uint64 p2 = M.encodeB64(2000e18, 6);
+        h.updateFeeds(TKA, p1);
+
+        vm.expectEmit(true, true, false, false);
+        emit PoolOracle.TwapUpdateRateLimited(TKA, block.number);
+        h.updateFeeds(TKA, p2);
+    }
+
+    /// @notice pushFeedInternal — both tokens rate-limited in same block.
+    function test_rateLimit_pushFeedInternalBothTokensRespect() public {
+        uint64 pa = M.encodeB64(100e18, 6);
+        uint64 pb = M.encodeB64(200e18, 6);
+        h.pushFeedInternal(TKA, TKB, pa, pb);
+        IPool.FeedAccumulator memory ba = h.getAcc(TKA);
+        IPool.FeedAccumulator memory bb = h.getAcc(TKB);
+
+        vm.warp(block.timestamp + 100);
+        h.pushFeedInternal(TKA, TKB, pa * 2, pb * 2);
+
+        IPool.FeedAccumulator memory aa = h.getAcc(TKA);
+        IPool.FeedAccumulator memory ab = h.getAcc(TKB);
+        assertEq(aa.lastPriceB64, ba.lastPriceB64, "TKA in-block second push must skip");
+        assertEq(ab.lastPriceB64, bb.lastPriceB64, "TKB in-block second push must skip");
+    }
+
+    /// @notice NATIVE→wnative remap still rate-limited under wnative slot.
+    function test_rateLimit_nativeRemapRespects() public {
+        uint64 p1 = M.encodeB64(1e18, 6);
+        uint64 p2 = M.encodeB64(2e18, 6);
+        h.updateFeeds(SC.NATIVE, p1);
+        IPool.FeedAccumulator memory before = h.getAcc(WNATIVE);
+
+        vm.warp(block.timestamp + 60);
+        h.updateFeeds(SC.NATIVE, p2);
+
+        IPool.FeedAccumulator memory aft = h.getAcc(WNATIVE);
+        assertEq(aft.lastPriceB64, before.lastPriceB64, "NATIVE remap also rate-limited");
     }
 }
