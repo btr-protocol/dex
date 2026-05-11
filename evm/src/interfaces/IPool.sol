@@ -138,6 +138,9 @@ interface IPool is IExchange, ILiquidity, IOracle {
         // Flow-guard cooldown timestamps (was: FlowGuardStorage @ FLOW_GUARD_STORAGE_LOC).
         mapping(address user => mapping(address asset => uint32)) lastDepositTime;
         mapping(address user => mapping(address lpToken => uint32)) lastLPStakeTime;
+        // Phase 42J.4 (F4) — TWAP poisoning defense. One accumulator update per
+        // token per block; subsequent in-block pushes early-return as no-op.
+        mapping(address token => uint256 blockNum) lastUpdateBlock;
     }
 
     event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);

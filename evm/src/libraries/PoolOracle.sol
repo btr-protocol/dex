@@ -18,6 +18,11 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @dev All functions take `IPool.PoolStorage storage $` as 1st arg ⇒ same SSTORE
 ///      cost as inlined private helpers (Solidity inlines simple lib internals).
 library PoolOracle {
+    /// @notice Emitted when an accumulator update is skipped due to the per-block
+    ///         rate-limit (Phase 42J.4 · F4). Observers can detect TWAP-poisoning
+    ///         attempts where multiple swaps in one block try to move the TWAP.
+    event TwapUpdateRateLimited(address indexed token, uint256 indexed blockNumber);
+
     /// @notice Fast TWAP window (sec).
     uint32 internal constant FAST_WINDOW = 300;
     /// @notice Slow TWAP window (sec).
@@ -45,8 +50,16 @@ library PoolOracle {
     }
 
     /// @notice Update single-token feed (TWAP accumulator + vol-EMA + windowed offsets).
+    /// @dev Phase 42J.4 · F4 — per-token per-block rate-limit. Only the first push
+    ///      per block per token mutates the accumulator; subsequent in-block pushes
+    ///      early-return + emit `TwapUpdateRateLimited`. Defends against TWAP
+    ///      poisoning by aggregator-bundled swaps (1inch/0x/KyberSwap atomic batch).
     function updateFeeds(IPool.PoolStorage storage $, address token, uint64 newPrice) internal {
         address t = token == SC.NATIVE ? $.wnative : token;
+        if ($.lastUpdateBlock[t] == block.number) {
+            emit TwapUpdateRateLimited(t, block.number);
+            return;
+        }
         IPool.FeedAccumulator storage acc = $.accumulators[t];
         uint32 currentTime = uint32(block.timestamp);
 
@@ -60,6 +73,7 @@ library PoolOracle {
             acc.accDecimals = 6;
             acc.fastSnapshotTime = currentTime;
             acc.slowSnapshotTime = currentTime;
+            $.lastUpdateBlock[t] = block.number;
             return;
         }
 
@@ -93,6 +107,7 @@ library PoolOracle {
             acc.lastUpdate = currentTime;
             acc.confidence = 100;
         }
+        $.lastUpdateBlock[t] = block.number;
     }
 
     /// @notice Roll fast or slow TWAP snapshot window if elapsed ≥ window size.
