@@ -37,6 +37,10 @@ out/
 
 # Compiled/generated assets
 front/public/compiled-docs/
+front/public/search-index.json
+
+# Playwright artifacts
+.playwright-mcp/
 
 # Testing
 coverage/
