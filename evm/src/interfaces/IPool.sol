@@ -196,6 +196,7 @@ interface IPool is IOracle {
     function flashAccount(address token, uint256 fee, uint256 protoFee) external;
 
     // ── views consumed by Staking + Flash singletons ──
+    // TODO(Wave-ABI-break): rename view getters getX → x for style harmonization with ALM.
     function getAsset(address token) external view returns (Asset memory);
     function getLPBalance(address user, address token) external view returns (uint256);
     function getRiskFlags(address token) external view returns (uint16);

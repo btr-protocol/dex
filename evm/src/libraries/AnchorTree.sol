@@ -9,6 +9,7 @@ library AnchorTree {
     uint8 public constant MAX_DEPTH = 4;        // root = 0
     uint8 public constant MAX_PATH_LENGTH = 6;  // 2 * MAX_DEPTH
 
+    // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
     error InvalidAnchor(address asset, address anchor);
     error DepthExceeded(address asset, uint8 depth);
     error CycleDetected(address asset);

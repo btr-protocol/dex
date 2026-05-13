@@ -18,6 +18,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
     using SafeTransferLib for address;
 
+    // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
     error SlippageExceeded();
     error WrongEthAmount();
 
