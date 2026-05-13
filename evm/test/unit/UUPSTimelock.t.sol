@@ -12,7 +12,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
 /// @title UUPSTimelockTest
-/// @notice Phase 42H.D · Round 4 (G14) — generic UUPS-timelock parametrized harness.
+/// @notice Phase 42H.D · Round 4 (G14) -generic UUPS-timelock parametrized harness.
 ///         Covers Treasury / Bridge / Router (3 × 6 = 18 tests) for: owner-gating on request,
 ///         pre-delay execute revert, post-delay execute success, cancel clears state,
 ///         double-request revert, non-owner execute revert.

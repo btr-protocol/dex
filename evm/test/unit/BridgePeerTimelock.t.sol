@@ -10,7 +10,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
 /// @title BridgePeerTimelockTest
-/// @notice Phase 42H.D · Round 5 (G19 + G20) — coverage for `requestSetPeer` /
+/// @notice Phase 42H.D · Round 5 (G19 + G20) -coverage for `requestSetPeer` /
 ///         `executeSetPeer` / typed cancels (`cancelSetPeer`, `cancelConfigChange`).
 contract BridgePeerTimelockTest is Test {
     address internal constant OWNER = address(0xA11CE);
@@ -100,7 +100,7 @@ contract BridgePeerTimelockTest is Test {
 
     /// @dev G20: typed cancels prevent crossing op families. `cancelSetPeer` for an eid
     ///      whose hash collides with no actual PeerUpdate op simply reverts InvalidState
-    ///      — caller cannot hand-craft a `bytes32 id` from a different OpType to silently
+    ///      -caller cannot hand-craft a `bytes32 id` from a different OpType to silently
     ///      delete it (cancelOperation(bytes32) is gone).
     function test_cancelSetPeer_doesNotAffectConfigChange() public {
         // request a config change on token T

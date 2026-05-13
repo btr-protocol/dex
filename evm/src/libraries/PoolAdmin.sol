@@ -6,8 +6,8 @@ import {IOracle} from "../interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {PoolOracle} from "./PoolOracle.sol";
 
-/// @title PoolAdmin — admin-side validation + initialization helpers for Pool.
-/// @notice Phase 42H.D · Round 2 · G1 LOC reduction — extracts oracle/risk/profile
+/// @title PoolAdmin -admin-side validation + initialization helpers for Pool.
+/// @notice Phase 42H.D · Round 2 · G1 LOC reduction -extracts oracle/risk/profile
 ///         setup and validation from `Pool.sol`. Pure storage transforms; no auth
 ///         (caller must gate via `onlyAdmin`).
 library PoolAdmin {

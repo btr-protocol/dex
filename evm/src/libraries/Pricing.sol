@@ -13,7 +13,7 @@ import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @title Pricing — coverage-adjusted pricing + bi-factor fee model.
+/// @title Pricing -coverage-adjusted pricing + bi-factor fee model.
 /// @dev Units: see Constants. BPS=0.01%, PBPS=0.0001%, WAD=1e18.
 library Pricing {
     using {M.b64To1e18} for uint64;
@@ -160,7 +160,7 @@ library Pricing {
             }
             return (midPrice * (SC.WAD + k)) / SC.WAD;
         }
-        // Phase 42H.D · G5.b — `points` built once, reused for both `Spline.eval`
+        // Phase 42H.D · G5.b -`points` built once, reused for both `Spline.eval`
         // (zero-width path, line 176) AND `Spline.area` (line 181). Avoids double
         // O(N) array rebuild on the swap hot path (~5–8k gas saved per swap).
         Spline.Point[] memory points = _buildSplinePoints(profile, dispersion);
@@ -220,7 +220,7 @@ library Pricing {
     }
 
     /// @dev skew∈[-100,+100] → depth∈[0,10000]. -100→0, 0→5000, +100→10000.
-    /// @dev Phase 42D A4-4 DISCARD: unchecked add is sound — precondition `skew ∈ [-100,+100]`
+    /// @dev Phase 42D A4-4 DISCARD: unchecked add is sound -precondition `skew ∈ [-100,+100]`
     ///      is enforced by `computeInventorySkew` clamps; range `[5000 - 5000, 5000 + 5000] = [0, 10000]`
     ///      always non-negative. Caller MUST pass a clamped skew (int8 alone is insufficient).
     function _skewToDepth(int8 inventorySkew) internal pure returns (uint256) {
@@ -349,7 +349,7 @@ library Pricing {
         bool isEdge,
         bool isSelling
     ) private returns (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minFee, uint16 maxFee, uint64 execPriceB64) {
-        // F-A4-3 (LOW): guard against zero amountIn — mirrors HIGH-style explicit zero checks.
+        // F-A4-3 (LOW): guard against zero amountIn -mirrors HIGH-style explicit zero checks.
         // Prior code did execPriceB64 derivation by `amountOut * 1e18 ... / amountIn`, which divides
         // by zero on amountIn==0; revert here gives a clean error vs panic.
         if (amountIn == 0) revert Err.ZeroValue();

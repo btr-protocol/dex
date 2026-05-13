@@ -4,7 +4,7 @@ pragma solidity ^0.8.35;
 import {IPool} from "./IPool.sol";
 
 /// @title IAdmin
-/// @notice Singleton Admin governance contract — Phase 42H.B.3a.
+/// @notice Singleton Admin governance contract -Phase 42H.B.3a.
 /// @dev Admin is no longer a Diamond module. It is a standalone contract that holds
 ///      its own pendingOps state and calls Pool's restricted setters via standard external
 ///      calls. All public functions take `address pool` as the first arg.

@@ -11,7 +11,7 @@ import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
 
 /// @title Distributor
 /// @notice Standalone singleton campaign-based cumulative Merkle distributor (ERC-20 only).
-/// @dev Phase 42H.B.3c — Distributor no longer delegatecalls into Pool. It is a fully
+/// @dev Phase 42H.B.3c -Distributor no longer delegatecalls into Pool. It is a fully
 ///      independent singleton. State is keyed by (pool, ...) so a single deployment serves
 ///      every pool. The reward-token escrow lives at this contract's address; managers
 ///      MUST pre-fund it before claims (reverts on shortfall). Owner authority routes
@@ -19,7 +19,7 @@ import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
 contract Distributor is IDistributor, ReentrancyGuardTransient {
     using SafeTransferLib for address;
 
-    /// @notice Shared singleton AccessControl — single source of truth for owner.
+    /// @notice Shared singleton AccessControl -single source of truth for owner.
     address public immutable AC;
 
     /// @dev Per-pool campaign id counter.

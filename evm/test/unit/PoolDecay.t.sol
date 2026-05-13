@@ -46,7 +46,7 @@ contract PoolDecayHarness {
 }
 
 /// @title PoolDecayTest
-/// @notice Phase 42H.D · Round 3 (G8) — direct unit tests for PoolDecay library.
+/// @notice Phase 42H.D · Round 3 (G8) -direct unit tests for PoolDecay library.
 ///         Covers calculateDecay (dt=0, slope=0, fresh feed bypass via coverage≥threshold,
 ///         deficit cap, raw>cap path, normal raw path) and applyDecay (disabled flag,
 ///         multi-step consecutive decays, overflow guard via large slope+dt).

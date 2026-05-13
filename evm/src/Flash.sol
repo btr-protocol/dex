@@ -13,11 +13,11 @@ import {Constants as C} from "./libraries/Constants.sol";
 
 /// @title Flash
 /// @notice Standalone singleton ERC-3156 flash-loan provider.
-/// @dev Phase 42H.B.3c — Flash no longer delegatecalls into Pool. It calls Pool's
+/// @dev Phase 42H.B.3c -Flash no longer delegatecalls into Pool. It calls Pool's
 ///      restricted `flashSend` (push tokens) + `flashAccount` (credit fee ledgers)
 ///      via standard external calls. Each public fn takes `address pool` as the first
 ///      arg. Reserves + protocolFees accounting deltas semantically match the prior
-///      module logic (R13 fix preserved — see Pool.flashAccount).
+///      module logic (R13 fix preserved -see Pool.flashAccount).
 contract Flash is IFlash, ReentrancyGuardTransient {
     using SafeTransferLib for address;
 

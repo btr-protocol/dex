@@ -13,7 +13,7 @@ import {GovToken} from "../../src/tokens/GovToken.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
 /// @title DeployScriptTest
-/// @notice Phase 42H.D · Round 3 (G11) — exercises the full Deploy.s.sol e2e flow inside
+/// @notice Phase 42H.D · Round 3 (G11) -exercises the full Deploy.s.sol e2e flow inside
 ///         forge-test (no broadcast). Verifies addr non-zero, wiring (GovToken owned by
 ///         Treasury, PoolFactory.referencePool == poolImpl, AC owner == deployer), and
 ///         that proxies are initialized (calling initialize again must revert).

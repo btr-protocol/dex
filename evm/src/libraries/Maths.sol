@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {Err} from "@btr-shared/Errors.sol";
 
-/// @title Maths — B64 (52/5/7) float ops + helpers.
+/// @title Maths -B64 (52/5/7) float ops + helpers.
 /// @dev Constants WAD/PBPS @ Constants. B64 layout: mantissa(52)|decimals(5)|exp+bias(7).
 library Maths {
     // --- B64 constants ---

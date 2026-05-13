@@ -27,7 +27,7 @@ abstract contract BridgeableERC20 is ERC20, IERC7802 {
     }
 
     /// @notice ERC165: ERC165 | ERC7802
-    /// @dev G21 fix: dropped `virtual` lift — no live consumer overrides this. ERC165 + ERC7802
+    /// @dev G21 fix: dropped `virtual` lift -no live consumer overrides this. ERC165 + ERC7802
     ///      ids are static for any BridgeableERC20 subclass; if a future subclass needs to
     ///      advertise additional interfaces, re-add `virtual` then. YAGNI > dead-flexibility.
     function supportsInterface(bytes4 interfaceId) public pure returns (bool) {

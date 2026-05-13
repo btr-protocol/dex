@@ -42,7 +42,7 @@ contract MockHooks is IPoolHooks {
 
 /// @title Phase42HB3eR8R6Test
 /// @notice R8 HIGH (Pool._exec quote-time protoFee accounting) +
-///         R6 (Pool post-swap hook protoDelta accounting) — re-port onto flat-Pool.
+///         R6 (Pool post-swap hook protoDelta accounting) -re-port onto flat-Pool.
 ///         Target invariant: pool ERC20 balance == reserves[token] + protocolFees[token] post-swap.
 contract Phase42HB3eR8R6Test is Test {
     PoolFactory factory;
@@ -148,7 +148,7 @@ contract Phase42HB3eR8R6Test is Test {
             uint256 feesOut = pool.getProtocolFees(address(quote));
             assertEq(balOut, reservesOut + feesOut, "fuzz conservation tokenOut");
         } catch {
-            // Some fuzz inputs revert (oracle floor / threshold) — invariant only on success path.
+            // Some fuzz inputs revert (oracle floor / threshold) -invariant only on success path.
         }
     }
 
@@ -209,7 +209,7 @@ contract Phase42HB3eR8R6Test is Test {
         uint256 feesOut = pool.getProtocolFees(address(quote));
         assertEq(balOut, reservesOut + feesOut, "R6 conservation w/ hook delta");
 
-        // User received exactly `out` — hook delta did NOT leak to user.
+        // User received exactly `out` -hook delta did NOT leak to user.
         assertEq(quote.balanceOf(USER) - userBefore, out, "user got out, no hook leak");
     }
 }

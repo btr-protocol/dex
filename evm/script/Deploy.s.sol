@@ -18,7 +18,7 @@ import {Bridge} from "../src/Bridge.sol";
 import {Router} from "../src/Router.sol";
 import {GovToken} from "../src/tokens/GovToken.sol";
 
-/// @title Deploy — minimal e2e BTR DEX deploy.
+/// @title Deploy -minimal e2e BTR DEX deploy.
 /// @notice Singletons (Admin/Staking/Distributor/Flash) + Pool reference impl + PoolFactory +
 ///         UUPS peripherals (Treasury, Bridge, Router) behind ERC1967 proxies. GovToken is
 ///         pre-wired to Treasury (mint/burn gateway). Treasury.distributor + Treasury.bridge

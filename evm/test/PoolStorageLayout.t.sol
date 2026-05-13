@@ -6,15 +6,15 @@ import {Pool} from "../src/Pool.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 
 /// @title PoolStorageLayoutTest
-/// @notice Phase 42H.D Round 2 (G5.a) — upgrade-safety guard for `IPool.PoolStorage`
+/// @notice Phase 42H.D Round 2 (G5.a) -upgrade-safety guard for `IPool.PoolStorage`
 ///         slot-0 layout. Asserts each first-class field occupies its expected slot
 ///         with the documented packing. Any reorder/insertion that mutates existing
 ///         offsets will trip these tests, surfacing storage-collision risk for live
 ///         clones BEFORE deploy.
 /// @dev Layout (per IPool.sol:120):
-///        slot 0  = baseToken (address, 20 bytes)         — packed offset 0
-///        slot 1  = wnative   (address, 20 bytes)         — packed offset 0
-///        slot 2  = bridge    (address, 20 bytes)         — packed offset 0
+///        slot 0  = baseToken (address, 20 bytes)         -packed offset 0
+///        slot 1  = wnative   (address, 20 bytes)         -packed offset 0
+///        slot 2  = bridge    (address, 20 bytes)         -packed offset 0
 ///        slot 3  = treasury  (address, 20 bytes)         + initialized (bool, byte 20)
 ///      Mappings @ slots 4..12 inclusive (8 mapping fields → keccak-derived).
 ///      `IPool.FeeParams feeParams` is a struct → uses its own slot range starting @ 13.
@@ -49,7 +49,7 @@ contract PoolStorageLayoutTest is Test {
     }
 
     /// @notice Slot 3 holds `treasury`. Note: `initialized` (bool) packs into byte-20 of
-    ///         this same slot — sentinel is left-aligned address-only so no collision.
+    ///         this same slot -sentinel is left-aligned address-only so no collision.
     function test_layout_slot3_isTreasury() public {
         vm.store(address(pool), bytes32(uint256(3)), bytes32(uint256(uint160(SENTINEL_TREASURY))));
         assertEq(pool.treasury(), SENTINEL_TREASURY, "slot 3 must be treasury");
@@ -82,7 +82,7 @@ contract PoolStorageLayoutTest is Test {
         assertEq(pool.getAuthorizedBridge(), SENTINEL_BRIDGE);
         assertEq(pool.treasury(), SENTINEL_TREASURY);
 
-        // Hash invariant — pin against future reorders.
+        // Hash invariant -pin against future reorders.
         bytes32 hash = keccak256(
             abi.encodePacked(
                 vm.load(address(pool), bytes32(uint256(0))),

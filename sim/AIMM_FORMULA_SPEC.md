@@ -196,9 +196,9 @@ psi is the inventory skew (in [-100, +100])
 ```
 
 ### Properties
-- **LINEAR in progress** — smooth, predictable
-- **Gamma as multiplier** — controls steepness
-- **No double-penalty** — single scaling factor
+- **LINEAR in progress** -smooth, predictable
+- **Gamma as multiplier** -controls steepness
+- **No double-penalty** -single scaling factor
 
 ### Example (γ = 1.0x)
 | Coverage | Progress | Skew |

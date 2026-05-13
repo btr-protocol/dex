@@ -11,8 +11,8 @@ import {TransientCache as TCache} from "./TransientCache.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @title PoolOracle — internal TWAP/vol-EMA accumulator update logic for Pool.
-/// @notice Phase 42H.D · G1 — extracted from `Pool.sol` to isolate oracle-update math
+/// @title PoolOracle -internal TWAP/vol-EMA accumulator update logic for Pool.
+/// @notice Phase 42H.D · G1 -extracted from `Pool.sol` to isolate oracle-update math
 ///         for audit clarity. ! external calls; pure storage transforms over
 ///         `IPool.PoolStorage` references. Same delegatecall-free model as `Pricing`.
 /// @dev All functions take `IPool.PoolStorage storage $` as 1st arg ⇒ same SSTORE
@@ -50,7 +50,7 @@ library PoolOracle {
     }
 
     /// @notice Update single-token feed (TWAP accumulator + vol-EMA + windowed offsets).
-    /// @dev Phase 42J.4 · F4 — per-token per-block rate-limit. Only the first push
+    /// @dev Phase 42J.4 · F4 -per-token per-block rate-limit. Only the first push
     ///      per block per token mutates the accumulator; subsequent in-block pushes
     ///      early-return + emit `TwapUpdateRateLimited`. Defends against TWAP
     ///      poisoning by aggregator-bundled swaps (1inch/0x/KyberSwap atomic batch).
@@ -150,7 +150,7 @@ library PoolOracle {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Phase 42H.D Round 2 (G1) — read-side helpers extracted from Pool.sol
+    // Phase 42H.D Round 2 (G1) -read-side helpers extracted from Pool.sol
     // ─────────────────────────────────────────────────────────────────
 
     /// @notice Internal oracle accumulator read (no offset; for fallback path).

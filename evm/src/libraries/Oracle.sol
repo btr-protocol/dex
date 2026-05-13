@@ -7,7 +7,7 @@ import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @title Oracle — pure oracle math (decode/encode offsets, σ, Δ).
+/// @title Oracle -pure oracle math (decode/encode offsets, σ, Δ).
 /// @dev Caching @ LibTransientCache; no external calls here.
 library Oracle {
     /// @notice Offset precision (0.00001%/unit, 10x finer than PBPS). int32 stored ⇒ ±21,474% range.

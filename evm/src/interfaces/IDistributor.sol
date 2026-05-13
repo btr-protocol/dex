@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-/// @title IDistributor — singleton cumulative Merkle distributor (TOKEN ERC20 only)
-/// @notice Phase 42H.B.3c — promoted out of the Diamond into a standalone singleton.
+/// @title IDistributor -singleton cumulative Merkle distributor (TOKEN ERC20 only)
+/// @notice Phase 42H.B.3c -promoted out of the Diamond into a standalone singleton.
 /// @dev Per-pool keyed: every campaign id is namespaced by the (pool, id) pair and
 ///      mutating ops carry the pool address as the first arg. SBT/POINTS path remains
 ///      removed (Phase 42H.A.2). Owner authority routes through the shared singleton

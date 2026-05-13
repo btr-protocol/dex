@@ -20,7 +20,7 @@ contract ExternalOracle is IOracle, Ownable {
     ///      NOT check deviation against this threshold; deviation checks are done off-chain by the
     ///      oracle pusher pre-push. The constant is a UX hint emitted via `FeedAdded.maxDeviation`
     ///      so integrators understand what the off-chain pusher's policy is. Integrators MUST NOT
-    ///      treat this as an on-chain safety guarantee — only as a published policy.
+    ///      treat this as an on-chain safety guarantee -only as a published policy.
     uint16 public constant MAX_DEV_THRESHOLD = 65_000; // 6.5% in SC.BPS precision (off-chain hint)
     uint16 public constant DEFAULT_TTL = 3600;
 

@@ -276,7 +276,7 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
 
         for (uint256 i = 0; i < nSteps; i++) {
             RouteStep memory step = route.steps[i];
-            // Phase 42D R2-A2-1: tighten exec to isOfficialPool — symmetric with quote-discovery
+            // Phase 42D R2-A2-1: tighten exec to isOfficialPool -symmetric with quote-discovery
             // (_getBestDirectQuote uses isOfficialPool). Pool registration is owner-gated, but
             // exec must match discovery to avoid integrator surprise via hand-crafted Routes.
             if (!f.isOfficialPool(step.pool)) revert Ownable.Unauthorized();
