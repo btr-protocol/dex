@@ -4,7 +4,7 @@ pragma solidity ^0.8.35;
 import {IERC3156FlashBorrower} from "./external/IERC3156FlashBorrower.sol";
 
 /// @title IFlash
-/// @notice Singleton ERC-3156 flash-loan provider — Phase 42H.B.3c.
+/// @notice Singleton ERC-3156 flash-loan provider -Phase 42H.B.3c.
 /// @dev Pool-keyed: every public fn carries `pool` as first arg. The Flash singleton
 ///      collects fee + accounts repayment; the Pool holds the underlying tokens and
 ///      exposes restricted setters (`flashSend`, `flashAccount`) gated on Flash.

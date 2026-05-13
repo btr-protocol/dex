@@ -21,20 +21,20 @@ import {PoolOracle} from "./libraries/PoolOracle.sol";
 import {PoolDecay} from "./libraries/PoolDecay.sol";
 import {PoolAdmin} from "./libraries/PoolAdmin.sol";
 
-/// @title Pool — standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
-/// @notice Phase 42H.B.3d — drops ERC-7201, deletes Base.sol, collapses PoolProxy.
+/// @title Pool -standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
+/// @notice Phase 42H.B.3d -drops ERC-7201, deletes Base.sol, collapses PoolProxy.
 ///         Each pool instance is now a direct EIP-1167 minimal-proxy clone of this impl
 ///         (deployment via PoolFactory). Per-clone state is initialized via initialize().
 /// @dev STORAGE LAYOUT (Phase 42H.B.3d intentional decision):
 ///      `IPool.PoolStorage $` lives at slot 0 of every clone. We do NOT use ERC-7201
 ///      namespaced slots because:
-///        1. Each Pool is a fresh EIP-1167 clone (its own storage space) — no slot
+///        1. Each Pool is a fresh EIP-1167 clone (its own storage space) -no slot
 ///           collision risk with delegate-callers, libraries, or other state.
 ///        2. Pool is non-upgradeable per-instance (clones cannot upgrade); the
 ///           `referencePool` impl is replaceable only via PoolFactory's 7d-timelocked
 ///           swap, which produces NEW clones rather than mutating live storage.
 ///        3. Slot-0 layout removes the keccak deref overhead on every storage access
-///           (hot path: swap, deposit, withdraw) — material gas saving across the
+///           (hot path: swap, deposit, withdraw) -material gas saving across the
 ///           thousands of `$.<field>` accesses in this contract.
 ///      UPGRADE-SAFETY NOTE: any change to `IPool.PoolStorage` field order or types
 ///      would break existing clones if they were ever migrated. New `referencePool`
@@ -48,7 +48,7 @@ contract Pool is ReentrancyGuardTransient {
     // STORAGE
     // ────────────────────────────────────────────────────────────────
 
-    /// @dev Single struct holding all pool state — laid out at slot 0 onward.
+    /// @dev Single struct holding all pool state -laid out at slot 0 onward.
     ///      Pricing/AnchorTree libraries take this by reference.
     IPool.PoolStorage internal $;
 
@@ -136,7 +136,7 @@ contract Pool is ReentrancyGuardTransient {
     // ────────────────────────────────────────────────────────────────
 
     /// @notice One-shot initializer for clone state (owner is the singleton AC).
-    /// @dev Called atomically by PoolFactory.createPool — no front-run window.
+    /// @dev Called atomically by PoolFactory.createPool -no front-run window.
     function initialize(
         address baseToken_,
         address wnative_,
@@ -252,7 +252,7 @@ contract Pool is ReentrancyGuardTransient {
         return PoolOracle.readOracle($, address(this), token);
     }
 
-    /// @notice ERC7802 bridge auth — bridgeable tokens query this.
+    /// @notice ERC7802 bridge auth -bridgeable tokens query this.
     function getAuthorizedBridge() external view returns (address) {
         return $.bridge;
     }
@@ -307,7 +307,7 @@ contract Pool is ReentrancyGuardTransient {
         emit IOracle.OracleUpdated(t, initialPrice, fastVolEMA, slowVolEMA);
     }
 
-    /// @dev Disabled — internal oracle updates via pushFeedInternal on swaps.
+    /// @dev Disabled -internal oracle updates via pushFeedInternal on swaps.
     function pushFeed(address, uint64, uint32) external pure {
         revert Err.InvalidInput();
     }
@@ -690,6 +690,15 @@ contract Pool is ReentrancyGuardTransient {
     function getAsset(address tk) external view returns (IPool.Asset memory) {
         return $.assets[_wrap(tk)];
     }
+    /// @notice Preview single-asset withdraw output for an LP balance against this token's book.
+    /// @dev    Same math as withdraw same-token branch; haircut applied iff coverage < 100%.
+    ///         View-only -does NOT call PoolDecay.applyDecay; reads current asset state as-is.
+    function previewWithdraw(address tk, uint256 lp) external view returns (uint256 amountOut, uint256 haircut) {
+        IPool.Asset storage a = $.assets[_wrap(tk)];
+        uint256 li = a.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : a.liquidityIndex;
+        uint256 wv = (lp * li) / SC.WAD;
+        (amountOut, haircut) = _applyHaircut(wv, a.reserves, a.liabilities, a.haircutSuppressor);
+    }
     function getLPBalance(address u, address tk) external view returns (uint256) {
         return $.lpBalances[u][_wrap(tk)];
     }
@@ -818,7 +827,7 @@ contract Pool is ReentrancyGuardTransient {
     }
 
     // ────────────────────────────────────────────────────────────────
-    // ADMIN DOMAIN — restricted setters gated by `admin` singleton
+    // ADMIN DOMAIN -restricted setters gated by `admin` singleton
     // ────────────────────────────────────────────────────────────────
 
     function adminFreezeAsset(address token) external onlyAdmin {
@@ -941,7 +950,7 @@ contract Pool is ReentrancyGuardTransient {
     }
 
     // ────────────────────────────────────────────────────────────────
-    // STAKING — restricted setter gated by `staking` singleton
+    // STAKING -restricted setter gated by `staking` singleton
     // ────────────────────────────────────────────────────────────────
 
     function stakingAdjustLpBalance(address user, address token, int256 delta) external onlyStaking {
@@ -957,7 +966,7 @@ contract Pool is ReentrancyGuardTransient {
     }
 
     // ────────────────────────────────────────────────────────────────
-    // FLASH — restricted setters gated by `flash` singleton
+    // FLASH -restricted setters gated by `flash` singleton
     // ────────────────────────────────────────────────────────────────
 
     function flashSend(address token, uint256 amount, address to) external onlyFlash whenInitialized nonReentrant {

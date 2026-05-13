@@ -16,17 +16,17 @@ import {StakedLP} from "./tokens/StakedLP.sol";
 
 /// @title Staking
 /// @notice Standalone singleton staking contract. Replaces the former Staking Diamond module.
-/// @dev Phase 42H.B.3b — Staking no longer delegatecalls into Pool. It calls Pool's
+/// @dev Phase 42H.B.3b -Staking no longer delegatecalls into Pool. It calls Pool's
 ///      restricted setters via standard external calls. Each public function takes
 ///      `address pool` as the first arg. State is keyed (pool, ...) for cross-pool support.
 ///      Owner check goes through the shared singleton AccessControl.
 contract Staking is IStaking, ReentrancyGuardTransient {
     using SafeTransferLib for address;
 
-    /// @notice Risk flag mirror — STAKEABLE_BIT (kept here to avoid pulling dex-internal Constants).
+    /// @notice Risk flag mirror -STAKEABLE_BIT (kept here to avoid pulling dex-internal Constants).
     uint16 internal constant STAKEABLE_BIT = 1 << 6;
 
-    /// @notice Shared singleton AccessControl — single source of truth for owner.
+    /// @notice Shared singleton AccessControl -single source of truth for owner.
     address public immutable AC;
 
     /// @dev Per-pool config.
@@ -138,7 +138,7 @@ contract Staking is IStaking, ReentrancyGuardTransient {
 
     // ─── LP staking ───
 
-    /// @notice One-shot per pool — owner registers gov + sGov refs (mirrors prior Pool.adminSetGov*).
+    /// @notice One-shot per pool -owner registers gov + sGov refs (mirrors prior Pool.adminSetGov*).
     function configurePool(address pool, address gov, address sGov, uint16 cooldownSeconds) external onlyOwner {
         if (gov == address(0) || sGov == address(0)) revert Err.ZeroValue();
         if (govTokenOf[pool] != address(0)) revert Err.AlreadyConfigured(Err.Resource.STAKING, govTokenOf[pool]);
@@ -182,7 +182,7 @@ contract Staking is IStaking, ReentrancyGuardTransient {
         if (sLP == address(0)) revert Err.NotConfigured(Err.Resource.STAKING, lpToken);
         if ((IPool(pool).getRiskFlags(lpToken) & STAKEABLE_BIT) == 0) revert Err.InvalidInput();
 
-        // Debit Pool's lpBalances → singleton sLP-minted (conservation invariant — F-A1-R16-1).
+        // Debit Pool's lpBalances → singleton sLP-minted (conservation invariant -F-A1-R16-1).
         uint256 available = IPool(pool).getLPBalance(msg.sender, lpToken);
         if (available < amount) revert Err.InsufficientAmount(available, amount);
         IPool(pool).stakingAdjustLpBalance(msg.sender, lpToken, -int256(amount));
@@ -279,7 +279,7 @@ contract Staking is IStaking, ReentrancyGuardTransient {
     function getSLPToken(address pool, address lpToken) external view returns (address) { return sLPTokens[pool][lpToken]; }
     function getTotalLPStaked(address pool, address lpToken) external view returns (uint256) { return totalLPStakedByPool[pool][lpToken]; }
 
-    /// @notice For sToken.balanceOf — caller MUST be a sToken bound to (pool, underlying).
+    /// @notice For sToken.balanceOf -caller MUST be a sToken bound to (pool, underlying).
     /// @dev underlying = govToken → returns gov stake; else → returns LP stake.
     function getStakedBalance(address pool, address user, address underlying) external view returns (uint256) {
         if (underlying == govTokenOf[pool]) return govStaked[pool][user];

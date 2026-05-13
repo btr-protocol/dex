@@ -49,7 +49,7 @@ contract Treasury is Ownable, ReentrancyGuardTransient, UUPSUpgradeable, ITreasu
     /// @dev G18 fix: transient flag scoped to single executeUpgrade tx. Authorizes the
     ///      `this.upgradeToAndCall` re-entry (msg.sender = address(this)) only after the
     ///      timelock has validated. Cleared post-call. tload/tstore = ~100 gas, no SSTORE.
-    ///      Slot constant — append-only storage layout preserved (transient ≠ persistent).
+    ///      Slot constant -append-only storage layout preserved (transient ≠ persistent).
     bytes32 private constant _UPGRADE_AUTH_TSLOT =
         0x9f1c8b7e3f6a4d2c5b8e1a0f7d9c4e2b5a8f1c7e4b9d6a3c0e7f1b8d5a2c9e60;
 
@@ -207,7 +207,7 @@ contract Treasury is Ownable, ReentrancyGuardTransient, UUPSUpgradeable, ITreasu
     // ─── protocol fees ───
 
     /// @notice Collect a pool's protocol fees via the singleton Admin contract.
-    /// @dev Phase 42H.B.3a — Admin moved out of the Diamond. Treasury now passes the
+    /// @dev Phase 42H.B.3a -Admin moved out of the Diamond. Treasury now passes the
     ///      Admin singleton address explicitly. Admin gates the call by verifying
     ///      `msg.sender == pool.treasury()`, preserving the prior auth model.
     function collectProtocolFees(address admin, address pool, address token) external nonReentrant {
@@ -267,7 +267,7 @@ contract Treasury is Ownable, ReentrancyGuardTransient, UUPSUpgradeable, ITreasu
 
     /// @notice Authorize remote-chain distributor address for cross-chain emissions.
     /// @dev Phase 42D A2-4 DISCARD: no timelock by design. Treasury owner is multisig-trusted
-    ///      (matches setBridge/setDistributor — adding timelock here only would create asymmetric
+    ///      (matches setBridge/setDistributor -adding timelock here only would create asymmetric
     ///      cross-chain trust UX. Cross-chain trust changes are infrequent + multisig-gated.)
     function authorizeRemoteDistributor(uint32 dstEid, address remoteDistributor) external override onlyOwner {
         if (remoteDistributor == address(0)) revert Err.ZeroValue();
@@ -357,7 +357,7 @@ contract Treasury is Ownable, ReentrancyGuardTransient, UUPSUpgradeable, ITreasu
         emit UpgradeCancelled(upgradeId);
     }
 
-    /// @dev G18 fix: dual auth — accept either (a) direct owner call (off-chain governance UI
+    /// @dev G18 fix: dual auth -accept either (a) direct owner call (off-chain governance UI
     ///      bypassing the timelock-wrapped path) OR (b) executeUpgrade's `this.upgradeToAndCall`
     ///      self-call when transient flag is armed. Solady's Ownable.onlyOwner check is
     ///      replicated inline since we cannot call super() w/ a virtual override that drops it.

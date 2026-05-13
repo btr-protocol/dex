@@ -39,7 +39,7 @@ contract PoolOracleHarness {
 }
 
 /// @title PoolOracleTest
-/// @notice Phase 42H.D Round 2 (G7) — direct unit tests for PoolOracle library.
+/// @notice Phase 42H.D Round 2 (G7) -direct unit tests for PoolOracle library.
 ///         Covers: pushFeedInternal, updateFeeds, rollWindow, updateVolEMA across
 ///         edge cases (stale feeds, zero dt, MAX_STALENESS rollover, vol EMA boundary,
 ///         accDecimals 6/12/18).
@@ -242,7 +242,7 @@ contract PoolOracleTest is Test {
         assertEq(r, 777);
     }
 
-    // ─── Phase 42J.4 · F4 — per-block rate-limit (TWAP poisoning defense) ───
+    // ─── Phase 42J.4 · F4 -per-block rate-limit (TWAP poisoning defense) ───
 
     /// @notice Second push in same block must be a no-op on the accumulator.
     function test_rateLimit_secondPushSameBlockIsNoOp() public {
@@ -251,7 +251,7 @@ contract PoolOracleTest is Test {
         h.updateFeeds(TKA, p1);
         IPool.FeedAccumulator memory before = h.getAcc(TKA);
 
-        // Advance time but NOT block — simulates aggregator atomic batch.
+        // Advance time but NOT block -simulates aggregator atomic batch.
         vm.warp(block.timestamp + 60);
         h.updateFeeds(TKA, p2);
 
@@ -287,7 +287,7 @@ contract PoolOracleTest is Test {
         h.updateFeeds(TKA, p2);
     }
 
-    /// @notice pushFeedInternal — both tokens rate-limited in same block.
+    /// @notice pushFeedInternal -both tokens rate-limited in same block.
     function test_rateLimit_pushFeedInternalBothTokensRespect() public {
         uint64 pa = M.encodeB64(100e18, 6);
         uint64 pb = M.encodeB64(200e18, 6);

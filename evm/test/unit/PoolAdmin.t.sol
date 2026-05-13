@@ -66,7 +66,7 @@ contract PoolAdminHarness {
 }
 
 /// @title PoolAdminTest
-/// @notice Phase 42H.D · Round 3 (G8) — direct unit tests for PoolAdmin library.
+/// @notice Phase 42H.D · Round 3 (G8) -direct unit tests for PoolAdmin library.
 ///         Covers validateProfileMemory edge cases, validateOracleConfig boundaries,
 ///         initAsset full path (base vs non-base, default fallbacks), and
 ///         setupOracleAndConfig integration (self-oracle seeding + non-self skip).

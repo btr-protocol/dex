@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-/// @title ICreateX — minimal CreateX surface used by deploy scripts
+/// @title ICreateX -minimal CreateX surface used by deploy scripts
 interface ICreateX {
     error FailedContractCreation(address emitter);
     error FailedContractInitialisation(address emitter, bytes revertData);

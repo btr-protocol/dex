@@ -62,7 +62,7 @@ contract Phase42HB3eR10R11BridgeTest is Test {
 
     /// @notice R10/R11: After day rollover, both inbound + outbound remaining-limits return to fresh.
     ///         (View-side virtualization; logic-side rollover is exercised by inbound LZ flow which
-    ///         requires an LZ_ENDPOINT mock — covered separately upstream.)
+    ///         requires an LZ_ENDPOINT mock -covered separately upstream.)
     function test_R10_view_rollover_resets_buckets() public {
         address token = address(0x2222);
         bridge.setTokenConfig(token, 1_000e18, 18, 100, false);

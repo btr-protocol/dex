@@ -6,7 +6,7 @@ import {IOracle} from "../interfaces/IOracle.sol";
 /// @title TransientCache
 /// @notice Tx-scoped oracle cache via transient storage (EIP-1153). ~2.1k gas/hit.
 library TransientCache {
-    // SALT (high 64 bits) | TYPE (bit 168) | ADDR (160 bits) — collision-free.
+    // SALT (high 64 bits) | TYPE (bit 168) | ADDR (160 bits) -collision-free.
     uint256 private constant NAMESPACE_SALT = uint256(keccak256("pool.cache")) >> 192 << 192;
     uint256 private constant TYPE_ORACLE_FEED = 1 << 168;
 

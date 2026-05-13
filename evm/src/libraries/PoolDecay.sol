@@ -4,8 +4,8 @@ pragma solidity ^0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {Constants as C} from "./Constants.sol";
 
-/// @title PoolDecay — liability decay math + storage update for Pool.
-/// @notice Phase 42H.D · Round 2 · G1 LOC reduction — extracted from `Pool.sol`
+/// @title PoolDecay -liability decay math + storage update for Pool.
+/// @notice Phase 42H.D · Round 2 · G1 LOC reduction -extracted from `Pool.sol`
 ///         (was `_applyDecay` + `_calculateDecay`). Keeps Pool focused on user-flow
 ///         orchestration and isolates the time-decay rule for audit clarity.
 /// @dev    Same delegatecall-free model as `Pricing` / `PoolOracle`. Internal lib
@@ -32,7 +32,7 @@ library PoolDecay {
         asset.lastUpdate = uint32(block.timestamp);
     }
 
-    /// @notice Pure decay calculation — coverage-gated linear amortization.
+    /// @notice Pure decay calculation -coverage-gated linear amortization.
     /// @dev    Returns 0 when coverage (reserves/liabilities) ≥ threshold OR dt=0.
     ///         Cap = `liabilities − reserves` (cannot decay below the deficit).
     function calculateDecay(

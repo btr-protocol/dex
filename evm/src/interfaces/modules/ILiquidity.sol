@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {IPoolModule} from "./IPool.sol";
 
-/// @title ILiquidity — backwards-compat stub for the merged Pool module
+/// @title ILiquidity -backwards-compat stub for the merged Pool module
 /// @dev After the Liquidity+Exchange → Pool merge, ILiquidity is preserved as
 ///      a composite alias of IPoolModule for off-chain consumers (ABIs / SDK).
 ///      All types, events and functions are inherited from IPoolModule.

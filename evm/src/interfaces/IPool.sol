@@ -5,8 +5,8 @@ import {IExchange} from "./modules/IExchange.sol";
 import {ILiquidity} from "./modules/ILiquidity.sol";
 import {IOracle} from "./IOracle.sol";
 
-/// @title IPool — Adaptive Inventory Market Maker (aggregate)
-/// @dev Phase 42H.B.3c — IFlash + IDistributor removed from inheritance; both are now
+/// @title IPool -Adaptive Inventory Market Maker (aggregate)
+/// @dev Phase 42H.B.3c -IFlash + IDistributor removed from inheritance; both are now
 ///      standalone singletons with pool-keyed APIs (see /interfaces/IFlash.sol +
 ///      /interfaces/IDistributor.sol).
 interface IPool is IExchange, ILiquidity, IOracle {
@@ -112,7 +112,7 @@ interface IPool is IExchange, ILiquidity, IOracle {
         UPDATE_TREASURY
     }
 
-    /// @dev Phase 42H.B.3d — ERC-7201 indirection dropped. Pool storage is now plain
+    /// @dev Phase 42H.B.3d -ERC-7201 indirection dropped. Pool storage is now plain
     ///      state vars at slot 0+. PoolStorage struct moved into Pool.sol as a
     ///      single instance variable for library compat (Pricing/AnchorTree pass-by-ref).
     /// @dev Dead-state from earlier phases removed: govToken/sGovToken/stakingConfig/
@@ -138,7 +138,7 @@ interface IPool is IExchange, ILiquidity, IOracle {
         // Flow-guard cooldown timestamps (was: FlowGuardStorage @ FLOW_GUARD_STORAGE_LOC).
         mapping(address user => mapping(address asset => uint32)) lastDepositTime;
         mapping(address user => mapping(address lpToken => uint32)) lastLPStakeTime;
-        // Phase 42J.4 (F4) — TWAP poisoning defense. One accumulator update per
+        // Phase 42J.4 (F4) -TWAP poisoning defense. One accumulator update per
         // token per block; subsequent in-block pushes early-return as no-op.
         mapping(address token => uint256 blockNum) lastUpdateBlock;
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-/// @title ITreasury — BTR token, vesting, emissions, protocol fees
+/// @title ITreasury -BTR token, vesting, emissions, protocol fees
 interface ITreasury {
     struct VestingSchedule {
         uint256 totalAllocation;

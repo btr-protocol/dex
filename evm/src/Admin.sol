@@ -14,12 +14,12 @@ import {Timelock as TL} from "@btr-shared/Timelock.sol";
 
 /// @title Admin
 /// @notice Standalone singleton governance contract. Replaces the former Admin Diamond module.
-/// @dev Phase 42H.B.3a — Admin no longer delegatecalls into Pool. It calls Pool's restricted
+/// @dev Phase 42H.B.3a -Admin no longer delegatecalls into Pool. It calls Pool's restricted
 ///      setters via standard external calls. Each public function takes `address pool` as the
 ///      first arg. Pending timelock ops are stored locally (per-pool keyed) instead of in
 ///      PoolStorage. Owner check goes through the shared singleton AccessControl.
 contract Admin is IAdmin {
-    /// @notice Shared singleton AccessControl — single source of truth for owner.
+    /// @notice Shared singleton AccessControl -single source of truth for owner.
     address public immutable AC;
 
     /// @dev pendingOps[keccak256(pool, opId)] => packed Timelock value.

@@ -16,7 +16,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
 /// @title Phase42HB3dPoolTest
-/// @notice Phase 42H.B.3d sanity — Pool is standalone (no proxy, no modules, no ERC-7201).
+/// @notice Phase 42H.B.3d sanity -Pool is standalone (no proxy, no modules, no ERC-7201).
 ///         Each pool instance is an EIP-1167 minimal-proxy clone deployed by PoolFactory.
 contract Phase42HB3dPoolTest is Test {
     PoolFactory factory;
@@ -175,7 +175,7 @@ contract Phase42HB3dPoolTest is Test {
     }
 
     function test_pool_storage_at_slot_0() public {
-        // Phase 42H.B.3d — PoolStorage struct lives at slot 0 (no ERC-7201 indirection).
+        // Phase 42H.B.3d -PoolStorage struct lives at slot 0 (no ERC-7201 indirection).
         // Slot 0 holds first field: baseToken (address).
         bytes32 slot0 = vm.load(address(pool), bytes32(uint256(0)));
         assertEq(address(uint160(uint256(slot0))), address(base), "baseToken @ slot 0");

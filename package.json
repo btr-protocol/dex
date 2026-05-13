@@ -7,6 +7,7 @@
     "dev": "bun scripts/dev.ts",
     "dev:agents": "cd back/services/agents && bun run dev",
     "dev:collector": "cd back/services/collector && bun run dev",
+    "dev:swap": "cd back/services/swap && bun run dev",
     "dev:front": "cd front && bun run dev",
     "build": "cd sdk && bun run build && cd ../front && bun run build",
     "typecheck": "cd sdk && bun run typecheck && cd ../back/services/collector && bun run typecheck && cd ../agents && bun run typecheck && cd ../../../front && bun run typecheck",
@@ -17,13 +18,14 @@
     "clean:deps": "find . -name 'node_modules' -type d -prune -exec rm -rf {} +"
   },
   "workspaces": [
-    "sdk",
-    "front",
-    "back/services/collector",
-    "back/services/agents"
+    "front"
   ],
   "devDependencies": {
     "typescript": "^5.8.0",
     "oxlint": "^0.15.0"
+  },
+  "dependencies": {
+    "asciimath2ml": "^1.0.8",
+    "prismjs": "^1.30.0"
   }
 }

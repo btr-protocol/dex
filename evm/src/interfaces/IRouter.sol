@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {IExchange} from "./modules/IExchange.sol";
 
-/// @title IRouter — stateless router, route discovery + execution
+/// @title IRouter -stateless router, route discovery + execution
 interface IRouter {
     struct RouteStep { address pool; address tokenIn; address tokenOut; uint256 minOut; }
     struct Route { RouteStep[] steps; uint256 amountOut; uint256 gasEstimate; }

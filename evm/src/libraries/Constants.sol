@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-/// @title Constants — AIMM-specific constants (dex-local)
+/// @title Constants -AIMM-specific constants (dex-local)
 /// @dev Generic precision/timelock/sentinel constants live in @btr-shared/Constants.sol.
 library Constants {
-    // Phase 42H.B.3d — ERC-7201 storage locations removed (plain state vars on Pool).
+    // Phase 42H.B.3d -ERC-7201 storage locations removed (plain state vars on Pool).
 
     // --- Risk flags ---
     uint16 internal constant FROZEN_BIT = 1 << 0;
@@ -36,7 +36,7 @@ library Constants {
     uint32 internal constant HOOK_POST_FLASH_LOAN = 1 << 11;
 
     // --- Flow guard ---
-    /// @notice JIT cooldown (seconds) — chain-agnostic safe default.
+    /// @notice JIT cooldown (seconds) -chain-agnostic safe default.
     uint16 internal constant DEFAULT_FLOW_COOLDOWN = 15;
 
     // --- Timelock IDs (precomputed keccak256) ---

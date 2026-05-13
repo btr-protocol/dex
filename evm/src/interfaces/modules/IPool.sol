@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {IPool} from "../IPool.sol";
 
-/// @title IPoolModule — merged Liquidity + Exchange module interface
+/// @title IPoolModule -merged Liquidity + Exchange module interface
 /// @notice Combined module-level surface replacing IExchange + ILiquidity.
 ///         Named IPoolModule (not IPool) to avoid clashing with the aggregate
 ///         IPool interface at interfaces/IPool.sol. Off-chain consumers can

@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {LZEndpointV2} from "./external/ILZEndpointV2.sol";
 
-/// @title IBridge — LayerZero bridge w/ ERC7802 + timelocked config
+/// @title IBridge -LayerZero bridge w/ ERC7802 + timelocked config
 interface IBridge {
     /// @dev Single-slot 224 bits
     struct TokenConfig {

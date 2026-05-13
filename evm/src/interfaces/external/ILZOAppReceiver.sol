@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {LZEndpointV2} from "./ILZEndpointV2.sol";
 
-/// @title ILZOAppReceiver — LayerZero OApp message receiver
+/// @title ILZOAppReceiver -LayerZero OApp message receiver
 interface ILZOAppReceiver {
     function lzReceive(
         LZEndpointV2.Origin calldata _origin,

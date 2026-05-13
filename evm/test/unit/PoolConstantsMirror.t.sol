@@ -6,7 +6,7 @@ import {Pool} from "../../src/Pool.sol";
 import {PoolOracle} from "../../src/libraries/PoolOracle.sol";
 
 /// @title PoolConstantsMirrorTest
-/// @notice Phase 42H.D · Round 3 (G10) — guards Pool's ABI-mirror constants against
+/// @notice Phase 42H.D · Round 3 (G10) -guards Pool's ABI-mirror constants against
 ///         silent desync from PoolOracle. Pool.sol:88-94 currently references
 ///         `PoolOracle.<X>` directly (compile-time-equal); this test catches any future
 ///         refactor that swaps that reference for a literal value.

@@ -4,7 +4,7 @@ pragma solidity ^0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
-/// @title AnchorTree — anchor-based pricing tree (validation, routing).
+/// @title AnchorTree -anchor-based pricing tree (validation, routing).
 library AnchorTree {
     uint8 public constant MAX_DEPTH = 4;        // root = 0
     uint8 public constant MAX_PATH_LENGTH = 6;  // 2 * MAX_DEPTH

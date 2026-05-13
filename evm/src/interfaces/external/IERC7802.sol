@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-/// @title IERC7802 — Crosschain Token Interface (mint/burn via authorized bridge)
+/// @title IERC7802 -Crosschain Token Interface (mint/burn via authorized bridge)
 interface IERC7802 {
     event CrosschainMint(address indexed to, uint256 amount, address indexed bridge);
     event CrosschainBurn(address indexed from, uint256 amount, address indexed bridge);

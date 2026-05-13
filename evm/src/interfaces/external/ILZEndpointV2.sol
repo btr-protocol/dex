@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-/// @title LZEndpointV2 — minimal LayerZero V2 endpoint
+/// @title LZEndpointV2 -minimal LayerZero V2 endpoint
 interface LZEndpointV2 {
     struct SendParam {
         uint32 dstEid;

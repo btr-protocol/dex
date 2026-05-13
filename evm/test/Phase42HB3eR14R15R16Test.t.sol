@@ -130,7 +130,7 @@ contract Phase42HB3eR14R15R16Test is Test {
 
         vm.prank(OWNER);
         uint256 id2 = dist.createTokenCampaign(pool2, address(reward), OWNER);
-        // Same leaf bytes — but interpreted under (pool2, id2). MerkleProofLib.verify with
+        // Same leaf bytes -but interpreted under (pool2, id2). MerkleProofLib.verify with
         // empty proof: leaf must equal root. Here leaf-under-pool2 != stored-root (pool-bound).
         vm.prank(OWNER);
         dist.updateCampaignRoot(pool2, id2, leaf, uint32(block.timestamp), totalEarned);
@@ -245,7 +245,7 @@ contract Phase42HB3eR14R15R16Test is Test {
         // Conservation: lpBalance + staked == lp0.
         assertEq(lp1 + staked1, lp0, "stake conservation");
 
-        // Now user attempts withdraw on Pool — must fail (lpBalance=0).
+        // Now user attempts withdraw on Pool -must fail (lpBalance=0).
         vm.prank(USER);
         vm.expectRevert();
         pool.withdraw(address(quote), 1, 0);
@@ -295,7 +295,7 @@ contract Phase42HB3eR14R15R16Test is Test {
         tr.salvage(address(stuck), USER, 500e18);
     }
 
-    /// @notice R15: requestEmissionsCapChange floor — newCap < claimed reverts at request.
+    /// @notice R15: requestEmissionsCapChange floor -newCap < claimed reverts at request.
     function test_R15_requestEmissionsCap_floor() public {
         MockERC20 placeholder = new MockERC20("G","G",18);
         Treasury tr = new Treasury(address(placeholder));

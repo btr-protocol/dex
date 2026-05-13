@@ -2,7 +2,7 @@
 pragma solidity ^0.8.35;
 
 /// @title IStaking
-/// @notice Singleton Staking contract — Phase 42H.B.3b.
+/// @notice Singleton Staking contract -Phase 42H.B.3b.
 /// @dev Staking is no longer a Diamond module. It is a standalone contract that holds
 ///      its own state keyed by (pool, ...) and calls Pool's restricted setters via
 ///      standard external calls. All public functions take `address pool` as the first arg.
