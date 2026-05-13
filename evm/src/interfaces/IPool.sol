@@ -100,7 +100,6 @@ interface IPool is IExchange, ILiquidity, IOracle {
     enum OpType {
         NONE,
         TRANSFER_OWNERSHIP,
-        UPDATE_MODULE,
         MIGRATE_BASE_TOKEN,
         UPDATE_ORACLE,
         UPDATE_STAKING,
