@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {Pool} from "../src/Pool.sol";
@@ -26,8 +26,8 @@ contract PoolStorageLayoutTest is Test {
     address constant SENTINEL_TREASURY = address(0x4444444444444444444444444444444444444444);
 
     function setUp() public {
-        // Pool ctor only validates ac/admin/staking/flash != 0; we don't initialize().
-        pool = new Pool(address(0xAA), address(0xBB), address(0xCC), address(0xDD));
+        // Pool ctor only validates ac/admin/staking/flash/poolAux != 0; we don't initialize().
+        pool = new Pool(address(0xAA), address(0xBB), address(0xCC), address(0xDD), address(0xEE));
     }
 
     /// @notice Slot 0 holds `baseToken` (first PoolStorage field).
