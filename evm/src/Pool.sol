@@ -19,6 +19,7 @@ import {PoolBatch} from "./libraries/PoolBatch.sol";
 import {PoolLiquidity} from "./libraries/PoolLiquidity.sol";
 import {PoolSwap} from "./libraries/PoolSwap.sol";
 import {PoolEdge} from "./libraries/PoolEdge.sol";
+import {PoolView} from "./libraries/PoolView.sol";
 
 /// @title Pool -standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
 /// @notice Phase 42H.B.3d -drops ERC-7201, deletes Base.sol, collapses PoolProxy.
@@ -160,12 +161,6 @@ contract Pool is ReentrancyGuardTransient {
         return AccessControl(AC).owner();
     }
 
-    function _hook(address tokenNorm, uint32 flag) internal view returns (address h) {
-        h = $.hooks[tokenNorm];
-        if (h == address(0)) return address(0);
-        return ($.hookFlags[tokenNorm] & flag) != 0 ? h : address(0);
-    }
-
     function _wrap(address token) internal view returns (address) {
         return token == SC.NATIVE ? $.wnative : token;
     }
@@ -179,20 +174,8 @@ contract Pool is ReentrancyGuardTransient {
     // INTERNAL ORACLE (was: InternalOracle.sol)
     // ────────────────────────────────────────────────────────────────
 
-    function getFeed(address token) external view returns (IOracle.FeedData memory data) {
-        address t = _wrap(token);
-        IPool.FeedAccumulator storage acc = $.accumulators[t];
-        if (acc.lastUpdate == 0) revert Err.NotConfigured(Err.Resource.ORACLE, t);
-        data = IOracle.FeedData({
-            lastPriceB64: acc.lastPriceB64,
-            fastOffset: acc.fastOffset,
-            slowOffset: acc.slowOffset,
-            fastVolEMA: acc.fastVolEMA,
-            slowVolEMA: acc.slowVolEMA,
-            updatedAt: acc.lastUpdate,
-            ttl: acc.ttl,
-            confidence: acc.confidence
-        });
+    function getFeed(address token) external view returns (IOracle.FeedData memory) {
+        return PoolView.getFeed($, token);
     }
 
     function isFeedFresh(address token, uint32 maxAge) external view returns (bool) {
@@ -306,11 +289,8 @@ contract Pool is ReentrancyGuardTransient {
     /// @notice Preview single-asset withdraw output for an LP balance against this token's book.
     /// @dev    Same math as withdraw same-token branch; haircut applied iff coverage < 100%.
     ///         View-only -does NOT call PoolDecay.applyDecay; reads current asset state as-is.
-    function previewWithdraw(address tk, uint256 lp) external view returns (uint256 amountOut, uint256 haircut) {
-        IPool.Asset storage a = $.assets[_wrap(tk)];
-        uint256 li = a.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : a.liquidityIndex;
-        uint256 wv = (lp * li) / SC.WAD;
-        (amountOut, haircut) = PoolLiquidity.applyHaircut(wv, a.reserves, a.liabilities, a.haircutSuppressor);
+    function previewWithdraw(address tk, uint256 lp) external view returns (uint256, uint256) {
+        return PoolView.previewWithdraw($, tk, lp);
     }
     function getLPBalance(address u, address tk) external view returns (uint256) {
         return $.lpBalances[u][_wrap(tk)];
@@ -322,8 +302,11 @@ contract Pool is ReentrancyGuardTransient {
         return $.riskConfigs[_wrap(tk)].flags;
     }
     function getFeeParams() external view returns (IPool.FeeParams memory) { return $.feeParams; }
-    function getHookForFlag(address tk, uint32 flag) external view returns (address) {
-        return _hook(_wrap(tk), flag);
+    function getHookForFlag(address tk, uint32 flag) external view returns (address h) {
+        address t = _wrap(tk);
+        h = $.hooks[t];
+        if (h == address(0)) return address(0);
+        return ($.hookFlags[t] & flag) != 0 ? h : address(0);
     }
     /// @notice Pure view of the last cached oracle price for `tk` (no accumulator mutation).
     /// @dev    Wave-1 split (Cohort-1 finding): `getMidPrice` was non-view ∵ `_readOracle` mutates
@@ -336,10 +319,7 @@ contract Pool is ReentrancyGuardTransient {
     /// @notice Coverage ratio = reserves / liabilities (WAD). Returns max-uint when no liabilities.
     /// @dev    Wave-1 (IPoolModule.getCoverageRatio impl). Reverts NotFound if asset unregistered.
     function getCoverageRatio(address tk) external view returns (uint256) {
-        IPool.Asset storage a = $.assets[_wrap(tk)];
-        if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
-        if (a.liabilities == 0) return type(uint256).max;
-        return (uint256(a.reserves) * SC.WAD) / uint256(a.liabilities);
+        return PoolView.getCoverageRatio($, tk);
     }
 
     /// @notice Refresh-then-read oracle price. Mutates accumulators (EMAs, last update ts).
