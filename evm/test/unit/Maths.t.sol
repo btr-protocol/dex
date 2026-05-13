@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
