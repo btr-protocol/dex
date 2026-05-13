@@ -13,7 +13,6 @@ import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
 /// @title Phase42HB3dPoolTest
@@ -166,7 +165,7 @@ contract Phase42HB3dPoolTest is Test {
 
     function test_admin_only_via_singleton() public {
         vm.prank(USER);
-        vm.expectRevert(Ownable.Unauthorized.selector);
+        vm.expectRevert(Err.NotOwner.selector);
         IPool(address(pool)).adminFreezeAsset(address(base));
     }
 
@@ -176,7 +175,7 @@ contract Phase42HB3dPoolTest is Test {
     function test_wave3a_fallback_dispatch_admin_gate() public {
         // Direct call from non-admin should revert Unauthorized (PoolAux onlyAdmin gate).
         vm.prank(USER);
-        vm.expectRevert(Ownable.Unauthorized.selector);
+        vm.expectRevert(Err.NotOwner.selector);
         IPool(address(pool)).adminSetFlowCooldown(123);
 
         // Call from admin singleton (impersonate) succeeds through fallback.

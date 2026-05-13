@@ -15,29 +15,9 @@ import {Constants as C} from "./Constants.sol";
 ///         vs ~250 bytes inlined). Lib state access via the `$` storage ref is
 ///         transparent because DELEGATECALL preserves Pool's storage context.
 library PoolHookExec {
-    /// @dev Dispatch a single hook call. Returns (extraFee, feeOverride, postDelta).
-    ///      isPre=true → calls preSwap; isPre=false → calls postSwap (delta only).
-    function runHook(
-        IPool.PoolStorage storage $,
-        address tk,
-        address other,
-        uint32 flag,
-        bool isPre,
-        address tkIn,
-        address tkOut,
-        uint256 amtIn,
-        uint256 amtOutOrFee
-    ) external returns (uint256 extraFee, uint16 feeOverride, int256 delta) {
-        address h = $.hooks[tk];
-        if (h == address(0) || h == other) return (0, 0, 0);
-        if (($.hookFlags[tk] & flag) == 0) return (0, 0, 0);
-
-        if (isPre) {
-            (uint256 f, uint16 o) = IPoolHooks(h).preSwap(address(this), msg.sender, tkIn, tkOut, amtIn, amtOutOrFee);
-            return (f, o, 0);
-        }
-        return (0, 0, IPoolHooks(h).postSwap(address(this), msg.sender, tkIn, tkOut, amtIn, amtOutOrFee));
-    }
+    // Cohort-3 Finding 2 -external `runHook` removed (0 callers; preSwap/postSwap/
+    // applyHookFee are the public surface). Intra-library dispatch via
+    // `_runHookInternal`.
 
     /// @dev Run both pre-swap hooks (in-token then out-token, dedup'd).
     function preSwap(
