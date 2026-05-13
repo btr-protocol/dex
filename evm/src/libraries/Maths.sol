@@ -18,6 +18,7 @@ library Maths {
     int256 internal constant MAX_SAFE_POSITIVE_SHIFT = 61;
     int256 internal constant MAX_SAFE_NEGATIVE_SHIFT = 77;
 
+    // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
     error Overflow();
     error InvalidDecimals();
 

@@ -11,6 +11,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 /// @notice Push-based external oracle with dual TWAP (fast/slow) and volatility tracking
 contract ExternalOracle is IOracle, Ownable {
     // ─── errors ───
+    // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
     error FeedNotFound(bytes32 feedId);
     error FeedAlreadyExists(bytes32 feedId);
 

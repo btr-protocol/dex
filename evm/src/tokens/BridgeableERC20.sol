@@ -7,6 +7,7 @@ import {IERC7802} from "../interfaces/external/IERC7802.sol";
 /// @title BridgeableERC20
 /// @notice ERC20 + ERC7802 for crosschain mint/burn
 abstract contract BridgeableERC20 is ERC20, IERC7802 {
+    // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
     error UnauthorizedBridge();
 
     function _getBridge() internal view virtual returns (address);
