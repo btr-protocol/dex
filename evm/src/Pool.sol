@@ -4,10 +4,8 @@ pragma solidity =0.8.35;
 import {IPool} from "./interfaces/IPool.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {IERC20} from "./interfaces/external/IERC20.sol";
-import {IWETH9} from "./interfaces/external/IWETH9.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Pricing} from "./libraries/Pricing.sol";
@@ -15,12 +13,12 @@ import {Maths as M} from "./libraries/Maths.sol";
 import {Constants as C} from "./libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolOracle} from "./libraries/PoolOracle.sol";
-import {PoolDecay} from "./libraries/PoolDecay.sol";
 import {PoolHookExec} from "./libraries/PoolHookExec.sol";
 import {PoolAdminWrite} from "./libraries/PoolAdminWrite.sol";
 import {PoolBatch} from "./libraries/PoolBatch.sol";
 import {PoolLiquidity} from "./libraries/PoolLiquidity.sol";
 import {PoolSwap} from "./libraries/PoolSwap.sol";
+import {PoolEdge} from "./libraries/PoolEdge.sol";
 
 /// @title Pool -standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
 /// @notice Phase 42H.B.3d -drops ERC-7201, deletes Base.sol, collapses PoolProxy.
@@ -42,7 +40,6 @@ import {PoolSwap} from "./libraries/PoolSwap.sol";
 ///      impls MUST keep `PoolStorage` append-only (new fields appended; existing
 ///      fields' offsets/types unchanged). See Phase 42H.B.3d ADR.
 contract Pool is ReentrancyGuardTransient {
-    using SafeTransferLib for address;
     using {M.b64To1e18} for uint64;
 
     // ────────────────────────────────────────────────────────────────
@@ -163,11 +160,6 @@ contract Pool is ReentrancyGuardTransient {
         return AccessControl(AC).owner();
     }
 
-    function _asset(address tokenNorm) internal view returns (IPool.Asset storage asset) {
-        asset = $.assets[tokenNorm];
-        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tokenNorm);
-    }
-
     function _hook(address tokenNorm, uint32 flag) internal view returns (address h) {
         h = $.hooks[tokenNorm];
         if (h == address(0)) return address(0);
@@ -176,20 +168,6 @@ contract Pool is ReentrancyGuardTransient {
 
     function _wrap(address token) internal view returns (address) {
         return token == SC.NATIVE ? $.wnative : token;
-    }
-
-    function _push(address token, address to, uint256 amount) internal {
-        if (token == SC.NATIVE) {
-            IWETH9($.wnative).withdraw(amount);
-            SafeTransferLib.safeTransferETH(to, amount);
-        } else {
-            SafeTransferLib.safeTransfer(token, to, amount);
-        }
-    }
-
-    /// @notice Read oracle with primary→fallback. DoS-resistant via try/catch.
-    function _readOracle(address token) internal returns (IOracle.FeedData memory data) {
-        return PoolOracle.readOracle($, address(this), token);
     }
 
     /// @notice ERC7802 bridge auth -bridgeable tokens query this.
@@ -242,9 +220,7 @@ contract Pool is ReentrancyGuardTransient {
         uint32 slowVolEMA
     ) external {
         if (msg.sender != _owner() && msg.sender != address(this)) revert Ownable.Unauthorized();
-        address t = _wrap(token);
-        PoolOracle.initFeed($, t, initialPrice, accDecimals, fastVolEMA, slowVolEMA);
-        emit IOracle.OracleUpdated(t, initialPrice, fastVolEMA, slowVolEMA);
+        PoolEdge.updateFeed($, token, initialPrice, accDecimals, fastVolEMA, slowVolEMA);
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -370,7 +346,7 @@ contract Pool is ReentrancyGuardTransient {
     /// @dev    Renamed from `getMidPrice` (Wave-1): non-view nature was previously hidden by
     ///         interface declaring `view`. Keeper-callable: drives oracle freshness off-chain.
     function pokeMidPrice(address tk) external returns (uint256) {
-        return _readOracle(_wrap(tk)).lastPriceB64.b64To1e18();
+        return PoolEdge.pokeMidPrice($, address(this), tk);
     }
 
     // ── Internal swap helpers ──
@@ -411,14 +387,9 @@ contract Pool is ReentrancyGuardTransient {
     }
 
     function adminCollectProtocolFees(address token, address recipient)
-        external nonReentrant onlyAdmin returns (uint256 amount)
+        external nonReentrant onlyAdmin returns (uint256)
     {
-        address t = _wrap(token);
-        amount = $.protocolFees[t];
-        if (amount > 0) {
-            $.protocolFees[t] = 0;
-            _push(token, recipient, amount);
-        }
+        return PoolEdge.collectProtocolFees($, token, recipient);
     }
 
     function adminSetFlowCooldown(uint16 cooldownSeconds) external onlyAdmin {
@@ -472,15 +443,7 @@ contract Pool is ReentrancyGuardTransient {
     // ────────────────────────────────────────────────────────────────
 
     function stakingAdjustLpBalance(address user, address token, int256 delta) external onlyStaking {
-        address t = _wrap(token);
-        if (delta > 0) {
-            $.lpBalances[user][t] += uint256(delta);
-        } else if (delta < 0) {
-            uint256 d = uint256(-delta);
-            uint256 cur = $.lpBalances[user][t];
-            if (cur < d) revert Err.InsufficientAmount(cur, d);
-            $.lpBalances[user][t] = cur - d;
-        }
+        PoolEdge.stakingAdjustLpBalance($, user, token, delta);
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -488,22 +451,11 @@ contract Pool is ReentrancyGuardTransient {
     // ────────────────────────────────────────────────────────────────
 
     function flashSend(address token, uint256 amount, address to) external onlyFlash whenInitialized nonReentrant {
-        address t = _wrap(token);
-        IPool.Asset storage asset = _asset(t);
-        PoolDecay.applyDecay($, t, asset);
-        if (amount == 0) revert Err.ZeroValue();
-        if (asset.reserves < amount || asset.reserves - amount < asset.minLiquidity) {
-            revert Err.InsufficientAmount(asset.reserves, amount);
-        }
-        _push(token, to, amount);
+        PoolEdge.flashSend($, token, amount, to);
     }
 
     function flashAccount(address token, uint256 fee, uint256 protoFee) external onlyFlash {
-        if (protoFee > fee) revert Err.InvalidInput();
-        address t = _wrap(token);
-        IPool.Asset storage asset = _asset(t);
-        unchecked { asset.reserves += uint128(fee - protoFee); }
-        $.protocolFees[t] += protoFee;
+        PoolEdge.flashAccount($, token, fee, protoFee);
     }
 
     // ── helpers ──
