@@ -5,7 +5,6 @@ import {ITreasury} from "./interfaces/ITreasury.sol";
 import {IMintable} from "./interfaces/IMintable.sol";
 import {IPool} from "./interfaces/IPool.sol";
 import {IAdmin} from "./interfaces/IAdmin.sol";
-import {IPoolModule} from "./interfaces/modules/IPool.sol";
 import {IBridge} from "./interfaces/IBridge.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -212,7 +211,7 @@ contract Treasury is Ownable, ReentrancyGuardTransient, UUPSUpgradeable, ITreasu
     ///      `msg.sender == pool.treasury()`, preserving the prior auth model.
     function collectProtocolFees(address admin, address pool, address token) external nonReentrant {
         if (pool == address(0) || token == address(0) || admin == address(0)) revert Err.ZeroValue();
-        uint256 amount = IPoolModule(pool).getProtocolFees(token);
+        uint256 amount = IPool(pool).getProtocolFees(token);
         IAdmin(admin).collectProtocolFees(pool, token, address(this));
         emit ProtocolFeesCollected(pool, token, amount);
     }

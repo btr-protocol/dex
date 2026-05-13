@@ -2,7 +2,6 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
-import {IPoolModule} from "../interfaces/modules/IPool.sol";
 import {IWETH9} from "../interfaces/external/IWETH9.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
@@ -185,6 +184,6 @@ library PoolSwap {
         if (out < minAmountOut) revert Err.ThresholdViolation(out, minAmountOut);
 
         _push($, tokenOut, recipient, out);
-        emit IPoolModule.Swapped(msg.sender, recipient, tk[0], tk[1], actualIn, out, q.spreadBps, q.protoFee, q.lpFee);
+        emit IPool.Swapped(msg.sender, recipient, tk[0], tk[1], actualIn, out, q.spreadBps, q.protoFee, q.lpFee);
     }
 }

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {IPoolModule} from "./IPool.sol";
+import {IPool} from "../IPool.sol";
 
-/// @title ILiquidity -backwards-compat stub for the merged Pool module
-/// @dev After the Liquidity+Exchange → Pool merge, ILiquidity is preserved as
-///      a composite alias of IPoolModule for off-chain consumers (ABIs / SDK).
-///      All types, events and functions are inherited from IPoolModule.
-interface ILiquidity is IPoolModule {}
+/// @title ILiquidity -backwards-compat alias for root `IPool`
+/// @dev Cohort-3 Finding 3 -all liquidity surface lives in root `IPool`. This
+///      stub is preserved for off-chain ABI consumers; new code imports `IPool`.
+interface ILiquidity is IPool {}

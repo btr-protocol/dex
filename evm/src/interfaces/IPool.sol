@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {IExchange} from "./modules/IExchange.sol";
-import {ILiquidity} from "./modules/ILiquidity.sol";
 import {IOracle} from "./IOracle.sol";
 
-/// @title IPool -Adaptive Inventory Market Maker (aggregate)
+/// @title IPool -Adaptive Inventory Market Maker (aggregate, canonical surface)
 /// @dev Phase 42H.B.3c -IFlash + IDistributor removed from inheritance; both are now
 ///      standalone singletons with pool-keyed APIs (see /interfaces/IFlash.sol +
 ///      /interfaces/IDistributor.sol).
-interface IPool is IExchange, ILiquidity, IOracle {
+/// @dev Cohort-3 Finding 3 -Pool module events + view sigs (previously in
+///      `interfaces/modules/IPool.sol::IPoolModule`) folded in here so the root
+///      `IPool` is the single canonical declaration. `IExchange` / `ILiquidity`
+///      remain as empty backwards-compat stubs (`is IPool`) for off-chain consumers.
+interface IPool is IOracle {
     struct Asset {
         uint128 reserves;
         uint128 liabilities;
@@ -199,4 +201,97 @@ interface IPool is IExchange, ILiquidity, IOracle {
     function getRiskFlags(address token) external view returns (uint16);
     function getFeeParams() external view returns (FeeParams memory);
     function getHookForFlag(address token, uint32 flag) external view returns (address);
+
+    // ─── Exchange types & events (canonical -was IPoolModule) ────────────────
+    struct SwapQuote {
+        uint256 amountOut;
+        uint256 amountIn;
+        uint16 spreadBps;
+        uint256 protoFee;
+        uint256 lpFee;
+        int8 skewIn;
+        int8 skewOut;
+        address[] routeHops;
+        uint256[] hopAmounts;
+        uint64[] hopPrices;
+    }
+
+    event Swapped(
+        address indexed sender,
+        address indexed recipient,
+        address indexed tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOut,
+        uint16 spreadBps,
+        uint256 protoFee,
+        uint256 lpFee
+    );
+
+    event BatchSwapped(
+        address indexed sender,
+        address indexed recipient,
+        uint256 inputCount,
+        uint256 outputCount,
+        uint256 totalBaseValue
+    );
+
+    // ─── Liquidity events (canonical) ────────────────────────────────────────
+    event Deposited(address indexed sender, address indexed token, uint256 amount, uint256 lpAmount);
+    event Withdrawn(address indexed sender, address indexed token, uint256 amount, uint256 lpAmount);
+    event LiabilitySwapped(
+        address indexed sender,
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint256 lpAmountIn,
+        uint256 lpAmountOut,
+        uint256 haircut
+    );
+    event Donated(address indexed sender, address indexed token, uint256 amount);
+
+    // ─── Exchange functions ──────────────────────────────────────────────────
+    function owner() external view returns (address);
+    function baseToken() external view returns (address);
+    function wnative() external view returns (address);
+    function getRiskConfig(address token) external view returns (RiskConfig memory);
+    function getCoverageRatio(address token) external view returns (uint256);
+
+    function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut, address recipient)
+        external payable returns (uint256 amountOut);
+
+    /// @notice Batch swap (≤8 in, ≤8 out)
+    function batchSwap(bytes calldata inputs, bytes calldata outputs, address recipient)
+        external payable returns (uint256[] memory amountsOut);
+
+    function getSwapQuote(address tokenIn, address tokenOut, uint256 amountIn)
+        external view returns (SwapQuote memory quote);
+
+    function getFeedConfig(address token) external view returns (OracleConfig memory);
+    function getLiquidityProfile(address token) external view returns (LiquidityProfile memory);
+    function getProtocolFees(address token) external view returns (uint256);
+    /// @notice Pure view of last cached price (no oracle dispatch).
+    function midPrice(address token) external view returns (uint256);
+    /// @notice Refresh-then-read; mutates accumulators (keeper-callable).
+    function pokeMidPrice(address token) external returns (uint256);
+
+    // ─── Liquidity functions ─────────────────────────────────────────────────
+    function deposit(address token, uint256 amount)
+        external payable returns (DepositResult memory result);
+
+    function withdraw(address token, uint256 lpAmount, uint256 minAmountOut)
+        external returns (WithdrawResult memory result);
+
+    /// @notice Withdraw LP for different asset (swaps via internal quote)
+    function withdrawTo(address tokenFrom, address tokenTo, uint256 lpAmount, uint256 minAmountOut)
+        external returns (WithdrawResult memory result);
+
+    /// @notice Swap LP between assets (changes liability exposure)
+    function swapLiability(address tokenIn, address tokenOut, uint256 lpAmountIn, uint256 minLpAmountOut)
+        external returns (uint256 lpAmountOut);
+
+    /// @notice Donate reserves w/o LP mint (raises liquidity index)
+    function donate(address token, uint256 amount) external payable;
+
+    /// @notice LP preview: returns (amountOut, haircut) for `lp` shares of `token`.
+    function previewWithdraw(address token, uint256 lp) external view returns (uint256 amountOut, uint256 haircut);
 }
