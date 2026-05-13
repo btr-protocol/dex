@@ -19,6 +19,7 @@ import {PoolOracle} from "./libraries/PoolOracle.sol";
 import {PoolDecay} from "./libraries/PoolDecay.sol";
 import {PoolHookExec} from "./libraries/PoolHookExec.sol";
 import {PoolAdminWrite} from "./libraries/PoolAdminWrite.sol";
+import {PoolBatch} from "./libraries/PoolBatch.sol";
 
 /// @title Pool -standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
 /// @notice Phase 42H.B.3d -drops ERC-7201, deletes Base.sol, collapses PoolProxy.
@@ -591,89 +592,7 @@ contract Pool is ReentrancyGuardTransient {
         bytes calldata outputs,
         address recipient
     ) external payable nonReentrant whenInitialized returns (uint256[] memory amountsOut) {
-        uint256 inLen = inputs.length / 32;
-        uint256 outLen = outputs.length / 32;
-
-        if (inputs.length % 32 != 0 || inLen == 0 || inLen > 8) revert Err.InvalidInput();
-        if (outputs.length % 32 != 0 || outLen == 0 || outLen > 8) revert Err.InvalidInput();
-
-        address base = $.baseToken;
-        amountsOut = new uint256[](outLen);
-        uint256 baseTotal;
-
-        for (uint256 i; i < inLen;) {
-            address tk; uint64 amtB64;
-            assembly {
-                let packed := calldataload(add(inputs.offset, mul(i, 32)))
-                tk := shr(96, packed)
-                amtB64 := and(shr(32, packed), 0xFFFFFFFFFFFFFFFF)
-            }
-            tk = _wrap(tk);
-            IPool.Asset storage a = $.assets[tk];
-            if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
-
-            _checkRisk(tk, C.SWAP_ENABLED_BIT);
-            PoolDecay.applyDecay($, tk, a);
-
-            uint256 amt = _pull(tk == $.wnative ? SC.NATIVE : tk, M.decodeB64(amtB64, a.decimals));
-
-            if (tk == base) {
-                baseTotal += amt;
-            } else {
-                IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk, base, amt);
-                _exec(tk, base, amt, q);
-                _oracle(q);
-                baseTotal += q.amountOut;
-            }
-            unchecked { ++i; }
-        }
-
-        if (baseTotal == 0) revert Err.ZeroValue();
-
-        uint256 wSum;
-        for (uint256 j; j < outLen;) {
-            address tk; uint16 w; uint64 minB64;
-            assembly {
-                let packed := calldataload(add(outputs.offset, mul(j, 32)))
-                tk := shr(96, packed)
-                w := and(shr(80, packed), 0xFFFF)
-                minB64 := and(packed, 0xFFFFFFFFFFFFFFFF)
-            }
-            tk = _wrap(tk);
-            IPool.Asset storage a = $.assets[tk];
-            if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
-
-            wSum += w;
-            uint256 baseIn = (baseTotal * w) / 10000;
-
-            _checkRisk(tk, C.SWAP_ENABLED_BIT);
-            PoolDecay.applyDecay($, tk, a);
-
-            if (tk == base) {
-                amountsOut[j] = baseIn;
-            } else {
-                IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, base, tk, baseIn);
-                _exec(base, tk, baseIn, q);
-                _oracle(q);
-                amountsOut[j] = q.amountOut;
-            }
-
-            uint256 minOut = M.decodeB64(minB64, a.decimals);
-            if (amountsOut[j] < minOut) revert Err.ThresholdViolation(amountsOut[j], minOut);
-            unchecked { ++j; }
-        }
-
-        if (wSum != 10000) revert Err.InvalidInput();
-
-        for (uint256 j; j < outLen;) {
-            address tk;
-            assembly { tk := shr(96, calldataload(add(outputs.offset, mul(j, 32)))) }
-            tk = _wrap(tk);
-            _push(tk == $.wnative ? SC.NATIVE : tk, recipient, amountsOut[j]);
-            unchecked { ++j; }
-        }
-
-        emit IPoolModule.BatchSwapped(msg.sender, recipient, inLen, outLen, baseTotal);
+        return PoolBatch.batchSwap($, inputs, outputs, recipient);
     }
 
     // ── Views ──
