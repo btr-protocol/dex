@@ -3,9 +3,7 @@ pragma solidity =0.8.35;
 
 import {IPool} from "./interfaces/IPool.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
-import {IERC20} from "./interfaces/external/IERC20.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Pricing} from "./libraries/Pricing.sol";
