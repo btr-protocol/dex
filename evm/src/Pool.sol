@@ -2,7 +2,6 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "./interfaces/IPool.sol";
-import {IPoolHooks} from "./interfaces/IPoolHooks.sol";
 import {IPoolModule} from "./interfaces/modules/IPool.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {IERC20} from "./interfaces/external/IERC20.sol";
@@ -20,6 +19,7 @@ import {AnchorTree} from "./libraries/AnchorTree.sol";
 import {PoolOracle} from "./libraries/PoolOracle.sol";
 import {PoolDecay} from "./libraries/PoolDecay.sol";
 import {PoolAdmin} from "./libraries/PoolAdmin.sol";
+import {PoolHookExec} from "./libraries/PoolHookExec.sol";
 
 /// @title Pool -standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
 /// @notice Phase 42H.B.3d -drops ERC-7201, deletes Base.sol, collapses PoolProxy.
@@ -544,7 +544,7 @@ contract Pool is ReentrancyGuardTransient {
         uint256 actualIn,
         IPool.SwapQuote memory q
     ) internal returns (uint256 out) {
-        (uint256 extraFee, uint16 feeOverride) = _preSwap(tk[0], tk[1], actualIn, q.amountOut);
+        (uint256 extraFee, uint16 feeOverride) = PoolHookExec.preSwap($, tk[0], tk[1], actualIn, q.amountOut);
         out = q.amountOut;
 
         if (feeOverride > 0) {
@@ -556,14 +556,14 @@ contract Pool is ReentrancyGuardTransient {
             out = q.amountOut;
         }
 
-        out = _applyHookFee(extraFee, q, out);
+        out = PoolHookExec.applyHookFee($, extraFee, q, out);
         _exec(tk[0], tk[1], actualIn, q);
 
-        int256 delta = _postSwap(tk[0], tk[1], actualIn, out);
+        int256 delta = PoolHookExec.postSwap($, tk[0], tk[1], actualIn, out);
         uint256 protoDelta = 0;
         if (delta > 0) {
             uint256 protoBefore = q.protoFee;
-            out = _applyHookFee(uint256(delta), q, out);
+            out = PoolHookExec.applyHookFee($, uint256(delta), q, out);
             protoDelta = q.protoFee - protoBefore;
             if (protoDelta != 0) {
                 $.protocolFees[tk[1]] += protoDelta;
@@ -774,64 +774,6 @@ contract Pool is ReentrancyGuardTransient {
 
             unchecked { ++i; }
         }
-    }
-
-    function _runHook(
-        address tk,
-        address other,
-        uint32 flag,
-        bool isPre,
-        address tkIn,
-        address tkOut,
-        uint256 amtIn,
-        uint256 amtOutOrFee
-    ) private returns (uint256 extraFee, uint16 feeOverride, int256 delta) {
-        address h = $.hooks[tk];
-        if (h == address(0) || h == other) return (0, 0, 0);
-        if (($.hookFlags[tk] & flag) == 0) return (0, 0, 0);
-
-        if (isPre) {
-            (uint256 f, uint16 o) = IPoolHooks(h).preSwap(address(this), msg.sender, tkIn, tkOut, amtIn, amtOutOrFee);
-            return (f, o, 0);
-        }
-        return (0, 0, IPoolHooks(h).postSwap(address(this), msg.sender, tkIn, tkOut, amtIn, amtOutOrFee));
-    }
-
-    function _preSwap(
-        address tkIn,
-        address tkOut,
-        uint256 amtIn,
-        uint256 amtOut
-    ) private returns (uint256 extraFee, uint16 feeOverride) {
-        (uint256 f1, uint16 o1, ) = _runHook(tkIn, address(0), C.HOOK_PRE_SWAP, true, tkIn, tkOut, amtIn, amtOut);
-        extraFee += f1;
-        if (o1 > 0) feeOverride = o1;
-        (uint256 f2, uint16 o2, ) = _runHook(tkOut, $.hooks[tkIn], C.HOOK_PRE_SWAP, true, tkIn, tkOut, amtIn, amtOut);
-        extraFee += f2;
-        if (o2 > 0) feeOverride = o2;
-    }
-
-    function _postSwap(
-        address tkIn,
-        address tkOut,
-        uint256 amtIn,
-        uint256 amtOut
-    ) private returns (int256) {
-        (, , int256 d1) = _runHook(tkIn, address(0), C.HOOK_POST_SWAP, false, tkIn, tkOut, amtIn, amtOut);
-        (, , int256 d2) = _runHook(tkOut, $.hooks[tkIn], C.HOOK_POST_SWAP, false, tkIn, tkOut, amtIn, amtOut);
-        return d1 + d2;
-    }
-
-    function _applyHookFee(
-        uint256 fee,
-        IPool.SwapQuote memory q,
-        uint256 out
-    ) private view returns (uint256) {
-        if (fee == 0) return out;
-        (uint256 pf, uint256 lf) = Pricing.splitFee(fee, $.feeParams.protoShare);
-        q.protoFee += pf;
-        q.lpFee += lf;
-        return out > fee ? out - fee : 0;
     }
 
     function _reconcile(IPool.Asset storage a, uint256 actual, uint256 expected) private {
