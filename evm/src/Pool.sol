@@ -71,21 +71,13 @@ contract Pool is ReentrancyGuardTransient {
 
     uint256 private constant INIT_LIQUIDITY_INDEX = 1e12;
 
-    uint32 internal constant FAST_WINDOW = PoolOracle.FAST_WINDOW;
-    uint32 internal constant SLOW_WINDOW = PoolOracle.SLOW_WINDOW;
-    uint32 internal constant FAST_VOL_ALPHA = PoolOracle.FAST_VOL_ALPHA;
-    uint32 internal constant SLOW_VOL_ALPHA = PoolOracle.SLOW_VOL_ALPHA;
-    uint32 internal constant MAX_VOLATILITY = 100 * uint32(SC.PBPS);
-    uint16 internal constant DEFAULT_TTL = PoolOracle.DEFAULT_TTL;
+    // Cohort-3 Finding 10 -dead `internal constant` mirrors of PoolOracle.*
+    // removed (0 references inside Pool.sol body). SDK exposes the canonical
+    // values via the constants table (Wave-1 plan).
 
-    // ────────────────────────────────────────────────────────────────
-    // EVENTS
-    // ────────────────────────────────────────────────────────────────
-
-    event Deposited(address indexed sender, address indexed token, uint256 amount, uint256 lpAmount);
-    event Withdrawn(address indexed sender, address indexed token, uint256 amount, uint256 lpAmount);
-    event LiabilitySwapped(address indexed sender, address indexed tokenIn, address indexed tokenOut, uint256 lpAmountIn, uint256 lpAmountOut, uint256 haircut);
-    event Donated(address indexed sender, address indexed token, uint256 amount);
+    // Cohort-3 Finding 1 -Deposited/Withdrawn/LiabilitySwapped/Donated event
+    // declarations dropped: emitted only from PoolLiquidity (declared there +
+    // in IPool canonical surface). ABI unchanged.
 
     // ────────────────────────────────────────────────────────────────
     // MODIFIERS

@@ -3,7 +3,6 @@ pragma solidity =0.8.35;
 
 import {IPool} from "./interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {PoolAdminWrite} from "./libraries/PoolAdminWrite.sol";
@@ -42,17 +41,17 @@ contract PoolAux is ReentrancyGuardTransient {
     }
 
     modifier onlyAdmin() {
-        if (msg.sender != admin) revert Ownable.Unauthorized();
+        if (msg.sender != admin) revert Err.NotOwner();
         _;
     }
 
     modifier onlyStaking() {
-        if (msg.sender != staking) revert Ownable.Unauthorized();
+        if (msg.sender != staking) revert Err.NotOwner();
         _;
     }
 
     modifier onlyFlash() {
-        if (msg.sender != flash) revert Ownable.Unauthorized();
+        if (msg.sender != flash) revert Err.NotOwner();
         _;
     }
 
@@ -171,10 +170,16 @@ contract PoolAux is ReentrancyGuardTransient {
         uint32 fastVolEMA,
         uint32 slowVolEMA
     ) external {
-        if (msg.sender != _owner() && msg.sender != address(this)) revert Ownable.Unauthorized();
+        // Cohort-3 Finding 5 -dead `msg.sender == address(this)` branch removed
+        // (no internal self-caller exists). Owner-only.
+        if (msg.sender != _owner()) revert Err.NotOwner();
         PoolEdge.updateFeed($, token, initialPrice, accDecimals, fastVolEMA, slowVolEMA);
     }
 
+    /// @notice Permissionless. Callable by anyone to update oracle accumulators
+    ///         for `tk` and return the refreshed mid price. Keepers expected.
+    /// @dev    Cohort-3 Finding 4 -intentionally unauthenticated; per-block TWAP
+    ///         poisoning guard lives in PoolOracle.
     function pokeMidPrice(address tk) external returns (uint256) {
         return PoolEdge.pokeMidPrice($, address(this), tk);
     }
