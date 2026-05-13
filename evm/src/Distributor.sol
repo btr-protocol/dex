@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {IDistributor} from "./interfaces/IDistributor.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";

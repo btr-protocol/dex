@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {IAdmin} from "./interfaces/IAdmin.sol";
 import {IPool} from "./interfaces/IPool.sol";
@@ -23,9 +23,11 @@ contract Admin is IAdmin {
     address public immutable AC;
 
     /// @dev pendingOps[keccak256(pool, opId)] => packed Timelock value.
-    mapping(bytes32 => uint96) public pendingOps;
+    ///      Wave-1: demoted public→internal (indexer reads via events; no on-chain consumer).
+    mapping(bytes32 => uint96) internal pendingOps;
     /// @dev pendingData[keccak256(pool, opId)] => abi-encoded payload.
-    mapping(bytes32 => bytes) public pendingData;
+    ///      Wave-1: demoted public→internal (consumed only by `_consume`/`_cancel`).
+    mapping(bytes32 => bytes) internal pendingData;
 
     // ── op-id namespaces (per-pool) ──
     bytes32 private constant OP_ADD_ASSET            = keccak256("ADD_ASSET");

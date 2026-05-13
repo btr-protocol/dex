@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 /// @title Constants -AIMM-specific constants (dex-local)
 /// @dev Generic precision/timelock/sentinel constants live in @btr-shared/Constants.sol.

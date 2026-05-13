@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 /// @title ITreasury -BTR token, vesting, emissions, protocol fees
 interface ITreasury {

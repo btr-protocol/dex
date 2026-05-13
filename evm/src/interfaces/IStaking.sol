@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 /// @title IStaking
 /// @notice Singleton Staking contract -Phase 42H.B.3b.

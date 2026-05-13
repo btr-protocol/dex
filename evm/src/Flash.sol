@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {IFlash} from "./interfaces/IFlash.sol";
 import {IPool} from "./interfaces/IPool.sol";

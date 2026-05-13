@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {IExchange} from "./modules/IExchange.sol";
 import {ILiquidity} from "./modules/ILiquidity.sol";

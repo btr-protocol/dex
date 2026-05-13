@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 /// @title IERC7802 -Crosschain Token Interface (mint/burn via authorized bridge)
 interface IERC7802 {

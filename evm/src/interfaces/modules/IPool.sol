@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {IPool} from "../IPool.sol";
 
@@ -78,7 +78,10 @@ interface IPoolModule {
     function getFeedConfig(address token) external view returns (IPool.OracleConfig memory);
     function getLiquidityProfile(address token) external view returns (IPool.LiquidityProfile memory);
     function getProtocolFees(address token) external view returns (uint256);
-    function getMidPrice(address token) external view returns (uint256);
+    /// @notice Pure view of last cached price (no oracle dispatch).
+    function midPrice(address token) external view returns (uint256);
+    /// @notice Refresh-then-read; mutates accumulators (keeper-callable).
+    function pokeMidPrice(address token) external returns (uint256);
 
     // ─── Liquidity functions ───
     function deposit(address token, uint256 amount)

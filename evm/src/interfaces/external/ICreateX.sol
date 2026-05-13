@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 /// @title ICreateX -minimal CreateX surface used by deploy scripts
 interface ICreateX {
