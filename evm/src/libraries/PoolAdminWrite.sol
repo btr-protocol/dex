@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.35;
+
+import {IPool} from "../interfaces/IPool.sol";
+import {Err} from "@btr-shared/Errors.sol";
+import {Constants as C} from "./Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
+import {AnchorTree} from "./AnchorTree.sol";
+import {PoolAdmin} from "./PoolAdmin.sol";
+
+/// @title PoolAdminWrite -admin-side state setters extracted from Pool.sol
+/// @notice Wave-2 bytecode reduction. Pure refactor; behavior preserved.
+///         All fns are `external` → DELEGATECALL'd from Pool's onlyAdmin
+///         trampolines. ~700 gas/call extra but admin paths are cold so
+///         the trade-off is favorable for ~250 bytes/fn bytecode savings.
+library PoolAdminWrite {
+    /// @dev Pool-local wrap (native sentinel → wnative).
+    function _wrap(IPool.PoolStorage storage $, address token) private view returns (address) {
+        return token == SC.NATIVE ? $.wnative : token;
+    }
+
+    function _requireAsset(IPool.PoolStorage storage $, address t) private view {
+        if ($.assets[t].decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
+    }
+
+    function freezeAsset(IPool.PoolStorage storage $, address token) external {
+        address t = _wrap($, token);
+        _requireAsset($, t);
+        $.riskConfigs[t].flags |= C.FROZEN_BIT;
+    }
+
+    function unfreezeAsset(IPool.PoolStorage storage $, address token) external {
+        address t = _wrap($, token);
+        _requireAsset($, t);
+        $.riskConfigs[t].flags &= ~C.FROZEN_BIT;
+    }
+
+    function initAsset(
+        IPool.PoolStorage storage $,
+        address self,
+        address token,
+        IPool.OracleConfig calldata oracleCfg,
+        IPool.RiskConfig calldata riskCfg,
+        IPool.LiquidityProfile calldata profile,
+        uint16 minFeeBps,
+        uint8 decimals,
+        uint64 initialPrice,
+        uint32 initialFastVolEMA,
+        uint32 initialSlowVolEMA,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda
+    ) external {
+        if (initialPrice == 0) revert Err.ZeroValue();
+        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
+
+        address t = _wrap($, token);
+        if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
+
+        PoolAdmin.validateProfileMemory(profile);
+        PoolAdmin.validateOracleConfig(oracleCfg, self);
+        PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
+        PoolAdmin.setupOracleAndConfig($, self, t, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
+    }
+
+    function setFlowCooldown(IPool.PoolStorage storage $, uint16 cooldownSeconds) external {
+        $.flowCooldownSeconds = cooldownSeconds;
+    }
+
+    function setAnchor(IPool.PoolStorage storage $, address token, address anchor) external {
+        address t = _wrap($, token);
+        IPool.Asset storage asset = $.assets[t];
+        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
+        uint8 depth = AnchorTree.validateAnchor($, t, anchor);
+        asset.anchor = anchor;
+        asset.anchorDepth = depth;
+    }
+
+    function setAssetParams(
+        IPool.PoolStorage storage $,
+        address token,
+        uint128 minLiquidity,
+        uint16 minFeeBps,
+        uint16 maxFeeBps,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda,
+        uint16 haircutSuppressor,
+        uint64 reservationPrice
+    ) external {
+        address t = _wrap($, token);
+        IPool.Asset storage asset = $.assets[t];
+        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
+        if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
+
+        asset.minLiquidity = minLiquidity;
+        asset.minFeeBps = minFeeBps;
+        asset.maxFeeBps = maxFeeBps;
+        asset.gamma = gamma;
+        asset.vega = vega;
+        asset.lambda = lambda;
+        asset.haircutSuppressor = haircutSuppressor;
+        asset.reservationPrice = reservationPrice;
+    }
+
+    function setRiskConfig(IPool.PoolStorage storage $, address token, IPool.RiskConfig calldata cfg) external {
+        address t = _wrap($, token);
+        _requireAsset($, t);
+        $.riskConfigs[t] = cfg;
+    }
+
+    function setOracleConfig(IPool.PoolStorage storage $, address self, address token, IPool.OracleConfig calldata cfg) external {
+        PoolAdmin.validateOracleConfig(cfg, self);
+        $.oracleConfigs[token] = cfg;
+    }
+
+    function setFeeParams(IPool.PoolStorage storage $, IPool.FeeParams calldata params) external {
+        if (params.protoShare > 100) revert Err.InvalidInput();
+        $.feeParams = params;
+    }
+
+    function setBridge(IPool.PoolStorage storage $, address newBridge) external {
+        $.bridge = newBridge;
+    }
+
+    function setTreasury(IPool.PoolStorage storage $, address newTreasury) external {
+        if (newTreasury == address(0)) revert Err.ZeroValue();
+        $.treasury = newTreasury;
+    }
+
+    function setBaseToken(IPool.PoolStorage storage $, address newBase) external {
+        $.baseToken = newBase;
+    }
+}
