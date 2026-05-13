@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {BridgeableERC20} from "./BridgeableERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";

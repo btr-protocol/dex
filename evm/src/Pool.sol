@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {IPool} from "./interfaces/IPool.sol";
 import {IPoolHooks} from "./interfaces/IPoolHooks.sol";
@@ -85,13 +85,14 @@ contract Pool is ReentrancyGuardTransient {
     /// @dev Initial liquidity index (1e12 → ~18M× growth before uint64 overflow).
     uint256 private constant INIT_LIQUIDITY_INDEX = 1e12;
 
-    /// @notice Public-facing oracle constants (mirror `PoolOracle` lib values for ABI stability).
-    uint32 public constant FAST_WINDOW = PoolOracle.FAST_WINDOW;
-    uint32 public constant SLOW_WINDOW = PoolOracle.SLOW_WINDOW;
-    uint32 public constant FAST_VOL_ALPHA = PoolOracle.FAST_VOL_ALPHA;
-    uint32 public constant SLOW_VOL_ALPHA = PoolOracle.SLOW_VOL_ALPHA;
-    uint32 public constant MAX_VOLATILITY = 100 * uint32(SC.PBPS);
-    uint16 public constant DEFAULT_TTL = PoolOracle.DEFAULT_TTL;
+    /// @notice Oracle constants (mirror `PoolOracle` lib values). Demoted to internal
+    ///         (Wave-1 over-exposed-getter cleanup) -consumers should read PoolOracle directly.
+    uint32 internal constant FAST_WINDOW = PoolOracle.FAST_WINDOW;
+    uint32 internal constant SLOW_WINDOW = PoolOracle.SLOW_WINDOW;
+    uint32 internal constant FAST_VOL_ALPHA = PoolOracle.FAST_VOL_ALPHA;
+    uint32 internal constant SLOW_VOL_ALPHA = PoolOracle.SLOW_VOL_ALPHA;
+    uint32 internal constant MAX_VOLATILITY = 100 * uint32(SC.PBPS);
+    uint16 internal constant DEFAULT_TTL = PoolOracle.DEFAULT_TTL;
 
     // ────────────────────────────────────────────────────────────────
     // EVENTS
@@ -305,11 +306,6 @@ contract Pool is ReentrancyGuardTransient {
         address t = _wrap(token);
         PoolOracle.initFeed($, t, initialPrice, accDecimals, fastVolEMA, slowVolEMA);
         emit IOracle.OracleUpdated(t, initialPrice, fastVolEMA, slowVolEMA);
-    }
-
-    /// @dev Disabled -internal oracle updates via pushFeedInternal on swaps.
-    function pushFeed(address, uint64, uint32) external pure {
-        revert Err.InvalidInput();
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -712,7 +708,27 @@ contract Pool is ReentrancyGuardTransient {
     function getHookForFlag(address tk, uint32 flag) external view returns (address) {
         return _hook(_wrap(tk), flag);
     }
-    function getMidPrice(address tk) external returns (uint256) {
+    /// @notice Pure view of the last cached oracle price for `tk` (no accumulator mutation).
+    /// @dev    Wave-1 split (Cohort-1 finding): `getMidPrice` was non-view ∵ `_readOracle` mutates
+    ///         `lastUpdate`/EMAs via primary→fallback dispatch. SDK + indexer consumers need a
+    ///         true `view`; keepers that want the side-effect should call `pokeMidPrice`.
+    function midPrice(address tk) external view returns (uint256) {
+        return $.accumulators[_wrap(tk)].lastPriceB64.b64To1e18();
+    }
+
+    /// @notice Coverage ratio = reserves / liabilities (WAD). Returns max-uint when no liabilities.
+    /// @dev    Wave-1 (IPoolModule.getCoverageRatio impl). Reverts NotFound if asset unregistered.
+    function getCoverageRatio(address tk) external view returns (uint256) {
+        IPool.Asset storage a = $.assets[_wrap(tk)];
+        if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
+        if (a.liabilities == 0) return type(uint256).max;
+        return (uint256(a.reserves) * SC.WAD) / uint256(a.liabilities);
+    }
+
+    /// @notice Refresh-then-read oracle price. Mutates accumulators (EMAs, last update ts).
+    /// @dev    Renamed from `getMidPrice` (Wave-1): non-view nature was previously hidden by
+    ///         interface declaring `view`. Keeper-callable: drives oracle freshness off-chain.
+    function pokeMidPrice(address tk) external returns (uint256) {
         return _readOracle(_wrap(tk)).lastPriceB64.b64To1e18();
     }
 
