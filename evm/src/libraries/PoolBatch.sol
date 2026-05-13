@@ -2,7 +2,6 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
-import {IPoolModule} from "../interfaces/modules/IPool.sol";
 import {IWETH9} from "../interfaces/external/IWETH9.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
@@ -194,6 +193,6 @@ library PoolBatch {
             unchecked { ++j; }
         }
 
-        emit IPoolModule.BatchSwapped(msg.sender, recipient, inLen, outLen, baseTotal);
+        emit IPool.BatchSwapped(msg.sender, recipient, inLen, outLen, baseTotal);
     }
 }
