@@ -7,10 +7,10 @@ import {IOracle} from "./IOracle.sol";
 /// @dev Phase 42H.B.3c -IFlash + IDistributor removed from inheritance; both are now
 ///      standalone singletons with pool-keyed APIs (see /interfaces/IFlash.sol +
 ///      /interfaces/IDistributor.sol).
-/// @dev Cohort-3 Finding 3 -Pool module events + view sigs (previously in
-///      `interfaces/modules/IPool.sol::IPoolModule`) folded in here so the root
-///      `IPool` is the single canonical declaration. `IExchange` / `ILiquidity`
-///      remain as empty backwards-compat stubs (`is IPool`) for off-chain consumers.
+/// @dev Cohort-3 Finding 3 -Pool module events + view sigs folded into this root
+///      `IPool` as the single canonical declaration. Wave-5 (Cohort-4 N6): dead
+///      module aliases (`interfaces/modules/{IPool,ILiquidity,ICore}.sol`) removed.
+///      `interfaces/modules/IExchange.sol` retained -still consumed by Router.
 interface IPool is IOracle {
     struct Asset {
         uint128 reserves;
@@ -253,7 +253,6 @@ interface IPool is IOracle {
     function owner() external view returns (address);
     function baseToken() external view returns (address);
     function wnative() external view returns (address);
-    function getRiskConfig(address token) external view returns (RiskConfig memory);
     function getCoverageRatio(address token) external view returns (uint256);
 
     function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut, address recipient)
@@ -266,8 +265,6 @@ interface IPool is IOracle {
     function getSwapQuote(address tokenIn, address tokenOut, uint256 amountIn)
         external view returns (SwapQuote memory quote);
 
-    function getFeedConfig(address token) external view returns (OracleConfig memory);
-    function getLiquidityProfile(address token) external view returns (LiquidityProfile memory);
     function getProtocolFees(address token) external view returns (uint256);
     /// @notice Pure view of last cached price (no oracle dispatch).
     function midPrice(address token) external view returns (uint256);
