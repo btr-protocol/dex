@@ -15,11 +15,10 @@ import {Pricing} from "./libraries/Pricing.sol";
 import {Maths as M} from "./libraries/Maths.sol";
 import {Constants as C} from "./libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
-import {AnchorTree} from "./libraries/AnchorTree.sol";
 import {PoolOracle} from "./libraries/PoolOracle.sol";
 import {PoolDecay} from "./libraries/PoolDecay.sol";
-import {PoolAdmin} from "./libraries/PoolAdmin.sol";
 import {PoolHookExec} from "./libraries/PoolHookExec.sol";
+import {PoolAdminWrite} from "./libraries/PoolAdminWrite.sol";
 
 /// @title Pool -standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
 /// @notice Phase 42H.B.3d -drops ERC-7201, deletes Base.sol, collapses PoolProxy.
@@ -789,15 +788,11 @@ contract Pool is ReentrancyGuardTransient {
     // ────────────────────────────────────────────────────────────────
 
     function adminFreezeAsset(address token) external onlyAdmin {
-        address t = _wrap(token);
-        _asset(t);
-        $.riskConfigs[t].flags |= C.FROZEN_BIT;
+        PoolAdminWrite.freezeAsset($, token);
     }
 
     function adminUnfreezeAsset(address token) external onlyAdmin {
-        address t = _wrap(token);
-        _asset(t);
-        $.riskConfigs[t].flags &= ~C.FROZEN_BIT;
+        PoolAdminWrite.unfreezeAsset($, token);
     }
 
     function adminInitAsset(
@@ -816,16 +811,11 @@ contract Pool is ReentrancyGuardTransient {
         uint16 vega,
         uint16 lambda
     ) external onlyAdmin {
-        if (initialPrice == 0) revert Err.ZeroValue();
-        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
-
-        address t = _wrap(token);
-        if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
-
-        PoolAdmin.validateProfileMemory(profile);
-        PoolAdmin.validateOracleConfig(oracleCfg, address(this));
-        PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
-        PoolAdmin.setupOracleAndConfig($, address(this), t, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
+        PoolAdminWrite.initAsset(
+            $, address(this), token, oracleCfg, riskCfg, profile,
+            minFeeBps, decimals, initialPrice, initialFastVolEMA, initialSlowVolEMA,
+            minDispersion, maxDispersion, gamma, vega, lambda
+        );
     }
 
     function adminCollectProtocolFees(address token, address recipient)
@@ -840,16 +830,11 @@ contract Pool is ReentrancyGuardTransient {
     }
 
     function adminSetFlowCooldown(uint16 cooldownSeconds) external onlyAdmin {
-        $.flowCooldownSeconds = cooldownSeconds;
+        PoolAdminWrite.setFlowCooldown($, cooldownSeconds);
     }
 
     function adminSetAnchor(address token, address anchor) external onlyAdmin {
-        address t = _wrap(token);
-        IPool.Asset storage asset = $.assets[t];
-        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
-        uint8 depth = AnchorTree.validateAnchor($, t, anchor);
-        asset.anchor = anchor;
-        asset.anchorDepth = depth;
+        PoolAdminWrite.setAnchor($, token, anchor);
     }
 
     function adminSetAssetParams(
@@ -863,48 +848,31 @@ contract Pool is ReentrancyGuardTransient {
         uint16 haircutSuppressor,
         uint64 reservationPrice
     ) external onlyAdmin {
-        address t = _wrap(token);
-        IPool.Asset storage asset = $.assets[t];
-        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
-        if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
-
-        asset.minLiquidity = minLiquidity;
-        asset.minFeeBps = minFeeBps;
-        asset.maxFeeBps = maxFeeBps;
-        asset.gamma = gamma;
-        asset.vega = vega;
-        asset.lambda = lambda;
-        asset.haircutSuppressor = haircutSuppressor;
-        asset.reservationPrice = reservationPrice;
+        PoolAdminWrite.setAssetParams($, token, minLiquidity, minFeeBps, maxFeeBps, gamma, vega, lambda, haircutSuppressor, reservationPrice);
     }
 
     function adminSetRiskConfig(address token, IPool.RiskConfig calldata cfg) external onlyAdmin {
-        address t = _wrap(token);
-        _asset(t);
-        $.riskConfigs[t] = cfg;
+        PoolAdminWrite.setRiskConfig($, token, cfg);
     }
 
     function adminSetOracleConfig(address token, IPool.OracleConfig calldata cfg) external onlyAdmin {
-        PoolAdmin.validateOracleConfig(cfg, address(this));
-        $.oracleConfigs[token] = cfg;
+        PoolAdminWrite.setOracleConfig($, address(this), token, cfg);
     }
 
     function adminSetFeeParams(IPool.FeeParams calldata params) external onlyAdmin {
-        if (params.protoShare > 100) revert Err.InvalidInput();
-        $.feeParams = params;
+        PoolAdminWrite.setFeeParams($, params);
     }
 
     function adminSetBridge(address newBridge) external onlyAdmin {
-        $.bridge = newBridge;
+        PoolAdminWrite.setBridge($, newBridge);
     }
 
     function adminSetTreasury(address newTreasury) external onlyAdmin {
-        if (newTreasury == address(0)) revert Err.ZeroValue();
-        $.treasury = newTreasury;
+        PoolAdminWrite.setTreasury($, newTreasury);
     }
 
     function adminSetBaseToken(address newBase) external onlyAdmin {
-        $.baseToken = newBase;
+        PoolAdminWrite.setBaseToken($, newBase);
     }
 
     // ────────────────────────────────────────────────────────────────
