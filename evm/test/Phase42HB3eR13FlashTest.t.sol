@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/Pool.sol";
+import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
 import {Staking} from "../src/Staking.sol";
@@ -61,7 +62,8 @@ contract Phase42HB3eR13FlashTest is Test {
         admin = new Admin(address(ac));
         stakingSingleton = new Staking(address(ac));
         flashSingleton = new Flash();
-        poolImpl = new Pool(address(ac), address(admin), address(stakingSingleton), address(flashSingleton));
+        PoolAux poolAux = new PoolAux(address(ac), address(admin), address(stakingSingleton), address(flashSingleton));
+        poolImpl = new Pool(address(ac), address(admin), address(stakingSingleton), address(flashSingleton), address(poolAux));
         factory = new PoolFactory(address(poolImpl), address(this), address(ac));
 
         base = new MockERC20("Base", "BASE", 18);
@@ -149,6 +151,6 @@ contract Phase42HB3eR13FlashTest is Test {
         // Prank as the singleton admin (only address allowed to call adminSetFeeParams on Pool).
         vm.prank(address(admin));
         vm.expectRevert(Err.InvalidInput.selector);
-        pool.adminSetFeeParams(bad);
+        IPool(address(pool)).adminSetFeeParams(bad);
     }
 }

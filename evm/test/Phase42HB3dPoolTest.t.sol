@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/Pool.sol";
+import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
 import {Staking} from "../src/Staking.sol";
@@ -63,7 +64,8 @@ contract Phase42HB3dPoolTest is Test {
         admin            = new Admin(address(ac));
         stakingSingleton = new Staking(address(ac));
         flashSingleton   = new Flash();
-        poolImpl         = new Pool(address(ac), address(admin), address(stakingSingleton), address(flashSingleton));
+        PoolAux poolAux  = new PoolAux(address(ac), address(admin), address(stakingSingleton), address(flashSingleton));
+        poolImpl         = new Pool(address(ac), address(admin), address(stakingSingleton), address(flashSingleton), address(poolAux));
 
         factory = new PoolFactory(address(poolImpl), address(this), address(ac));
 
@@ -165,7 +167,27 @@ contract Phase42HB3dPoolTest is Test {
     function test_admin_only_via_singleton() public {
         vm.prank(USER);
         vm.expectRevert(Ownable.Unauthorized.selector);
-        pool.adminFreezeAsset(address(base));
+        IPool(address(pool)).adminFreezeAsset(address(base));
+    }
+
+    /// @notice Wave-3a: cold-path selectors routed via Pool.fallback → PoolAux delegatecall.
+    ///         Proves admin-gated setter still revertx Unauthorized when caller != admin
+    ///         singleton, AND succeeds when called by admin (via Admin contract).
+    function test_wave3a_fallback_dispatch_admin_gate() public {
+        // Direct call from non-admin should revert Unauthorized (PoolAux onlyAdmin gate).
+        vm.prank(USER);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        IPool(address(pool)).adminSetFlowCooldown(123);
+
+        // Call from admin singleton (impersonate) succeeds through fallback.
+        vm.prank(address(admin));
+        IPool(address(pool)).adminSetFlowCooldown(123);
+    }
+
+    /// @notice Wave-3a: invalid selector (not in PoolAux) must revert cleanly.
+    function test_wave3a_fallback_unknown_selector_reverts() public {
+        (bool ok, ) = address(pool).call(abi.encodeWithSelector(bytes4(0xdeadbeef)));
+        assertFalse(ok, "unknown selector must revert");
     }
 
     function test_factory_registers_pool() public view {

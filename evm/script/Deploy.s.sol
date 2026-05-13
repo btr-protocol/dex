@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity =0.8.35;
 
 import {DeployBase} from "@btr-shared-script/Deploy.base.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
@@ -12,6 +12,7 @@ import {Staking} from "../src/Staking.sol";
 import {Distributor} from "../src/Distributor.sol";
 import {Flash} from "../src/Flash.sol";
 import {Pool} from "../src/Pool.sol";
+import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {Bridge} from "../src/Bridge.sol";
@@ -35,6 +36,7 @@ contract Deploy is DeployBase {
         address staking;
         address distributor;
         address flash;
+        address poolAux;
         address poolImpl;
         address poolFactory;
         address govToken;
@@ -64,8 +66,10 @@ contract Deploy is DeployBase {
         a.distributor = address(new Distributor(a.ac));
         a.flash = address(new Flash());
 
-        // 3. Pool reference impl + PoolFactory (clones).
-        a.poolImpl = address(new Pool(a.ac, a.admin, a.staking, a.flash));
+        // 3. PoolAux singleton (cold-path dispatcher, Wave-3a EIP-170 reduction)
+        //    + Pool reference impl + PoolFactory (clones).
+        a.poolAux = address(new PoolAux(a.ac, a.admin, a.staking, a.flash));
+        a.poolImpl = address(new Pool(a.ac, a.admin, a.staking, a.flash, a.poolAux));
         a.poolFactory = address(new PoolFactory(a.poolImpl, a.deployer, a.ac));
 
         // 4. GovToken (deployer-owned initially → reassigned to Treasury proxy below).
@@ -118,6 +122,7 @@ contract Deploy is DeployBase {
         console2.log("Staking:          ", a.staking);
         console2.log("Distributor:      ", a.distributor);
         console2.log("Flash:            ", a.flash);
+        console2.log("PoolAux:          ", a.poolAux);
         console2.log("Pool (impl):      ", a.poolImpl);
         console2.log("PoolFactory:      ", a.poolFactory);
         console2.log("GovToken:         ", a.govToken);
@@ -133,6 +138,7 @@ contract Deploy is DeployBase {
         vm.serializeAddress(k, "staking", a.staking);
         vm.serializeAddress(k, "distributor", a.distributor);
         vm.serializeAddress(k, "flash", a.flash);
+        vm.serializeAddress(k, "poolAux", a.poolAux);
         vm.serializeAddress(k, "poolImpl", a.poolImpl);
         vm.serializeAddress(k, "poolFactory", a.poolFactory);
         vm.serializeAddress(k, "govToken", a.govToken);
