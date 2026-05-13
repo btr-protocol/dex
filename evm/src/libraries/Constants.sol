@@ -39,17 +39,6 @@ library Constants {
     /// @notice JIT cooldown (seconds) -chain-agnostic safe default.
     uint16 internal constant DEFAULT_FLOW_COOLDOWN = 15;
 
-    // --- Timelock IDs (precomputed keccak256) ---
-    bytes32 internal constant TIMELOCK_ID_OWNERSHIP = 0xb23d8fa2f62c8a954db45521d1249908693b29ffd3d2dab6348898c4198996b2;
-    bytes32 internal constant TIMELOCK_ID_MODULE = 0x9711820581f0923b8ce766818550d8de681ea05c98d406ede2cb99f547946483;
-    bytes32 internal constant TIMELOCK_ID_BASE_MIGRATION = 0x481ddbaf0bd6c8dbe0481df731f218348c8e6a7d7c2688a8461149748efe26b2;
-    // Oracle: keccak256(abi.encodePacked("ORACLE_UPDATE", token))
-    bytes32 internal constant TIMELOCK_ID_STAKING = 0x31d5d9f75ffb4c90ed2cfe65e740a9e01a63f5c56e0230dcfebcfa5d5d4dabd2;
-    bytes32 internal constant TIMELOCK_ID_DISTRIBUTION = 0x96c0232a810ff94a1df4a4c89c2aa471f0a4ca4008e0c532f71f233529af9490;
-    bytes32 internal constant TIMELOCK_ID_FEE_PARAMS = 0x8b78c6d8bcad3b5cb6b93b4e61d52c5a7b9e8f4c2d1a0e3f6b5c4d8a7e9f1c2d;
-    bytes32 internal constant TIMELOCK_ID_BRIDGE = 0x183169b8f82d189401b48b883d17402cedfd43bd2085165ddeb902945cc01676;
-    bytes32 internal constant TIMELOCK_ID_TREASURY = 0x7c5d1f6de8c0b8f9c4a6d5b3e2a1c9f8d7e6b5a4c3d2e1f0a9b8c7d6e5f4a3b2;
-
     // --- Greek var legend (auditors) ---
     // ψ inventorySkew [-100,+100] · π progress [0,1] · γ gamma BPS · ν vega BPS · λ lambda BPS
     // η haircutSuppressor BPS · σ volatility PBPS · Δ delta PBPS · κ dispersion PBPS
