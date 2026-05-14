@@ -1,11 +1,11 @@
 [profile.default]
 src = "src"
 out = "out"
-libs = [".deps", "../../shared"]
+libs = [".deps", "../../shared/evm"]
 remappings = [
-  "@btr-shared/=../../shared/src/",
-  "@btr-shared-test/=../../shared/test/",
-  "@btr-shared-script/=../../shared/script/",
+  "@btr-shared/=../../shared/evm/src/",
+  "@btr-shared-test/=../../shared/evm/test/",
+  "@btr-shared-script/=../../shared/evm/script/",
 ]
 optimizer = true
 optimizer_runs = 10000
