@@ -29,14 +29,8 @@ contract Staking is IStaking, ReentrancyGuardTransient {
     /// @notice Shared singleton AccessControl -single source of truth for owner.
     address public immutable AC;
 
-    /// @dev Per-pool config.
-    struct PoolStakingConfig {
-        uint48 stakeLockDuration;
-        bool paused;
-    }
-
-    // ── per-pool config ──
-    mapping(address pool => PoolStakingConfig) public poolConfig;
+    // ── per-pool config (PoolStakingConfig now @ IStaking) ──
+    mapping(address pool => IStaking.PoolStakingConfig) public poolConfig;
     mapping(address pool => address) public govTokenOf;
     mapping(address pool => address) public sGovTokenOf;
 
@@ -265,35 +259,35 @@ contract Staking is IStaking, ReentrancyGuardTransient {
 
     // ─── views ───
 
-    function getStakedGov(address pool, address user) external view returns (uint256) { return govStaked[pool][user]; }
+    function stakedGov(address pool, address user) external view returns (uint256) { return govStaked[pool][user]; }
 
-    function getStakedLP(address pool, address user, address lpToken) external view returns (uint256) {
+    function stakedLP(address pool, address user, address lpToken) external view returns (uint256) {
         address sLP = sLPTokens[pool][lpToken];
         return sLP == address(0) ? 0 : SafeTransferLib.balanceOf(sLP, user);
     }
 
-    function getUnlockTime(address pool, address user, address lpToken) external view returns (uint48) {
+    function unlockTime(address pool, address user, address lpToken) external view returns (uint48) {
         return lpToken == address(0) ? govUnlockTime[pool][user] : lpUnlockTime[pool][user][lpToken];
     }
 
-    function getSLPToken(address pool, address lpToken) external view returns (address) { return sLPTokens[pool][lpToken]; }
-    function getTotalLPStaked(address pool, address lpToken) external view returns (uint256) { return totalLPStakedByPool[pool][lpToken]; }
+    function slpToken(address pool, address lpToken) external view returns (address) { return sLPTokens[pool][lpToken]; }
+    function totalLPStaked(address pool, address lpToken) external view returns (uint256) { return totalLPStakedByPool[pool][lpToken]; }
 
     /// @notice For sToken.balanceOf -caller MUST be a sToken bound to (pool, underlying).
     /// @dev underlying = govToken → returns gov stake; else → returns LP stake.
-    function getStakedBalance(address pool, address user, address underlying) external view returns (uint256) {
+    function stakedBalance(address pool, address user, address underlying) external view returns (uint256) {
         if (underlying == govTokenOf[pool]) return govStaked[pool][user];
         return lpStaked[pool][user][underlying];
     }
 
-    function getTotalStaked(address pool, address underlying) external view returns (uint256) {
+    function totalStaked(address pool, address underlying) external view returns (uint256) {
         if (underlying == govTokenOf[pool]) return totalGovStaked[pool];
         return totalLPStakedByPool[pool][underlying];
     }
 
-    function getDelegateOf(address pool, address owner_) external view returns (address) { return delegateOfBy[pool][owner_]; }
+    function delegateOf(address pool, address owner_) external view returns (address) { return delegateOfBy[pool][owner_]; }
 
-    function getStakeLockDuration(address pool) external view returns (uint48) { return poolConfig[pool].stakeLockDuration; }
+    function stakeLockDuration(address pool) external view returns (uint48) { return poolConfig[pool].stakeLockDuration; }
     function isStakingPaused(address pool) external view returns (bool) { return poolConfig[pool].paused; }
-    function getLPTokens(address pool) external view returns (address[] memory) { return _lpTokens[pool]; }
+    function lpTokens(address pool) external view returns (address[] memory) { return _lpTokens[pool]; }
 }

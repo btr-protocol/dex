@@ -4,6 +4,7 @@ pragma solidity =0.8.35;
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {AnchorTree as T} from "../../src/libraries/AnchorTree.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
+import {Err} from "@btr-shared/Errors.sol";
 
 /// @title LibAnchorTreeHarness
 /// @notice Test harness to expose LibAnchorTree internal functions
@@ -153,14 +154,14 @@ contract LibAnchorTreeTest is BaseTestSetup {
         harness.setBaseToken(ROOT);
         harness.configureAsset(CHILD_A, address(0), 0, 18); // Not the base token
 
-        vm.expectRevert(abi.encodeWithSelector(T.InvalidAnchor.selector, CHILD_A, address(0)));
+        vm.expectRevert(abi.encodeWithSelector(Err.InvalidAnchor.selector, CHILD_A, address(0)));
         harness.validateAnchor(CHILD_A, address(0));
     }
 
     function test_validateAnchor_self_reference_reverts() public {
         setupBasicTree();
 
-        vm.expectRevert(abi.encodeWithSelector(T.InvalidAnchor.selector, CHILD_A, CHILD_A));
+        vm.expectRevert(abi.encodeWithSelector(Err.InvalidAnchor.selector, CHILD_A, CHILD_A));
         harness.validateAnchor(CHILD_A, CHILD_A);
     }
 
@@ -170,7 +171,7 @@ contract LibAnchorTreeTest is BaseTestSetup {
 
         address unconfigured = address(0x999);
 
-        vm.expectRevert(abi.encodeWithSelector(T.AssetNotInTree.selector, unconfigured));
+        vm.expectRevert(abi.encodeWithSelector(Err.AssetNotInTree.selector, unconfigured));
         harness.validateAnchor(CHILD_A, unconfigured);
     }
 
@@ -224,7 +225,7 @@ contract LibAnchorTreeTest is BaseTestSetup {
         harness.configureAsset(depth3, depth2, 3, 18);
         harness.configureAsset(depth4, depth3, 4, 18);
 
-        vm.expectRevert(abi.encodeWithSelector(T.DepthExceeded.selector, depth5, 5));
+        vm.expectRevert(abi.encodeWithSelector(Err.DepthExceeded.selector, depth5, 5));
         harness.validateAnchor(depth5, depth4);
     }
 
@@ -245,7 +246,7 @@ contract LibAnchorTreeTest is BaseTestSetup {
         // Better test: Try to anchor CHILD_A to LEAF_A1 (its descendant)
         // This would create: LEAF_A1 -> CHILD_A -> LEAF_A1 (cycle)
 
-        vm.expectRevert(abi.encodeWithSelector(T.CycleDetected.selector, CHILD_A));
+        vm.expectRevert(abi.encodeWithSelector(Err.CycleDetected.selector, CHILD_A));
         harness.validateAnchor(CHILD_A, LEAF_A1);
     }
 
@@ -381,7 +382,7 @@ contract LibAnchorTreeTest is BaseTestSetup {
 
         address unconfigured = address(0x999);
 
-        vm.expectRevert(abi.encodeWithSelector(T.AssetNotInTree.selector, unconfigured));
+        vm.expectRevert(abi.encodeWithSelector(Err.AssetNotInTree.selector, unconfigured));
         harness.findRoutingPath(unconfigured, CHILD_A);
     }
 
@@ -390,7 +391,7 @@ contract LibAnchorTreeTest is BaseTestSetup {
 
         address unconfigured = address(0x999);
 
-        vm.expectRevert(abi.encodeWithSelector(T.AssetNotInTree.selector, unconfigured));
+        vm.expectRevert(abi.encodeWithSelector(Err.AssetNotInTree.selector, unconfigured));
         harness.findRoutingPath(CHILD_A, unconfigured);
     }
 

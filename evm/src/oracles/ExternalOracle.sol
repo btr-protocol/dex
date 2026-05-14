@@ -13,11 +13,6 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 contract ExternalOracle is IOracle {
     /// @notice Shared singleton AccessControl -single source of truth for owner.
     address public immutable AC;
-    // ─── errors ───
-    // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
-    error FeedNotFound(bytes32 feedId);
-    error FeedAlreadyExists(bytes32 feedId);
-
     // ─── constants ───
     uint32 public constant MAX_VOLATILITY = 100 * uint32(SC.PBPS);
     /// @dev Phase 42D A4-5 DISCARD (by-design): event-only enforcement. The on-chain code does
@@ -92,7 +87,7 @@ contract ExternalOracle is IOracle {
         if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
 
         bytes32 feedId = keccak256(abi.encodePacked(base, quote));
-        if (feeds[feedId].updatedAt != 0) revert FeedAlreadyExists(feedId);
+        if (feeds[feedId].updatedAt != 0) revert Err.FeedAlreadyExists(feedId);
 
         feeds[feedId] = FeedData({
             lastPriceB64: fastEMA,
@@ -109,7 +104,7 @@ contract ExternalOracle is IOracle {
     }
 
     function updateFeed(bytes32 feedId, uint16 maxDeviation, uint16 ttl) external onlyOwner {
-        if (feeds[feedId].updatedAt == 0) revert FeedNotFound(feedId);
+        if (feeds[feedId].updatedAt == 0) revert Err.FeedNotFound(feedId);
         if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
         feeds[feedId].ttl = ttl;
         // NB: maxDeviation event-only; deviation checks done off-chain pre-push
@@ -162,8 +157,9 @@ contract ExternalOracle is IOracle {
             slowVolEMAs.length != length
         ) revert Err.InvalidInput();
 
-        for (uint256 i = 0; i < length; i++) {
+        for (uint256 i; i < length;) {
             _pushInternal(_feedIds[i], fastEMAs[i], slowEMAs[i], fastVolEMAs[i], slowVolEMAs[i]);
+            unchecked { ++i; }
         }
         emit BatchPushed(_feedIds, msg.sender);
     }
@@ -184,7 +180,7 @@ contract ExternalOracle is IOracle {
         uint32 newSlowVolEMA
     ) internal {
         FeedData storage feed = feeds[feedId];
-        if (feed.updatedAt == 0) revert FeedNotFound(feedId);
+        if (feed.updatedAt == 0) revert Err.FeedNotFound(feedId);
         _validate(newFastEMA, newSlowEMA, newFastVolEMA, newSlowVolEMA);
 
         feed.lastPriceB64 = newFastEMA;
@@ -205,7 +201,7 @@ contract ExternalOracle is IOracle {
     // ─── IOracle ───
     function getFeed(bytes32 feedId) external view override returns (FeedData memory data) {
         data = feeds[feedId];
-        if (data.updatedAt == 0) revert FeedNotFound(feedId);
+        if (data.updatedAt == 0) revert Err.FeedNotFound(feedId);
     }
 
     function isFeedFresh(bytes32 feedId, uint32 maxAge) external view override returns (bool) {
@@ -222,7 +218,7 @@ contract ExternalOracle is IOracle {
 
     function getFastEMA(bytes32 feedId) external view override returns (uint64) {
         FeedData storage f = feeds[feedId];
-        if (f.updatedAt == 0) revert FeedNotFound(feedId);
+        if (f.updatedAt == 0) revert Err.FeedNotFound(feedId);
         return f.lastPriceB64;
     }
 

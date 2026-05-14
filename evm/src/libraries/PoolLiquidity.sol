@@ -19,11 +19,7 @@ library PoolLiquidity {
 
     uint256 internal constant INIT_LIQUIDITY_INDEX = 1e12;
 
-    event Deposited(address indexed sender, address indexed token, uint256 amount, uint256 lpAmount);
-    event Withdrawn(address indexed sender, address indexed token, uint256 amount, uint256 lpAmount);
-    event LiabilitySwapped(address indexed sender, address indexed tokenIn, address indexed tokenOut, uint256 lpAmountIn, uint256 lpAmountOut, uint256 haircut);
-    event Donated(address indexed sender, address indexed token, uint256 amount);
-
+    // Events canonical @ IPool (Deposited / Withdrawn / LiabilitySwapped / Donated).
     function _wrap(IPool.PoolStorage storage $, address token) private view returns (address) {
         return token == SC.NATIVE ? $.wnative : token;
     }
@@ -115,7 +111,7 @@ library PoolLiquidity {
         $.lpBalances[msg.sender][tkn] += lpAmt;
         $.lastDepositTime[msg.sender][tkn] = uint32(block.timestamp);
 
-        emit Deposited(msg.sender, tkn, amt, lpAmt);
+        emit IPool.Deposited(msg.sender, tkn, amt, lpAmt);
         return IPool.DepositResult({lpAmount: lpAmt, actualDeposit: amt});
     }
 
@@ -143,7 +139,7 @@ library PoolLiquidity {
         uint256 idx = asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex;
         asset.liquidityIndex = uint64(liabBefore == 0 ? idx : (idx * (liabBefore + amt)) / liabBefore);
 
-        emit Donated(msg.sender, token, amt);
+        emit IPool.Donated(msg.sender, token, amt);
     }
 
     struct WithdrawCtx {
@@ -200,10 +196,10 @@ library PoolLiquidity {
         _push($, tokenTo, msg.sender, ctx.amt);
 
         if (ctx.fromTk == ctx.toTk) {
-            emit Withdrawn(msg.sender, ctx.fromTk, ctx.amt, lpAmount);
+            emit IPool.Withdrawn(msg.sender, ctx.fromTk, ctx.amt, lpAmount);
         } else {
-            emit LiabilitySwapped(msg.sender, ctx.fromTk, ctx.toTk, lpAmount, 0, ctx.haircut);
-            emit Withdrawn(msg.sender, ctx.toTk, ctx.amt, lpAmount);
+            emit IPool.LiabilitySwapped(msg.sender, ctx.fromTk, ctx.toTk, lpAmount, 0, ctx.haircut);
+            emit IPool.Withdrawn(msg.sender, ctx.toTk, ctx.amt, lpAmount);
         }
         return IPool.WithdrawResult({amountOut: ctx.amt, lpBurned: lpAmount});
     }
@@ -280,7 +276,7 @@ library PoolLiquidity {
         $.lpBalances[msg.sender][inTk] -= lpAmountIn;
         $.lpBalances[msg.sender][outTk] += lpAmountOut;
 
-        emit LiabilitySwapped(msg.sender, inTk, outTk, lpAmountIn, lpAmountOut, haircut);
+        emit IPool.LiabilitySwapped(msg.sender, inTk, outTk, lpAmountIn, lpAmountOut, haircut);
         return lpAmountOut;
     }
 }

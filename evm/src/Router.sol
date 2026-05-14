@@ -21,9 +21,6 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 contract Router is IRouter, ReentrancyGuardTransient, UUPSUpgradeable {
     using SafeTransferLib for address;
 
-    error SlippageExceeded();
-    error WrongEthAmount();
-
     uint8 public constant MAX_HOPS = 3;
     uint16 internal constant MIN_HOP_IMPROVEMENT_BPS = 105;
     address internal constant ETH = address(0);
@@ -287,7 +284,7 @@ contract Router is IRouter, ReentrancyGuardTransient, UUPSUpgradeable {
         }
 
         amountOut = currentAmount;
-        if (amountOut < minAmountOut) revert SlippageExceeded();
+        if (amountOut < minAmountOut) revert Err.SlippageExceeded();
 
         _transferOut(currentToken, amountOut, recipient);
         emit SwapExecuted(msg.sender, recipient, amountIn, amountOut, uint8(nSteps));
@@ -313,7 +310,7 @@ contract Router is IRouter, ReentrancyGuardTransient, UUPSUpgradeable {
 
     function _transferIn(address token, uint256 amount) internal {
         if (token == ETH) {
-            if (msg.value != amount) revert WrongEthAmount();
+            if (msg.value != amount) revert Err.WrongEthAmount();
         } else {
             token.safeTransferFrom(msg.sender, address(this), amount);
         }
