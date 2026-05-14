@@ -7,16 +7,13 @@ import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
-import {Staking} from "../src/Staking.sol";
+import {Staking} from "@btr-shared/Staking.sol";
 import {Flash} from "../src/Flash.sol";
 import {Bridge} from "@btr-shared/Bridge.sol";
 import {Treasury} from "@btr-shared/Treasury.sol";
 import {Distributor} from "@btr-shared/Distributor.sol";
-import {GovToken} from "@btr-shared/tokens/GovToken.sol";
-import {StakedLP} from "../src/tokens/StakedLP.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IDistributor} from "@btr-shared/interfaces/IDistributor.sol";
-import {IStaking} from "../src/interfaces/IStaking.sol";
 import {IBridge} from "@btr-shared/interfaces/IBridge.sol";
 import {ITreasury} from "@btr-shared/interfaces/ITreasury.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
@@ -214,56 +211,11 @@ contract Phase42HB3eR14R15R16Test is Test {
     }
 
     // ─── R16 Staking lpBalances drain (CRIT) ───
-
-    /// @notice R16 CRIT: stake → unstake conserves user's lpBalance + sLP balance under invariant.
-    ///         A user cannot drain by staking and then directly withdraw the original lpBalances slot.
-    function test_R16_stake_unstake_conservation() public {
-        // Deposit some quote LP first.
-        uint256 amt = 1_000e18;
-        quote.mint(USER, amt);
-        vm.prank(USER); quote.approve(address(pool), type(uint256).max);
-        vm.prank(USER); pool.deposit(address(quote), amt);
-        uint256 lp0 = pool.getLPBalance(USER, address(quote));
-        assertGt(lp0, 0, "lp credited");
-
-        // Configure staking on this pool. Need real gov + sGov tokens (minimal).
-        GovToken gov = new GovToken(address(stakingSingleton), "G","G");
-        // sGov: a StakedLP-like wrapper bound to gov.
-        StakedLP sGov = new StakedLP(address(stakingSingleton), address(gov), address(pool));
-        vm.prank(OWNER);
-        stakingSingleton.configurePool(address(pool), address(gov), address(sGov), 0);
-
-        // Register sLP for the quote LP token.
-        vm.prank(OWNER);
-        stakingSingleton.updateStakingConfig(address(pool), address(quote), bytes32(uint256(1)));
-
-        // Stake all.
-        vm.prank(USER);
-        stakingSingleton.stakeLP(address(pool), address(quote), lp0);
-
-        // Pool's lpBalance debited; staking accounting credits sLP balance.
-        uint256 lp1 = pool.getLPBalance(USER, address(quote));
-        uint256 staked1 = stakingSingleton.stakedLP(address(pool), USER, address(quote));
-        assertEq(lp1, 0, "lpBalance fully debited");
-        assertEq(staked1, lp0, "staked = lp0");
-        // Conservation: lpBalance + staked == lp0.
-        assertEq(lp1 + staked1, lp0, "stake conservation");
-
-        // Now user attempts withdraw on Pool -must fail (lpBalance=0).
-        vm.prank(USER);
-        vm.expectRevert();
-        pool.withdraw(address(quote), 1, 0);
-
-        // Unstake half.
-        vm.prank(USER);
-        stakingSingleton.unstakeLP(address(pool), address(quote), lp0 / 2);
-
-        uint256 lp2 = pool.getLPBalance(USER, address(quote));
-        uint256 staked2 = stakingSingleton.stakedLP(address(pool), USER, address(quote));
-        assertEq(lp2, lp0 / 2, "half restored to lpBalance");
-        assertEq(staked2, lp0 - lp0 / 2, "half remains staked");
-        assertEq(lp2 + staked2, lp0, "unstake conservation");
-    }
+    // Removed: test_R16_stake_unstake_conservation
+    // Rationale: Staking refactored to IStakable-keyed shared singleton; no longer keyed by
+    //            (pool, lpToken). Pool LP balances now decoupled from staking custody (no
+    //            stakingAdjustLpBalance callback). Equivalent invariant covered in
+    //            alm/evm/test/VaultStaking.t.sol via Vault-share stake/unstake conservation.
 
     // ─── Salvage ───
 
