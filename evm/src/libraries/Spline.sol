@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+
 /// @title Spline -Monotone Cubic Hermite spline (1e18 fixed-point)
 library Spline {
     struct Point { uint256 x; int256 y; }
@@ -87,11 +89,16 @@ library Spline {
         }
     }
 
+    /// @dev R44-6 (Pass-44B): Fritsch-Carlson α²+β²≤9 clamp on top of sign-preservation.
+    ///      α=m0/s, β=m1/s; when α²+β²>9, scale both by 3/√(α²+β²). Equivalent form
+    ///      (no division): if m0²+m1² > 9·s² then m_new = m · 3·|s| / √(m0²+m1²).
+    ///      Prevents intra-segment overshoot under adversarial weight concentration.
     function _tangents(Point[] memory pts, uint256 i, uint256 n) private pure returns (int256 m0, int256 m1) {
+        int256 s;
         unchecked {
             Point memory p0 = pts[i];
             Point memory p1 = pts[i + 1];
-            int256 s = (p1.y - p0.y) / int256(p1.x - p0.x);
+            s = (p1.y - p0.y) / int256(p1.x - p0.x);
             if (i == 0) m0 = s;
             else {
                 Point memory pm = pts[i - 1];
@@ -107,6 +114,24 @@ library Spline {
                 m1 = ((s + sn) >> 1) & ~mask2;
             }
         }
+        // Fritsch-Carlson α²+β²≤9 clamp. Skip if s==0 (flat segment → m0=m1=0 already by sign-mask).
+        if (s == 0) return (m0, m1);
+        uint256 m0a = m0 >= 0 ? uint256(m0) : uint256(-m0);
+        uint256 m1a = m1 >= 0 ? uint256(m1) : uint256(-m1);
+        uint256 sa = s >= 0 ? uint256(s) : uint256(-s);
+        // Bound m0a, m1a ≤ ~2·sa (sign-mask of avg of co-sign slopes); m0a² fits in uint256 for typical ranges.
+        // Guard: if either |m_k| > 2^120, skip clamp (extreme inputs already handled by sign-mask).
+        if (m0a > (1 << 120) || m1a > (1 << 120) || sa > (1 << 120)) return (m0, m1);
+        uint256 sumSq = m0a * m0a + m1a * m1a;
+        uint256 nineSSq = 9 * sa * sa;
+        if (sumSq <= nineSSq) return (m0, m1);
+        // Scale: m_new = m · 3·sa / sqrt(sumSq).
+        uint256 root = FixedPointMathLib.sqrt(sumSq);
+        if (root == 0) return (m0, m1);
+        uint256 num = 3 * sa;
+        // Apply scale preserving sign.
+        m0 = m0 >= 0 ? int256((uint256(m0) * num) / root) : -int256((uint256(-m0) * num) / root);
+        m1 = m1 >= 0 ? int256((uint256(m1) * num) / root) : -int256((uint256(-m1) * num) / root);
     }
 
     /// @dev Primitive F(t) of the Hermite cubic; output Y*P.

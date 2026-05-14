@@ -4,6 +4,7 @@ pragma solidity =0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolOracle} from "./PoolOracle.sol";
 
 /// @title PoolAdmin -admin-side validation + initialization helpers for Pool.
@@ -68,14 +69,19 @@ library PoolAdmin {
         IPool.Asset storage asset = $.assets[t];
         asset.decimals = decimals;
         asset.minFeeBps = minFeeBps;
-        asset.maxFeeBps = 10000;
+        asset.maxFeeBps = uint16(SC.BPS);
         asset.minLiquidity = 0;
-        asset.minDispersion = minDispersion == 0 ? 1000 : minDispersion;
-        asset.maxDispersion = maxDispersion == 0 ? 100000 : maxDispersion;
-        asset.gamma = gamma == 0 ? 10000 : gamma;
-        asset.vega = vega == 0 ? 10000 : vega;
-        asset.lambda = lambda == 0 ? 10000 : lambda;
-        asset.haircutSuppressor = 10000;
+        uint32 mn = minDispersion == 0 ? 1000 : minDispersion;
+        uint32 mx = maxDispersion == 0 ? 100000 : maxDispersion;
+        // R44-7 (Pass-44B): enforce ordering invariant. Without it, `_calculateDispersion`
+        // clamp branches collapse to a single bound and produce undefined dispersion bands.
+        if (mn > mx) revert Err.BadConfig();
+        asset.minDispersion = mn;
+        asset.maxDispersion = mx;
+        asset.gamma = gamma == 0 ? uint16(SC.BPS) : gamma;
+        asset.vega = vega == 0 ? uint16(SC.BPS) : vega;
+        asset.lambda = lambda == 0 ? uint16(SC.BPS) : lambda;
+        asset.haircutSuppressor = uint16(SC.BPS);
 
         if (t == $.baseToken) {
             asset.anchor = address(0);

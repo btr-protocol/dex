@@ -360,4 +360,11 @@ contract Router is IRouter, ReentrancyGuardTransient, UUPSUpgradeable {
         }
         if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
     }
+
+    // ─── upgrade-safety: storage gap ───
+    /// @notice Reserved for v2 storage expansion. DO NOT use directly.
+    /// @dev R44-3 (Q2-HIGH): UUPS upgrade-safety. Append new state vars by *consuming* slots
+    ///      from this gap (decrement size) to avoid storage collisions with child / future
+    ///      versions. Layout-locked at this contract version.
+    uint256[40] private __gap;
 }

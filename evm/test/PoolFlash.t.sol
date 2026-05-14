@@ -7,7 +7,6 @@ import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
-import {Staking} from "@btr-shared/Staking.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IERC3156FlashBorrower} from "../src/interfaces/external/IERC3156FlashBorrower.sol";
@@ -30,11 +29,10 @@ contract MockBorrower is IERC3156FlashBorrower {
 /// @title Phase42HB3eR13FlashTest
 /// @notice R13 ERC-3156 HIGH×2: balance check off-by-amount + reserves overwrite double-count
 ///         + protoShare ≤ 100 enforced. Re-ported onto flat-Pool + singleton Flash.
-contract Phase42HB3eR13FlashTest is Test {
+contract PoolFlashTest is Test {
     PoolFactory factory;
     Pool poolImpl;
     Admin admin;
-    Staking stakingSingleton;
     Flash flashSingleton;
     MockAC ac;
     Pool pool;
@@ -51,7 +49,7 @@ contract Phase42HB3eR13FlashTest is Test {
     }
     function _risk() internal pure returns (IPool.RiskConfig memory r) {
         r.coverageMin = 5000; r.coverageMax = 20000; r.depthAmplifier = 10000;
-        r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT | C.STAKEABLE_BIT | C.FLASH_ENABLED_BIT;
+        r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT | C.FLASH_ENABLED_BIT;
     }
     function _oracleCfg() internal view returns (IPool.OracleConfig memory o) {
         o.primary = address(pool); o.modeFlags = C.MODE_USE_INTERNAL; o.accDecimals = 18;
@@ -60,10 +58,9 @@ contract Phase42HB3eR13FlashTest is Test {
     function setUp() public {
         ac = new MockAC(OWNER);
         admin = new Admin(address(ac));
-        stakingSingleton = new Staking(address(ac));
         flashSingleton = new Flash();
-        PoolAux poolAux = new PoolAux(address(ac), address(admin), address(stakingSingleton), address(flashSingleton));
-        poolImpl = new Pool(address(ac), address(admin), address(stakingSingleton), address(flashSingleton), address(poolAux));
+        PoolAux poolAux = new PoolAux(address(ac), address(admin), address(flashSingleton));
+        poolImpl = new Pool(address(ac), address(admin), address(flashSingleton), address(poolAux));
         factory = new PoolFactory(address(poolImpl), address(this), address(ac));
 
         base = new MockERC20("Base", "BASE", 18);

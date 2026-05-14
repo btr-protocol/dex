@@ -3,7 +3,6 @@ pragma solidity =0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
 import {IPoolHooks} from "../interfaces/IPoolHooks.sol";
-import {Pricing} from "./Pricing.sol";
 import {Constants as C} from "./Constants.sol";
 
 /// @title PoolHookExec -hook dispatch logic extracted from Pool.sol
@@ -48,18 +47,30 @@ library PoolHookExec {
         return d1 + d2;
     }
 
-    /// @dev Apply an extra fee from a hook by splitting proto/lp shares.
+    /// @dev Apply an extra fee from a hook.
+    ///      R44-1 (T3-HIGH1): MAINNET BLOCKER remediation.
+    ///        (a) Clamp `fee` to `out * MAX_HOOK_EXTRA_FEE_BPS / BPS` (5% of output). A malicious/
+    ///            compromised admin-registered hook can no longer return an arbitrary `extraFee`
+    ///            that would drain output-token reserves.
+    ///        (b) Route the entire clamped fee into `q.lpFee` (NOT `q.protoFee`). LP fee stays in
+    ///            reserves implicitly (see `PoolSwapQuote._exec`: only `q.amountOut + q.protoFee`
+    ///            is deducted from `aOut.reserves`, while `q.lpFee` accrues to LPs). This removes
+    ///            the prior path where a hook-supplied `extraFee` was booked as `protoFee` and
+    ///            credited against the *output* token's protocolFees — the asymmetric drain vector.
     ///      Updates `q` in place; returns new `out` (or 0 if fee > out).
     function applyHookFee(
-        IPool.PoolStorage storage $,
+        IPool.PoolStorage storage /*$*/,
         uint256 fee,
         IPool.SwapQuote memory q,
         uint256 out
     ) external view returns (uint256) {
         if (fee == 0) return out;
-        (uint256 pf, uint256 lf) = Pricing.splitFee(fee, $.feeParams.protoShare);
-        q.protoFee += pf;
-        q.lpFee += lf;
+        // R44-1 (a): cap fee at 5% of current `out`. BPS denominator = 10_000.
+        uint256 cap = (out * uint256(C.MAX_HOOK_EXTRA_FEE_BPS)) / 10_000;
+        if (fee > cap) fee = cap;
+        if (fee == 0) return out;
+        // R44-1 (b): LP-side credit only. No protoFee bump.
+        q.lpFee += fee;
         return out > fee ? out - fee : 0;
     }
 

@@ -89,6 +89,7 @@ contract UUPSTimelockTreasuryTest is UUPSTimelockHarness {
         Treasury impl = new Treasury(address(ac));
         address p = LibClone.deployERC1967(address(impl));
         GovToken gov = new GovToken(p, "G", "G");
+        vm.prank(OWNER);
         Treasury(payable(p)).initialize(address(gov));
         Treasury fresh = new Treasury(address(ac));
         return (p, address(fresh));

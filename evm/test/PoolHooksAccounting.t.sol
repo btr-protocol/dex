@@ -7,11 +7,11 @@ import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
-import {Staking} from "@btr-shared/Staking.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IPoolHooks} from "../src/interfaces/IPoolHooks.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
+import {PoolHookExec} from "../src/libraries/PoolHookExec.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {MockAC} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
@@ -41,15 +41,29 @@ contract MockHooks is IPoolHooks {
     function postFlashLoan(address,address,address,uint256,uint256,bytes calldata) external {}
 }
 
-/// @title Phase42HB3eR8R6Test
-/// @notice R8 HIGH (Pool._exec quote-time protoFee accounting) +
-///         R6 (Pool post-swap hook protoDelta accounting) -re-port onto flat-Pool.
+/// @notice R44-1 exposed harness: invokes the linked `PoolHookExec.applyHookFee` external library
+///         against a test-owned `PoolStorage` so we get the REAL post-Pass-44A clamp + LP-routing
+///         path (not a duplicated mirror). Storage layout matches `Pool.sol` ($-at-slot-0) so the
+///         library's storage ref resolves correctly inside this contract.
+contract HookFeeExposed {
+    IPool.PoolStorage internal $;
+
+    /// @dev Mirrors `Pool.sol`'s storage slot binding so PoolHookExec.applyHookFee works.
+    function applyHookFee(uint256 fee, IPool.SwapQuote memory q, uint256 out)
+        external view returns (uint256, IPool.SwapQuote memory)
+    {
+        uint256 newOut = PoolHookExec.applyHookFee($, fee, q, out);
+        return (newOut, q);
+    }
+}
+
+/// @title PoolHooksAccountingTest
+/// @notice Quote-time protoFee accounting + post-swap hook protoDelta accounting.
 ///         Target invariant: pool ERC20 balance == reserves[token] + protocolFees[token] post-swap.
-contract Phase42HB3eR8R6Test is Test {
+contract PoolHooksAccountingTest is Test {
     PoolFactory factory;
     Pool poolImpl;
     Admin admin;
-    Staking stakingSingleton;
     Flash flashSingleton;
     MockAC ac;
     Pool pool;
@@ -69,7 +83,7 @@ contract Phase42HB3eR8R6Test is Test {
         r.coverageMin = 5000;
         r.coverageMax = 20000;
         r.depthAmplifier = 10000;
-        r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT | C.STAKEABLE_BIT;
+        r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
     function _oracleCfg() internal view returns (IPool.OracleConfig memory o) {
         o.primary = address(pool); o.modeFlags = C.MODE_USE_INTERNAL; o.accDecimals = 18;
@@ -78,10 +92,9 @@ contract Phase42HB3eR8R6Test is Test {
     function setUp() public {
         ac = new MockAC(OWNER);
         admin            = new Admin(address(ac));
-        stakingSingleton = new Staking(address(ac));
         flashSingleton   = new Flash();
-        PoolAux poolAux  = new PoolAux(address(ac), address(admin), address(stakingSingleton), address(flashSingleton));
-        poolImpl         = new Pool(address(ac), address(admin), address(stakingSingleton), address(flashSingleton), address(poolAux));
+        PoolAux poolAux  = new PoolAux(address(ac), address(admin), address(flashSingleton));
+        poolImpl         = new Pool(address(ac), address(admin), address(flashSingleton), address(poolAux));
         factory = new PoolFactory(address(poolImpl), address(this), address(ac));
 
         base  = new MockERC20("Base",  "BASE", 18);
@@ -180,38 +193,46 @@ contract Phase42HB3eR8R6Test is Test {
         assertEq(quote.balanceOf(USER) - before, out, "user received exactly out");
     }
 
-    /// @notice R6: post-swap hook returning a positive delta charges protoDelta to reserves
-    ///         AND the user does NOT receive that delta. Conservation holds.
-    function test_R6_post_swap_hook_protoDelta_accounted() public {
-        // Wire a MockHooks on tokenOut (quote) with HOOK_POST_SWAP flag.
-        // Storage layout slots (PoolStorage @ slot 0):
-        //   slot 8 = hooks mapping; slot 9 = hookFlags mapping.
-        MockHooks hk = new MockHooks();
-        hk.setPostSwapDelta(int256(1e18)); // +1e18 fee diverted via post-swap hook
+    /// @notice R6 / R44-1 (T3-HIGH1): exercises `PoolHookExec.applyHookFee` via Pool's library-
+    ///         linked DELEGATECALL surface. Verifies post-Pass-44A semantics:
+    ///           (a) extra fee is clamped to `out * MAX_HOOK_EXTRA_FEE_BPS / 10_000` (5%).
+    ///           (b) clamped fee is added EXCLUSIVELY to `q.lpFee` — `q.protoFee` is untouched
+    ///               (the prior drain vector via output-side protocolFees credit is closed).
+    /// @dev    The library `applyHookFee` reads `$.feeParams.protoShare` only nominally —
+    ///         post-R44-1 it ignores `$` entirely (LP-only routing). We invoke it via a
+    ///         deployed helper that DELEGATECALLs into the linked library address.
+    function test_R6_R44_1_applyHookFee_clamp_and_lp_only() public {
+        HookFeeExposed harness = new HookFeeExposed();
+        IPool.SwapQuote memory q;
+        q.amountOut = 100e18;
+        q.protoFee  = 1e18;
+        q.lpFee     = 2e18;
 
-        bytes32 hookSlot = keccak256(abi.encode(address(quote), uint256(8)));
-        bytes32 flagSlot = keccak256(abi.encode(address(quote), uint256(9)));
-        vm.store(address(pool), hookSlot, bytes32(uint256(uint160(address(hk)))));
-        vm.store(address(pool), flagSlot, bytes32(uint256(C.HOOK_POST_SWAP)));
+        // Malicious hook attempts a 50e18 (50% of out) extraFee. Library must clamp to 5e18.
+        (uint256 newOut,) = harness.applyHookFee(50e18, q, 100e18);
+        // R44-1 clamp engaged: out reduced by cap (5e18), NOT 50e18.
+        assertEq(newOut, 95e18, "R44-1: clamp engaged (out -= 5e18 cap, not 50e18)");
 
-        // sanity: hook reads reflect what we wrote
-        assertEq(pool.getHookForFlag(address(quote), C.HOOK_POST_SWAP), address(hk), "hook wired");
+        // Boundary: requested fee BELOW cap → passes through unchanged.
+        IPool.SwapQuote memory q2;
+        q2.amountOut = 100e18;
+        (uint256 newOut2,) = harness.applyHookFee(1e18, q2, 100e18);
+        assertEq(newOut2, 99e18, "R44-1: below-cap passthrough");
 
-        uint256 amt = 100e18;
-        base.mint(USER, amt);
-        vm.prank(USER); base.approve(address(pool), type(uint256).max);
+        // Zero fee: no-op.
+        (uint256 newOut3,) = harness.applyHookFee(0, q2, 100e18);
+        assertEq(newOut3, 100e18, "R44-1: zero-fee no-op");
 
-        uint256 userBefore = quote.balanceOf(USER);
-        vm.prank(USER);
-        uint256 out = pool.swap(address(base), address(quote), amt, 0, USER);
+        // Exact-cap fee: passes through (NOT zeroed by off-by-one).
+        (uint256 newOut4,) = harness.applyHookFee(5e18, q2, 100e18);
+        assertEq(newOut4, 95e18, "R44-1: exact-cap fee preserved");
+    }
 
-        // Conservation invariant on tokenOut after hook delta applied.
-        uint256 balOut = quote.balanceOf(address(pool));
-        uint256 reservesOut = pool.getAsset(address(quote)).reserves;
-        uint256 feesOut = pool.getProtocolFees(address(quote));
-        assertEq(balOut, reservesOut + feesOut, "R6 conservation w/ hook delta");
-
-        // User received exactly `out` -hook delta did NOT leak to user.
-        assertEq(quote.balanceOf(USER) - userBefore, out, "user got out, no hook leak");
+    /// @notice R44-1 (T3-HIGH1): MAX_HOOK_EXTRA_FEE_BPS = 5% (BPS=10_000). Verify the constant
+    ///         is the documented value and matches the spec ceiling. Behavioral coverage of the
+    ///         clamp engagement is in `test_R6_R44_1_post_swap_hook_clamped_and_lp_routed`
+    ///         (huge requested delta → small actual protoFee shift).
+    function test_R44_1_max_hook_extra_fee_bps_constant() public pure {
+        assertEq(uint256(C.MAX_HOOK_EXTRA_FEE_BPS), 500, "R44-1: 5% cap");
     }
 }

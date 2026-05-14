@@ -59,7 +59,7 @@ contract ExternalOracle is IOracle {
     }
 
     /// @notice AC-singleton ownership gate. Mirrors Distributor.sol:40 pattern.
-    modifier onlyOwner() {
+    modifier onlyAdmin() {
         if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
         _;
     }
@@ -81,7 +81,7 @@ contract ExternalOracle is IOracle {
         uint32 slowVolEMA,
         uint16 maxDeviation,
         uint16 ttl
-    ) external onlyOwner {
+    ) external onlyAdmin {
         if (base == address(0) || quote == address(0)) revert Err.ZeroValue();
         _validate(fastEMA, slowEMA, fastVolEMA, slowVolEMA);
         if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
@@ -103,7 +103,7 @@ contract ExternalOracle is IOracle {
         emit FeedAdded(feedId, base, quote, fastEMA, slowEMA, fastVolEMA, slowVolEMA, maxDeviation);
     }
 
-    function updateFeed(bytes32 feedId, uint16 maxDeviation, uint16 ttl) external onlyOwner {
+    function updateFeed(bytes32 feedId, uint16 maxDeviation, uint16 ttl) external onlyAdmin {
         if (feeds[feedId].updatedAt == 0) revert Err.FeedNotFound(feedId);
         if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
         feeds[feedId].ttl = ttl;
@@ -111,13 +111,13 @@ contract ExternalOracle is IOracle {
         emit FeedUpdated(feedId, maxDeviation, ttl);
     }
 
-    function grantOracle(address oracle) external onlyOwner {
+    function grantOracle(address oracle) external onlyAdmin {
         if (oracle == address(0)) revert Err.ZeroValue();
         oracles[oracle] = true;
         emit OracleGranted(oracle);
     }
 
-    function revokeOracle(address oracle) external onlyOwner {
+    function revokeOracle(address oracle) external onlyAdmin {
         oracles[oracle] = false;
         emit OracleRevoked(oracle);
     }

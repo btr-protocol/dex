@@ -62,7 +62,7 @@ contract PoolFactory is IPoolFactory {
     }
 
     /// @notice AC-singleton ownership gate. Mirrors Distributor.sol:40 pattern.
-    modifier onlyOwner() {
+    modifier onlyAdmin() {
         if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
         _;
     }
@@ -183,7 +183,7 @@ contract PoolFactory is IPoolFactory {
 
     // ─── admin ───
 
-    function requestReferenceUpgrade(address newImplementation) external onlyOwner {
+    function requestReferenceUpgrade(address newImplementation) external onlyAdmin {
         if (newImplementation == address(0)) revert Err.ZeroValue();
         if (pendingReferencePool != address(0)) revert Err.PendingTimelock(uint48(block.timestamp));
         pendingReferencePool = newImplementation;
@@ -191,7 +191,7 @@ contract PoolFactory is IPoolFactory {
         emit ReferencePoolUpgradeRequested(referencePool, newImplementation, upgradeTimelock);
     }
 
-    function executeReferenceUpgrade() external onlyOwner {
+    function executeReferenceUpgrade() external onlyAdmin {
         if (block.timestamp < upgradeTimelock) revert Err.PendingTimelock(uint48(upgradeTimelock));
         if (pendingReferencePool == address(0)) revert Err.InvalidState();
         address oldImpl = referencePool;
@@ -201,13 +201,13 @@ contract PoolFactory is IPoolFactory {
         emit ReferencePoolUpgraded(oldImpl, referencePool);
     }
 
-    function cancelReferenceUpgrade() external onlyOwner {
+    function cancelReferenceUpgrade() external onlyAdmin {
         if (pendingReferencePool == address(0)) revert Err.InvalidState();
         delete pendingReferencePool;
         delete upgradeTimelock;
     }
 
-    function setProtocolDeployer(address newDeployer) external onlyOwner {
+    function setProtocolDeployer(address newDeployer) external onlyAdmin {
         if (newDeployer == address(0)) revert Err.ZeroValue();
         address old = protocolDeployer;
         protocolDeployer = newDeployer;

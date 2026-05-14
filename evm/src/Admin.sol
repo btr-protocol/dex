@@ -3,9 +3,7 @@ pragma solidity =0.8.35;
 
 import {IAdmin} from "./interfaces/IAdmin.sol";
 import {IPool} from "./interfaces/IPool.sol";
-
-interface ITreasuryView { function treasury() external view returns (address); }
-
+import {IHasTreasury} from "./interfaces/IHasTreasury.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Err} from "@btr-shared/Errors.sol";
@@ -43,7 +41,7 @@ contract Admin is IAdmin {
         AC = ac_;
     }
 
-    modifier onlyOwner() {
+    modifier onlyAdmin() {
         if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
         _;
     }
@@ -80,12 +78,12 @@ contract Admin is IAdmin {
 
     // ─── one-shot setters ───
 
-    function freezeAsset(address pool, address token) external onlyOwner {
+    function freezeAsset(address pool, address token) external onlyAdmin {
         IPool(pool).adminFreezeAsset(token);
         emit EmergencyFreeze(pool, token);
     }
 
-    function unfreezeAsset(address pool, address token) external onlyOwner {
+    function unfreezeAsset(address pool, address token) external onlyAdmin {
         IPool(pool).adminUnfreezeAsset(token);
         emit EmergencyUnfreeze(pool, token);
     }
@@ -106,7 +104,7 @@ contract Admin is IAdmin {
         uint16 gamma,
         uint16 vega,
         uint16 lambda
-    ) external onlyOwner {
+    ) external onlyAdmin {
         IPool(pool).adminInitAsset(
             token, oracleCfg, riskCfg, profile, minFeeBps, decimals,
             initialPrice, initialFastVolEMA, initialSlowVolEMA,
@@ -118,19 +116,28 @@ contract Admin is IAdmin {
     function collectProtocolFees(address pool, address token, address recipient) external {
         // Gate: caller must be the pool's treasury (preserves prior semantics from
         // the former Admin module which checked `msg.sender == $.treasury`).
-        if (msg.sender != ITreasuryView(pool).treasury()) revert Ownable.Unauthorized();
+        if (msg.sender != IHasTreasury(pool).treasury()) revert Ownable.Unauthorized();
         uint256 amount = IPool(pool).adminCollectProtocolFees(token, recipient);
         emit ProtocolFeesCollected(pool, token, recipient, amount);
     }
 
-    function setFlowCooldown(address pool, uint16 cooldownSeconds) external onlyOwner {
+    function setFlowCooldown(address pool, uint16 cooldownSeconds) external onlyAdmin {
         IPool(pool).adminSetFlowCooldown(cooldownSeconds);
         emit FlowCooldownUpdated(pool, 0, cooldownSeconds);
     }
 
-    function setAnchor(address pool, address token, address anchor) external onlyOwner {
+    function setAnchor(address pool, address token, address anchor) external onlyAdmin {
         IPool(pool).adminSetAnchor(token, anchor);
         emit AnchorUpdated(pool, token, anchor, 0);
+    }
+
+    /// @notice R44-2 (T3-HIGH2): owner-only base-token oracle configuration. Untimelocked because
+    ///         this is a SAFETY config (enables depeg halt). Operators MAY need to (re)pin under
+    ///         duress; the only effect on the bad-actor axis is making swaps *stricter*
+    ///         (revert-on-depeg), not looser. Pass `oracle = address(0)` to revert to the
+    ///         legacy stable-base 1e18-hardcoded path.
+    function setBaseTokenOracle(address pool, address oracle, bytes32 feedId) external onlyAdmin {
+        IPool(pool).adminSetBaseTokenOracle(oracle, feedId);
     }
 
     function setAssetParams(
@@ -144,7 +151,7 @@ contract Admin is IAdmin {
         uint16 lambda,
         uint16 haircutSuppressor,
         uint64 reservationPrice
-    ) external onlyOwner {
+    ) external onlyAdmin {
         IPool(pool).adminSetAssetParams(
             token, minLiquidity, minFeeBps, maxFeeBps,
             gamma, vega, lambda, haircutSuppressor, reservationPrice
@@ -165,7 +172,7 @@ contract Admin is IAdmin {
         uint64 initialPrice,
         uint32 initialFastVolEMA,
         uint32 initialSlowVolEMA
-    ) external onlyOwner {
+    ) external onlyAdmin {
         if (initialPrice == 0) revert Err.ZeroValue();
         if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
         bytes32 key = _keyToken(pool, OP_ADD_ASSET, token);
@@ -173,7 +180,7 @@ contract Admin is IAdmin {
         _emitQueued(key, SC.LOW_TIMELOCK, data, pool, uint8(IPool.OpType.ADD_ASSET));
     }
 
-    function executeAddAsset(address pool, address token) external onlyOwner {
+    function executeAddAsset(address pool, address token) external onlyAdmin {
         bytes32 key = _keyToken(pool, OP_ADD_ASSET, token);
         bytes memory raw = _consume(key);
         (
@@ -195,12 +202,12 @@ contract Admin is IAdmin {
         emit AssetAdded(pool, token, decimals, 0);
     }
 
-    function requestUpdateRiskConfig(address pool, address token, IPool.RiskConfig calldata cfg) external onlyOwner {
+    function requestUpdateRiskConfig(address pool, address token, IPool.RiskConfig calldata cfg) external onlyAdmin {
         bytes32 key = _keyToken(pool, OP_UPDATE_RISK, token);
         _emitQueued(key, SC.LOW_TIMELOCK, abi.encode(token, cfg), pool, uint8(IPool.OpType.UPDATE_RISK));
     }
 
-    function executeUpdateRiskConfig(address pool, address token) external onlyOwner {
+    function executeUpdateRiskConfig(address pool, address token) external onlyAdmin {
         bytes32 key = _keyToken(pool, OP_UPDATE_RISK, token);
         (address storedToken, IPool.RiskConfig memory cfg) = abi.decode(_consume(key), (address, IPool.RiskConfig));
         if (storedToken != token) revert Err.InvalidInput();
@@ -208,12 +215,12 @@ contract Admin is IAdmin {
         emit RiskConfigUpdated(pool, token, cfg.flags, 0);
     }
 
-    function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external onlyOwner {
+    function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external onlyAdmin {
         bytes32 key = _key(pool, OP_UPDATE_FEES);
         _emitQueued(key, SC.LOW_TIMELOCK, abi.encode(params), pool, uint8(IPool.OpType.UPDATE_FEES));
     }
 
-    function executeUpdateFeeParams(address pool) external onlyOwner {
+    function executeUpdateFeeParams(address pool) external onlyAdmin {
         bytes32 key = _key(pool, OP_UPDATE_FEES);
         IPool.FeeParams memory params = abi.decode(_consume(key), (IPool.FeeParams));
         if (params.protoShare > 100) revert Err.InvalidInput();
@@ -221,43 +228,43 @@ contract Admin is IAdmin {
         emit FeeParamsUpdated(pool, params.protoShare, params.flashFeeBps);
     }
 
-    function requestBridgeUpdate(address pool, address newBridge) external onlyOwner {
+    function requestBridgeUpdate(address pool, address newBridge) external onlyAdmin {
         _emitQueued(_key(pool, OP_UPDATE_BRIDGE), SC.HIGH_TIMELOCK, abi.encode(newBridge), pool, uint8(IPool.OpType.UPDATE_BRIDGE));
     }
 
-    function executeBridgeUpdate(address pool) external onlyOwner {
+    function executeBridgeUpdate(address pool) external onlyAdmin {
         address newBridge = abi.decode(_consume(_key(pool, OP_UPDATE_BRIDGE)), (address));
         IPool(pool).adminSetBridge(newBridge);
         emit BridgeUpdated(pool, address(0), newBridge);
     }
 
-    function requestTreasuryUpdate(address pool, address newTreasury) external onlyOwner {
+    function requestTreasuryUpdate(address pool, address newTreasury) external onlyAdmin {
         if (newTreasury == address(0)) revert Err.ZeroValue();
         _emitQueued(_key(pool, OP_UPDATE_TREASURY), SC.HIGH_TIMELOCK, abi.encode(newTreasury), pool, uint8(IPool.OpType.UPDATE_TREASURY));
     }
 
-    function executeTreasuryUpdate(address pool) external onlyOwner {
+    function executeTreasuryUpdate(address pool) external onlyAdmin {
         address newTreasury = abi.decode(_consume(_key(pool, OP_UPDATE_TREASURY)), (address));
         IPool(pool).adminSetTreasury(newTreasury);
         emit TreasuryUpdated(pool, address(0), newTreasury);
     }
 
-    function requestBaseMigration(address pool, address newBase) external onlyOwner {
+    function requestBaseMigration(address pool, address newBase) external onlyAdmin {
         _emitQueued(_key(pool, OP_BASE_MIGRATION), SC.CRITICAL_TIMELOCK, abi.encode(newBase), pool, uint8(IPool.OpType.MIGRATE_BASE_TOKEN));
     }
 
-    function executeBaseMigration(address pool) external onlyOwner {
+    function executeBaseMigration(address pool) external onlyAdmin {
         address newBase = abi.decode(_consume(_key(pool, OP_BASE_MIGRATION)), (address));
         IPool(pool).adminSetBaseToken(newBase);
         emit BaseTokenMigrated(pool, address(0), newBase);
     }
 
-    function requestOracleUpdate(address pool, address token, IPool.OracleConfig calldata cfg) external onlyOwner {
+    function requestOracleUpdate(address pool, address token, IPool.OracleConfig calldata cfg) external onlyAdmin {
         bytes32 key = _keyToken(pool, OP_UPDATE_ORACLE, token);
         _emitQueued(key, SC.BASE_TIMELOCK, abi.encode(token, cfg), pool, uint8(IPool.OpType.UPDATE_ORACLE));
     }
 
-    function executeOracleUpdate(address pool, address token) external onlyOwner {
+    function executeOracleUpdate(address pool, address token) external onlyAdmin {
         bytes32 key = _keyToken(pool, OP_UPDATE_ORACLE, token);
         (address storedToken, IPool.OracleConfig memory cfg) = abi.decode(_consume(key), (address, IPool.OracleConfig));
         if (storedToken != token) revert Err.InvalidInput();
@@ -265,11 +272,11 @@ contract Admin is IAdmin {
         emit OracleUpdated(pool, token);
     }
 
-    function cancelOracleUpdate(address pool, address token) external onlyOwner {
+    function cancelOracleUpdate(address pool, address token) external onlyAdmin {
         _cancel(pool, _keyToken(pool, OP_UPDATE_ORACLE, token), uint8(IPool.OpType.UPDATE_ORACLE));
     }
 
-    function cancelTimelock(address pool, uint8 opType) external onlyOwner {
+    function cancelTimelock(address pool, uint8 opType) external onlyAdmin {
         bytes32 key;
         if (opType == uint8(IPool.OpType.MIGRATE_BASE_TOKEN)) key = _key(pool, OP_BASE_MIGRATION);
         else if (opType == uint8(IPool.OpType.UPDATE_BRIDGE)) key = _key(pool, OP_UPDATE_BRIDGE);

@@ -26,8 +26,8 @@ contract PoolStorageLayoutTest is Test {
     address constant SENTINEL_TREASURY = address(0x4444444444444444444444444444444444444444);
 
     function setUp() public {
-        // Pool ctor only validates ac/admin/staking/flash/poolAux != 0; we don't initialize().
-        pool = new Pool(address(0xAA), address(0xBB), address(0xCC), address(0xDD), address(0xEE));
+        // Pool ctor only validates ac/admin/flash/poolAux != 0; we don't initialize().
+        pool = new Pool(address(0xAA), address(0xBB), address(0xCC), address(0xDD));
     }
 
     /// @notice Slot 0 holds `baseToken` (first PoolStorage field).

@@ -13,7 +13,8 @@ library Constants {
     uint16 internal constant DECAY_ENABLED_BIT = 1 << 3;
     uint16 internal constant FLASH_ENABLED_BIT = 1 << 4;
     uint16 internal constant FEE_ON_TRANSFER_BIT = 1 << 5;
-    uint16 internal constant STAKEABLE_BIT = 1 << 6;
+    // bit 6: RESERVED -was STAKEABLE_BIT (removed; Staking moved to shared singleton, no
+    //                  longer a per-pool capability). Do not reuse without ABI/flag audit.
     uint16 internal constant BRIDGEABLE_BIT = 1 << 7;
 
     // --- Oracle modes ---
@@ -38,6 +39,21 @@ library Constants {
     // --- Flow guard ---
     /// @notice JIT cooldown (seconds) -chain-agnostic safe default.
     uint16 internal constant DEFAULT_FLOW_COOLDOWN = 15;
+
+    // --- R44-1 (T3-HIGH1): hook-fee inflation cap (admin-trusted hook hardening) ---
+    /// @notice Max extra fee a hook may charge as a fraction of swap output. 500 = 5% in BPS (10000=100%).
+    /// @dev    Defense-in-depth vs malicious/compromised admin-registered hook returning huge `extraFee`
+    ///         that would drain output-token reserves under prior accounting. Clamp applied at
+    ///         `PoolHookExec.applyHookFee` entry.
+    uint16 internal constant MAX_HOOK_EXTRA_FEE_BPS = 500;
+
+    // --- R44-2 (T3-HIGH2): base-token depeg halt threshold ---
+    /// @notice Max allowed deviation of base-token oracle price from 1e18 (unit-of-account parity).
+    ///         500 = 5% in BPS. Swaps revert with `Err.BaseDepegged` when |1e18 - basePrice| / 1e18 exceeds this.
+    /// @dev    Closes the prior hardcoded `basePrice = 1e18` blindness in `Pricing._cacheEndpoint` /
+    ///         `_executeLeg`. Only enforced when `$.baseTokenOracle != address(0)`; unset = stable-base
+    ///         backwards-compat mode (no halt).
+    uint16 internal constant BASE_DEPEG_HALT_BPS = 500;
 
     // --- Greek var legend (auditors) ---
     // ψ inventorySkew [-100,+100] · π progress [0,1] · γ gamma BPS · ν vega BPS · λ lambda BPS
