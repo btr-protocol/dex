@@ -2,6 +2,7 @@
 pragma solidity =0.8.35;
 
 import {IOracle} from "../interfaces/IOracle.sol";
+import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as C} from "../libraries/Constants.sol";
@@ -9,7 +10,9 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title ExternalOracle
 /// @notice Push-based external oracle with dual TWAP (fast/slow) and volatility tracking
-contract ExternalOracle is IOracle, Ownable {
+contract ExternalOracle is IOracle {
+    /// @notice Shared singleton AccessControl -single source of truth for owner.
+    address public immutable AC;
     // ─── errors ───
     // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
     error FeedNotFound(bytes32 feedId);
@@ -60,9 +63,15 @@ contract ExternalOracle is IOracle, Ownable {
         _;
     }
 
-    constructor(address owner_, address oracle_) {
-        if (owner_ == address(0) || oracle_ == address(0)) revert Err.ZeroValue();
-        _initializeOwner(owner_);
+    /// @notice AC-singleton ownership gate. Mirrors Distributor.sol:40 pattern.
+    modifier onlyOwner() {
+        if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+        _;
+    }
+
+    constructor(address ac_, address oracle_) {
+        if (ac_ == address(0) || oracle_ == address(0)) revert Err.ZeroValue();
+        AC = ac_;
         oracles[oracle_] = true;
         emit OracleGranted(oracle_);
     }

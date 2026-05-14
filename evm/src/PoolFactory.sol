@@ -4,13 +4,14 @@ pragma solidity =0.8.35;
 import {IPoolFactory} from "./interfaces/IPoolFactory.sol";
 import {IPool} from "./interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
+import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title PoolFactory
 /// @notice Phase 42H.B.3d -non-upgradeable factory deploying EIP-1167 minimal-proxy clones
 ///         of the Pool impl. PoolProxy is gone; each clone IS a Pool with its own storage.
-contract PoolFactory is IPoolFactory, Ownable {
+contract PoolFactory is IPoolFactory {
     using SafeTransferLib for address;
 
     uint256 public constant UPGRADE_TIMELOCK = 7 days;
@@ -58,7 +59,12 @@ contract PoolFactory is IPoolFactory, Ownable {
         referencePool = referencePool_;
         protocolDeployer = protocolDeployer_;
         AC = ac_;
-        _initializeOwner(msg.sender);
+    }
+
+    /// @notice AC-singleton ownership gate. Mirrors Distributor.sol:40 pattern.
+    modifier onlyOwner() {
+        if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+        _;
     }
 
     // ─── deploy ───

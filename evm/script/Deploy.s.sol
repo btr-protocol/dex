@@ -9,7 +9,7 @@ import {console2} from "forge-std/Script.sol";
 
 import {Admin} from "../src/Admin.sol";
 import {Staking} from "../src/Staking.sol";
-import {Distributor} from "../src/Distributor.sol";
+import {Distributor} from "@btr-shared/Distributor.sol";
 import {Flash} from "../src/Flash.sol";
 import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
@@ -102,10 +102,8 @@ contract Deploy is DeployBase {
         //      via _initializeOwner(msg.sender) in its constructor.)
         Treasury(payable(a.treasuryProxy)).setDistributor(a.distributor);
         Treasury(payable(a.treasuryProxy)).setBridge(a.bridgeProxy);
-        address acOwner = Ownable(a.ac).owner();
-        if (acOwner != a.deployer) {
-            PoolFactory(payable(a.poolFactory)).transferOwnership(acOwner);
-        }
+        // PoolFactory migrated to AC-singleton (Track-B Phase-1): ownership funnels
+        // through AC.owner() automatically; no separate transferOwnership call needed.
 
         vm.stopBroadcast();
 
