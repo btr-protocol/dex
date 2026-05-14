@@ -24,11 +24,11 @@ abstract contract StakedToken is ERC20 {
     }
 
     function balanceOf(address account) public view virtual override returns (uint256) {
-        try IStaking(STAKING).getStakedBalance(POOL, account, UNDERLYING) returns (uint256 b) { return b; } catch { return 0; }
+        try IStaking(STAKING).stakedBalance(POOL, account, UNDERLYING) returns (uint256 b) { return b; } catch { return 0; }
     }
 
     function totalSupply() public view virtual override returns (uint256) {
-        try IStaking(STAKING).getTotalStaked(POOL, UNDERLYING) returns (uint256 s) { return s; } catch { return 0; }
+        try IStaking(STAKING).totalStaked(POOL, UNDERLYING) returns (uint256 s) { return s; } catch { return 0; }
     }
 
     function _disabled() internal pure {

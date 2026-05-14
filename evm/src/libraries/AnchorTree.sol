@@ -9,34 +9,27 @@ library AnchorTree {
     uint8 public constant MAX_DEPTH = 4;        // root = 0
     uint8 public constant MAX_PATH_LENGTH = 6;  // 2 * MAX_DEPTH
 
-    // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
-    error InvalidAnchor(address asset, address anchor);
-    error DepthExceeded(address asset, uint8 depth);
-    error CycleDetected(address asset);
-    error AssetNotInTree(address asset);
-    error InvalidPath();
-
     /// @notice Validate anchor: no cycles, depth <= MAX_DEPTH.
     function validateAnchor(IPool.PoolStorage storage $, address asset, address anchor)
         internal view returns (uint8 depth)
     {
-        if (asset == anchor) revert InvalidAnchor(asset, anchor);
+        if (asset == anchor) revert Err.InvalidAnchor(asset, anchor);
         if (anchor == address(0)) {
-            if (asset != $.baseToken) revert InvalidAnchor(asset, anchor);
+            if (asset != $.baseToken) revert Err.InvalidAnchor(asset, anchor);
             return 0;
         }
         IPool.Asset storage anchorAsset = $.assets[anchor];
-        if (anchorAsset.decimals == 0) revert AssetNotInTree(anchor);
+        if (anchorAsset.decimals == 0) revert Err.AssetNotInTree(anchor);
         depth = anchorAsset.anchorDepth + 1;
-        if (depth > MAX_DEPTH) revert DepthExceeded(asset, depth);
+        if (depth > MAX_DEPTH) revert Err.DepthExceeded(asset, depth);
 
         // Cycle check via walk-to-root.
         address current = anchor;
         uint8 steps = 0;
         while (current != address(0)) {
-            if (current == asset) revert CycleDetected(asset);
+            if (current == asset) revert Err.CycleDetected(asset);
             current = $.assets[current].anchor;
-            if (++steps > MAX_DEPTH + 1) revert CycleDetected(asset);
+            if (++steps > MAX_DEPTH + 1) revert Err.CycleDetected(asset);
         }
     }
 
@@ -48,8 +41,8 @@ library AnchorTree {
         IPool.Asset storage aOut = $.assets[tokenOut];
         address anchorIn = aIn.anchor;
         address anchorOut = aOut.anchor;
-        if (aIn.decimals == 0) revert AssetNotInTree(tokenIn);
-        if (aOut.decimals == 0) revert AssetNotInTree(tokenOut);
+        if (aIn.decimals == 0) revert Err.AssetNotInTree(tokenIn);
+        if (aOut.decimals == 0) revert Err.AssetNotInTree(tokenOut);
 
         // Direct anchor (child↔parent).
         if (anchorIn == tokenOut || anchorOut == tokenIn) {
@@ -84,7 +77,7 @@ library AnchorTree {
             address anchor = $.assets[current].anchor;
             if (anchor == address(0)) break;
             current = anchor;
-            if (length > MAX_DEPTH) revert InvalidPath();
+            if (length > MAX_DEPTH) revert Err.InvalidPath();
         }
         assembly { mstore(path, length) }
     }

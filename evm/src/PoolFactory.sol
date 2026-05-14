@@ -7,6 +7,7 @@ import {Err} from "@btr-shared/Errors.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {LibClone} from "solady/utils/LibClone.sol";
 
 /// @title PoolFactory
 /// @notice Phase 42H.B.3d -non-upgradeable factory deploying EIP-1167 minimal-proxy clones
@@ -16,7 +17,6 @@ contract PoolFactory is IPoolFactory {
 
     uint256 public constant UPGRADE_TIMELOCK = 7 days;
     address internal constant ETH = address(0);
-    bytes internal constant MINIMAL_PROXY_CODE = hex"3d602d80600a3d3981f3363d3d373d3d3d363d73";
 
     address public override referencePool;
     address public pendingReferencePool;
@@ -77,14 +77,8 @@ contract PoolFactory is IPoolFactory {
         if (baseToken == address(0)) revert Err.ZeroValue();
         if (tokens.length == 0) revert Err.InvalidInput();
 
-        bytes memory bytecode = bytes.concat(
-            MINIMAL_PROXY_CODE,
-            abi.encodePacked(referencePool),
-            hex"5af43d82803e903d91602b57fd5bf3"
-        );
         bytes32 salt = keccak256(abi.encodePacked(msg.sender, baseToken, keccak256(abi.encode(tokens)), block.chainid));
-
-        assembly { pool := create2(0, add(bytecode, 0x20), mload(bytecode), salt) }
+        pool = LibClone.cloneDeterministic(referencePool, salt);
         if (pool == address(0)) revert Err.DeploymentFailed();
 
         (bool success, ) = pool.call(initdata);
@@ -121,13 +115,16 @@ contract PoolFactory is IPoolFactory {
     }
 
     function _addTokens(address pool, address[] memory tokens) internal {
-        for (uint256 i = 0; i < tokens.length; i++) {
+        uint256 n = tokens.length;
+        for (uint256 i; i < n;) {
             address token = tokens[i];
             if (token == address(0)) revert Err.ZeroValue();
-            if (tokenInPool[token][pool]) continue;
-            tokenToPools[token].push(pool);
-            tokenInPool[token][pool] = true;
-            poolToTokens[pool].push(token);
+            if (!tokenInPool[token][pool]) {
+                tokenToPools[token].push(pool);
+                tokenInPool[token][pool] = true;
+                poolToTokens[pool].push(token);
+            }
+            unchecked { ++i; }
         }
     }
 
@@ -152,14 +149,17 @@ contract PoolFactory is IPoolFactory {
         if (poolsA.length == 0 || poolsB.length == 0) return new address[](0);
         if (poolsA.length > poolsB.length) (poolsA, poolsB) = (poolsB, poolsA);
 
+        uint256 nA = poolsA.length;
         uint256 count;
-        for (uint256 i = 0; i < poolsA.length; i++) {
-            if (tokenInPool[tokenB][poolsA[i]]) count++;
+        for (uint256 i; i < nA;) {
+            if (tokenInPool[tokenB][poolsA[i]]) ++count;
+            unchecked { ++i; }
         }
         pools = new address[](count);
         uint256 idx;
-        for (uint256 i = 0; i < poolsA.length; i++) {
-            if (tokenInPool[tokenB][poolsA[i]]) pools[idx++] = poolsA[i];
+        for (uint256 i; i < nA;) {
+            if (tokenInPool[tokenB][poolsA[i]]) { pools[idx] = poolsA[i]; unchecked { ++idx; } }
+            unchecked { ++i; }
         }
     }
 

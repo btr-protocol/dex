@@ -178,7 +178,7 @@ contract Pool is ReentrancyGuardTransient {
         address tokenTo,
         uint256 lpAmount,
         uint256 minAmountOut
-    ) public nonReentrant whenInitialized returns (IPool.WithdrawResult memory) {
+    ) external nonReentrant whenInitialized returns (IPool.WithdrawResult memory) {
         return PoolLiquidity.withdrawTo($, tokenFrom, tokenTo, lpAmount, minAmountOut);
     }
 

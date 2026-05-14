@@ -18,24 +18,20 @@ library Maths {
     int256 internal constant MAX_SAFE_POSITIVE_SHIFT = 61;
     int256 internal constant MAX_SAFE_NEGATIVE_SHIFT = 77;
 
-    // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
-    error Overflow();
-    error InvalidDecimals();
-
     // --- Encode / decode ---
 
     /// @notice Encode x (in `decimals`) → B64.
     function encodeB64(uint256 x, uint8 decimals) internal pure returns (uint64 packed) {
         if (x == 0) revert Err.ZeroValue();
-        if (decimals > 31) revert InvalidDecimals();
+        if (decimals > 31) revert Err.InvalidDecimals();
         unchecked {
             uint256 mant = x;
             int256 exponent = 0;
             while (mant > MAX_MANTISSA) { mant = (mant + 5) / 10; exponent++; }
             uint256 minMantissa = MAX_MANTISSA / 10;
             while (mant < minMantissa && exponent > MIN_EXP) { mant *= 10; exponent--; }
-            if (exponent < MIN_EXP || exponent > MAX_EXP) revert Overflow();
-            if (mant > MAX_MANTISSA) revert Overflow();
+            if (exponent < MIN_EXP || exponent > MAX_EXP) revert Err.Overflow();
+            if (mant > MAX_MANTISSA) revert Err.Overflow();
             assembly {
                 let biased := add(exponent, EXPONENT_BIAS)
                 packed := or(shl(12, mant), or(shl(7, decimals), biased))
@@ -57,10 +53,10 @@ library Maths {
             }
             if (mant == 0) revert Err.ZeroValue();
             int256 totalShift = exponent + int256(uint256(tarb64Decimals)) - int256(storedDecimals);
-            if (totalShift < -MAX_SAFE_NEGATIVE_SHIFT || totalShift > MAX_SAFE_POSITIVE_SHIFT) revert Overflow();
+            if (totalShift < -MAX_SAFE_NEGATIVE_SHIFT || totalShift > MAX_SAFE_POSITIVE_SHIFT) revert Err.Overflow();
             if (totalShift >= 0) {
                 uint256 mul = 10 ** uint256(totalShift);
-                if (mant > type(uint256).max / mul) revert Overflow();
+                if (mant > type(uint256).max / mul) revert Err.Overflow();
                 x = mant * mul;
             } else {
                 x = mant / (10 ** uint256(-totalShift));

@@ -166,18 +166,22 @@ library PoolSwap {
         if (tk[0] == tk[1]) revert Err.InvalidInput();
         if (amountIn == 0) revert Err.ZeroValue();
 
+        // P3.2: cache storage ptrs (cuts 4-6× SLOAD of mapping-key hash).
+        IPool.Asset storage aIn  = $.assets[tk[0]];
+        IPool.Asset storage aOut = $.assets[tk[1]];
+
         _checkRisk($, tk[0], C.SWAP_ENABLED_BIT);
         _checkRisk($, tk[1], C.SWAP_ENABLED_BIT);
-        PoolDecay.applyDecay($, tk[0], $.assets[tk[0]]);
-        PoolDecay.applyDecay($, tk[1], $.assets[tk[1]]);
+        PoolDecay.applyDecay($, tk[0], aIn);
+        PoolDecay.applyDecay($, tk[1], aOut);
 
         uint256 actualIn = _pull($, tokenIn, amountIn);
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk[0], tk[1], actualIn);
 
         out = _processSwap($, tk, actualIn, q);
 
-        if ($.assets[tk[1]].reserves < $.assets[tk[1]].minLiquidity) {
-            revert Err.ThresholdViolation($.assets[tk[1]].reserves, $.assets[tk[1]].minLiquidity);
+        if (aOut.reserves < aOut.minLiquidity) {
+            revert Err.ThresholdViolation(aOut.reserves, aOut.minLiquidity);
         }
 
         _oracle($, q);

@@ -7,6 +7,12 @@ pragma solidity =0.8.35;
 ///      its own state keyed by (pool, ...) and calls Pool's restricted setters via
 ///      standard external calls. All public functions take `address pool` as the first arg.
 interface IStaking {
+    /// @dev Per-pool staking config (lifted from Staking.sol for cross-consumer use).
+    struct PoolStakingConfig {
+        uint48 stakeLockDuration;
+        bool paused;
+    }
+
     // ── governance staking ──
     function stakeGov(address pool, uint256 amount) external;
     function unstakeGov(address pool, uint256 amount) external;
@@ -28,17 +34,17 @@ interface IStaking {
     function executeStakeLockDurationUpdate(address pool) external;
 
     // ── views ──
-    function getStakedGov(address pool, address user) external view returns (uint256);
-    function getStakedLP(address pool, address user, address lpToken) external view returns (uint256);
-    function getUnlockTime(address pool, address user, address lpToken) external view returns (uint48);
-    function getSLPToken(address pool, address lpToken) external view returns (address);
-    function getTotalLPStaked(address pool, address lpToken) external view returns (uint256);
-    function getStakedBalance(address pool, address user, address underlying) external view returns (uint256);
-    function getTotalStaked(address pool, address underlying) external view returns (uint256);
-    function getDelegateOf(address pool, address owner_) external view returns (address);
-    function getStakeLockDuration(address pool) external view returns (uint48);
+    function stakedGov(address pool, address user) external view returns (uint256);
+    function stakedLP(address pool, address user, address lpToken) external view returns (uint256);
+    function unlockTime(address pool, address user, address lpToken) external view returns (uint48);
+    function slpToken(address pool, address lpToken) external view returns (address);
+    function totalLPStaked(address pool, address lpToken) external view returns (uint256);
+    function stakedBalance(address pool, address user, address underlying) external view returns (uint256);
+    function totalStaked(address pool, address underlying) external view returns (uint256);
+    function delegateOf(address pool, address owner_) external view returns (address);
+    function stakeLockDuration(address pool) external view returns (uint48);
     function isStakingPaused(address pool) external view returns (bool);
-    function getLPTokens(address pool) external view returns (address[] memory);
+    function lpTokens(address pool) external view returns (address[] memory);
 
     // ── events (pool-keyed) ──
     event GovStaked(address indexed pool, address indexed user, uint256 amount, uint48 unlockTime);

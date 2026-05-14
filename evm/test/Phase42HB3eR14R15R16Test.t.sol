@@ -243,7 +243,7 @@ contract Phase42HB3eR14R15R16Test is Test {
 
         // Pool's lpBalance debited; staking accounting credits sLP balance.
         uint256 lp1 = pool.getLPBalance(USER, address(quote));
-        uint256 staked1 = stakingSingleton.getStakedLP(address(pool), USER, address(quote));
+        uint256 staked1 = stakingSingleton.stakedLP(address(pool), USER, address(quote));
         assertEq(lp1, 0, "lpBalance fully debited");
         assertEq(staked1, lp0, "staked = lp0");
         // Conservation: lpBalance + staked == lp0.
@@ -259,7 +259,7 @@ contract Phase42HB3eR14R15R16Test is Test {
         stakingSingleton.unstakeLP(address(pool), address(quote), lp0 / 2);
 
         uint256 lp2 = pool.getLPBalance(USER, address(quote));
-        uint256 staked2 = stakingSingleton.getStakedLP(address(pool), USER, address(quote));
+        uint256 staked2 = stakingSingleton.stakedLP(address(pool), USER, address(quote));
         assertEq(lp2, lp0 / 2, "half restored to lpBalance");
         assertEq(staked2, lp0 - lp0 / 2, "half remains staked");
         assertEq(lp2 + staked2, lp0, "unstake conservation");
