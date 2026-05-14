@@ -4,10 +4,11 @@ pragma solidity =0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {Bridge} from "../../src/Bridge.sol";
-import {IBridge} from "../../src/interfaces/IBridge.sol";
+import {Bridge} from "@btr-shared/Bridge.sol";
+import {IBridge} from "@btr-shared/interfaces/IBridge.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
+import {MockAC} from "../fixtures/BaseTestSetup.sol";
 
 /// @title BridgePeerTimelockTest
 /// @notice Phase 42H.D · Round 5 (G19 + G20) -coverage for `requestSetPeer` /
@@ -19,11 +20,13 @@ contract BridgePeerTimelockTest is Test {
     bytes32 internal constant PEER = bytes32(uint256(0xBEEF));
 
     Bridge internal bridge;
+    MockAC internal ac;
 
     function setUp() public {
-        Bridge impl = new Bridge(address(0xDEAD));
+        ac = new MockAC(OWNER);
+        Bridge impl = new Bridge(address(0xDEAD), address(ac));
         address p = LibClone.deployERC1967(address(impl));
-        Bridge(payable(p)).initialize(OWNER);
+        Bridge(payable(p)).initialize();
         bridge = Bridge(payable(p));
     }
 

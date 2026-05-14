@@ -15,7 +15,7 @@ interface IRouter {
     function MAX_HOPS() external view returns (uint8);
     function factory() external view returns (address);
 
-    function initialize(address newOwner, address _factory) external;
+    function initialize(address _factory) external;
 
     function getBestRoute(address tokenIn, address tokenOut, uint256 amountIn)
         external view returns (Route memory route, uint256 amountOut);

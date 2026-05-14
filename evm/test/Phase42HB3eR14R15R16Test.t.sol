@@ -9,16 +9,16 @@ import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
 import {Staking} from "../src/Staking.sol";
 import {Flash} from "../src/Flash.sol";
-import {Bridge} from "../src/Bridge.sol";
-import {Treasury} from "../src/Treasury.sol";
+import {Bridge} from "@btr-shared/Bridge.sol";
+import {Treasury} from "@btr-shared/Treasury.sol";
 import {Distributor} from "@btr-shared/Distributor.sol";
-import {GovToken} from "../src/tokens/GovToken.sol";
+import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 import {StakedLP} from "../src/tokens/StakedLP.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IDistributor} from "@btr-shared/interfaces/IDistributor.sol";
 import {IStaking} from "../src/interfaces/IStaking.sol";
-import {IBridge} from "../src/interfaces/IBridge.sol";
-import {ITreasury} from "../src/interfaces/ITreasury.sol";
+import {IBridge} from "@btr-shared/interfaces/IBridge.sol";
+import {ITreasury} from "@btr-shared/interfaces/ITreasury.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {MockAC} from "./fixtures/BaseTestSetup.sol";
@@ -172,9 +172,10 @@ contract Phase42HB3eR14R15R16Test is Test {
     function test_R15_treasury_getBridge_explicit_selector() public {
         // Deploy a GovToken owned by a fresh Treasury.
         // Treasury constructor takes govToken. Use a placeholder address; we won't mint here.
+        MockAC localAC = new MockAC(address(this));
+        Treasury tr = new Treasury(address(localAC));
         MockERC20 placeholder = new MockERC20("G","G",18);
-        Treasury tr = new Treasury(address(placeholder));
-        tr.initialize(address(this));
+        tr.initialize(address(placeholder));
 
         // Pre-wire: getBridge() returns 0.
         assertEq(tr.getBridge(), address(0), "no bridge wired");
@@ -191,9 +192,10 @@ contract Phase42HB3eR14R15R16Test is Test {
     /// @notice R15 LOW: executeEmissionsCapChange revalidates newCap >= claimed.
     function test_R15_executeEmissionsCap_revalidates_floor() public {
         // Treasury w/ minimal scaffolding.
+        MockAC localAC = new MockAC(address(this));
+        Treasury tr = new Treasury(address(localAC));
         MockERC20 placeholder = new MockERC20("G","G",18);
-        Treasury tr = new Treasury(address(placeholder));
-        tr.initialize(address(this));
+        tr.initialize(address(placeholder));
         tr.initializeEmissions(1_000e18);
 
         // Request a cap reduction.
@@ -202,7 +204,7 @@ contract Phase42HB3eR14R15R16Test is Test {
         // Manipulate emissionsSchedule.claimed via vm.store to simulate mints during timelock.
         // Treasury layout: emissionsSchedule struct @ slot 4. Fields: totalAllocation (slot 4),
         // claimed (slot 5), then cliffTime/endTime/cliffAmount/suppressor packed into slot 6.
-        vm.store(address(tr), bytes32(uint256(5)), bytes32(uint256(800e18)));
+        vm.store(address(tr), bytes32(uint256(5)), bytes32(uint256(800e18))); // emissionsSchedule.claimed (new layout: AC immutable, govToken+_initialized @ slot 0, then tgeTimestamp, maxSupply, totalVestingAllocation, vestingSchedules, emissionsSchedule @ slot 5)
 
         // Skip past the timelock but stay within grace window.
         vm.warp(block.timestamp + 8 days);
@@ -267,9 +269,10 @@ contract Phase42HB3eR14R15R16Test is Test {
 
     /// @notice Treasury.salvage owner-only ERC20 sweep + Salvaged event.
     function test_salvage_treasury_owner_only() public {
+        MockAC localAC = new MockAC(address(this));
+        Treasury tr = new Treasury(address(localAC));
         MockERC20 placeholder = new MockERC20("G","G",18);
-        Treasury tr = new Treasury(address(placeholder));
-        tr.initialize(address(this));
+        tr.initialize(address(placeholder));
 
         // Drop stuck tokens into Treasury.
         MockERC20 stuck = new MockERC20("S","S",18);
@@ -287,9 +290,10 @@ contract Phase42HB3eR14R15R16Test is Test {
 
     /// @notice Salvage emits Salvaged event with correct args.
     function test_salvage_treasury_emits_event() public {
+        MockAC localAC = new MockAC(address(this));
+        Treasury tr = new Treasury(address(localAC));
         MockERC20 placeholder = new MockERC20("G","G",18);
-        Treasury tr = new Treasury(address(placeholder));
-        tr.initialize(address(this));
+        tr.initialize(address(placeholder));
         MockERC20 stuck = new MockERC20("S","S",18);
         stuck.mint(address(tr), 500e18);
         vm.expectEmit(true, true, false, true);
@@ -299,12 +303,13 @@ contract Phase42HB3eR14R15R16Test is Test {
 
     /// @notice R15: requestEmissionsCapChange floor -newCap < claimed reverts at request.
     function test_R15_requestEmissionsCap_floor() public {
+        MockAC localAC = new MockAC(address(this));
+        Treasury tr = new Treasury(address(localAC));
         MockERC20 placeholder = new MockERC20("G","G",18);
-        Treasury tr = new Treasury(address(placeholder));
-        tr.initialize(address(this));
+        tr.initialize(address(placeholder));
         tr.initializeEmissions(1_000e18);
         // Force claimed = 600e18 via storage.
-        vm.store(address(tr), bytes32(uint256(5)), bytes32(uint256(600e18)));
+        vm.store(address(tr), bytes32(uint256(5)), bytes32(uint256(600e18))); // emissionsSchedule.claimed (slot 6 post Track-B Phase-1b)
         vm.expectRevert(Err.InvalidInput.selector);
         tr.requestEmissionsCapChange(500e18);
     }
@@ -357,8 +362,9 @@ contract Phase42HB3eR14R15R16Test is Test {
     /// @notice Bridge.salvage owner-only.
     function test_salvage_bridge_owner_only() public {
         // Bridge requires LZ_ENDPOINT immutable; pass a non-zero placeholder.
-        Bridge br = new Bridge(address(0x1234));
-        br.initialize(address(this));
+        MockAC localAC = new MockAC(address(this));
+        Bridge br = new Bridge(address(0x1234), address(localAC));
+        br.initialize();
 
         MockERC20 stuck = new MockERC20("S","S",18);
         stuck.mint(address(br), 1_000e18);
