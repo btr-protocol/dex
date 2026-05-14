@@ -2,9 +2,10 @@
 pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
-import {Bridge} from "../src/Bridge.sol";
-import {IBridge} from "../src/interfaces/IBridge.sol";
+import {Bridge} from "@btr-shared/Bridge.sol";
+import {IBridge} from "@btr-shared/interfaces/IBridge.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
+import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
 /// @title Phase42HB3eR10R11BridgeTest
 /// @notice R10 MED (inbound day rollover via shared helper) + R11 LOW (inbound bucket decimals
@@ -12,10 +13,12 @@ import {Maths as M} from "../src/libraries/Maths.sol";
 ///         + getRemainingLimits surface (no LZ mock needed).
 contract Phase42HB3eR10R11BridgeTest is Test {
     Bridge bridge;
+    MockAC ac;
 
     function setUp() public {
-        bridge = new Bridge(address(0xDEAD));
-        bridge.initialize(address(this));
+        ac = new MockAC(address(this));
+        bridge = new Bridge(address(0xDEAD), address(ac));
+        bridge.initialize();
     }
 
     /// @notice R11: getRemainingLimits decodes inbound bucket via b64Decimals(limitOutB64).
@@ -75,8 +78,9 @@ contract Phase42HB3eR10R11BridgeTest is Test {
         // Force-write bridgedInB64 to a non-zero value at "today" → simulates partial use.
         // TokenConfig packed slot: limitOutB64 (64) | bridgedOutB64 (64) | bridgedInB64 (64) |
         // day (16) | inRatio (8) | flags (8). Single 32-byte slot.
-        // mapping(address => TokenConfig) at slot 0 (Bridge layout). Access via keccak256.
-        bytes32 slot = keccak256(abi.encode(token, uint256(0)));
+        // Track-B Phase-1b: Bridge storage = `_initialized` (slot 0) + `tokenConfigs` (slot 1).
+        // mapping(address => TokenConfig) at slot 1. Access via keccak256.
+        bytes32 slot = keccak256(abi.encode(token, uint256(1)));
         bytes32 cur = vm.load(address(bridge), slot);
         // Encode bridgedInB64 = encodeB64(500e18, 18) and inject; preserve other fields.
         uint64 bIn = M.encodeB64(500e18, 18);

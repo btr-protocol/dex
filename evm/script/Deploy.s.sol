@@ -14,10 +14,10 @@ import {Flash} from "../src/Flash.sol";
 import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
-import {Treasury} from "../src/Treasury.sol";
-import {Bridge} from "../src/Bridge.sol";
+import {Treasury} from "@btr-shared/Treasury.sol";
+import {Bridge} from "@btr-shared/Bridge.sol";
 import {Router} from "../src/Router.sol";
-import {GovToken} from "../src/tokens/GovToken.sol";
+import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 
 /// @title Deploy -minimal e2e BTR DEX deploy.
 /// @notice Singletons (Admin/Staking/Distributor/Flash) + Pool reference impl + PoolFactory +
@@ -72,26 +72,26 @@ contract Deploy is DeployBase {
         a.poolImpl = address(new Pool(a.ac, a.admin, a.staking, a.flash, a.poolAux));
         a.poolFactory = address(new PoolFactory(a.poolImpl, a.deployer, a.ac));
 
-        // 4. GovToken (deployer-owned initially → reassigned to Treasury proxy below).
-        a.govToken = address(new GovToken(a.deployer, govName, govSymbol));
-
-        // 5. Treasury (UUPS).
-        a.treasuryImpl = address(new Treasury(a.govToken));
+        // 4. Treasury impl + proxy (UUPS). Track-B Phase-1b: deploy order is now
+        //    Treasury proxy → GovToken (immutable TREASURY) → Treasury.initialize(govToken).
+        a.treasuryImpl = address(new Treasury(a.ac));
         a.treasuryProxy = LibClone.deployERC1967(a.treasuryImpl);
-        Treasury(payable(a.treasuryProxy)).initialize(a.deployer);
 
-        // GovToken ownership → treasury proxy (Treasury enforces max-supply on mint).
-        GovToken(a.govToken).transferOwnership(a.treasuryProxy);
+        // 5. GovToken w/ immutable TREASURY = treasuryProxy.
+        a.govToken = address(new GovToken(a.treasuryProxy, govName, govSymbol));
 
-        // 6. Bridge (UUPS).
-        a.bridgeImpl = address(new Bridge(lzEndpoint));
+        // 6. Wire Treasury <- govToken via initialize (write-once).
+        Treasury(payable(a.treasuryProxy)).initialize(a.govToken);
+
+        // 7. Bridge (UUPS).
+        a.bridgeImpl = address(new Bridge(lzEndpoint, a.ac));
         a.bridgeProxy = LibClone.deployERC1967(a.bridgeImpl);
-        Bridge(payable(a.bridgeProxy)).initialize(a.deployer);
+        Bridge(payable(a.bridgeProxy)).initialize();
 
-        // 7. Router (UUPS).
-        a.routerImpl = address(new Router());
+        // 8. Router (UUPS).
+        a.routerImpl = address(new Router(a.ac));
         a.routerProxy = LibClone.deployERC1967(a.routerImpl);
-        Router(payable(a.routerProxy)).initialize(a.deployer, a.poolFactory);
+        Router(payable(a.routerProxy)).initialize(a.poolFactory);
 
         // 8. Post-deploy wiring (G13).
         //    - Treasury.distributor + Treasury.bridge MUST be set; GovToken cross-chain

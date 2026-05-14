@@ -6,10 +6,10 @@ import {Deploy} from "../../script/Deploy.s.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {PoolFactory} from "../../src/PoolFactory.sol";
 import {Pool} from "../../src/Pool.sol";
-import {Treasury} from "../../src/Treasury.sol";
-import {Bridge} from "../../src/Bridge.sol";
+import {Treasury} from "@btr-shared/Treasury.sol";
+import {Bridge} from "@btr-shared/Bridge.sol";
 import {Router} from "../../src/Router.sol";
-import {GovToken} from "../../src/tokens/GovToken.sol";
+import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
 /// @title DeployScriptTest
@@ -48,8 +48,8 @@ contract DeployScriptTest is Test {
         assertEq(Pool(payable(a.poolImpl)).staking(), a.staking, "poolImpl.staking");
         assertEq(Pool(payable(a.poolImpl)).flash(), a.flash, "poolImpl.flash");
 
-        // GovToken ownership transferred to Treasury proxy.
-        assertEq(GovToken(a.govToken).owner(), a.treasuryProxy, "govToken.owner");
+        // Track-B Phase-1b: GovToken has immutable TREASURY = treasuryProxy (no Ownable).
+        assertEq(GovToken(a.govToken).TREASURY(), a.treasuryProxy, "govToken.TREASURY");
 
         // ── post-deploy wiring (G13) ──
         assertTrue(Treasury(payable(a.treasuryProxy)).distributor() != address(0), "treasury.distributor unset");
@@ -63,10 +63,10 @@ contract DeployScriptTest is Test {
 
         // Treasury / Bridge / Router proxies initialized → second initialize reverts.
         vm.expectRevert();
-        Treasury(payable(a.treasuryProxy)).initialize(address(this));
+        Treasury(payable(a.treasuryProxy)).initialize(a.govToken);
         vm.expectRevert();
-        Bridge(payable(a.bridgeProxy)).initialize(address(this));
+        Bridge(payable(a.bridgeProxy)).initialize();
         vm.expectRevert();
-        Router(payable(a.routerProxy)).initialize(address(this), a.poolFactory);
+        Router(payable(a.routerProxy)).initialize(a.poolFactory);
     }
 }

@@ -4,6 +4,7 @@ pragma solidity =0.8.35;
 import {IRouter} from "./interfaces/IRouter.sol";
 import {IPoolFactory} from "./interfaces/IPoolFactory.sol";
 import {IExchange} from "./interfaces/modules/IExchange.sol";
+import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
@@ -15,48 +16,50 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title Router
 /// @notice Stateless router for optimal route discovery and execution.
-contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
+/// @dev Track-B Phase-1b: stays in dex (tight coupling to dex IPool/IPoolFactory).
+///      Migrated to AC-owner auth pattern; `Ownable` dropped.
+contract Router is IRouter, ReentrancyGuardTransient, UUPSUpgradeable {
     using SafeTransferLib for address;
 
-    // TODO(Wave-6): migrate to shared Err lib (parity w/ ALM Cohort-3 finding 6 migration).
     error SlippageExceeded();
     error WrongEthAmount();
 
     uint8 public constant MAX_HOPS = 3;
-    uint16 internal constant MIN_HOP_IMPROVEMENT_BPS = 105; // 5% gain over direct to use multi-hop
+    uint16 internal constant MIN_HOP_IMPROVEMENT_BPS = 105;
     address internal constant ETH = address(0);
 
+    address public immutable AC;
     address public override factory;
+
+    bool private _initialized;
 
     uint96 public pendingUpgradeOp;
     bytes32 public pendingUpgradeId;
     address public pendingImplementation;
 
-    /// @dev G18 fix: transient slot for self-call upgrade auth. See Treasury.sol for details.
+    /// @dev G18 fix: transient slot for self-call upgrade auth. See shared/Treasury.sol.
     bytes32 private constant _UPGRADE_AUTH_TSLOT =
         0x9f1c8b7e3f6a4d2c5b8e1a0f7d9c4e2b5a8f1c7e4b9d6a3c0e7f1b8d5a2c9e62;
 
-    constructor() {}
+    modifier onlyAdmin() {
+        if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+        _;
+    }
 
-    /// @dev F-A2-R10-1 (LOW) NOT FIXED (intentional): unguarded `initialize`. Deployment script
-    ///      atomically deploys + initializes (single tx) → front-run window = 0. One-shot guard
-    ///      via `factory != address(0)` blocks repeat. Mirrors Bridge.initialize disposition.
-    function initialize(address newOwner_, address factory_) external {
-        if (factory != address(0)) revert Err.InvalidState();
+    constructor(address ac_) {
+        if (ac_ == address(0)) revert Err.ZeroValue();
+        AC = ac_;
+    }
+
+    function initialize(address factory_) external {
+        if (_initialized) revert Err.InvalidState();
         if (factory_ == address(0)) revert Err.ZeroValue();
         factory = factory_;
-        _initializeOwner(newOwner_);
+        _initialized = true;
     }
 
     // ─── route discovery ───
 
-    /// @notice Returns best 1/2/3-hop route for `tokenIn → tokenOut` at size `amountIn`.
-    /// @dev Phase 42D R2-A3-1 DISCARD (by-design): per-hop `minOut` is set to the in-block
-    ///      quoted amount → ZERO slippage tolerance. Block-N+1 execution will revert if any
-    ///      pool has moved. This is conservatively safe vs sandwich attacks. Integrators that
-    ///      need slippage tolerance MUST construct their own `Route` with discounted per-hop
-    ///      `minOut` values (e.g. `quote * 9_995 / 10_000` for 5 bps tolerance) before calling
-    ///      `executeSwap`. The `getBestRoute` view is a discovery helper, not a settlement primitive.
     function getBestRoute(address tokenIn, address tokenOut, uint256 amountIn)
         external view override returns (Route memory route, uint256 amountOut)
     {
@@ -146,7 +149,6 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
 
                 uint256 hop1 = _quoteOrZero(poolIn, tokenIn, mid, amountIn);
                 if (hop1 == 0) continue;
-                // R2-A3-2: probe downstream pool w/ realistic hop1 output (price-impact aware)
                 address poolOut = _findBestPoolForPair(mid, tokenOut, officialCount, hop1);
                 if (poolOut == address(0)) continue;
                 uint256 hop2 = _quoteOrZero(poolOut, mid, tokenOut, hop1);
@@ -192,7 +194,6 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
                 if (i == j) continue;
                 address b1 = baseTokens[i];
                 address b2 = baseTokens[j];
-                // R2-A3-2: probe each pool w/ realistic hop input (price-impact aware)
                 address p1 = _findBestPoolForPair(tokenIn, b1, officialCount, amountIn);
                 if (p1 == address(0)) continue;
                 uint256 a2 = _quoteOrZero(p1, tokenIn, b1, amountIn);
@@ -218,9 +219,6 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
         return (route, bestOut);
     }
 
-    /// @dev R2-A3-2: probeAmount sourced from upstream realistic flow → ranks pools by
-    ///      price-impact-adjusted output rather than fixed 1e18 (which biased toward
-    ///      shallow pools when actual trade size was larger).
     function _findBestPoolForPair(address tokenA, address tokenB, uint256 officialCount, uint256 probeAmount)
         internal view returns (address bestPool)
     {
@@ -277,9 +275,6 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
 
         for (uint256 i = 0; i < nSteps; i++) {
             RouteStep memory step = route.steps[i];
-            // Phase 42D R2-A2-1: tighten exec to isOfficialPool -symmetric with quote-discovery
-            // (_getBestDirectQuote uses isOfficialPool). Pool registration is owner-gated, but
-            // exec must match discovery to avoid integrator surprise via hand-crafted Routes.
             if (!f.isOfficialPool(step.pool)) revert Ownable.Unauthorized();
             if (currentToken != ETH) currentToken.safeApprove(step.pool, currentAmount);
 
@@ -287,7 +282,6 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
                 ? IExchange(step.pool).swap{value: currentAmount}(currentToken, step.tokenOut, currentAmount, step.minOut, address(this))
                 : IExchange(step.pool).swap(currentToken, step.tokenOut, currentAmount, step.minOut, address(this));
 
-            // Reset residual approval (defence-in-depth vs malicious / partial-consume pools).
             if (currentToken != ETH) currentToken.safeApprove(step.pool, 0);
             currentToken = step.tokenOut;
         }
@@ -332,7 +326,7 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
 
     // ─── upgrades ───
 
-    function requestUpgrade(address implementation) external override onlyOwner {
+    function requestUpgrade(address implementation) external override onlyAdmin {
         if (implementation == address(0)) revert Err.ZeroValue();
         if (pendingUpgradeOp != 0) revert Err.PendingTimelock(uint48(block.timestamp));
         pendingUpgradeId = keccak256(abi.encode(implementation, block.timestamp));
@@ -341,7 +335,7 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
         emit UpgradeRequested(implementation, uint48(pendingUpgradeOp >> 48));
     }
 
-    function executeUpgrade() external override onlyOwner {
+    function executeUpgrade() external override onlyAdmin {
         TL.validate(pendingUpgradeOp);
         address newImpl = pendingImplementation;
         delete pendingUpgradeId;
@@ -353,20 +347,20 @@ contract Router is IRouter, Ownable, ReentrancyGuardTransient, UUPSUpgradeable {
         emit Upgraded(newImpl);
     }
 
-    function cancelUpgrade() external onlyOwner {
+    function cancelUpgrade() external onlyAdmin {
         if (pendingUpgradeOp == 0) revert Err.InvalidState();
         delete pendingUpgradeId;
         delete pendingImplementation;
         delete pendingUpgradeOp;
     }
 
-    /// @dev G18 fix: see Treasury.sol comment.
+    /// @dev G18 fix: see shared/Treasury comment.
     function _authorizeUpgrade(address) internal override {
         if (msg.sender == address(this)) {
             uint256 auth;
             assembly { auth := tload(_UPGRADE_AUTH_TSLOT) }
             if (auth == 1) return;
         }
-        if (msg.sender != owner()) revert Ownable.Unauthorized();
+        if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
     }
 }
