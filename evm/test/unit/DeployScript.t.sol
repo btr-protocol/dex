@@ -57,8 +57,9 @@ contract DeployScriptTest is Test {
         assertTrue(Treasury(payable(a.treasuryProxy)).bridge() != address(0), "treasury.bridge unset");
         assertEq(Treasury(payable(a.treasuryProxy)).bridge(), a.bridgeProxy, "treasury.bridge mismatch");
         assertEq(Treasury(payable(a.treasuryProxy)).getBridge(), a.bridgeProxy, "treasury.getBridge mismatch");
-        // PoolFactory ownership funnels through AC.owner() (same multisig governs both).
-        assertEq(Ownable(a.poolFactory).owner(), Ownable(a.ac).owner(), "factory.owner != ac.owner");
+        // PoolFactory ownership funnels through AC.owner() via AC-singleton modifier
+        // (Track-B Phase-1: PoolFactory dropped Solady Ownable; auth resolves via AC.owner()).
+        assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC != ac");
 
         // Treasury / Bridge / Router proxies initialized → second initialize reverts.
         vm.expectRevert();
