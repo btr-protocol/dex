@@ -188,9 +188,6 @@ interface IPool is IOracle {
     function adminSetTreasury(address newTreasury) external;
     function adminSetBaseToken(address newBase) external;
 
-    // ── Phase 42H.B.3b: restricted setter gated by `staking` singleton ──
-    function stakingAdjustLpBalance(address user, address token, int256 delta) external;
-
     // ── Phase 42H.B.3c: restricted setters gated by `flash` singleton ──
     function flashSend(address token, uint256 amount, address to) external;
     function flashAccount(address token, uint256 fee, uint256 protoFee) external;

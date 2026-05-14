@@ -43,19 +43,7 @@ library PoolEdge {
         }
     }
 
-    function stakingAdjustLpBalance(IPool.PoolStorage storage $, address user, address token, int256 delta) external {
-        address t = _wrap($, token);
-        if (delta > 0) {
-            $.lpBalances[user][t] += uint256(delta);
-        } else if (delta < 0) {
-            uint256 d = uint256(-delta);
-            uint256 cur = $.lpBalances[user][t];
-            if (cur < d) revert Err.InsufficientAmount(cur, d);
-            $.lpBalances[user][t] = cur - d;
-        }
-    }
-
-    function flashSend(IPool.PoolStorage storage $, address token, uint256 amount, address to) external {
+function flashSend(IPool.PoolStorage storage $, address token, uint256 amount, address to) external {
         address t = _wrap($, token);
         IPool.Asset storage asset = $.assets[t];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);

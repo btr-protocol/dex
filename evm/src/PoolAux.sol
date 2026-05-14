@@ -45,11 +45,6 @@ contract PoolAux is ReentrancyGuardTransient {
         _;
     }
 
-    modifier onlyStaking() {
-        if (msg.sender != staking) revert Err.NotOwner();
-        _;
-    }
-
     modifier onlyFlash() {
         if (msg.sender != flash) revert Err.NotOwner();
         _;
@@ -143,12 +138,6 @@ contract PoolAux is ReentrancyGuardTransient {
 
     function adminSetBaseToken(address newBase) external onlyAdmin {
         PoolAdminWrite.setBaseToken($, newBase);
-    }
-
-    // ── STAKING ──
-
-    function stakingAdjustLpBalance(address user, address token, int256 delta) external onlyStaking {
-        PoolEdge.stakingAdjustLpBalance($, user, token, delta);
     }
 
     // ── FLASH ──

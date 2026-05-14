@@ -8,7 +8,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {console2} from "forge-std/Script.sol";
 
 import {Admin} from "../src/Admin.sol";
-import {Staking} from "../src/Staking.sol";
+import {Staking} from "@btr-shared/Staking.sol";
 import {Distributor} from "@btr-shared/Distributor.sol";
 import {Flash} from "../src/Flash.sol";
 import {Pool} from "../src/Pool.sol";
