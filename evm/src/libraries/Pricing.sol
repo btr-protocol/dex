@@ -35,8 +35,8 @@ library Pricing {
     ) internal pure returns (int8) {
         if (liabilities == 0) return -100;
         uint256 coverage = calculateCoverage(reserves, liabilities);
-        uint256 critMin = (uint256(coverageMin) * SC.WAD) / 10000;
-        uint256 critMax = (uint256(coverageMax) * SC.WAD) / 10000;
+        uint256 critMin = (uint256(coverageMin) * SC.WAD) / SC.BPS;
+        uint256 critMax = (uint256(coverageMax) * SC.WAD) / SC.BPS;
         if (coverage <= critMin) return 100;
         if (coverage >= critMax) return -100;
         bool under = coverage < SC.WAD;
@@ -165,14 +165,14 @@ library Pricing {
         // O(N) array rebuild on the swap hot path (~5–8k gas saved per swap).
         Spline.Point[] memory points = _buildSplinePoints(profile, dispersion);
         uint256 startDepth = _skewToDepth(inventorySkew);
-        uint256 volumeFraction = (amountIn * 10000) / depth;
-        if (volumeFraction > 10000) volumeFraction = 10000;
+        uint256 volumeFraction = (amountIn * SC.BPS) / depth;
+        if (volumeFraction > SC.BPS) volumeFraction = SC.BPS;
         uint256 endDepth;
         if (selling) {
             endDepth = volumeFraction >= startDepth ? 0 : startDepth - volumeFraction;
         } else {
             endDepth = startDepth + volumeFraction;
-            if (endDepth > 10000) endDepth = 10000;
+            if (endDepth > SC.BPS) endDepth = SC.BPS;
         }
         uint256 width = selling ? (startDepth - endDepth) : (endDepth - startDepth);
         if (width == 0) {
@@ -213,7 +213,7 @@ library Pricing {
         for (uint256 i = 0; i < count; i++) {
             cumW += uint256(profile.weights[i]);
             points[i + 1] = Spline.Point({
-                x: (cumW * 10000) / WEIGHT_SUM,
+                x: (cumW * SC.BPS) / WEIGHT_SUM,
                 y: (int256(int16(profile.knots[i + 1])) * int256(uint256(dispersion))) / 100
             });
         }
@@ -334,10 +334,28 @@ library Pricing {
         cache.coverageMin = rc.coverageMin;
         cache.coverageMax = rc.coverageMax;
         if (token == $.baseToken) {
-            cache.price = 1e18;
+            // R44-2 (T3-HIGH2): if a base-token oracle is pinned, read real base price + halt
+            //   swaps on depeg. Otherwise fallback to 1e18 (legacy stable-base behavior).
+            cache.price = _readBasePriceOrHalt($);
         } else {
             (cache.price,) = Oracle.decodeB64s(_readOracle($, token));
         }
+    }
+
+    /// @notice R44-2 (T3-HIGH2): read base-token oracle price and revert on depeg.
+    /// @dev If `$.baseTokenOracle == address(0)` returns 1e18 unchanged (backwards-compat for
+    ///      stable-base deployments). Otherwise reads the configured feed via `IOracle.getFeed`
+    ///      and compares to 1e18 unit-of-account parity. Reverts `Err.BaseDepegged` when
+    ///      |basePrice - 1e18| * BPS / 1e18 > `Constants.BASE_DEPEG_HALT_BPS`.
+    function _readBasePriceOrHalt(IPool.PoolStorage storage $) internal view returns (uint256 basePrice) {
+        address oracle = $.baseTokenOracle;
+        if (oracle == address(0)) return 1e18;
+        IOracle.FeedData memory feed = IOracle(oracle).getFeed($.baseTokenFeedId);
+        (basePrice,) = Oracle.decodeB64s(feed);
+        if (basePrice == 0) revert Err.BaseDepegged(0, type(uint256).max);
+        uint256 deviation = basePrice > 1e18 ? basePrice - 1e18 : 1e18 - basePrice;
+        uint256 devBps = (deviation * SC.BPS) / 1e18;
+        if (devBps > uint256(C.BASE_DEPEG_HALT_BPS)) revert Err.BaseDepegged(basePrice, devBps);
     }
 
     /// @dev Execute one path leg → (out, σ, Δ, minFee, maxFee, execPriceB64).
@@ -363,7 +381,9 @@ library Pricing {
         uint256 twap;
         if (profileAsset == $.baseToken) {
             feed = Oracle.getBaseFeed();
-            twap = 1e18;
+            // R44-2b: base-token edge-hop must honor depeg halt; cannot hardcode 1e18 when
+            //   a base oracle is pinned. Falls back to 1e18 when oracle unset (legacy stable-base).
+            twap = _readBasePriceOrHalt($);
         } else {
             feed = _readOracle($, profileAsset);
             (twap,) = Oracle.decodeB64s(feed);
@@ -392,7 +412,8 @@ library Pricing {
 
         // Cap by reserves (minLiquidity enforced @ Exchange).
         uint128 toRes = $.assets[to].reserves;
-        if (amountOut > toRes) amountOut = toRes;
+        bool clamped = amountOut > toRes;
+        if (clamped) amountOut = toRes;
 
         // Exec price in `to` decimals.
         uint256 price18 = (amountOut * 1e18 * (10 ** uint256(18 - decimalsTo))) /
@@ -400,7 +421,12 @@ library Pricing {
         uint256 priceOut = price18 / (10 ** uint256(18 - decimalsTo));
         // Phase 42D A4-2: revert on degenerate zero (was: silent clamp to 1, which poisoned oracle).
         if (priceOut == 0) revert Err.ZeroValue();
-        execPriceB64 = M.encodeB64(priceOut, decimalsTo);
+        // R44-9 (Pass-44B): sentinel = 0 → skip oracle push for this hop.
+        // Reserve-clamped exec price reflects pool emptiness, not market — polluting TWAP via
+        // accumulator push enables an attacker to drain reserves and inject manipulated prices.
+        // `pushOracle` consumer treats 0 as "do not push". Caller still uses unscaled execPriceB64
+        // (encoded value) for return; only the oracle sink skips.
+        execPriceB64 = clamped ? uint64(0) : M.encodeB64(priceOut, decimalsTo);
     }
 
     /// @dev Edge hop w/ full price impact.
@@ -434,7 +460,15 @@ library Pricing {
         }
     }
 
-    /// @dev Mid-price for intermediate hop.
+    /// @dev Mid-price for intermediate hop (interior leg of multi-hop path).
+    ///      R44-8 (Pass-44B) ACKNOWLEDGED TRADE-OFF: interior hops use mid-price w/ skew but
+    ///      without spline volume-traversal impact. For paths of length ≤ 3 (single intermediate)
+    ///      the under-charge is bounded by (max-skew · max-dispersion) ≈ 1% in production configs.
+    ///      For longer paths the cumulative deviation grows. Mitigation in this pass: rely on
+    ///      AnchorTree MAX_DEPTH=4 (max path length 6 hops, max interior = 4); future hardening
+    ///      should add reduced-impact spline traversal (scale factor ~30% PBPS) or tighten
+    ///      MAX_DEPTH to 3. Edge hops (first/last) ALWAYS apply full spline impact via
+    ///      `_priceEdgeHop`, so under-charge is purely an interior-leg phenomenon.
     function _getMidPriceForLeg(
         IPool.PoolStorage storage $,
         IPool.Asset storage asset,
@@ -550,24 +584,6 @@ library Pricing {
         depth = uint256(reserves) + (k * deficit * concaveProgress) / (SC.PBPS * SC.WAD);
         if (depth > uint256(liabilities)) depth = uint256(liabilities);
         if (depth == 0) depth = 1;
-    }
-
-    /// @notice Linear liability decay when coverage < threshold. Caps @ (L - R).
-    ///         decayAmount = L · decaySlope · dt / WAD.
-    function calculateDecay(
-        uint128 liabilities,
-        uint128 reserves,
-        uint16 decayStartRatioBps,
-        uint32 decaySlope,
-        uint32 dt
-    ) internal pure returns (uint128) {
-        if (dt == 0 || decaySlope == 0 || liabilities == 0) return 0;
-        uint256 coverage = calculateCoverage(reserves, liabilities);
-        uint256 threshold = (uint256(decayStartRatioBps) * SC.WAD) / SC.PBPS;
-        if (coverage >= threshold) return 0;
-        uint256 rawDecay = (uint256(liabilities) * uint256(decaySlope) * uint256(dt)) / SC.WAD;
-        uint256 maxDecay = liabilities > reserves ? liabilities - reserves : 0; // cap @ 100% coverage
-        return rawDecay > maxDecay ? uint128(maxDecay) : uint128(rawDecay);
     }
 
     /// @dev x^y in WAD via Solady FixedPointMathLib.powWad. A4-1 fix: replaces hand-rolled approx.

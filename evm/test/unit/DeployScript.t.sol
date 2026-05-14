@@ -45,7 +45,6 @@ contract DeployScriptTest is Test {
         assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC");
         assertEq(Pool(payable(a.poolImpl)).AC(), a.ac, "poolImpl.AC");
         assertEq(Pool(payable(a.poolImpl)).admin(), a.admin, "poolImpl.admin");
-        assertEq(Pool(payable(a.poolImpl)).staking(), a.staking, "poolImpl.staking");
         assertEq(Pool(payable(a.poolImpl)).flash(), a.flash, "poolImpl.flash");
 
         // Track-B Phase-1b: GovToken has immutable TREASURY = treasuryProxy (no Ownable).

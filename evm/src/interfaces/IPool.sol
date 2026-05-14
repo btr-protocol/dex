@@ -142,6 +142,13 @@ interface IPool is IOracle {
         // Phase 42J.4 (F4) -TWAP poisoning defense. One accumulator update per
         // token per block; subsequent in-block pushes early-return as no-op.
         mapping(address token => uint256 blockNum) lastUpdateBlock;
+        // R44-2 (T3-HIGH2): base-token oracle for depeg detection. Optional; address(0) preserves
+        //   pre-Pass-44A 1e18-hardcoded stable-base behavior (backwards-compat). When set, Pricing
+        //   reads base price + reverts swaps if |1e18 - basePrice|/1e18 > BASE_DEPEG_HALT_BPS.
+        //   ⚠ Appended AT TAIL (after all mappings) to preserve mapping slot indices for existing
+        //   tests + storage-layout pins. Do not move.
+        address baseTokenOracle;
+        bytes32 baseTokenFeedId;
     }
 
     event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);
@@ -187,6 +194,8 @@ interface IPool is IOracle {
     function adminSetBridge(address newBridge) external;
     function adminSetTreasury(address newTreasury) external;
     function adminSetBaseToken(address newBase) external;
+    /// @notice R44-2: configure base-token oracle for depeg detection. address(0) = unset (stable-base).
+    function adminSetBaseTokenOracle(address oracle, bytes32 feedId) external;
 
     // ── Phase 42H.B.3c: restricted setters gated by `flash` singleton ──
     function flashSend(address token, uint256 amount, address to) external;

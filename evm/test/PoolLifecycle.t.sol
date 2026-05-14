@@ -7,7 +7,6 @@ import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
-import {Staking} from "@btr-shared/Staking.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
@@ -15,14 +14,13 @@ import {Maths as M} from "../src/libraries/Maths.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
-/// @title Phase42HB3dPoolTest
-/// @notice Phase 42H.B.3d sanity -Pool is standalone (no proxy, no modules, no ERC-7201).
+/// @title PoolLifecycleTest
+/// @notice Pool lifecycle sanity -Pool is standalone (no proxy, no modules, no ERC-7201).
 ///         Each pool instance is an EIP-1167 minimal-proxy clone deployed by PoolFactory.
-contract Phase42HB3dPoolTest is Test {
+contract PoolLifecycleTest is Test {
     PoolFactory factory;
     Pool poolImpl;
     Admin admin;
-    Staking stakingSingleton;
     Flash flashSingleton;
     MockAC ac;
 
@@ -46,7 +44,7 @@ contract Phase42HB3dPoolTest is Test {
         r.coverageMax = 20000;
         r.decaySlope = 0;
         r.depthAmplifier = 10000;
-        r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT | C.STAKEABLE_BIT;
+        r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
 
     function _oracleCfg() internal view returns (IPool.OracleConfig memory o) {
@@ -61,10 +59,9 @@ contract Phase42HB3dPoolTest is Test {
         ac = new MockAC(OWNER);
 
         admin            = new Admin(address(ac));
-        stakingSingleton = new Staking(address(ac));
         flashSingleton   = new Flash();
-        PoolAux poolAux  = new PoolAux(address(ac), address(admin), address(stakingSingleton), address(flashSingleton));
-        poolImpl         = new Pool(address(ac), address(admin), address(stakingSingleton), address(flashSingleton), address(poolAux));
+        PoolAux poolAux  = new PoolAux(address(ac), address(admin), address(flashSingleton));
+        poolImpl         = new Pool(address(ac), address(admin), address(flashSingleton), address(poolAux));
 
         factory = new PoolFactory(address(poolImpl), address(this), address(ac));
 
@@ -109,7 +106,6 @@ contract Phase42HB3dPoolTest is Test {
 
     function test_pool_admin_immutable_set() public view {
         assertEq(pool.admin(), address(admin));
-        assertEq(pool.staking(), address(stakingSingleton));
         assertEq(pool.flash(), address(flashSingleton));
         assertEq(pool.AC(), address(ac));
     }

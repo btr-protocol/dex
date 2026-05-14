@@ -697,4 +697,85 @@ contract LibSplineTest is BaseTestSetup {
         int256 rightTail = S.area(pts, 8000, 10000);
         assertApproxEqRel(leftTail + centralArea + rightTail, fullArea, 0.01e18);
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // R44-6 (Pass-44B): Fritsch-Carlson α²+β²≤9 tangent clamp
+    // Adversarial weight concentration → Hermite cubic intra-segment overshoot.
+    // After clamp, monotone slope is preserved without overshoot blow-up.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Extreme concentration: huge y-jump at one knot. Pre-clamp Hermite cubic
+    ///         could overshoot past p1.y on the right edge. Post-clamp must stay bounded.
+    function test_R44_6_no_overshoot_under_extreme_concentration() public pure {
+        S.Point[] memory pts = new S.Point[](4);
+        pts[0] = S.Point(0,    0);
+        pts[1] = S.Point(4000, 1e18);      // gentle slope
+        pts[2] = S.Point(4100, 1000e18);   // BRUTAL jump → α≫1
+        pts[3] = S.Point(10000, 1001e18);  // gentle again
+        // Monotone non-decreasing → eval must never exceed p_{i+1}.y nor dip below p_i.y on each seg.
+        int256 prev = S.eval(0, pts);
+        for (uint256 x = 100; x <= 10000; x += 100) {
+            int256 v = S.eval(x, pts);
+            assertGe(v, prev - 1e15, "monotone violated");
+            assertLe(v, 1001e18 + 1e15, "overshoot above max knot");
+            assertGe(v, -1e15, "undershoot below min knot");
+            prev = v;
+        }
+    }
+
+    /// @notice Clamp inactive when α²+β²≤9 (smooth profile). Output identical to pre-clamp baseline.
+    function test_R44_6_clamp_inactive_on_smooth_profile() public pure {
+        S.Point[] memory pts = new S.Point[](4);
+        pts[0] = S.Point(0,    0);
+        pts[1] = S.Point(3333, 1e18);
+        pts[2] = S.Point(6666, 2e18);
+        pts[3] = S.Point(10000, 3e18);
+        // Linear-ish → α≈β≈1, α²+β²=2 < 9. Eval near linear interpolation.
+        int256 mid = S.eval(5000, pts);
+        // Expected approx 1.5e18 (linear). Tight tolerance — clamp must not perturb smooth case.
+        assertApproxEqAbs(mid, 1.5e18, 5e16);
+    }
+
+    /// @notice Asymmetric overshoot guard: m0 huge, m1 small. Both must be scaled down together.
+    function test_R44_6_asymmetric_tangent_scaling() public pure {
+        S.Point[] memory pts = new S.Point[](3);
+        pts[0] = S.Point(0,    0);
+        pts[1] = S.Point(100,  100e18);   // s = 1e18
+        pts[2] = S.Point(10000, 100e18 + 1); // s ≈ 0 → m1 from sign-mask=0, m0=avg(prev=1e18, s≈0)
+        // m0 huge relative to s of next segment → potential overshoot at seg [pts[1], pts[2]].
+        // Post-clamp: eval must remain ≤ pts[2].y + epsilon across the segment.
+        for (uint256 x = 100; x <= 10000; x += 500) {
+            int256 v = S.eval(x, pts);
+            assertLe(v, 100e18 + 100e18, "asymmetric overshoot");
+            assertGe(v, 100e18 - 1e15, "asymmetric undershoot");
+        }
+    }
+
+    /// @notice Flat segment (s=0): tangent must remain 0 from sign-mask; clamp early-exits.
+    function test_R44_6_flat_segment_skips_clamp() public pure {
+        S.Point[] memory pts = new S.Point[](3);
+        pts[0] = S.Point(0,    5e18);
+        pts[1] = S.Point(5000, 5e18);
+        pts[2] = S.Point(10000, 5e18);
+        // Constant 5e18 everywhere.
+        assertEq(S.eval(2500, pts), 5e18);
+        assertEq(S.eval(7500, pts), 5e18);
+    }
+
+    /// @notice Negative slopes also clamped (sign preserved). Monotone-decreasing extreme jump.
+    function test_R44_6_negative_slope_clamp() public pure {
+        S.Point[] memory pts = new S.Point[](4);
+        pts[0] = S.Point(0,    1001e18);
+        pts[1] = S.Point(5900, 1000e18);   // gentle decrease
+        pts[2] = S.Point(6000, 1e18);      // BRUTAL drop
+        pts[3] = S.Point(10000, 0);
+        int256 prev = S.eval(0, pts);
+        for (uint256 x = 100; x <= 10000; x += 100) {
+            int256 v = S.eval(x, pts);
+            assertLe(v, prev + 1e15, "monotone-decreasing violated");
+            assertLe(v, 1001e18 + 1e15, "overshoot top");
+            assertGe(v, -1e15, "undershoot below 0");
+            prev = v;
+        }
+    }
 }

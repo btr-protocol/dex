@@ -8,7 +8,7 @@ This repo = **Solidity contracts + Bun keepers ONLY**. No front/back/SDK colocat
 | sdk   | `~/Work/btr/sdk`   | `@btr-protocol/sdk` -ABIs, eth RPC client, shared TS types |
 | swap  | `~/Work/btr/swap`  | `@btr-supply/swap` -aggregator SDK |
 | back  | `~/Work/btr/back`  | Bun monorepo: `services/{swap,collector,agents}` |
-| front | `~/Work/btr/front` | SvelteKit SPA |
+| front | `~/Work/btr/front` | Preact + Vite SPA |
 
 If you need to edit dApp UI / off-chain services / SDK types → go to the sibling repo. Do NOT recreate `front/`, `back/`, or `sdk/` here.
 

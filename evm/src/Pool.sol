@@ -49,20 +49,17 @@ contract Pool is ReentrancyGuardTransient {
     address public immutable AC;
     /// @notice Singleton Admin contract gating restricted setters.
     address public immutable admin;
-    /// @notice Singleton Staking contract.
-    address public immutable staking;
     /// @notice Singleton Flash contract.
     address public immutable flash;
     /// @notice Singleton PoolAux contract (cold-path dispatcher target).
     address public immutable poolAux;
 
-    constructor(address ac_, address admin_, address staking_, address flash_, address poolAux_) {
-        if (ac_ == address(0) || admin_ == address(0) || staking_ == address(0) || flash_ == address(0) || poolAux_ == address(0)) {
+    constructor(address ac_, address admin_, address flash_, address poolAux_) {
+        if (ac_ == address(0) || admin_ == address(0) || flash_ == address(0) || poolAux_ == address(0)) {
             revert Err.ZeroAddr();
         }
         AC = ac_;
         admin = admin_;
-        staking = staking_;
         flash = flash_;
         poolAux = poolAux_;
     }

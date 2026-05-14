@@ -133,4 +133,13 @@ library PoolAdminWrite {
     function setBaseToken(IPool.PoolStorage storage $, address newBase) external {
         $.baseToken = newBase;
     }
+
+    /// @notice R44-2 (T3-HIGH2): set base-token oracle for depeg detection. `oracle == address(0)`
+    ///         clears the configuration → fallback to pre-Pass-44A 1e18-hardcoded stable-base path
+    ///         (no halt). When set, Pricing reads base price and reverts swaps if deviation from
+    ///         1e18 exceeds `Constants.BASE_DEPEG_HALT_BPS`.
+    function setBaseTokenOracle(IPool.PoolStorage storage $, address oracle, bytes32 feedId) external {
+        $.baseTokenOracle = oracle;
+        $.baseTokenFeedId = feedId;
+    }
 }

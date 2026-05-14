@@ -10,11 +10,11 @@ import {PoolEdge} from "./libraries/PoolEdge.sol";
 
 /// @title PoolAux -cold-path dispatcher for Pool (Wave-3a EIP-170 reduction)
 /// @notice Singleton deployed once per protocol; Pool's fallback DELEGATECALLs to this.
-///         Holds all rarely-called external entry points (admin setters, staking adjust,
+///         Holds all rarely-called external entry points (admin setters,
 ///         flash send/account, oracle updateFeed/poke) so Pool itself need not allocate
 ///         selector dispatch entries for them.
 /// @dev    Auth + reentrancy checks live HERE (executed under Pool's storage context via
-///         delegatecall). Immutables (AC/admin/staking/flash) are inlined into bytecode,
+///         delegatecall). Immutables (AC/admin/flash) are inlined into bytecode,
 ///         so they remain correct under delegatecall (immutables read from code, not
 ///         storage). The Pool clone's $ at slot 0 is shared transparently.
 contract PoolAux is ReentrancyGuardTransient {
@@ -23,16 +23,14 @@ contract PoolAux is ReentrancyGuardTransient {
 
     address public immutable AC;
     address public immutable admin;
-    address public immutable staking;
     address public immutable flash;
 
-    constructor(address ac_, address admin_, address staking_, address flash_) {
-        if (ac_ == address(0) || admin_ == address(0) || staking_ == address(0) || flash_ == address(0)) {
+    constructor(address ac_, address admin_, address flash_) {
+        if (ac_ == address(0) || admin_ == address(0) || flash_ == address(0)) {
             revert Err.ZeroAddr();
         }
         AC = ac_;
         admin = admin_;
-        staking = staking_;
         flash = flash_;
     }
 
@@ -138,6 +136,11 @@ contract PoolAux is ReentrancyGuardTransient {
 
     function adminSetBaseToken(address newBase) external onlyAdmin {
         PoolAdminWrite.setBaseToken($, newBase);
+    }
+
+    /// @notice R44-2 (T3-HIGH2): set/unset base-token oracle for depeg detection.
+    function adminSetBaseTokenOracle(address oracle, bytes32 feedId) external onlyAdmin {
+        PoolAdminWrite.setBaseTokenOracle($, oracle, feedId);
     }
 
     // ── FLASH ──

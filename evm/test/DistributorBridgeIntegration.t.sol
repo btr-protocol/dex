@@ -7,7 +7,6 @@ import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
-import {Staking} from "@btr-shared/Staking.sol";
 import {Flash} from "../src/Flash.sol";
 import {Bridge} from "@btr-shared/Bridge.sol";
 import {Treasury} from "@btr-shared/Treasury.sol";
@@ -22,11 +21,10 @@ import {MockAC} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
-contract Phase42HB3eR14R15R16Test is Test {
+contract DistributorBridgeIntegrationTest is Test {
     PoolFactory factory;
     Pool poolImpl;
     Admin admin;
-    Staking stakingSingleton;
     Flash flashSingleton;
     Distributor dist;
     MockAC ac;
@@ -45,7 +43,7 @@ contract Phase42HB3eR14R15R16Test is Test {
     }
     function _risk() internal pure returns (IPool.RiskConfig memory r) {
         r.coverageMin = 5000; r.coverageMax = 20000; r.depthAmplifier = 10000;
-        r.flags = C.SWAP_ENABLED_BIT | C.STAKEABLE_BIT;
+        r.flags = C.SWAP_ENABLED_BIT;
     }
     function _oracleCfg() internal view returns (IPool.OracleConfig memory o) {
         o.primary = address(pool); o.modeFlags = C.MODE_USE_INTERNAL; o.accDecimals = 18;
@@ -54,11 +52,10 @@ contract Phase42HB3eR14R15R16Test is Test {
     function setUp() public {
         ac = new MockAC(OWNER);
         admin = new Admin(address(ac));
-        stakingSingleton = new Staking(address(ac));
         flashSingleton = new Flash();
         dist = new Distributor(address(ac));
-        PoolAux poolAux = new PoolAux(address(ac), address(admin), address(stakingSingleton), address(flashSingleton));
-        poolImpl = new Pool(address(ac), address(admin), address(stakingSingleton), address(flashSingleton), address(poolAux));
+        PoolAux poolAux = new PoolAux(address(ac), address(admin), address(flashSingleton));
+        poolImpl = new Pool(address(ac), address(admin), address(flashSingleton), address(poolAux));
         factory = new PoolFactory(address(poolImpl), address(this), address(ac));
 
         base = new MockERC20("Base", "BASE", 18);
@@ -199,9 +196,9 @@ contract Phase42HB3eR14R15R16Test is Test {
         tr.requestEmissionsCapChange(500e18);
 
         // Manipulate emissionsSchedule.claimed via vm.store to simulate mints during timelock.
-        // Treasury layout: emissionsSchedule struct @ slot 4. Fields: totalAllocation (slot 4),
-        // claimed (slot 5), then cliffTime/endTime/cliffAmount/suppressor packed into slot 6.
-        vm.store(address(tr), bytes32(uint256(5)), bytes32(uint256(800e18))); // emissionsSchedule.claimed (new layout: AC immutable, govToken+_initialized @ slot 0, then tgeTimestamp, maxSupply, totalVestingAllocation, vestingSchedules, emissionsSchedule @ slot 5)
+        // Treasury layout: emissionsSchedule struct @ slot 4 (totalAllocation occupies slot 4);
+        // emissionsSchedule.claimed lives in the next slot (5).
+        vm.store(address(tr), bytes32(uint256(5)), bytes32(uint256(800e18))); // emissionsSchedule.claimed
 
         // Skip past the timelock but stay within grace window.
         vm.warp(block.timestamp + 8 days);

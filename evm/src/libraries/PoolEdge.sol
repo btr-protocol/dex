@@ -11,7 +11,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolDecay} from "./PoolDecay.sol";
 import {PoolOracle} from "./PoolOracle.sol";
 
-/// @title PoolEdge -staking/flash/oracle-edge ops extracted from Pool.sol
+/// @title PoolEdge -flash/oracle-edge ops extracted from Pool.sol
 /// @notice Wave-2 bytecode reduction. Pure refactor; behavior preserved.
 ///         `external` lib fns DELEGATECALL'd from Pool trampolines (auth +
 ///         reentrancy enforced at the trampoline).

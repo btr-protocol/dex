@@ -1,3 +1,4 @@
+# NOTE: foundry.lock is a symlink to ../../alm/evm/foundry.lock — lockfile centralized in alm/evm.
 [profile.default]
 src = "src"
 out = "out"

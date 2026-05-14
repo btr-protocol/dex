@@ -241,4 +241,45 @@ contract PoolAdminTest is Test {
         assertEq(acc.confidence, 100);
         assertEq(acc.ttl, PoolOracle.DEFAULT_TTL);
     }
+
+    // ─── R44-7 (Pass-44B): minDispersion ≤ maxDispersion ───
+
+    /// @notice initAsset must revert BadConfig when minDispersion > maxDispersion.
+    function test_R44_7_initAsset_reverts_when_min_gt_max() public {
+        vm.expectRevert(Err.BadConfig.selector);
+        h.callInitAsset(TKA, 6, 25, 50000, 1000, 8000, 9000, 9500);
+    }
+
+    /// @notice Boundary: min == max is allowed (degenerate but well-formed: pinned dispersion).
+    function test_R44_7_initAsset_allows_min_eq_max() public {
+        h.callInitAsset(TKA, 6, 25, 5000, 5000, 8000, 9000, 9500);
+        IPool.Asset memory a = h.getAsset(TKA);
+        assertEq(a.minDispersion, 5000);
+        assertEq(a.maxDispersion, 5000);
+    }
+
+    /// @notice Default substitution: 0 inputs resolve to (1000, 100000) which is ordered.
+    function test_R44_7_initAsset_defaults_remain_ordered() public {
+        h.callInitAsset(TKA, 6, 25, 0, 0, 0, 0, 0);
+        IPool.Asset memory a = h.getAsset(TKA);
+        assertEq(a.minDispersion, 1000);
+        assertEq(a.maxDispersion, 100000);
+        assertLe(a.minDispersion, a.maxDispersion);
+    }
+
+    /// @notice Zero minDispersion + small maxDispersion: substitution resolves min→1000 which would
+    ///         exceed max=500 → must revert. Guards "0 means default" abuse where user passes
+    ///         min=0 maliciously expecting their explicit max to win.
+    function test_R44_7_initAsset_reverts_when_min_default_exceeds_max() public {
+        vm.expectRevert(Err.BadConfig.selector);
+        h.callInitAsset(TKA, 6, 25, 0, 500, 8000, 9000, 9500); // min defaulted=1000 > 500
+    }
+
+    /// @notice Explicit ordering preserved end-to-end.
+    function test_R44_7_initAsset_explicit_values_persist() public {
+        h.callInitAsset(TKA, 6, 25, 2500, 75000, 8000, 9000, 9500);
+        IPool.Asset memory a = h.getAsset(TKA);
+        assertEq(a.minDispersion, 2500);
+        assertEq(a.maxDispersion, 75000);
+    }
 }

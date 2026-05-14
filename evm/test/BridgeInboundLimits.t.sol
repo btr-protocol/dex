@@ -7,11 +7,11 @@ import {IBridge} from "@btr-shared/interfaces/IBridge.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
-/// @title Phase42HB3eR10R11BridgeTest
-/// @notice R10 MED (inbound day rollover via shared helper) + R11 LOW (inbound bucket decimals
-///         coherent w/ outbound logic + view). Tested through the public storage view + setTokenConfig
-///         + getRemainingLimits surface (no LZ mock needed).
-contract Phase42HB3eR10R11BridgeTest is Test {
+/// @title BridgeInboundLimitsTest
+/// @notice Inbound day rollover (shared helper) + inbound bucket decimals coherent w/ outbound
+///         logic + view. Tested through the public storage view + setTokenConfig +
+///         getRemainingLimits surface (no LZ mock needed).
+contract BridgeInboundLimitsTest is Test {
     Bridge bridge;
     MockAC ac;
 

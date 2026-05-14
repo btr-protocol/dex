@@ -68,8 +68,8 @@ contract Deploy is DeployBase {
 
         // 3. PoolAux singleton (cold-path dispatcher, Wave-3a EIP-170 reduction)
         //    + Pool reference impl + PoolFactory (clones).
-        a.poolAux = address(new PoolAux(a.ac, a.admin, a.staking, a.flash));
-        a.poolImpl = address(new Pool(a.ac, a.admin, a.staking, a.flash, a.poolAux));
+        a.poolAux = address(new PoolAux(a.ac, a.admin, a.flash));
+        a.poolImpl = address(new Pool(a.ac, a.admin, a.flash, a.poolAux));
         a.poolFactory = address(new PoolFactory(a.poolImpl, a.deployer, a.ac));
 
         // 4. Treasury impl + proxy (UUPS). Track-B Phase-1b: deploy order is now
