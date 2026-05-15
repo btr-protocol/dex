@@ -203,6 +203,9 @@ interface IPool is IOracle {
 
     // ── views consumed by Staking + Flash singletons ──
     // TODO(Wave-ABI-break): rename view getters getX → x for style harmonization with ALM.
+    /// @notice Read packed `Asset` record (reserves, liabilities, fees, params) for `token`.
+    /// @param token Asset address.
+    /// @return Asset struct snapshot.
     function getAsset(address token) external view returns (Asset memory);
     function getLPBalance(address user, address token) external view returns (uint256);
     function getRiskFlags(address token) external view returns (uint16);
@@ -262,26 +265,53 @@ interface IPool is IOracle {
     function wnative() external view returns (address);
     function getCoverageRatio(address token) external view returns (uint256);
 
+    /// @notice Swap `amountIn` of `tokenIn` for ≥`minAmountOut` of `tokenOut`, sending output to `recipient`.
+    /// @param tokenIn Input asset.
+    /// @param tokenOut Output asset.
+    /// @param amountIn Input amount (token decimals).
+    /// @param minAmountOut Slippage floor; reverts if not met.
+    /// @param recipient Output recipient.
+    /// @return amountOut Output amount delivered.
     function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut, address recipient)
         external payable returns (uint256 amountOut);
 
-    /// @notice Batch swap (≤8 in, ≤8 out)
+    /// @notice Batch swap (≤8 in, ≤8 out).
+    /// @param inputs ABI-packed `(token, amount)` input legs.
+    /// @param outputs ABI-packed `(token, minOut)` output legs.
+    /// @param recipient Output recipient.
+    /// @return amountsOut Output amounts per leg.
     function batchSwap(bytes calldata inputs, bytes calldata outputs, address recipient)
         external payable returns (uint256[] memory amountsOut);
 
+    /// @notice Quote a swap without executing (view).
+    /// @param tokenIn Input asset.
+    /// @param tokenOut Output asset.
+    /// @param amountIn Input amount.
+    /// @return quote Quote struct (amountOut, fees, spread, route, hop prices).
     function getSwapQuote(address tokenIn, address tokenOut, uint256 amountIn)
         external view returns (SwapQuote memory quote);
 
     function getProtocolFees(address token) external view returns (uint256);
     /// @notice Pure view of last cached price (no oracle dispatch).
+    /// @param token Asset address.
+    /// @return Last cached mid price (1e18 base units).
     function midPrice(address token) external view returns (uint256);
     /// @notice Refresh-then-read; mutates accumulators (keeper-callable).
     function pokeMidPrice(address token) external returns (uint256);
 
     // ─── Liquidity functions ─────────────────────────────────────────────────
+    /// @notice Deposit `amount` of `token`, mint LP shares to caller.
+    /// @param token Asset to deposit (use wnative for native; send msg.value).
+    /// @param amount Deposit amount in token decimals.
+    /// @return result `(lpAmount, actualDeposit)` — LP minted + amount actually pulled.
     function deposit(address token, uint256 amount)
         external payable returns (DepositResult memory result);
 
+    /// @notice Burn `lpAmount` LP of `token`, return underlying ≥ `minAmountOut`.
+    /// @param token Asset to withdraw.
+    /// @param lpAmount LP shares to burn.
+    /// @param minAmountOut Slippage floor; reverts if not met.
+    /// @return result `(amountOut, lpBurned)`.
     function withdraw(address token, uint256 lpAmount, uint256 minAmountOut)
         external returns (WithdrawResult memory result);
 
