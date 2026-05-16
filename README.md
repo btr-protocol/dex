@@ -32,10 +32,9 @@ Local layout:
 | `Admin.sol` | Per-chain singleton: protocol-fee collection, risk-flag/fee curation, pool-side admin setters. |
 | `Flash.sol` | Flash-loan singleton (cross-pool flash mints). |
 | `Router.sol` | Hub-and-spoke swap router (batch + multi-leg). |
-| `Bridge.sol` + `tokens/BridgeableERC20.sol` | LayerZero OFT bridge + ERC-7802 bridgeable token mixin. |
 | `oracles/ExternalOracle.sol` | Chainlink-style adapter; bounds the internal dual-EMA mark. |
 
-Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`, `GovToken`, `StakedAsset`) live in `~/Work/btr/shared` and are consumed via `@btr-shared/` remap.
+Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`, `GovToken`, `StakedAsset`, `Bridge`, `tokens/BridgeableERC20`) live in `~/Work/btr/shared` and are consumed via `@btr-shared/` remap. `Bridge.sol` = LayerZero OFT bridge; `BridgeableERC20` = ERC-7802 bridgeable token mixin.
 
 > Kill-revert symmetry (Pass-5 W2-L2 + Pass-7): `assetValue` / `vaultAssets` revert `Err.Killed_` on both `Dex.sol` and the sibling `BtrPoolAdapter.sol` so ALM vaults observe identical fail-loud semantics on kill. Pass-7 C1 adds timelocked `queueUnkill` / `executeUnkill` to `BtrPoolAdapter` for recovery.
 

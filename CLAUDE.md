@@ -7,18 +7,20 @@ This repo = **Solidity contracts + Bun keepers ONLY**. No front/back/SDK colocat
 |---|---|---|
 | sdk   | `~/Work/btr/sdk`   | `@btr-protocol/sdk` -ABIs, eth RPC client, shared TS types |
 | swap  | `~/Work/btr/swap`  | `@btr-supply/swap` -aggregator SDK |
-| back  | `~/Work/btr/back`  | Bun monorepo: `services/{swap,collector,agents}` |
+| back  | `~/Work/btr/back`  | Bun monorepo: `services/{swap,collector,agents,docs,envio}` |
 | front | `~/Work/btr/front` | Preact + Vite SPA |
+| alm   | `~/Work/btr/alm`   | ALM vault contracts (consume DEX via `BtrPoolAdapter`) |
+| shared | `~/Work/btr/shared` | Shared Solidity primitives (`AccessControl`, `Treasury`, `Staking`, `Distributor`, `Bridge`, `GovToken`, `StakedAsset`, `PriceProvider`, `Errors`, `Constants`, `Timelock`) consumed via `@btr-shared/` remap |
+| docs  | `~/Work/btr/docs`  | Canonical product + protocol docs (Phase 40C consolidation) |
 
-If you need to edit dApp UI / off-chain services / SDK types → go to the sibling repo. Do NOT recreate `front/`, `back/`, or `sdk/` here.
+If you need to edit dApp UI / off-chain services / SDK types → go to the sibling repo. Do NOT recreate `front/`, `back/`, `sdk/`, or `docs/` here.
 
 ## Local content
-- `evm/` -Solidity (Foundry). Main protocol impl + tests.
-- `circuits/` -zkSNARK circuits (dark pool privacy).
-- `keeper/`   -off-chain guardian (circuit breakers, oracle updates).
-- `sim/`      -simulation harness.
-- `specs/`    -canonical technical specs.
-- ~~`docs/`~~ -**MOVED** to `~/Work/btr/docs/` (Phase 40C). Three product surfaces consolidated under one tree (swap/dex/supply/legal + protocol-wide). Build scripts now live at `~/Work/btr/back/services/docs/build/`.
+- `evm/`     -Solidity (Foundry). Main protocol impl + tests.
+- `sim/`     -off-chain simulation harness (Zig).
+- `svm/`     -reserved for Solana port.
+- `scripts/` -tooling (search index, slot computation, plotting, local dev orchestrator).
+- `salts/`   -CREATE3 salt registry for deterministic addresses.
 
 ## Build/test
 ```sh

@@ -2,6 +2,8 @@
 
 High-performance AMM comparison framework written in Zig for capital efficiency and toxic flow analysis.
 
+> **Status:** This document describes the *target* architecture. Currently implemented in `sim/src/`: `types.zig` (core interfaces) + `uniswap_v2.zig`. All other AMMs (Uniswap V3/V4, Joe V2, Gyro, Balancer, Curve, Wombat, BTR AIMM) are **roadmap** — design pinned here but not yet coded. See the "Implementation Status" section below for the live checklist.
+
 ## Design Goals
 
 1. **Fair Comparison**: All AMMs start with identical capital (L₀) and comparable marginal depth
