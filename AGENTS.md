@@ -6,17 +6,17 @@
 
 ## Quick Start
 
-Read the guide for your task:
+Read the guide for your task (canonical docs tree lives at `~/Work/btr/docs/`):
 
 | Role | Guide |
 |------|-------|
-| **Frontend** | [`docs/6. Contributing/FRONTEND.md`](docs/6. Contributing/FRONTEND.md) |
-| **Backend** | [`docs/6. Contributing/BACKEND.md`](docs/6. Contributing/BACKEND.md) |
-| **Smart Contracts** | [`docs/6. Contributing/SMART_CONTRACTS.md`](docs/6. Contributing/SMART_CONTRACTS.md) |
-| **Security/Audit** | [`docs/6. Contributing/SECURITY.md`](docs/6. Contributing/SECURITY.md) |
-| **Quant/Research** | [`docs/6. Contributing/QUANT.md`](docs/6. Contributing/QUANT.md) |
-| **Git Workflow** | [`docs/6. Contributing/GIT.md`](docs/6. Contributing/GIT.md) |
-| **Markdown/Tables** | [`docs/6. Contributing/HEADLESS_TABLES.md`](docs/6. Contributing/HEADLESS_TABLES.md) |
+| **Frontend** | [`~/Work/btr/docs/dex/6. Contributing/FRONTEND.md`](../docs/dex/6.%20Contributing/FRONTEND.md) |
+| **Backend** | [`~/Work/btr/docs/dex/6. Contributing/BACKEND.md`](../docs/dex/6.%20Contributing/BACKEND.md) |
+| **Smart Contracts** | [`~/Work/btr/docs/dex/6. Contributing/SMART_CONTRACTS.md`](../docs/dex/6.%20Contributing/SMART_CONTRACTS.md) |
+| **Security/Audit** | [`~/Work/btr/docs/dex/6. Contributing/SECURITY.md`](../docs/dex/6.%20Contributing/SECURITY.md) |
+| **Quant/Research** | [`~/Work/btr/docs/dex/6. Contributing/QUANT.md`](../docs/dex/6.%20Contributing/QUANT.md) |
+| **Git Workflow** | [`~/Work/btr/docs/dex/6. Contributing/GIT.md`](../docs/dex/6.%20Contributing/GIT.md) |
+| **Markdown/Tables** | [`~/Work/btr/docs/dex/6. Contributing/HEADLESS_TABLES.md`](../docs/dex/6.%20Contributing/HEADLESS_TABLES.md) |
 
 ---
 
@@ -44,7 +44,7 @@ When you don't know something:
 | **Runtime** | Bun (not Node.js) |
 | **Frontend** | Native Preact (no compat), Signals, Tailwind CSS |
 | **Backend** | Bun + TypeScript + SQLite |
-| **Contracts** | Solidity 0.8.33 (exact) |
+| **Contracts** | Solidity 0.8.35 (exact) |
 | **Testing** | Bun test, Foundry |
 | **Linting** | oxlint |
 | **Charts** | TradingView Lightweight, SVG (no chart.js) |
@@ -55,11 +55,15 @@ When you don't know something:
 
 ```
 dex/
-├── sdk/           # Core SDK (tokens, chains, contracts metadata)
-├── front/         # Preact frontend
-├── back/collector/# Bun WebSocket server
-└── evm/          # Solidity contracts (Foundry)
+├── evm/         # Solidity contracts (Foundry)
+├── sim/         # Off-chain simulation harness (Zig)
+├── svm/         # Reserved for Solana port
+├── scripts/     # Tooling (search index, slot computation, plotting, local dev)
+└── salts/       # CREATE3 salt registry (deterministic addresses)
 ```
+
+Off-chain code lives in sibling repos under `~/Work/btr/`:
+`sdk/` (ABIs + EVM client), `swap/` (aggregator SDK), `back/` (Bun services), `front/` (Preact SPA), `alm/` (ALM vault contracts), `shared/` (shared Solidity primitives).
 
 ---
 

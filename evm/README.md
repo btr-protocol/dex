@@ -1,104 +1,84 @@
-# BTR AMM (Bayesian True Range AMM)
+# BTR DEX — EVM Contracts
 
-Adaptive multi-asset AMM with dynamic liquidity distribution, internal oracle system, and rebasing LP tokens.
+Solidity (Foundry) implementation of the BTR adaptive multi-asset AMM: hub-and-spoke routing, dynamic fees, dual-EMA internal oracle, ERC-1155 rebasing LP, piecewise bonding curve. Flat-`Pool` architecture: **no Diamond, no proxy indirection, no ERC-7201 storage namespacing**. EIP-1167 minimal-proxy clones via `PoolFactory`.
+
+Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under `.deps/solady/`.
 
 ## Core Features
 
-- **Multi-asset hub-and-spoke** - All swaps route through base token (gas efficient)
-- **Dynamic fees** - Multi-factor adaptive fees based on volatility, inventory, and divergence
-- **Dual EMA oracle** - Fast and slow exponential moving averages for price and volatility
-- **Rebasing LP tokens** - Auto-compounding ERC1155 LP tokens with liquidity index
-- **Piecewise bonding curve** - Adaptive liquidity distribution with volatility-based breadth
-- **Protocol fees** - Configurable fee split between LPs and treasury
-- **Guardian controls** - Operational role for oracle updates, circuit breakers, and blacklisting
-- **EIP-7201 storage** - Namespaced storage for upgradeability
+- **Multi-asset hub-and-spoke** — All swaps route through a base token.
+- **Dynamic fees** — Multi-factor adaptive fees driven by volatility, inventory, divergence.
+- **Dual-EMA internal oracle** — Fast and slow EMAs for price and volatility; bounded by external Chainlink-style adapter.
+- **Rebasing LP tokens** — Auto-compounding ERC-1155 LP shares with a liquidity index.
+- **Piecewise bonding curve** — Adaptive liquidity distribution with volatility-based breadth.
+- **Protocol fees** — Configurable split between LPs and treasury.
+- **Risk + admin controls** — Per-pool freezes, circuit breakers, fee curation via the per-chain `Admin` singleton.
 
-## Documentation
-
-### Core Specifications (specs/)
-- **[ARCHITECTURE.md](specs/ARCHITECTURE.md)** - System architecture and design patterns
-- **[ACCESS_CONTROL.md](specs/ACCESS_CONTROL.md)** - Role-based access control (Owner, Guardian, Treasury)
-- **[ORACLE.md](specs/ORACLE.md)** - Dual EMA oracle system with three operating modes
-- **[FEES.md](specs/FEES.md)** - Dynamic multi-factor fee calculation
-- **[LP_TOKENS.md](specs/LP_TOKENS.md)** - ERC1155 rebasing LP token mechanics
-- **[PIECEWISE_BONDING_CURVE.md](specs/PIECEWISE_BONDING_CURVE.md)** - Adaptive liquidity distribution
-- **[B64_FLOAT.md](specs/B64_FLOAT.md)** - Custom 64-bit float format for efficient price storage
-- **[HOOKS_SPECIFICATION.md](specs/HOOKS_SPECIFICATION.md)** - Runtime-updateable hooks system
-- **[DARKPOOL_INTEGRATION.md](specs/DARKPOOL_INTEGRATION.md)** - zkSNARK privacy layer integration
-
-### For Auditors
-- **[AUDIT_READY_SUMMARY.md](AUDIT_READY_SUMMARY.md)** - Quick reference and audit checklist
-
-## Quick Start
-
-### Build
-```shell
-forge build
-```
-
-### Test
-```shell
-forge test
-```
-
-### Gas Analysis
-```shell
-forge snapshot
-```
-
-## Contract Architecture
+## Contract Layout
 
 ```
 src/
-├── AIMM.sol                    Main pool contract with EIP-7201 storage
-├── AIMMEvents.sol              Error and event definitions
-├── interfaces/
-│   ├── IAIMM.sol              Main pool interface
-│   └── IOracle.sol            External oracle interface
-└── libraries/
-    ├── LibAccessControl.sol   Role-based access control
-    ├── LibPricing.sol         Fee calculation and pricing
-    ├── LibOracle.sol          Oracle data encoding/decoding
-    ├── LibRescue.sol          Emergency asset recovery
-    └── LibCast.sol            Safe type conversions
+├── Pool.sol              # Flat AMM pool. Hot paths: swap, deposit, withdraw, fast views.
+├── PoolAux.sol           # Singleton cold-path dispatcher (admin, staking, flash, oracle pokes).
+│                         #   Pool fallback DELEGATECALLs PoolAux.
+├── PoolFactory.sol       # EIP-1167 minimal-proxy pool deployer. CREATE3-deterministic.
+├── Admin.sol             # Per-chain singleton: protocol-fee collection, risk/fee curation.
+├── Flash.sol             # Flash-loan singleton (cross-pool flash mints).
+├── Router.sol            # Hub-and-spoke swap router (batch + multi-leg).
+├── interfaces/           # IPool, IPoolFactory, IPoolHooks, IAdmin, IFlash, IRouter, IOracle, …
+├── oracles/
+│   └── ExternalOracle.sol  # Chainlink-style adapter; bounds the internal dual-EMA mark.
+└── libraries/            # AnchorTree, Constants, Maths, Oracle, PoolAdmin, PoolAdminWrite,
+                          # PoolBatch, PoolBatchHelper, PoolDecay, PoolEdge, PoolHookExec,
+                          # PoolLiquidity, PoolOracle, PoolSwap, PoolSwapQuote, PoolView,
+                          # Pricing, Spline, TransientCache.
 ```
 
-## Key Roles
+`PoolSwap` (entry + I/O) DELEGATECALLs into `PoolSwapQuote` (post-quote pipeline) so both fit under the EIP-170 24 576-byte cap (Phase 42K.10D.B2 split).
 
-### Owner
-- Add/remove assets
-- Pause/unpause pool
-- Update base asset
-- Configure circuit breakers
-- Update fee parameters
-- Remove addresses from blacklist
+Shared cross-cutting singletons live in `~/Work/btr/shared/evm/src/` and are consumed via the `@btr-shared/` Foundry remapping (`evm/foundry.toml` / `remappings.txt` → `@btr-shared/=../../shared/src/`):
 
-### Guardian (Operational)
-- Update oracle prices for internal oracles
-- Update liquidity profiles
-- Trigger circuit breakers
-- Freeze assets (emergency)
-- Blacklist addresses
+- `access/AccessControl.sol` — Owner / Keeper / Treasury / Swapper registry.
+- `oracle/PriceProvider.sol` — Chainlink USD feeds + L2 sequencer guard.
+- `Bridge.sol` + `tokens/BridgeableERC20.sol` — LayerZero OFT bridge + ERC-7802 token mixin.
+- `Treasury.sol`, `Staking.sol`, `Distributor.sol`, `tokens/GovToken.sol`, `tokens/StakedAsset.sol`.
+- `Errors.sol`, `Constants.sol`, `Timelock.sol`.
 
-### Treasury
-- Collect protocol fees
+## Roles
+
+Authority is centralized in the shared `AccessControl` singleton (one per chain).
+
+- **Owner** — adds/removes assets, configures fee curves and circuit breakers, queues timelocked upgrades on the shared `Treasury` / `Bridge` / `AccessControl` (UUPS), updates pool-side admin parameters via `Admin` and `PoolAux`.
+- **Keeper** — operational role for oracle pokes, fee-curve updates, defensive ratchets, circuit-breaker triggers.
+- **Treasury** — collects protocol fees; address resolved through `AccessControl`.
+
+Pools themselves are not UUPS — they are EIP-1167 clones deployed by `PoolFactory`. UUPS upgradeability is reserved for the shared singletons.
+
+## Quick Start
+
+```sh
+forge build
+forge test
+forge snapshot
+```
+
+Coverage / static analysis:
+
+```sh
+forge coverage --report lcov --no-match-coverage 'test/(Mocks|Setup|Helpers)'
+forge test --gas-report
+slither . --filter-paths 'test|.deps'
+```
 
 ## Security
 
-- **Reentrancy protection** - Solady ReentrancyGuard
-- **Safe transfers** - Solady SafeTransferLib
-- **Overflow protection** - Safe casting with revert
-- **Access control** - Role-based with timelock for owner changes
-- **Circuit breakers** - Asset freeze on excessive deviation
-- **Blacklist system** - Compliance and malicious actor blocking
-
-## Development
-
-Built with [Foundry](https://book.getfoundry.sh/):
-- **Forge** - Ethereum testing framework
-- **Cast** - CLI for smart contract interaction
-- **Anvil** - Local Ethereum node
+- Reentrancy: Solady `ReentrancyGuardTransient`.
+- Safe transfers: Solady `SafeTransferLib`.
+- Overflow protection: Solady `SafeCastLib` with revert.
+- Access control: role-based via shared `AccessControl`.
+- Circuit breakers: asset freeze on excessive deviation (per-pool, owner/keeper-gated through `Admin`).
+- All compiled artifacts ≪ 24 576-byte EIP-170 cap.
 
 ## License
 
-MIT
+BTR Supply Dual License: Business Source License 1.1 until Change Date, MIT thereafter. Source SPDX headers default to `MIT` for downstream forks; BSL 1.1 terms apply to deployed BTR Supply production instances. See https://btr.supply/licences for the canonical statement.
