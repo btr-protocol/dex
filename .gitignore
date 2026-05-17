@@ -39,6 +39,11 @@ out/
 front/public/compiled-docs/
 front/public/search-index.json
 
+# Zig build outputs (sim/)
+sim/zig-out/
+sim/zig-cache/
+sim/.zig-cache/
+
 # Playwright artifacts
 .playwright-mcp/
 
