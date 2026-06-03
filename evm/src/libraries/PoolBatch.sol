@@ -9,6 +9,7 @@ import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolDecay} from "./PoolDecay.sol";
 import {PoolBatchHelper as H} from "./PoolBatchHelper.sol";
+import {PoolIO} from "./PoolIO.sol";
 
 /// @title PoolBatch -batchSwap implementation extracted from Pool.sol
 /// @notice Wave-2 bytecode reduction. batchSwap routes through `PoolBatchHelper.exec`
@@ -20,10 +21,6 @@ import {PoolBatchHelper as H} from "./PoolBatchHelper.sol";
 ///         Phase 42L Pass-46A: hot helpers (`pull`/`push`/`exec`/`pushOracle`/
 ///         `checkRisk`) moved to PoolBatchHelper (public lib → DELEGATECALL).
 library PoolBatch {
-    function _wrap(IPool.PoolStorage storage $, address token) private view returns (address) {
-        return token == SC.NATIVE ? $.wnative : token;
-    }
-
     function _processInput(
         IPool.PoolStorage storage $,
         address base,
@@ -36,7 +33,7 @@ library PoolBatch {
             tk := shr(96, packed)
             amtB64 := and(shr(32, packed), 0xFFFFFFFFFFFFFFFF)
         }
-        tk = _wrap($, tk);
+        tk = PoolIO.wrap($, tk);
         IPool.Asset storage a = $.assets[tk];
         if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
 
@@ -66,7 +63,7 @@ library PoolBatch {
             w := and(shr(80, packed), 0xFFFF)
             minB64 := and(packed, 0xFFFFFFFFFFFFFFFF)
         }
-        tk = _wrap($, tk);
+        tk = PoolIO.wrap($, tk);
         IPool.Asset storage a = $.assets[tk];
         if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
 
@@ -124,7 +121,7 @@ library PoolBatch {
         for (uint256 j; j < outLen;) {
             address tk;
             assembly ("memory-safe") { tk := shr(96, calldataload(add(outputs.offset, mul(j, 32)))) }
-            tk = _wrap($, tk);
+            tk = PoolIO.wrap($, tk);
             H.push($, tk == $.wnative ? SC.NATIVE : tk, recipient, amountsOut[j]);
             unchecked { ++j; }
         }
