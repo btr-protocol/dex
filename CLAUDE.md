@@ -1,7 +1,7 @@
 # BTR DEX — agent guide
 
 ## Scope (post Phase 30 split)
-This repo = **Solidity contracts + Bun keepers ONLY**. No front/back/SDK colocated.
+This repo = **Solidity contracts (`evm/`) only**. On-chain execution → `~/Work/btr/keepers` (`btr-protocol/keepers`). No front/back/SDK colocated.
 
 | Sibling repo | Path | Role |
 |---|---|---|
@@ -10,6 +10,7 @@ This repo = **Solidity contracts + Bun keepers ONLY**. No front/back/SDK colocat
 | back  | `~/Work/btr/back`  | Bun monorepo: `services/{swap,collector,agents,docs,envio}` |
 | front | `~/Work/btr/front` | Preact + Vite SPA |
 | alm   | `~/Work/btr/alm`   | ALM vault contracts (consume DEX via `BtrPoolAdapter`) |
+| keepers | `~/Work/btr/keepers` | Rust keeper / executor (pool poke, oracle push, etc.) |
 | shared | `~/Work/btr/shared` | Shared Solidity primitives (`AccessControl`, `Treasury`, `Staking`, `Distributor`, `Bridge`, `GovToken`, `StakedAsset`, `PriceProvider`, `Errors`, `Constants`, `Timelock`) consumed via `@btr-shared/` remap |
 | docs  | `~/Work/btr/docs`  | Canonical product + protocol docs (Phase 40C consolidation) |
 
