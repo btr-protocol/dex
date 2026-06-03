@@ -8,10 +8,6 @@ import {B64} from "@btr-shared/libs/B64.sol";
 /// @dev Constants WAD/PBPS @ Constants. B64 layout: mantissa(52)|decimals(5)|exp+bias(7).
 ///      Core encode/decode/arithmetic delegated to shared B64 library.
 library Maths {
-    uint256 internal constant B64_MANTISSA_BITS = 52;
-    uint256 internal constant B64_EXPONENT_BITS = 5;
-    uint256 internal constant B64_DECIMAL_BITS = 7;
-
     function encodeB64(uint256 x, uint8 decimals) internal pure returns (uint64 packed) {
         return B64.encodeB64(x, decimals);
     }
