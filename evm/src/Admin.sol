@@ -195,6 +195,7 @@ contract Admin is IAdmin {
             uint32 initialSlowVolEMA
         ) = abi.decode(raw, (address, IPool.OracleConfig, IPool.RiskConfig, IPool.LiquidityProfile, uint16, uint8, uint64, uint32, uint32));
         if (storedToken != token) revert Err.InvalidInput();
+        // Timelocked payload omits dispersion/greeks; zeros ⇒ PoolAdmin default substitution (see `addAsset`).
         IPool(pool).adminInitAsset(
             token, oracleCfg, riskCfg, profile, minFeeBps, decimals,
             initialPrice, initialFastVolEMA, initialSlowVolEMA, 0, 0, 0, 0, 0

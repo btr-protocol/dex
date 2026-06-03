@@ -54,13 +54,13 @@ contract ExternalOracle is IOracle {
 
     // ─── modifiers ───
     modifier onlyOracle() {
-        if (!oracles[msg.sender]) revert Ownable.Unauthorized();
+        if (!oracles[msg.sender]) revert Err.NotAuth();
         _;
     }
 
     /// @notice AC-singleton ownership gate. Mirrors Distributor.sol:40 pattern.
     modifier onlyAdmin() {
-        if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+        if (msg.sender != AccessControl(AC).owner()) revert Err.NotAuth();
         _;
     }
 
