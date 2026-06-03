@@ -29,7 +29,7 @@ src/
 ├── oracles/
 │   └── ExternalOracle.sol  # Chainlink-style adapter; bounds the internal dual-EMA mark.
 └── libraries/            # AnchorTree, Constants, Maths, Oracle, PoolAdmin, PoolAdminWrite,
-                          # PoolBatch, PoolBatchHelper, PoolDecay, PoolEdge, PoolHookExec,
+                          # PoolBatch, PoolIO, PoolDecay, PoolEdge, PoolHookExec,
                           # PoolLiquidity, PoolOracle, PoolSwap, PoolSwapQuote, PoolView,
                           # Pricing, Spline, TransientCache.
 ```

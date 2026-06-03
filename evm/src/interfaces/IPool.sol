@@ -67,18 +67,6 @@ interface IPool is IOracle {
     struct DepositResult { uint256 lpAmount; uint256 actualDeposit; }
     struct WithdrawResult { uint256 amountOut; uint256 lpBurned; }
 
-    struct StakingConfig {
-        uint48 stakeLockDuration;
-        uint48 transferCooldown;
-        uint16 minClaimPower;
-        uint16 matchingRatio;
-        bool stakingPaused;
-        uint16 lpBaseMultiplier;
-        uint16 lpBoostedMultiplier;
-        uint16 govMultiplier;
-        uint16 boostCap;
-    }
-
     /// @dev accDecimals: 6=stables, 12=ETH-like, 18=BTC-like
     struct FeedAccumulator {
         uint64 priceAccB64;
@@ -104,8 +92,6 @@ interface IPool is IOracle {
         TRANSFER_OWNERSHIP,
         MIGRATE_BASE_TOKEN,
         UPDATE_ORACLE,
-        UPDATE_STAKING,
-        UPDATE_DISTRIBUTION,
         ADD_ASSET,
         UPDATE_RISK,
         UPDATE_FEES,
