@@ -3,7 +3,6 @@ pragma solidity =0.8.35;
 
 import {IOracle} from "../interfaces/IOracle.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as C} from "../libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";

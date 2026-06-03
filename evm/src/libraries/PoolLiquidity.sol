@@ -2,66 +2,21 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
-import {IWETH9} from "../interfaces/external/IWETH9.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Pricing} from "./Pricing.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolDecay} from "./PoolDecay.sol";
+import {PoolIO} from "./PoolIO.sol";
 
 /// @title PoolLiquidity -deposit/donate/withdraw/swapLiability extracted from Pool.sol
 /// @notice Wave-2 bytecode reduction. Pure refactor; behavior preserved.
 ///         External lib fns DELEGATECALL'd from Pool trampolines; reentrancy
 ///         + whenInitialized enforced at the trampoline.
 library PoolLiquidity {
-    using SafeTransferLib for address;
-
     uint256 internal constant INIT_LIQUIDITY_INDEX = 1e12;
 
     // Events canonical @ IPool (Deposited / Withdrawn / LiabilitySwapped / Donated).
-    function _wrap(IPool.PoolStorage storage $, address token) private view returns (address) {
-        return token == SC.NATIVE ? $.wnative : token;
-    }
-
-    function _balanceOf(address token) private view returns (uint256) {
-        return SafeTransferLib.balanceOf(token, address(this));
-    }
-
-    function _pull(IPool.PoolStorage storage $, address token, uint256 amount) private returns (uint256) {
-        if (token == SC.NATIVE) {
-            if (msg.value < amount) revert Err.InsufficientAmount(msg.value, amount);
-            IWETH9($.wnative).deposit{value: amount}();
-            unchecked {
-                uint256 excess = msg.value - amount;
-                if (excess > 0) SafeTransferLib.safeTransferETH(msg.sender, excess);
-            }
-            return amount;
-        }
-        uint256 balBefore = _balanceOf(token);
-        SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
-        return _balanceOf(token) - balBefore;
-    }
-
-    function _push(IPool.PoolStorage storage $, address token, address to, uint256 amount) private {
-        if (token == SC.NATIVE) {
-            IWETH9($.wnative).withdraw(amount);
-            SafeTransferLib.safeTransferETH(to, amount);
-        } else {
-            SafeTransferLib.safeTransfer(token, to, amount);
-        }
-    }
-
-    function _checkRisk(IPool.PoolStorage storage $, address token, uint16 requiredFlag) private view {
-        IPool.RiskConfig storage risk = $.riskConfigs[token];
-        if ((risk.flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
-        if (requiredFlag != 0 && (risk.flags & requiredFlag) == 0) {
-            if (requiredFlag == C.SWAP_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.SWAP);
-            if (requiredFlag == C.LIABILITY_SWAP_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.LIABILITY_SWAP);
-            if (requiredFlag == C.FLASH_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.FLASH);
-        }
-    }
-
     function _checkCooldown(IPool.PoolStorage storage $, uint32 lastTs) private view {
         uint16 cooldown = $.flowCooldownSeconds;
         if (cooldown == 0 || lastTs == 0) return;
@@ -94,14 +49,14 @@ library PoolLiquidity {
     ) external returns (IPool.DepositResult memory) {
         if (amount == 0) revert Err.ZeroValue();
 
-        address tkn = _wrap($, token);
+        address tkn = PoolIO.wrap($, token);
         IPool.Asset storage asset = $.assets[tkn];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tkn);
 
         PoolDecay.applyDecay($, tkn, asset);
         if (($.riskConfigs[tkn].flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
 
-        uint256 amt = _pull($, token, amount);
+        uint256 amt = PoolIO.pull($, token, amount);
         if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
         uint256 lpAmt = (amt * SC.WAD) / (asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex);
@@ -122,14 +77,14 @@ library PoolLiquidity {
     ) external {
         if (amount == 0) revert Err.ZeroValue();
 
-        address tkn = _wrap($, token);
+        address tkn = PoolIO.wrap($, token);
         IPool.Asset storage asset = $.assets[tkn];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tkn);
 
         PoolDecay.applyDecay($, tkn, asset);
-        _checkRisk($, tkn, 0);
+        PoolIO.checkRisk($, tkn, 0);
 
-        uint256 amt = _pull($, token, amount);
+        uint256 amt = PoolIO.pull($, token, amount);
         if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
         uint256 liabBefore = uint256(asset.liabilities);
@@ -160,8 +115,8 @@ library PoolLiquidity {
         if (lpAmount == 0) revert Err.ZeroValue();
 
         WithdrawCtx memory ctx;
-        ctx.fromTk = _wrap($, tokenFrom);
-        ctx.toTk = _wrap($, tokenTo);
+        ctx.fromTk = PoolIO.wrap($, tokenFrom);
+        ctx.toTk = PoolIO.wrap($, tokenTo);
 
         _checkCooldown($, $.lastDepositTime[msg.sender][ctx.fromTk]);
         if ($.lpBalances[msg.sender][ctx.fromTk] < lpAmount) {
@@ -193,7 +148,7 @@ library PoolLiquidity {
             }
         }
         if (ctx.amt < minAmountOut) revert Err.ThresholdViolation(ctx.amt, minAmountOut);
-        _push($, tokenTo, msg.sender, ctx.amt);
+        PoolIO.push($, tokenTo, msg.sender, ctx.amt);
 
         if (ctx.fromTk == ctx.toTk) {
             emit IPool.Withdrawn(msg.sender, ctx.fromTk, ctx.amt, lpAmount);
@@ -238,8 +193,8 @@ library PoolLiquidity {
     ) external returns (uint256 lpAmountOut) {
         if (lpAmountIn == 0) revert Err.ZeroValue();
 
-        address inTk = _wrap($, tokenIn);
-        address outTk = _wrap($, tokenOut);
+        address inTk = PoolIO.wrap($, tokenIn);
+        address outTk = PoolIO.wrap($, tokenOut);
         if (inTk == outTk) revert Err.InvalidInput();
 
         IPool.Asset storage assetIn = $.assets[inTk];
@@ -249,8 +204,8 @@ library PoolLiquidity {
 
         PoolDecay.applyDecay($, inTk, assetIn);
         PoolDecay.applyDecay($, outTk, assetOut);
-        _checkRisk($, inTk, C.LIABILITY_SWAP_ENABLED_BIT);
-        _checkRisk($, outTk, C.LIABILITY_SWAP_ENABLED_BIT);
+        PoolIO.checkRisk($, inTk, C.LIABILITY_SWAP_ENABLED_BIT);
+        PoolIO.checkRisk($, outTk, C.LIABILITY_SWAP_ENABLED_BIT);
 
         if ($.lpBalances[msg.sender][inTk] < lpAmountIn) {
             revert Err.InsufficientAmount($.lpBalances[msg.sender][inTk], lpAmountIn);

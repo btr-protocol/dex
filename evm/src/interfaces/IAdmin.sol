@@ -56,7 +56,12 @@ interface IAdmin {
         uint8 decimals,
         uint64 initialPrice,
         uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA
+        uint32 initialSlowVolEMA,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda
     ) external;
     function executeAddAsset(address pool, address token) external;
 
@@ -74,6 +79,8 @@ interface IAdmin {
     function requestOracleUpdate(address pool, address token, IPool.OracleConfig calldata cfg) external;
     function executeOracleUpdate(address pool, address token) external;
     function cancelOracleUpdate(address pool, address token) external;
+    function cancelAddAsset(address pool, address token) external;
+    function cancelUpdateRiskConfig(address pool, address token) external;
     function cancelTimelock(address pool, uint8 opType) external;
 
     // ── events (pool-keyed) ──

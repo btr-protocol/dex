@@ -9,6 +9,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Timelock as TL} from "@btr-shared/Timelock.sol";
+import {AdminTimelock as ATL} from "./libraries/AdminTimelock.sol";
 
 /// @title Admin
 /// @notice Standalone singleton governance contract. Replaces the former Admin Diamond module.
@@ -171,35 +172,38 @@ contract Admin is IAdmin {
         uint8 decimals,
         uint64 initialPrice,
         uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA
+        uint32 initialSlowVolEMA,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega,
+        uint16 lambda
     ) external onlyAdmin {
         if (initialPrice == 0) revert Err.ZeroValue();
         if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
         bytes32 key = _keyToken(pool, OP_ADD_ASSET, token);
-        bytes memory data = abi.encode(token, oracleCfg, riskCfg, profile, minFeeBps, decimals, initialPrice, initialFastVolEMA, initialSlowVolEMA);
-        _emitQueued(key, SC.LOW_TIMELOCK, data, pool, uint8(IPool.OpType.ADD_ASSET));
+        ATL.AddAssetPayload memory p = ATL.AddAssetPayload({
+            token: token,
+            oracleCfg: oracleCfg,
+            riskCfg: riskCfg,
+            profile: profile,
+            minFeeBps: minFeeBps,
+            decimals: decimals,
+            initialPrice: initialPrice,
+            initialFastVolEMA: initialFastVolEMA,
+            initialSlowVolEMA: initialSlowVolEMA,
+            minDispersion: minDispersion,
+            maxDispersion: maxDispersion,
+            gamma: gamma,
+            vega: vega,
+            lambda: lambda
+        });
+        _emitQueued(key, SC.LOW_TIMELOCK, ATL.encodeAddAsset(p), pool, uint8(IPool.OpType.ADD_ASSET));
     }
 
     function executeAddAsset(address pool, address token) external onlyAdmin {
         bytes32 key = _keyToken(pool, OP_ADD_ASSET, token);
-        bytes memory raw = _consume(key);
-        (
-            address storedToken,
-            IPool.OracleConfig memory oracleCfg,
-            IPool.RiskConfig memory riskCfg,
-            IPool.LiquidityProfile memory profile,
-            uint16 minFeeBps,
-            uint8 decimals,
-            uint64 initialPrice,
-            uint32 initialFastVolEMA,
-            uint32 initialSlowVolEMA
-        ) = abi.decode(raw, (address, IPool.OracleConfig, IPool.RiskConfig, IPool.LiquidityProfile, uint16, uint8, uint64, uint32, uint32));
-        if (storedToken != token) revert Err.InvalidInput();
-        // Timelocked payload omits dispersion/greeks; zeros ⇒ PoolAdmin default substitution (see `addAsset`).
-        IPool(pool).adminInitAsset(
-            token, oracleCfg, riskCfg, profile, minFeeBps, decimals,
-            initialPrice, initialFastVolEMA, initialSlowVolEMA, 0, 0, 0, 0, 0
-        );
+        uint8 decimals = ATL.applyAddAsset(pool, token, _consume(key));
         emit AssetAdded(pool, token, decimals, 0);
     }
 
@@ -275,6 +279,14 @@ contract Admin is IAdmin {
 
     function cancelOracleUpdate(address pool, address token) external onlyAdmin {
         _cancel(pool, _keyToken(pool, OP_UPDATE_ORACLE, token), uint8(IPool.OpType.UPDATE_ORACLE));
+    }
+
+    function cancelAddAsset(address pool, address token) external onlyAdmin {
+        _cancel(pool, _keyToken(pool, OP_ADD_ASSET, token), uint8(IPool.OpType.ADD_ASSET));
+    }
+
+    function cancelUpdateRiskConfig(address pool, address token) external onlyAdmin {
+        _cancel(pool, _keyToken(pool, OP_UPDATE_RISK, token), uint8(IPool.OpType.UPDATE_RISK));
     }
 
     function cancelTimelock(address pool, uint8 opType) external onlyAdmin {

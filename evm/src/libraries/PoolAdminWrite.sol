@@ -4,9 +4,9 @@ pragma solidity =0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as C} from "./Constants.sol";
-import {Constants as SC} from "@btr-shared/Constants.sol";
 import {AnchorTree} from "./AnchorTree.sol";
 import {PoolAdmin} from "./PoolAdmin.sol";
+import {PoolIO} from "./PoolIO.sol";
 
 /// @title PoolAdminWrite -admin-side state setters extracted from Pool.sol
 /// @notice Wave-2 bytecode reduction. Pure refactor; behavior preserved.
@@ -14,23 +14,18 @@ import {PoolAdmin} from "./PoolAdmin.sol";
 ///         trampolines. ~700 gas/call extra but admin paths are cold so
 ///         the trade-off is favorable for ~250 bytes/fn bytecode savings.
 library PoolAdminWrite {
-    /// @dev Pool-local wrap (native sentinel → wnative).
-    function _wrap(IPool.PoolStorage storage $, address token) private view returns (address) {
-        return token == SC.NATIVE ? $.wnative : token;
-    }
-
     function _requireAsset(IPool.PoolStorage storage $, address t) private view {
         if ($.assets[t].decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
     }
 
     function freezeAsset(IPool.PoolStorage storage $, address token) external {
-        address t = _wrap($, token);
+        address t = PoolIO.wrap($, token);
         _requireAsset($, t);
         $.riskConfigs[t].flags |= C.FROZEN_BIT;
     }
 
     function unfreezeAsset(IPool.PoolStorage storage $, address token) external {
-        address t = _wrap($, token);
+        address t = PoolIO.wrap($, token);
         _requireAsset($, t);
         $.riskConfigs[t].flags &= ~C.FROZEN_BIT;
     }
@@ -56,7 +51,7 @@ library PoolAdminWrite {
         if (initialPrice == 0) revert Err.ZeroValue();
         if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
 
-        address t = _wrap($, token);
+        address t = PoolIO.wrap($, token);
         if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
 
         PoolAdmin.validateProfileMemory(profile);
@@ -70,7 +65,7 @@ library PoolAdminWrite {
     }
 
     function setAnchor(IPool.PoolStorage storage $, address token, address anchor) external {
-        address t = _wrap($, token);
+        address t = PoolIO.wrap($, token);
         IPool.Asset storage asset = $.assets[t];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
         uint8 depth = AnchorTree.validateAnchor($, t, anchor);
@@ -90,7 +85,7 @@ library PoolAdminWrite {
         uint16 haircutSuppressor,
         uint64 reservationPrice
     ) external {
-        address t = _wrap($, token);
+        address t = PoolIO.wrap($, token);
         IPool.Asset storage asset = $.assets[t];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
         if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
@@ -106,7 +101,7 @@ library PoolAdminWrite {
     }
 
     function setRiskConfig(IPool.PoolStorage storage $, address token, IPool.RiskConfig calldata cfg) external {
-        address t = _wrap($, token);
+        address t = PoolIO.wrap($, token);
         _requireAsset($, t);
         $.riskConfigs[t] = cfg;
     }
