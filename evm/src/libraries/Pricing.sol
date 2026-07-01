@@ -174,14 +174,22 @@ library Pricing {
             endDepth = startDepth + volumeFraction;
             if (endDepth > SC.BPS) endDepth = SC.BPS;
         }
-        uint256 width = selling ? (startDepth - endDepth) : (endDepth - startDepth);
+        // Integrate over the ORDERED depth band [lo, hi]. BUG-2 fix: previously this called
+        // `Spline.area(startDepth, endDepth)` which, on a descending sell (startDepth > endDepth),
+        // sign-flips the integral (Spline.sol inv branch) and was then divided by an UNSIGNED width
+        // → avgOffset = −(true mean) → sells were quoted a PREMIUM above TWAP. Ordering the bounds
+        // makes `area` monotone-direction (no negation): avgOffset is the TRUE mean offset —
+        // negative (discount) for a sell band below center, positive (premium) for a buy band above.
+        uint256 lo = selling ? endDepth : startDepth;
+        uint256 hi = selling ? startDepth : endDepth;
+        uint256 width = hi - lo;
         if (width == 0) {
             int256 off = Spline.eval(startDepth, points);
             int256 mult = int256(SC.PBPS) + off;
             if (mult < 0) mult = 0;
             return (twap * uint256(mult)) / SC.PBPS;
         }
-        int256 avgOffsetBps = Spline.area(points, startDepth, endDepth) / int256(width);
+        int256 avgOffsetBps = Spline.area(points, lo, hi) / int256(width);
         int256 MAX_NEG = -int256(SC.PBPS) * 90 / 100; // floor: -90% (≥ 10% of TWAP)
         if (avgOffsetBps < MAX_NEG) avgOffsetBps = MAX_NEG;
         int256 multiplier = int256(SC.PBPS) + avgOffsetBps;
@@ -280,7 +288,7 @@ library Pricing {
         for (uint256 i = 0; i < path.hops.length - 1; i++) {
             bool isEdge = (i == 0) || (i == path.hops.length - 2);
             (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minF, uint16 maxF, uint64 execPriceB64) =
-                _executeLeg($, path.hops[i], path.hops[i + 1], acc.currentAmount, isEdge, true);
+                _executeLeg($, path.hops[i], path.hops[i + 1], acc.currentAmount, isEdge);
 
             acc.currentAmount = amountOut;
             quote.hopAmounts[i + 1] = amountOut;
@@ -364,8 +372,7 @@ library Pricing {
         address from,
         address to,
         uint256 amountIn,
-        bool isEdge,
-        bool isSelling
+        bool isEdge
     ) private returns (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minFee, uint16 maxFee, uint64 execPriceB64) {
         // F-A4-3 (LOW): guard against zero amountIn -mirrors HIGH-style explicit zero checks.
         // Prior code did execPriceB64 derivation by `amountOut * 1e18 ... / amountIn`, which divides
@@ -388,8 +395,6 @@ library Pricing {
             feed = _readOracle($, profileAsset);
             (twap,) = Oracle.decodeB64s(feed);
         }
-        if (!isUpward) twap = (1e18 * 1e18) / twap; // child→parent
-
         sigma = Oracle.getSigma(feed);
         int32 fastSpread = feed.fastOffset - feed.slowOffset;
         delta = fastSpread < 0 ? uint32(-fastSpread) : uint32(fastSpread);
@@ -400,9 +405,16 @@ library Pricing {
         maxFee = asset.maxFeeBps;
 
         if (isEdge) {
-            amountOut = _priceEdgeHop($, asset, rc, amountIn, twap, sigma, isSelling, profileAsset);
+            // BUG-3 fix: an edge hop is a SELL of the profile asset iff child→parent (isUpward);
+            // base→child is a BUY. Price in canonical anchor-per-child space. The prior code passed
+            // a hardcoded `isSelling=true` for every leg, so buys were priced through the sell
+            // branch (dead buy path + decimal-mismatched volumeFraction) → underpriced buys.
+            amountOut = _priceEdgeHop($, asset, rc, amountIn, twap, sigma, isUpward, profileAsset);
         } else {
-            uint256 midPrice = _getMidPriceForLeg($, asset, rc, twap, sigma, profileAsset);
+            // Interior hop: mid-price multiply model needs the directional rate
+            // (child-per-parent on a downward leg).
+            uint256 dirTwap = isUpward ? twap : (1e18 * 1e18) / twap;
+            uint256 midPrice = _getMidPriceForLeg($, asset, rc, dirTwap, sigma, profileAsset);
             amountOut = (amountIn * midPrice) / 1e18;
         }
 
@@ -415,7 +427,7 @@ library Pricing {
         bool clamped = amountOut > toRes;
         if (clamped) amountOut = toRes;
 
-        // Exec price in `to` decimals.
+        // Exec price (`to` per `from`) in 1e18.
         uint256 price18 = (amountOut * 1e18 * (10 ** uint256(18 - decimalsTo))) /
             (amountIn * (10 ** uint256(18 - decimalsFrom)));
         uint256 priceOut = price18 / (10 ** uint256(18 - decimalsTo));
@@ -424,9 +436,19 @@ library Pricing {
         // R44-9 (Pass-44B): sentinel = 0 → skip oracle push for this hop.
         // Reserve-clamped exec price reflects pool emptiness, not market — polluting TWAP via
         // accumulator push enables an attacker to drain reserves and inject manipulated prices.
-        // `pushOracle` consumer treats 0 as "do not push". Caller still uses unscaled execPriceB64
-        // (encoded value) for return; only the oracle sink skips.
-        execPriceB64 = clamped ? uint64(0) : M.encodeB64(priceOut, decimalsTo);
+        // `pushOracle` consumer treats 0 as "do not push".
+        // The accumulator's canonical convention is anchor-per-profileAsset (readers decode then
+        // invert on downward legs, see `_readOracle` callsite above). `price18` is `to`-per-`from`:
+        //   upward (child→anchor): to=anchor ⇒ price18 already anchor-per-child (canonical).
+        //   downward (anchor→child): to=child ⇒ price18 is child-per-anchor ⇒ must invert,
+        //     else the pushed mark is the reciprocal (~1/P) and poisons every reader.
+        if (clamped) {
+            execPriceB64 = uint64(0);
+        } else if (isUpward) {
+            execPriceB64 = M.encodeB64(priceOut, decimalsTo);
+        } else {
+            execPriceB64 = M.encodeB64((uint256(1e18) * 1e18) / price18, 18);
+        }
     }
 
     /// @dev Edge hop w/ full price impact.
@@ -443,19 +465,30 @@ library Pricing {
         int8 skew = computeInventorySkew(asset.reserves, asset.liabilities, rc.coverageMin, rc.coverageMax, asset.gamma);
 
         if (selling) {
+            // child→base: amountIn is already in profile-asset (child) decimals, matching `depth`.
             (amountOut,) = quoteSwap(
                 amountIn, asset.reserves, asset.liabilities, twap, sigma,
                 $.profiles[profileAsset], skew, true, rc.depthAmplifier,
                 asset.vega, asset.minDispersion, asset.maxDispersion
             );
         } else {
-            // Buy quote w/ cost: estimate amount via mid, traverse spline, refine.
+            // Buy quote w/ cost: estimate child-out via mid, traverse spline, refine.
             uint256 depth = calculateDepth(asset.reserves, asset.liabilities, rc.depthAmplifier);
             uint32 dispersion = _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
             IPool.LiquidityProfile storage profile = $.profiles[profileAsset];
             uint256 midPrice = _getMidPriceFromProfile(twap, skew, dispersion, profile);
-            amountOut = (amountIn * SC.WAD) / midPrice;
-            uint256 execPrice = _traverseSplineByVolume(twap, dispersion, profile, skew, amountOut, depth, false);
+            // Estimate in `from` decimals; returned amountOut keeps this basis (`_executeLeg`
+            // rescales from→to downstream).
+            uint256 estOut = (amountIn * SC.WAD) / midPrice;
+            // BUG-3 fix: `_traverseSplineByVolume` divides the trade size by `depth` (in profile-asset
+            // = `to` decimals), so the size must share those decimals. `estOut` is in `from` decimals;
+            // on a downward buy `from` is the profile asset's anchor. Scale from→to before traversal,
+            // else a 6dec→18dec buy underflows volumeFraction to 0 → flat, size-independent slippage.
+            int256 decShift = int256(uint256(asset.decimals)) - int256(uint256($.assets[asset.anchor].decimals));
+            uint256 estChild = decShift >= 0
+                ? estOut * (10 ** uint256(decShift))
+                : estOut / (10 ** uint256(-decShift));
+            uint256 execPrice = _traverseSplineByVolume(twap, dispersion, profile, skew, estChild, depth, false);
             amountOut = (amountIn * SC.WAD) / execPrice;
         }
     }
@@ -496,6 +529,15 @@ library Pricing {
         data = cfg.primary == address(this)
             ? _readInternalOracle($, token)
             : IOracle(cfg.primary).getFeed(cfg.feedId);
+        // External-oracle safety: the swap hot-path previously consumed the feed with NO freshness
+        // gate — a dead/censored keeper (external) or an un-poked accumulator (internal) froze the
+        // mark, re-creating the unbounded pick-off external feeds exist to kill. Fail-closed: revert
+        // on a feed older than its per-feed `ttl` (short for followed flagships, long for price-leader
+        // internal feeds). Matches PoolOracle.readOracle + _readBasePriceOrHalt; halting > bleeding.
+        uint256 age = block.timestamp >= data.updatedAt ? block.timestamp - data.updatedAt : type(uint32).max;
+        if (age > data.ttl) {
+            revert Err.StaleData(age > type(uint32).max ? type(uint32).max : uint32(age), data.ttl);
+        }
         TCache.cacheOracleFeed(token, data);
     }
 

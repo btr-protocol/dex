@@ -6,6 +6,8 @@ import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as C} from "../libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
+import {Oracle} from "../libraries/Oracle.sol";
+import {Maths as M} from "../libraries/Maths.sol";
 
 /// @title ExternalOracle
 /// @notice Push-based external oracle with dual TWAP (fast/slow) and volatility tracking
@@ -182,15 +184,13 @@ contract ExternalOracle is IOracle {
         if (feed.updatedAt == 0) revert Err.FeedNotFound(feedId);
         _validate(newFastEMA, newSlowEMA, newFastVolEMA, newSlowVolEMA);
 
+        // `lastPriceB64` is the fast EMA, so fastOffset = 0 (current ≡ fast) and slowOffset encodes
+        // (slow/fast − 1) in ORACLE_PBPS units — the SAME convention the reader applies
+        // (`Oracle._applyOffset`: ema = price·(ORACLE_PBPS+offset)/ORACLE_PBPS). The prior code stored
+        // a raw int16 B64-value difference, which the int32 ORACLE_PBPS reader decoded as garbage.
         feed.lastPriceB64 = newFastEMA;
         feed.fastOffset = 0;
-        if (newSlowEMA >= newFastEMA) {
-            uint256 delta = uint256(newSlowEMA - newFastEMA);
-            feed.slowOffset = int16(uint16(delta > type(uint16).max ? type(uint16).max : delta));
-        } else {
-            uint256 delta = uint256(newFastEMA - newSlowEMA);
-            feed.slowOffset = -int16(uint16(delta > type(uint16).max ? type(uint16).max : delta));
-        }
+        feed.slowOffset = Oracle.encodeOffset1e18(M.b64To1e18(newFastEMA), M.b64To1e18(newSlowEMA));
         feed.fastVolEMA = newFastVolEMA;
         feed.slowVolEMA = newSlowVolEMA;
         feed.updatedAt = uint32(block.timestamp);
