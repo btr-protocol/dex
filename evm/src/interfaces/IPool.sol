@@ -41,7 +41,12 @@ interface IPool is IOracle {
         uint32 decaySlope;
         uint16 depthAmplifier;
         uint16 flags;
-        uint8[16] _pad;
+        // Coverage-convergence (re-peg) params, carved from the reserved pad (same storage slot).
+        uint16 kappaCovBps; // gain; 10000 = 1.0x. 0 disables. Strong for stables, ~0 for volatiles.
+        uint16 premCapBps;  // upper clamp on the coverage premium (PBPS). Required: bounds an
+                            // unbounded convex quote + acts as stabilizing actuator saturation.
+        uint16 covFlags;    // bit0 (Pricing.COV_CONVEX_BIT): convex (1/c−1 wall, stables) vs linear.
+        uint8[10] _pad;
     }
 
     struct LiquidityProfile {
