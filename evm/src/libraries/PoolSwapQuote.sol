@@ -27,35 +27,40 @@ library PoolSwapQuote {
         uint256 actualIn,
         IPool.SwapQuote memory q
     ) external returns (uint256 out) {
-        (uint256 extraFee, uint16 feeOverride) = PoolHookExec.preSwap($, tk[0], tk[1], actualIn, q.amountOut);
         out = q.amountOut;
+        // Gas: skip ALL hook delegatecalls when neither token has a hook (the common case). When no
+        // hook is set, preSwap returns (0,0), applyHookFee(0)=out, postSwap returns 0 — so the guard
+        // is behavior-preserving and saves the 3 external DELEGATECALL hops (~8k gas/swap).
+        bool hasHook = $.hooks[tk[0]] != address(0) || $.hooks[tk[1]] != address(0);
 
-        if (feeOverride > 0) {
-            // R44-1 (T3-HIGH1): clamp hook-supplied `feeOverride` to in-token's admin-configured
-            //   `maxFeeBps` (stored in PBPS, 1e6 = 100%). Prevents a compromised hook from
-            //   returning an arbitrarily large fee override that would inflate q.protoFee + drain
-            //   output reserves under the prior accounting.
-            uint16 cap = $.assets[tk[0]].maxFeeBps;
-            if (cap != 0 && feeOverride > cap) feeOverride = cap;
-            uint256 raw = out + q.protoFee + q.lpFee;
-            uint256 fee = (raw * feeOverride) / 1_000_000;
-            (q.protoFee, q.lpFee) = Pricing.splitFee(fee, $.feeParams.protoShare);
-            q.spreadBps = feeOverride;
-            q.amountOut = raw - fee;
-            out = q.amountOut;
+        if (hasHook) {
+            (uint256 extraFee, uint16 feeOverride) = PoolHookExec.preSwap($, tk[0], tk[1], actualIn, q.amountOut);
+            if (feeOverride > 0) {
+                // R44-1 (T3-HIGH1): clamp hook-supplied `feeOverride` to in-token's admin-configured
+                //   `maxFeeBps` (PBPS). Prevents a compromised hook from inflating q.protoFee + draining
+                //   output reserves.
+                uint16 cap = $.assets[tk[0]].maxFeeBps;
+                if (cap != 0 && feeOverride > cap) feeOverride = cap;
+                uint256 raw = out + q.protoFee + q.lpFee;
+                uint256 fee = (raw * feeOverride) / 1_000_000;
+                (q.protoFee, q.lpFee) = Pricing.splitFee(fee, $.feeParams.protoShare);
+                q.spreadBps = feeOverride;
+                q.amountOut = raw - fee;
+                out = q.amountOut;
+            }
+            // R44-1: applyHookFee clamps extraFee ≤ 5% of `out` + routes to q.lpFee only.
+            if (extraFee > 0) out = PoolHookExec.applyHookFee($, extraFee, q, out);
         }
 
-        // R44-1 (T3-HIGH1): applyHookFee now (a) clamps extraFee ≤ 5% of `out` and (b) routes
-        //   to q.lpFee only (no q.protoFee bump) → no protocolFees[tkOut] drain vector.
-        out = PoolHookExec.applyHookFee($, extraFee, q, out);
         PoolIO.exec($, tk[0], tk[1], actualIn, q);
 
-        int256 delta = PoolHookExec.postSwap($, tk[0], tk[1], actualIn, out);
-        if (delta > 0) {
-            // R44-1: same clamp applies to post-swap-returned extra fees. LP-side credit only.
-            out = PoolHookExec.applyHookFee($, uint256(delta), q, out);
-        } else if (delta < 0) {
-            out += uint256(-delta);
+        if (hasHook) {
+            int256 delta = PoolHookExec.postSwap($, tk[0], tk[1], actualIn, out);
+            if (delta > 0) {
+                out = PoolHookExec.applyHookFee($, uint256(delta), q, out);
+            } else if (delta < 0) {
+                out += uint256(-delta);
+            }
         }
 
         _reconcile($.assets[tk[1]], out, q.amountOut);
