@@ -36,6 +36,10 @@ function flashSend(IPool.PoolStorage storage $, address token, uint256 amount, a
         if (asset.reserves < amount || asset.reserves - amount < asset.minLiquidity) {
             revert Err.InsufficientAmount(asset.reserves, amount);
         }
+        // Block reserve-mutating entrypoints for the flash callback's duration (cleared in
+        // flashAccount): a borrower must repay by plain transfer, not by deposit/swap which would
+        // double-credit the principal pushed out here without a reserve debit.
+        PoolIO.enterFlash();
         PoolIO.push($, token, to, amount);
     }
 
@@ -46,6 +50,7 @@ function flashSend(IPool.PoolStorage storage $, address token, uint256 amount, a
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
         unchecked { asset.reserves += uint128(fee - protoFee); }
         $.protocolFees[t] += protoFee;
+        PoolIO.exitFlash();
     }
 
     function updateFeed(
