@@ -23,6 +23,14 @@ library Pricing {
     uint256 private constant MAX_IMPACT = 2 * SC.WAD;   // 200%
     uint256 private constant MIN_ADJ = SC.WAD / 1000;   // 0.1%
 
+    /// @dev Fraction (BPS) of the adverse-selection surcharge `u` still charged on a COVERAGE-IMPROVING
+    ///      trade. Fully waiving `u` when a trade improves coverage (the prior behavior) switched the
+    ///      only Glosten-Milgrom adverse-selection defense OFF exactly for informed flow — a momentum
+    ///      pick-off of a stale mark is coverage-improving roughly half the time on a mean-reverting
+    ///      path. Balancing flow still gets a discount (half `u`), but never a free pass. 10000 = no
+    ///      discount, 0 = legacy full waive. Sim-validated at 0.5 (prime `aimm.rs::cov_rebate`).
+    uint256 private constant COV_SURCHARGE_REBATE_BPS = 5000;
+
     /// @dev covFlags bit0: convex (1/c−1) coverage premium (diverges as c→0 = hard no-drain wall,
     ///      for stables) vs the linear (1−c) bounded spring (for volatiles).
     uint16 internal constant COV_CONVEX_BIT = 0x01;
@@ -354,7 +362,9 @@ library Pricing {
             );
             uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(vegaSpread)) / (100 * SC.BPS);
             uint256 u = (uint256(acc.deltaPair) * uint256(lambdaSpread)) / SC.BPS;
-            uint256 rawSpread = impact < 0 ? sVol : sVol + u;
+            // Coverage-improving trades get a discount on the adverse-selection surcharge, NOT a full
+            // waive (see COV_SURCHARGE_REBATE_BPS): a stale-mark pick-off is often coverage-improving.
+            uint256 rawSpread = impact < 0 ? sVol + (u * COV_SURCHARGE_REBATE_BPS) / SC.BPS : sVol + u;
             quote.spreadBps = rawSpread < uint256(acc.minFeePath)
                 ? acc.minFeePath
                 : (rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread));
