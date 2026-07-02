@@ -34,6 +34,13 @@ library Pricing {
     ///         ±premCap (PBPS). Returns a signed PBPS offset to ADD to the price multiplier.
     /// @dev Unlike the dispersion-scaled skew (∝σ, ~0 for stables), this is vol-independent so it
     ///      re-pegs stables strongly. Complements the skew (does not replace it). κ=0 ⇒ 0 (disabled).
+    /// @dev ⚠ NOT wired into pricing yet. A naive uniform mark-shift injection (twap·(1+premium) at
+    ///      pre-trade coverage) is NON-CONSERVATIVE and round-trip-extractable in the uncapped regime
+    ///      — proven by `test/unit/PoolRepegExploit.t.sol` (sell under-covered → buy back nets +0.8%).
+    ///      Production re-peg must integrate the premium along the coverage path (Wombat-style
+    ///      invariant), not shift the mark uniformly. This primitive + the RiskConfig params are the
+    ///      validated building blocks for that conservative injection; the sim (prime `amm/aimm.rs`)
+    ///      proves convergence under honest flow.
     function covPremiumBps(
         uint256 coverage, // WAD (1e18 = 100%)
         uint16 kappaCovBps,
@@ -487,29 +494,6 @@ library Pricing {
         }
     }
 
-    /// @dev Coverage-adjusted mark: `twap·(1 + covPremium)`. The vol-independent re-peg term that
-    ///      moves an under-covered asset's quote to attract corrective flow (c→1). No-op when
-    ///      kappaCovBps=0 (default) — so volatile legs (kappaCov≈0) are unchanged.
-    function _covAdjTwap(uint256 twap, uint128 reserves, uint128 liabilities, IPool.RiskConfig memory rc)
-        private pure returns (uint256)
-    {
-        if (rc.kappaCovBps == 0) return twap;
-        int256 off = covPremiumBps(
-            calculateCoverage(reserves, liabilities), rc.kappaCovBps, rc.premCapBps, (rc.covFlags & COV_CONVEX_BIT) != 0
-        );
-        if (off == 0) return twap;
-        int256 mult = int256(SC.PBPS) + off;
-        if (mult < 1) mult = 1;
-        return (twap * uint256(mult)) / SC.PBPS;
-    }
-
-    /// @dev Effective depth amplifier: forced to 0 when the re-peg term is active, because the c<1
-    ///      virtual-depth branch LOWERS slippage on the scarce asset (subsidizes drainage) and would
-    ///      fight the coverage wall. Neutralizing it lets slippage stiffen normally as reserves fall.
-    function _effAmp(IPool.RiskConfig memory rc) private pure returns (uint16) {
-        return rc.kappaCovBps > 0 ? 0 : rc.depthAmplifier;
-    }
-
     /// @dev Edge hop w/ full price impact.
     function _priceEdgeHop(
         IPool.PoolStorage storage $,
@@ -522,21 +506,17 @@ library Pricing {
         address profileAsset
     ) private view returns (uint256 amountOut) {
         int8 skew = computeInventorySkew(asset.reserves, asset.liabilities, rc.coverageMin, rc.coverageMax, asset.gamma);
-        // Coverage-convergence: shift the mark for an under-covered asset (re-peg), and neutralize
-        // the depth-amp drainage subsidy while doing so. No-op for volatile legs (kappaCovBps=0).
-        twap = _covAdjTwap(twap, asset.reserves, asset.liabilities, rc);
-        uint16 effAmp = _effAmp(rc);
 
         if (selling) {
             // child→base: amountIn is already in profile-asset (child) decimals, matching `depth`.
             (amountOut,) = quoteSwap(
                 amountIn, asset.reserves, asset.liabilities, twap, sigma,
-                $.profiles[profileAsset], skew, true, effAmp,
+                $.profiles[profileAsset], skew, true, rc.depthAmplifier,
                 asset.vega, asset.minDispersion, asset.maxDispersion
             );
         } else {
             // Buy quote w/ cost: estimate child-out via mid, traverse spline, refine.
-            uint256 depth = calculateDepth(asset.reserves, asset.liabilities, effAmp);
+            uint256 depth = calculateDepth(asset.reserves, asset.liabilities, rc.depthAmplifier);
             uint32 dispersion = _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
             IPool.LiquidityProfile storage profile = $.profiles[profileAsset];
             uint256 midPrice = _getMidPriceFromProfile(twap, skew, dispersion, profile);
@@ -575,7 +555,6 @@ library Pricing {
     ) private view returns (uint256 midPrice) {
         int8 skew = computeInventorySkew(asset.reserves, asset.liabilities, rc.coverageMin, rc.coverageMax, asset.gamma);
         uint32 dispersion = _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
-        twap = _covAdjTwap(twap, asset.reserves, asset.liabilities, rc); // coverage-convergence re-peg
 
         return _getMidPriceFromProfile(twap, skew, dispersion, $.profiles[profileAsset]);
     }
