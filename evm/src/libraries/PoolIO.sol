@@ -12,6 +12,27 @@ import {PoolOracle} from "./PoolOracle.sol";
 /// @title PoolIO
 /// @notice Shared pool-local token I/O, risk gating, and swap accounting helpers.
 library PoolIO {
+    /// @dev Transient "flash in flight" flag (per Pool-clone address, tx-scoped). Set while a flash
+    ///      loan's callback runs; blocks every reserve-mutating entrypoint so a borrower cannot
+    ///      "repay" via deposit/donate/swap (a reserve-crediting path) and double-count the principal
+    ///      that `flashSend` pushed out without debiting reserves. ERC-3156 borrowers repay by plain
+    ///      transfer/approve, which is unaffected.
+    /// @dev keccak256("btr.pool.flashInFlight.v1") — distinct from Solady's ReentrancyGuard slot.
+    uint256 private constant FLASH_INFLIGHT_SLOT =
+        0x9b4f3bbfca54a0e6e7a1f989e7a8421747090cf08b7f435d15e27a960bfc0532;
+
+    function enterFlash() internal {
+        assembly { tstore(FLASH_INFLIGHT_SLOT, 1) }
+    }
+    function exitFlash() internal {
+        assembly { tstore(FLASH_INFLIGHT_SLOT, 0) }
+    }
+    function requireNoFlash() internal view {
+        uint256 v;
+        assembly { v := tload(FLASH_INFLIGHT_SLOT) }
+        if (v != 0) revert Err.InvalidState();
+    }
+
     function wrap(IPool.PoolStorage storage $, address token) internal view returns (address) {
         return token == SC.NATIVE ? $.wnative : token;
     }
@@ -21,6 +42,10 @@ library PoolIO {
     }
 
     function pull(IPool.PoolStorage storage $, address token, uint256 amount) internal returns (uint256) {
+        // Reserve-crediting inflow chokepoint (deposit/donate/swap/batchSwap). Blocked during a flash
+        // callback so a borrower cannot repay by crediting reserves (double-count). Legit ERC-3156
+        // repayment is a plain transfer, which never routes through pull.
+        requireNoFlash();
         if (token == SC.NATIVE) {
             if (msg.value < amount) revert Err.InsufficientAmount(msg.value, amount);
             IWETH9($.wnative).deposit{value: amount}();
