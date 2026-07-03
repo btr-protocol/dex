@@ -23,13 +23,6 @@ library Pricing {
     uint256 private constant MAX_IMPACT = 2 * SC.WAD;   // 200%
     uint256 private constant MIN_ADJ = SC.WAD / 1000;   // 0.1%
 
-    /// @dev Fraction (BPS) of the adverse-selection surcharge `u` still charged on a COVERAGE-IMPROVING
-    ///      trade. Fully waiving `u` when a trade improves coverage (the prior behavior) switched the
-    ///      only Glosten-Milgrom adverse-selection defense OFF exactly for informed flow — a momentum
-    ///      pick-off of a stale mark is coverage-improving roughly half the time on a mean-reverting
-    ///      path. Balancing flow still gets a discount (half `u`), but never a free pass. 10000 = no
-    ///      discount, 0 = legacy full waive. Sim-validated at 0.5 (prime `aimm.rs::cov_rebate`).
-    uint256 private constant COV_SURCHARGE_REBATE_BPS = 5000;
 
     /// @dev covFlags bit0: convex (1/c−1) coverage premium (diverges as c→0 = hard no-drain wall,
     ///      for stables) vs the linear (1−c) bounded spring (for volatiles).
@@ -354,17 +347,18 @@ library Pricing {
         quote.amountIn = amountIn;
         {
             // Path spread: S_vol = 100 + σ·vega/100; U = Δ·λ/100; clamp [minFee,maxFee].
-            uint16 vegaSpread = cacheIn.vega > cacheOut.vega ? cacheIn.vega : cacheOut.vega;
-            uint16 lambdaSpread = cacheIn.lambda > cacheOut.lambda ? cacheIn.lambda : cacheOut.lambda;
-            int256 impact = netCoverageImpact(
-                cacheIn.reserves, cacheIn.liabilities, cacheOut.reserves, cacheOut.liabilities,
-                amountIn, acc.currentAmount, cacheIn.price, cacheOut.price, acc.maxFeePath
-            );
-            uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(vegaSpread)) / (100 * SC.BPS);
-            uint256 u = (uint256(acc.deltaPair) * uint256(lambdaSpread)) / SC.BPS;
-            // Coverage-improving trades get a discount on the adverse-selection surcharge, NOT a full
-            // waive (see COV_SURCHARGE_REBATE_BPS): a stale-mark pick-off is often coverage-improving.
-            uint256 rawSpread = impact < 0 ? sVol + (u * COV_SURCHARGE_REBATE_BPS) / SC.BPS : sVol + u;
+            // U (adverse-selection surcharge) keys on Δ (deltaPair = fastOffset−slowOffset EMA
+            // divergence = stale-mark / momentum toxicity) ONLY — NOT gated on coverage direction.
+            // Coverage drives the MID (computeInventorySkew) alone; double-gating U on coverage
+            // over-taxed the healthy cooperative-rebalancing arb and under-charged coverage-improving
+            // stale-mark pick-offs. U self-gates via Δ: ≈0 in calm (honest rebalancing is cheap), wide
+            // only in a dislocation. (netCoverageImpact retained as a primitive — the re-peg toll uses it.)
+            uint256 sVol = 100
+                + (uint256(acc.sigmaPair) * uint256(cacheIn.vega > cacheOut.vega ? cacheIn.vega : cacheOut.vega))
+                    / (100 * SC.BPS);
+            uint256 rawSpread = sVol
+                + (uint256(acc.deltaPair) * uint256(cacheIn.lambda > cacheOut.lambda ? cacheIn.lambda : cacheOut.lambda))
+                    / SC.BPS;
             quote.spreadBps = rawSpread < uint256(acc.minFeePath)
                 ? acc.minFeePath
                 : (rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread));
