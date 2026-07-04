@@ -333,22 +333,25 @@ library Pricing {
         EndpointCache memory cacheIn = _cacheEndpoint($, tokenIn);
         EndpointCache memory cacheOut = _cacheEndpoint($, tokenOut);
 
-        // Freeze gates EVERY node on the route, not just the swap endpoints. PoolSwap checks the
-        // two endpoints; an interior anchor/hub the flow transits could otherwise be frozen yet
-        // still route value through it (the compromised-hub case a per-asset freeze must stop).
+        // Every INTERIOR node the flow transits must be halted-checked, not just the swap endpoints
+        // (PoolSwap checks those). In a depth-1 star the sole interior node is the base hub on a
+        // spoke→base→spoke route, so this also enforces the base-depeg halt on cross-spoke swaps — a
+        // depegged base is priced only via _readBasePriceOrHalt, which the spoke-profiled legs never
+        // call. Freeze/pause (HALT_MASK) + base depeg both stop transit through a compromised hub.
         for (uint256 i = 1; i + 1 < path.hops.length; i++) {
-            if (($.riskConfigs[path.hops[i]].flags & C.HALT_MASK) != 0) {
-                revert Err.FeatureDisabled(Err.Resource.ASSET);
-            }
+            address hop = path.hops[i];
+            if (($.riskConfigs[hop].flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
+            if (hop == $.baseToken) _readBasePriceOrHalt($); // interior base hub → enforce depeg halt
         }
 
         PathAccumulator memory acc;
         acc.currentAmount = amountIn;
 
+        // Depth-1 star ⇒ every leg is an EDGE (full spline impact + reserve accounting). No interior
+        // mid-priced legs exist, so A→B has one price regardless of decomposition (no path-dependence).
         for (uint256 i = 0; i < path.hops.length - 1; i++) {
-            bool isEdge = (i == 0) || (i == path.hops.length - 2);
             (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minF, uint16 maxF, uint64 execPriceB64) =
-                _executeLeg($, path.hops[i], path.hops[i + 1], acc.currentAmount, isEdge);
+                _executeLeg($, path.hops[i], path.hops[i + 1], acc.currentAmount);
 
             acc.currentAmount = amountOut;
             quote.hopAmounts[i + 1] = amountOut;
@@ -474,8 +477,7 @@ library Pricing {
         IPool.PoolStorage storage $,
         address from,
         address to,
-        uint256 amountIn,
-        bool isEdge
+        uint256 amountIn
     ) private returns (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minFee, uint16 maxFee, uint64 execPriceB64) {
         // F-A4-3 (LOW): guard against zero amountIn -mirrors HIGH-style explicit zero checks.
         // Prior code did execPriceB64 derivation by `amountOut * 1e18 ... / amountIn`, which divides
@@ -507,19 +509,11 @@ library Pricing {
         minFee = asset.minFeeBps;
         maxFee = asset.maxFeeBps;
 
-        if (isEdge) {
-            // BUG-3 fix: an edge hop is a SELL of the profile asset iff child→parent (isUpward);
-            // base→child is a BUY. Price in canonical anchor-per-child space. The prior code passed
-            // a hardcoded `isSelling=true` for every leg, so buys were priced through the sell
-            // branch (dead buy path + decimal-mismatched volumeFraction) → underpriced buys.
-            amountOut = _priceEdgeHop($, asset, rc, amountIn, twap, sigma, isUpward, profileAsset);
-        } else {
-            // Interior hop: mid-price multiply model needs the directional rate
-            // (child-per-parent on a downward leg).
-            uint256 dirTwap = isUpward ? twap : (1e18 * 1e18) / twap;
-            uint256 midPrice = _getMidPriceForLeg($, asset, rc, dirTwap, sigma, profileAsset);
-            amountOut = (amountIn * midPrice) / 1e18;
-        }
+        // Every leg is an edge (depth-1 star): full spline volume-impact + reserve accounting. An edge
+        // hop is a SELL of the profile asset iff child→parent (isUpward); base→child is a BUY, priced in
+        // canonical anchor-per-child space. (BUG-3 fix: the prior code hardcoded isSelling=true for every
+        // leg, pricing buys through the sell branch with a decimal-mismatched volumeFraction.)
+        amountOut = _priceEdgeHop($, asset, rc, amountIn, twap, sigma, isUpward, profileAsset);
 
         // Decimal scaling.
         if (decimalsFrom > decimalsTo) amountOut /= 10 ** uint256(decimalsFrom - decimalsTo);
@@ -594,29 +588,6 @@ library Pricing {
             uint256 execPrice = _traverseSplineByVolume(twap, dispersion, profile, skew, estChild, depth, false);
             amountOut = (amountIn * SC.WAD) / execPrice;
         }
-    }
-
-    /// @dev Mid-price for intermediate hop (interior leg of multi-hop path).
-    ///      R44-8 (Pass-44B) ACKNOWLEDGED TRADE-OFF: interior hops use mid-price w/ skew but
-    ///      without spline volume-traversal impact. For paths of length ≤ 3 (single intermediate)
-    ///      the under-charge is bounded by (max-skew · max-dispersion) ≈ 1% in production configs.
-    ///      For longer paths the cumulative deviation grows. Mitigation in this pass: rely on
-    ///      AnchorTree MAX_DEPTH=4 (max path length 6 hops, max interior = 4); future hardening
-    ///      should add reduced-impact spline traversal (scale factor ~30% PBPS) or tighten
-    ///      MAX_DEPTH to 3. Edge hops (first/last) ALWAYS apply full spline impact via
-    ///      `_priceEdgeHop`, so under-charge is purely an interior-leg phenomenon.
-    function _getMidPriceForLeg(
-        IPool.PoolStorage storage $,
-        IPool.Asset storage asset,
-        IPool.RiskConfig memory rc,
-        uint256 twap,
-        uint32 sigma,
-        address profileAsset
-    ) private view returns (uint256 midPrice) {
-        int8 skew = computeInventorySkew(asset.reserves, asset.liabilities, rc.coverageMin, rc.coverageMax, asset.gamma);
-        uint32 dispersion = _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
-
-        return _getMidPriceFromProfile(twap, skew, dispersion, $.profiles[profileAsset]);
     }
 
     /// @dev Read oracle w/ transient cache. Supports internal (storage) + external (IOracle).
