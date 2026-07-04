@@ -20,10 +20,11 @@ library Pricing {
 
     /// @dev Profile weights sum (200 = 100%, 1 unit = 0.5% depth).
     uint256 private constant WEIGHT_SUM = 200;
-    // Staleness-premium coefficient (×100) for the A-S σ√age keeper-lag defense in `_pathSpread`.
-    // Global (not per-asset) to avoid a RiskConfig storage change; the deviation-push policy
-    // (minFee ≈ 2·θ) is the primary defense, so this only bites on a missed keeper push.
-    uint256 private constant STALE_Z = 100; // = coefficient 1.0
+    // Staleness-premium coefficient for the A-S σ√age keeper-lag defense in `_pathSpread` (the term is
+    // STALE_Z·σ·√excess/BPS). Global (not per-asset) to avoid a RiskConfig storage change; the
+    // deviation-push policy (minFee ≈ 2·θ) is the primary defense, so this only bites past the keeper
+    // grace (age > ttl/2) — a missed push. 100 gives ~10bps at 1% vol / 100s stale (see _staleTerm).
+    uint256 private constant STALE_Z = 100;
 
     uint256 private constant MAX_IMPACT = 2 * SC.WAD;   // 200%
     uint256 private constant MIN_ADJ = SC.WAD / 1000;   // 0.1%
@@ -336,7 +337,7 @@ library Pricing {
         // two endpoints; an interior anchor/hub the flow transits could otherwise be frozen yet
         // still route value through it (the compromised-hub case a per-asset freeze must stop).
         for (uint256 i = 1; i + 1 < path.hops.length; i++) {
-            if (($.riskConfigs[path.hops[i]].flags & C.FROZEN_BIT) != 0) {
+            if (($.riskConfigs[path.hops[i]].flags & C.HALT_MASK) != 0) {
                 revert Err.FeatureDisabled(Err.Resource.ASSET);
             }
         }
@@ -395,11 +396,15 @@ library Pricing {
             : (rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread));
     }
 
-    /// @dev Staleness term (PBPS) = STALE_Z·σ·√(staleExcess)/100, where staleExcess = age beyond the
-    ///      keeper grace (ttl/2). sqrt(0)=0 ⇒ 0 while the keeper is within its heartbeat (flat market
-    ///      stays tight); own frame keeps `_pathSpread` off the stack-too-deep edge.
+    /// @dev Staleness term (PBPS) = STALE_Z·σ·√(staleExcess)/BPS, where staleExcess = age beyond the
+    ///      keeper grace (ttl/2). σ (getSigma) is PBPS-scaled (1e4 = 1%), so it MUST be normalized by
+    ///      BPS here exactly as `sVol` normalizes σ·vega by 100·BPS — otherwise the raw σ·√excess term
+    ///      is ~1e4× too large and saturates the spread to maxFee the instant age crosses ttl/2 (a step,
+    ///      not the intended gentle ramp). Now: σ=1% (1e4), excess=100s → ~10bps; excess=1800s → ~42bps
+    ///      (non-saturating, clamped by maxFeePath only in extremes). sqrt(0)=0 ⇒ 0 within the keeper
+    ///      grace (flat market stays tight). Own frame keeps `_pathSpread` off the stack-too-deep edge.
     function _staleTerm(uint32 staleExcess, uint32 sigma) private pure returns (uint256) {
-        return (STALE_Z * uint256(sigma) * FixedPointMathLib.sqrt(staleExcess)) / 100;
+        return (STALE_Z * uint256(sigma) * FixedPointMathLib.sqrt(staleExcess)) / SC.BPS;
     }
 
     /// @dev Read a token's oracle price AND its staleness EXCESS in one call. Excess = age beyond the
@@ -452,6 +457,11 @@ library Pricing {
         address oracle = $.baseTokenOracle;
         if (oracle == address(0)) return 1e18;
         IOracle.FeedData memory feed = IOracle(oracle).getFeed($.baseTokenFeedId);
+        // Freshness gate: the base leg is exempt from the staleness premium (its price is pinned to the
+        // unit of account, not keeper-pushed), so a FROZEN base feed sitting inside the depeg band would
+        // otherwise pass unchecked. Fail-closed on a stale feed, mirroring _readOracle's per-feed TTL.
+        uint256 baseAge = block.timestamp >= feed.updatedAt ? block.timestamp - feed.updatedAt : type(uint32).max;
+        if (baseAge > feed.ttl) revert Err.StaleData(baseAge > type(uint32).max ? type(uint32).max : uint32(baseAge), feed.ttl);
         (basePrice,) = Oracle.decodeB64s(feed);
         if (basePrice == 0) revert Err.BaseDepegged(0, type(uint256).max);
         uint256 deviation = basePrice > 1e18 ? basePrice - 1e18 : 1e18 - basePrice;
