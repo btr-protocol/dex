@@ -117,9 +117,10 @@ contract PoolAux is ReentrancyGuardTransient {
         uint16 vega,
         uint16 lambda,
         uint16 haircutSuppressor,
-        uint64 reservationPrice
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
     ) external onlyAdmin {
-        PoolAdminWrite.setAssetParams($, token, minLiquidity, minFeeBps, maxFeeBps, gamma, vega, lambda, haircutSuppressor, reservationPrice);
+        PoolAdminWrite.setAssetParams($, token, minLiquidity, minFeeBps, maxFeeBps, gamma, vega, lambda, haircutSuppressor, reservationPrice, reservationPriceMax);
     }
 
     function adminSetRiskConfig(address token, IPool.RiskConfig calldata cfg) external onlyAdmin {

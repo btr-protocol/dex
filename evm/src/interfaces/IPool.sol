@@ -30,8 +30,9 @@ interface IPool is IOracle {
         uint16 vega;
         uint16 lambda;
         uint16 haircutSuppressor;
-        uint64 reservationPrice;
-        uint8[16] _pad2;
+        uint64 reservationPrice;    // absolute MIN swap price (base-per-asset, b64); 0 = no floor
+        uint64 reservationPriceMax; // absolute MAX swap price (b64); 0 = no ceiling
+        uint8[8] _pad2;
     }
 
     struct RiskConfig {
@@ -58,9 +59,14 @@ interface IPool is IOracle {
         address primary;
         address secondary;
         bytes32 feedId;
+        // Depeg guard: halt swaps if this asset's mark leaves refBandBps of the REFERENCE feed's price
+        // (e.g. WBTC vs the BTC feed, XAUT vs a gold feed). refFeedId is a MITCH ticker id (u64, matches
+        // the NX-Rates side). 0 = disabled (use the absolute reservationPrice band instead).
+        bytes32 refFeedId;
+        uint16 refBandBps; // symmetric tolerance in BPS (200 = ±2%); 0 = disabled
         uint16 modeFlags;
         uint8 accDecimals;
-        uint8[13] _pad;
+        uint8[11] _pad;
     }
 
     struct FeeParams {
@@ -179,7 +185,8 @@ interface IPool is IOracle {
         uint16 vega,
         uint16 lambda,
         uint16 haircutSuppressor,
-        uint64 reservationPrice
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
     ) external;
     function adminSetRiskConfig(address token, RiskConfig calldata cfg) external;
     function adminSetOracleConfig(address token, OracleConfig calldata cfg) external;

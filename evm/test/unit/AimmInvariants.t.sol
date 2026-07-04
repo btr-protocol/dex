@@ -167,6 +167,20 @@ contract AimmInvariantsTest is Test {
         assertGt(qMoreStale.spreadBps, qStale.spreadBps, "premium must keep ramping (not saturated to maxFee)");
     }
 
+    /// Depeg band: a swap whose OUTPUT asset mark sits outside its price band must revert (the
+    /// reservationPrice / reservationPriceMax guard). Here max is set below tok's mark → buying tok halts.
+    function test_reservation_band_halts_out_of_band_swap() public {
+        vm.prank(OWNER);
+        // ...reservationPrice=0 (no floor), reservationPriceMax = half the mark → tok mark is above it.
+        admin.setAssetParams(address(pool), address(tok), 1000, 100, 10_000, 10_000, 10_000, 10_000, 10_000, 0, uint64(M.encodeB64(PX / 2, 18)));
+        base.mint(USER, 30_000e18);
+        vm.startPrank(USER);
+        base.approve(address(pool), type(uint256).max);
+        vm.expectRevert(); // Err.PriceBelowReservation — tok mark (PX) > reservationPriceMax (PX/2)
+        pool.swap(address(base), address(tok), 30_000e18, 0, USER);
+        vm.stopPrank();
+    }
+
     /// Sanity: a base->tok buy should cost >= TWAP per tok (buyer pays a spread), never a discount.
     function test_buy_never_discount() public {
         uint256 amtIn = 3000e18; // spend 3000 base, expect ~<=1 tok
