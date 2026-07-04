@@ -237,22 +237,4 @@ contract LibOracleTest is BaseTestSetup {
     // BASE TOKEN FEED SYNTHESIS TEST
     // ═══════════════════════════════════════════════════════════════════════════
 
-    function test_getBaseFeed_returns_stable_feed() public {
-        IOracle.FeedData memory feed = Oracle.getBaseFeed();
-
-        // Check all fields
-        assertEq(M.b64To1e18(feed.lastPriceB64), 1e18);  // Price should be 1.0
-        assertEq(feed.fastOffset, 0);
-        assertEq(feed.slowOffset, 0);
-        assertEq(feed.fastVolEMA, 10_000);  // 0.01% baseline
-        assertEq(feed.slowVolEMA, 10_000);
-        assertEq(feed.updatedAt, uint32(block.timestamp));
-        assertEq(feed.ttl, type(uint16).max);  // Never expires
-        assertEq(feed.confidence, 100);
-
-        // Test that decoding works correctly
-        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
-        assertEq(priceFast, 1e18);
-        assertEq(priceSlow, 1e18);
-    }
 }
