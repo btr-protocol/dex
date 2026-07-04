@@ -150,9 +150,15 @@ contract AimmInvariantsTest is Test {
     /// keeper lags, the pool widens instead of being picked off, then halts only if it goes fully stale.
     function test_staleness_widens_spread() public {
         IPool.SwapQuote memory qFresh = pool.getSwapQuote(address(tok), address(base), 1e18);
-        vm.warp(block.timestamp + 1800); // age the tok mark 1800s (< 3600s ttl → no revert)
+        // Grace = ttl/2 = 1800s: a mark aged UNDER the grace must NOT widen (flat-market / live-keeper
+        // case — else we quote wide and lose flow for nothing).
+        vm.warp(block.timestamp + 1500);
+        IPool.SwapQuote memory qWithinGrace = pool.getSwapQuote(address(tok), address(base), 1e18);
+        assertEq(qWithinGrace.spreadBps, qFresh.spreadBps, "within grace (age<ttl/2) the premium must stay OFF");
+        // Past the grace (keeper missed its heartbeat) but under the ttl: widen (graceful degradation).
+        vm.warp(block.timestamp + 1000); // total age 2500s: > 1800 grace, < 3600 ttl → excess 700s
         IPool.SwapQuote memory qStale = pool.getSwapQuote(address(tok), address(base), 1e18);
-        assertGt(qStale.spreadBps, qFresh.spreadBps, "staleness premium must widen the spread as the mark ages");
+        assertGt(qStale.spreadBps, qFresh.spreadBps, "past grace the staleness premium must widen the spread");
     }
 
     /// Sanity: a base->tok buy should cost >= TWAP per tok (buyer pays a spread), never a discount.
