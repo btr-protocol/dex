@@ -302,7 +302,7 @@ library Pricing {
         uint16 gamma;
         uint16 coverageMin;
         uint16 coverageMax;
-        uint32 age;       // seconds since this endpoint's mark was last pushed (block.timestamp − updatedAt)
+        uint32 staleExcess; // seconds the mark is stale BEYOND the keeper grace (age − ttl/2, else 0)
         uint256 price;  // 1e18 format
     }
 
@@ -389,26 +389,35 @@ library Pricing {
         uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(cIn.vega > cOut.vega ? cIn.vega : cOut.vega)) / (100 * SC.BPS);
         uint256 rawSpread = sVol
             + (uint256(acc.deltaPair) * uint256(cIn.lambda > cOut.lambda ? cIn.lambda : cOut.lambda)) / SC.BPS
-            + _staleTerm(cIn.age > cOut.age ? cIn.age : cOut.age, acc.sigmaPair);
+            + _staleTerm(cIn.staleExcess > cOut.staleExcess ? cIn.staleExcess : cOut.staleExcess, acc.sigmaPair);
         return rawSpread < uint256(acc.minFeePath)
             ? acc.minFeePath
             : (rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread));
     }
 
-    /// @dev Staleness term (PBPS) = STALE_Z·σ·√(age)/100. sqrt(0)=0 ⇒ 0 when fresh; own frame keeps
-    ///      `_pathSpread` off the stack-too-deep edge.
-    function _staleTerm(uint32 age, uint32 sigma) private pure returns (uint256) {
-        return (STALE_Z * uint256(sigma) * FixedPointMathLib.sqrt(age)) / 100;
+    /// @dev Staleness term (PBPS) = STALE_Z·σ·√(staleExcess)/100, where staleExcess = age beyond the
+    ///      keeper grace (ttl/2). sqrt(0)=0 ⇒ 0 while the keeper is within its heartbeat (flat market
+    ///      stays tight); own frame keeps `_pathSpread` off the stack-too-deep edge.
+    function _staleTerm(uint32 staleExcess, uint32 sigma) private pure returns (uint256) {
+        return (STALE_Z * uint256(sigma) * FixedPointMathLib.sqrt(staleExcess)) / 100;
     }
 
-    /// @dev Read a token's oracle price AND its staleness age (seconds since push) in one call. Kept
-    ///      out of `_cacheEndpoint` so the FeedData memory struct does not live in that frame.
+    /// @dev Read a token's oracle price AND its staleness EXCESS in one call. Excess = age beyond the
+    ///      keeper's grace (= ttl/2), NOT raw age: under the deviation-push policy a live keeper keeps
+    ///      the mark within θ while it honors its heartbeat, so a merely-old-but-accurate mark (flat
+    ///      market, no push needed) must not be penalized — else the pool quotes wide and loses flow for
+    ///      nothing. The premium engages only once age exceeds ttl/2 (keeper missed its promised push),
+    ///      ramping to the hard TTL revert at `age > ttl`. Operators MUST set the keeper heartbeat <
+    ///      ttl/2 so a healthy keeper never triggers it. Kept out of `_cacheEndpoint` so the FeedData
+    ///      memory struct does not live in that frame.
     function _readOracleAge(IPool.PoolStorage storage $, address token)
-        private returns (uint256 price, uint32 age)
+        private returns (uint256 price, uint32 staleExcess)
     {
         IOracle.FeedData memory feed = _readOracle($, token);
         (price,) = Oracle.decodeB64s(feed);
-        age = block.timestamp >= feed.updatedAt ? uint32(block.timestamp - feed.updatedAt) : 0;
+        uint256 age = block.timestamp >= feed.updatedAt ? block.timestamp - feed.updatedAt : 0;
+        uint256 grace = uint256(feed.ttl) / 2;
+        staleExcess = age > grace ? uint32(age - grace) : 0;
     }
 
     /// @dev Single SLOAD/oracle read per endpoint.
@@ -430,7 +439,7 @@ library Pricing {
             cache.price = _readBasePriceOrHalt($);
             // base leg is the numeraire (price≡1 / its own depeg breaker) — no keeper-staleness pick-off.
         } else {
-            (cache.price, cache.age) = _readOracleAge($, token);
+            (cache.price, cache.staleExcess) = _readOracleAge($, token);
         }
     }
 
