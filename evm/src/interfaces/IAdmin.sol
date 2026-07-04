@@ -42,7 +42,8 @@ interface IAdmin {
         uint16 vega,
         uint16 lambda,
         uint16 haircutSuppressor,
-        uint64 reservationPrice
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
     ) external;
 
     // ── timelocked governance ──

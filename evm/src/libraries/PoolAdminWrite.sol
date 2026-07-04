@@ -95,12 +95,14 @@ library PoolAdminWrite {
         uint16 vega,
         uint16 lambda,
         uint16 haircutSuppressor,
-        uint64 reservationPrice
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
     ) external {
         address t = PoolIO.wrap($, token);
         IPool.Asset storage asset = $.assets[t];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
         if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
+        if (reservationPriceMax != 0 && reservationPriceMax < reservationPrice) revert Err.InvalidInput();
 
         asset.minLiquidity = minLiquidity;
         asset.minFeeBps = minFeeBps;
@@ -110,6 +112,7 @@ library PoolAdminWrite {
         asset.lambda = lambda;
         asset.haircutSuppressor = haircutSuppressor;
         asset.reservationPrice = reservationPrice;
+        asset.reservationPriceMax = reservationPriceMax;
     }
 
     function setRiskConfig(IPool.PoolStorage storage $, address token, IPool.RiskConfig calldata cfg) external {

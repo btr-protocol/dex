@@ -2,12 +2,15 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
 import {IWETH9} from "../interfaces/external/IWETH9.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolOracle} from "./PoolOracle.sol";
+import {Oracle} from "./Oracle.sol";
+import {Maths as M} from "./Maths.sol";
 
 /// @title PoolIO
 /// @notice Shared pool-local token I/O, risk gating, and swap accounting helpers.
@@ -101,10 +104,24 @@ library PoolIO {
         aOut.reserves -= uint128(q.amountOut + q.protoFee);
         $.protocolFees[tkOut] += q.protoFee;
 
-        uint64 floor = aOut.reservationPrice;
-        if (floor != 0) {
-            uint64 price = PoolOracle.readOracle($, address(this), tkOut).lastPriceB64;
-            if (price < floor) revert Err.PriceBelowReservation(price, floor);
+        _priceBandGuard($, tkOut, aOut);
+    }
+
+    /// @dev Depeg guard on the OUTPUT asset's mark: an absolute floor/ceiling (reservationPrice /
+    ///      reservationPriceMax) AND an optional feed-relative band (mark within refBandBps of a
+    ///      reference feed — e.g. WBTC vs the BTC feed, XAUT vs a gold feed). 0 fields = disabled.
+    function _priceBandGuard(IPool.PoolStorage storage $, address token, IPool.Asset storage a) private {
+        uint64 price = PoolOracle.readOracle($, address(this), token).lastPriceB64;
+        uint64 lo = a.reservationPrice;
+        uint64 hi = a.reservationPriceMax;
+        if (lo != 0 && price < lo) revert Err.PriceBelowReservation(price, lo);
+        if (hi != 0 && price > hi) revert Err.PriceBelowReservation(price, hi);
+        IPool.OracleConfig storage oc = $.oracleConfigs[token];
+        if (oc.refFeedId != 0 && oc.refBandBps != 0 && oc.primary != address(this)) {
+            (uint256 refP,) = Oracle.decodeB64s(IOracle(oc.primary).getFeed(oc.refFeedId));
+            uint256 p = M.b64To1e18(price);
+            uint256 dev = p > refP ? p - refP : refP - p;
+            if (dev * SC.BPS > refP * uint256(oc.refBandBps)) revert Err.PriceBelowReservation(price, uint64(refP));
         }
     }
 

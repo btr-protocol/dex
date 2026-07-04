@@ -195,11 +195,12 @@ contract Admin is IAdmin {
         uint16 vega,
         uint16 lambda,
         uint16 haircutSuppressor,
-        uint64 reservationPrice
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
     ) external onlyAdmin {
         IPool(pool).adminSetAssetParams(
             token, minLiquidity, minFeeBps, maxFeeBps,
-            gamma, vega, lambda, haircutSuppressor, reservationPrice
+            gamma, vega, lambda, haircutSuppressor, reservationPrice, reservationPriceMax
         );
         emit AssetParamsUpdated(pool, token, minLiquidity, reservationPrice);
     }
