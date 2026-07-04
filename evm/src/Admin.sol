@@ -104,6 +104,35 @@ contract Admin is IAdmin {
         emit ProtocolUnpause(pool, token);
     }
 
+    /// @notice Batch a freeze/unfreeze/pause/unpause across (pool,token) pairs in ONE owner tx — works
+    ///         from an EOA OR a multisig (no Safe MultiSend / Multicall3 needed; the loop runs inside
+    ///         `Admin`, so `msg.sender` stays the AC owner throughout). The UI/operator enumerates pools
+    ///         off-chain (`PoolFactory.officialPools` / `getPoolsForToken` / `getPoolTokens`) and passes
+    ///         the arrays. Per-leg try/catch: a bad leg (uninit pool / unlisted asset) is SKIPPED +
+    ///         logged (`BatchLegSkipped`), so one failure never bricks an emergency sweep — reconcile
+    ///         from the events. // ponytail: onlyAdmin today; a dedicated fast onlyPauser guardian
+    ///         (never the keeper key) is the next-layer upgrade.
+    function batchRiskOp(address[] calldata pools, address[] calldata tokens, BatchOp op) external onlyAdmin {
+        uint256 n = pools.length;
+        if (n != tokens.length) revert Err.InvalidInput();
+        for (uint256 i; i < n; ++i) {
+            address p = pools[i];
+            address t = tokens[i];
+            bool ok;
+            if (op == BatchOp.Pause) {
+                try IPool(p).adminPauseAsset(t) { ok = true; } catch {}
+            } else if (op == BatchOp.Unpause) {
+                try IPool(p).adminUnpauseAsset(t) { ok = true; } catch {}
+            } else if (op == BatchOp.Freeze) {
+                try IPool(p).adminFreezeAsset(t) { ok = true; } catch {}
+            } else {
+                try IPool(p).adminUnfreezeAsset(t) { ok = true; } catch {}
+            }
+            if (ok) emit BatchRiskOp(p, t, uint8(op));
+            else emit BatchLegSkipped(p, t);
+        }
+    }
+
     function addAsset(
         address pool,
         address token,
