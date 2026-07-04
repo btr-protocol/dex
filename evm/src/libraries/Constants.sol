@@ -18,6 +18,11 @@ library Constants {
     // hot path via the same const mask in checkRisk (+0 runtime gas). ABI/flag-audit note: bit reclaimed.
     uint16 internal constant PROTOCOL_PAUSED_BIT = 1 << 6;
     uint16 internal constant BRIDGEABLE_BIT = 1 << 7;
+    // Halt mask — an asset is halted for ALL value-moving ops (swap, flash, deposit, interior-hop
+    // transit) if EITHER a per-asset risk FREEZE or a guardian PROTOCOL_PAUSE is set. Use this single
+    // mask at every gate so the two halt bits can never silently diverge (a pause that stops swaps but
+    // leaves flash loans / interior-hop routing open is exactly the bypass this prevents).
+    uint16 internal constant HALT_MASK = FROZEN_BIT | PROTOCOL_PAUSED_BIT;
 
     // --- Oracle modes ---
     uint16 internal constant MODE_USE_INTERNAL = 1 << 0;

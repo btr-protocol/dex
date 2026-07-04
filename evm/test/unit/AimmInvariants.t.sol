@@ -159,6 +159,12 @@ contract AimmInvariantsTest is Test {
         vm.warp(block.timestamp + 1000); // total age 2500s: > 1800 grace, < 3600 ttl → excess 700s
         IPool.SwapQuote memory qStale = pool.getSwapQuote(address(tok), address(base), 1e18);
         assertGt(qStale.spreadBps, qFresh.spreadBps, "past grace the staleness premium must widen the spread");
+        // NON-SATURATION: the premium must be a GENTLE ramp, not slam to maxFee the instant age>ttl/2.
+        // Regression guard for the σ-scaling bug (raw σ·√excess with σ in PBPS saturated maxFee at 1s):
+        // a larger excess must quote STRICTLY MORE — if it had saturated, both points would be equal.
+        vm.warp(block.timestamp + 900); // total age 3400s: excess 1600s (> the 700s above, still < ttl)
+        IPool.SwapQuote memory qMoreStale = pool.getSwapQuote(address(tok), address(base), 1e18);
+        assertGt(qMoreStale.spreadBps, qStale.spreadBps, "premium must keep ramping (not saturated to maxFee)");
     }
 
     /// Sanity: a base->tok buy should cost >= TWAP per tok (buyer pays a spread), never a discount.

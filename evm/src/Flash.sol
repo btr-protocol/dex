@@ -33,7 +33,7 @@ contract Flash is IFlash, ReentrancyGuardTransient {
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, token);
         uint16 flags = IPool(pool).getRiskFlags(token);
         if ((flags & C.FLASH_ENABLED_BIT) == 0) revert Err.FeatureDisabled(Err.Resource.FLASH);
-        if ((flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
+        if ((flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
         if (amount == 0) revert Err.ZeroValue();
         if (asset.reserves < amount || asset.reserves - amount < asset.minLiquidity) {
             revert Err.InsufficientAmount(asset.reserves, amount);
@@ -73,7 +73,7 @@ contract Flash is IFlash, ReentrancyGuardTransient {
         IPool.Asset memory asset = IPool(pool).getAsset(token);
         uint16 flags = IPool(pool).getRiskFlags(token);
         if ((flags & C.FLASH_ENABLED_BIT) == 0) return 0;
-        if ((flags & C.FROZEN_BIT) != 0) return 0;
+        if ((flags & C.HALT_MASK) != 0) return 0;
         if (asset.reserves <= asset.minLiquidity) return 0;
         return uint256(asset.reserves - asset.minLiquidity);
     }

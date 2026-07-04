@@ -141,6 +141,18 @@ contract PoolFlashTest is Test {
         assertEq(fee, (uint256(1_000e18) * uint256(FLASH_FEE_BPS)) / 1_000_000, "flashFee linear");
     }
 
+    /// @notice PROTOCOL_PAUSE must halt flash loans exactly like FREEZE (both in C.HALT_MASK). A pause
+    ///         that stopped swaps but left the asset flash-loanable would leave the canonical attack
+    ///         primitive open during the very incident the guardian paused for.
+    function test_pause_blocks_flash() public {
+        vm.prank(OWNER);
+        admin.pauseAsset(address(pool), address(base));
+        assertEq(flashSingleton.maxFlashLoan(address(pool), address(base)), 0, "paused: maxFlashLoan must be 0");
+        MockBorrower b = new MockBorrower();
+        vm.expectRevert(); // Err.FeatureDisabled(ASSET)
+        flashSingleton.flashLoan(address(pool), b, address(base), 1_000e18, abi.encode(address(pool)));
+    }
+
     /// @notice R13: protoShare > 100 must revert at Pool.adminSetFeeParams (admin-gated path).
     function test_R13_protoShare_capped_adminSetFeeParams() public {
         uint8[29] memory pad;

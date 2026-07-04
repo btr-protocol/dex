@@ -54,7 +54,7 @@ library PoolLiquidity {
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tkn);
 
         PoolDecay.applyDecay($, tkn, asset);
-        if (($.riskConfigs[tkn].flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
+        if (($.riskConfigs[tkn].flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
 
         uint256 amt = PoolIO.pull($, token, amount);
         if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
