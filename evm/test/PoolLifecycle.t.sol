@@ -159,6 +159,33 @@ contract PoolLifecycleTest is Test {
         assertEq(pool.getRiskFlags(address(base)) & C.FROZEN_BIT, 0, "unfrozen");
     }
 
+    function test_admin_pause_unpause() public {
+        vm.prank(OWNER);
+        admin.pauseAsset(address(pool), address(base));
+        assertTrue((pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT) != 0, "paused");
+
+        vm.prank(OWNER);
+        admin.unpauseAsset(address(pool), address(base));
+        assertEq(pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT, 0, "unpaused");
+    }
+
+    /// PROTOCOL_PAUSED_BIT (bit6) is SEPARATE from FROZEN_BIT (bit0): an emergency pause + an
+    /// independent per-asset risk freeze coexist, and clearing one must NOT clear the other.
+    function test_pause_and_freeze_are_independent() public {
+        vm.startPrank(OWNER);
+        admin.pauseAsset(address(pool), address(base));
+        admin.freezeAsset(address(pool), address(base));
+        uint16 f = pool.getRiskFlags(address(base));
+        assertTrue((f & C.PROTOCOL_PAUSED_BIT) != 0 && (f & C.FROZEN_BIT) != 0, "both set");
+
+        admin.unpauseAsset(address(pool), address(base)); // clears ONLY bit6
+        f = pool.getRiskFlags(address(base));
+        assertEq(f & C.PROTOCOL_PAUSED_BIT, 0, "pause cleared");
+        assertTrue((f & C.FROZEN_BIT) != 0, "freeze must survive unpause");
+        admin.unfreezeAsset(address(pool), address(base));
+        vm.stopPrank();
+    }
+
     function test_admin_only_via_singleton() public {
         vm.prank(USER);
         vm.expectRevert(Err.NotOwner.selector);

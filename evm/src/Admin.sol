@@ -89,6 +89,21 @@ contract Admin is IAdmin {
         emit EmergencyUnfreeze(pool, token);
     }
 
+    /// @notice Guardian emergency halt for one asset on one pool (bit6, separate from FROZEN so
+    ///         unpausing never clobbers an independent risk freeze). Protocol-wide = loop these over
+    ///         PoolFactory.getPoolsForToken / getPoolTokens off-chain via Safe MultiSend (Multicall3
+    ///         fails onlyAdmin — msg.sender must be the AC owner). // ponytail: onlyAdmin today; a
+    ///         dedicated fast onlyPauser guardian (never the keeper key) is the next-layer upgrade.
+    function pauseAsset(address pool, address token) external onlyAdmin {
+        IPool(pool).adminPauseAsset(token);
+        emit ProtocolPause(pool, token);
+    }
+
+    function unpauseAsset(address pool, address token) external onlyAdmin {
+        IPool(pool).adminUnpauseAsset(token);
+        emit ProtocolUnpause(pool, token);
+    }
+
     function addAsset(
         address pool,
         address token,

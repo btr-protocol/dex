@@ -72,7 +72,9 @@ library PoolIO {
 
     function checkRisk(IPool.PoolStorage storage $, address token, uint16 requiredFlag) internal view {
         IPool.RiskConfig storage risk = $.riskConfigs[token];
-        if ((risk.flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
+        // FROZEN (per-asset risk) OR PROTOCOL_PAUSED (guardian emergency halt) both block the asset.
+        // Compile-time const mask ⇒ same single AND+ISZERO as before ⇒ +0 runtime gas, no new SLOAD.
+        if ((risk.flags & (C.FROZEN_BIT | C.PROTOCOL_PAUSED_BIT)) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
         if (requiredFlag != 0 && (risk.flags & requiredFlag) == 0) {
             if (requiredFlag == C.SWAP_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.SWAP);
             if (requiredFlag == C.LIABILITY_SWAP_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.LIABILITY_SWAP);

@@ -30,6 +30,18 @@ library PoolAdminWrite {
         $.riskConfigs[t].flags &= ~C.FROZEN_BIT;
     }
 
+    function pauseAsset(IPool.PoolStorage storage $, address token) external {
+        address t = PoolIO.wrap($, token);
+        _requireAsset($, t);
+        $.riskConfigs[t].flags |= C.PROTOCOL_PAUSED_BIT;
+    }
+
+    function unpauseAsset(IPool.PoolStorage storage $, address token) external {
+        address t = PoolIO.wrap($, token);
+        _requireAsset($, t);
+        $.riskConfigs[t].flags &= ~C.PROTOCOL_PAUSED_BIT; // clears ONLY bit6 — an independent FROZEN survives
+    }
+
     function initAsset(
         IPool.PoolStorage storage $,
         address self,

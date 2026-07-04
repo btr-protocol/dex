@@ -63,6 +63,14 @@ contract PoolAux is ReentrancyGuardTransient {
         PoolAdminWrite.unfreezeAsset($, token);
     }
 
+    function adminPauseAsset(address token) external onlyAdmin {
+        PoolAdminWrite.pauseAsset($, token);
+    }
+
+    function adminUnpauseAsset(address token) external onlyAdmin {
+        PoolAdminWrite.unpauseAsset($, token);
+    }
+
     function adminInitAsset(
         address token,
         IPool.OracleConfig calldata oracleCfg,
