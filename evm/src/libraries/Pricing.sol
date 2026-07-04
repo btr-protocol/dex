@@ -347,21 +347,7 @@ library Pricing {
         PathAccumulator memory acc;
         acc.currentAmount = amountIn;
 
-        // Depth-1 star ⇒ every leg is an EDGE (full spline impact + reserve accounting). No interior
-        // mid-priced legs exist, so A→B has one price regardless of decomposition (no path-dependence).
-        for (uint256 i = 0; i < path.hops.length - 1; i++) {
-            (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minF, uint16 maxF, uint64 execPriceB64) =
-                _executeLeg($, path.hops[i], path.hops[i + 1], acc.currentAmount);
-
-            acc.currentAmount = amountOut;
-            quote.hopAmounts[i + 1] = amountOut;
-            quote.hopPrices[i] = execPriceB64;
-
-            if (sigma > acc.sigmaPair) acc.sigmaPair = sigma;
-            if (delta > acc.deltaPair) acc.deltaPair = delta;
-            if (minF > acc.minFeePath) acc.minFeePath = minF;
-            if (maxF > acc.maxFeePath) acc.maxFeePath = maxF;
-        }
+        _walkLegs($, path, acc, quote); // per-leg pricing + path accumulation (own frame, stack-safe)
 
         quote.amountIn = amountIn;
         quote.spreadBps = _pathSpread(acc, cacheIn, cacheOut);
@@ -472,6 +458,28 @@ library Pricing {
         if (devBps > uint256(C.BASE_DEPEG_HALT_BPS)) revert Err.BaseDepegged(basePrice, devBps);
     }
 
+    /// @dev Walk every path leg (all EDGES under the depth-1 star), accumulating amounts, hop prices,
+    ///      and the path σ/Δ/fee bounds into `acc`/`quote` (memory, by ref). Own frame keeps
+    ///      `getAnchorPathQuote` off the stack-too-deep edge (the 6-tuple leg result lives here).
+    function _walkLegs(
+        IPool.PoolStorage storage $,
+        IPool.RoutePath memory path,
+        PathAccumulator memory acc,
+        IPool.SwapQuote memory quote
+    ) private {
+        for (uint256 i = 0; i < path.hops.length - 1; i++) {
+            (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minF, uint16 maxF, uint64 execPriceB64) =
+                _executeLeg($, path.hops[i], path.hops[i + 1], acc.currentAmount);
+            acc.currentAmount = amountOut;
+            quote.hopAmounts[i + 1] = amountOut;
+            quote.hopPrices[i] = execPriceB64;
+            if (sigma > acc.sigmaPair) acc.sigmaPair = sigma;
+            if (delta > acc.deltaPair) acc.deltaPair = delta;
+            if (minF > acc.minFeePath) acc.minFeePath = minF;
+            if (maxF > acc.maxFeePath) acc.maxFeePath = maxF;
+        }
+    }
+
     /// @dev Execute one path leg → (out, σ, Δ, minFee, maxFee, execPriceB64).
     function _executeLeg(
         IPool.PoolStorage storage $,
@@ -491,10 +499,10 @@ library Pricing {
 
         IOracle.FeedData memory feed;
         uint256 twap;
+        // profileAsset is a spoke under the depth-1 star; the base branch is an unreachable safety
+        // fallback (kept: deleting it reshuffles the via_ir stack in getAnchorPathQuote).
         if (profileAsset == $.baseToken) {
             feed = Oracle.getBaseFeed();
-            // R44-2b: base-token edge-hop must honor depeg halt; cannot hardcode 1e18 when
-            //   a base oracle is pinned. Falls back to 1e18 when oracle unset (legacy stable-base).
             twap = _readBasePriceOrHalt($);
         } else {
             feed = _readOracle($, profileAsset);
@@ -645,36 +653,6 @@ library Pricing {
     function calculateCoverage(uint128 reserves, uint128 liabilities) internal pure returns (uint256) {
         if (liabilities == 0) return type(uint256).max;
         return (uint256(reserves) * SC.WAD) / uint256(liabilities);
-    }
-
-    /// @notice Net coverage impact (value-weighted, base). neg=improves, pos=worsens.
-    /// @dev Imbalance_j = price_j * |R_j - L_j|. impact = imbalance1 - imbalance0.
-    function netCoverageImpact(
-        uint128 reservesIn,
-        uint128 liabilitiesIn,
-        uint128 reservesOut,
-        uint128 liabilitiesOut,
-        uint256 amountIn,
-        uint256 amountOut,
-        uint256 priceIn,
-        uint256 priceOut,
-        uint16 feeBps
-    ) internal pure returns (int256) {
-        // A3-2 fix: config-sourced fee replaces hard-coded 0.1% heuristic.
-        // feeBps in PBPS (1e6 = 100%). Conservative upper-bound from path acc.maxFeePath.
-        uint256 totalOut = amountOut + (amountOut * uint256(feeBps)) / 1_000_000;
-        if (totalOut > reservesOut) return int256(SC.WAD);
-        if (amountIn > type(uint128).max || totalOut > type(uint128).max) return int256(SC.WAD);
-        uint128 newResIn = reservesIn + uint128(amountIn);
-        uint128 newResOut = reservesOut - uint128(totalOut);
-        // |R-L| ≡ |C-1|·L; portfolio imbalance = Σ(price·|gap|).
-        uint256 gapIn0 = reservesIn > liabilitiesIn ? reservesIn - liabilitiesIn : liabilitiesIn - reservesIn;
-        uint256 gapOut0 = reservesOut > liabilitiesOut ? reservesOut - liabilitiesOut : liabilitiesOut - reservesOut;
-        uint256 gapIn1 = newResIn > liabilitiesIn ? newResIn - liabilitiesIn : liabilitiesIn - newResIn;
-        uint256 gapOut1 = newResOut > liabilitiesOut ? newResOut - liabilitiesOut : liabilitiesOut - newResOut;
-        uint256 imb0 = (priceIn * gapIn0 + priceOut * gapOut0) / SC.WAD;
-        uint256 imb1 = (priceIn * gapIn1 + priceOut * gapOut1) / SC.WAD;
-        return int256(imb1) - int256(imb0);
     }
 
     /// @notice Effective pricing depth. D = R + k·(L-R)·progress^(1/(1+2k)) on (50%, 100%).
