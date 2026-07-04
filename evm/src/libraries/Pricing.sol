@@ -326,6 +326,15 @@ library Pricing {
         EndpointCache memory cacheIn = _cacheEndpoint($, tokenIn);
         EndpointCache memory cacheOut = _cacheEndpoint($, tokenOut);
 
+        // Freeze gates EVERY node on the route, not just the swap endpoints. PoolSwap checks the
+        // two endpoints; an interior anchor/hub the flow transits could otherwise be frozen yet
+        // still route value through it (the compromised-hub case a per-asset freeze must stop).
+        for (uint256 i = 1; i + 1 < path.hops.length; i++) {
+            if (($.riskConfigs[path.hops[i]].flags & C.FROZEN_BIT) != 0) {
+                revert Err.FeatureDisabled(Err.Resource.ASSET);
+            }
+        }
+
         PathAccumulator memory acc;
         acc.currentAmount = amountIn;
 

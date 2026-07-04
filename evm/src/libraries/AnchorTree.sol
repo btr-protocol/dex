@@ -6,8 +6,12 @@ import {Err} from "@btr-shared/Errors.sol";
 
 /// @title AnchorTree -anchor-based pricing tree (validation, routing).
 library AnchorTree {
-    uint8 public constant MAX_DEPTH = 4;        // root = 0
-    uint8 public constant MAX_PATH_LENGTH = 6;  // 2 * MAX_DEPTH
+    uint8 public constant MAX_DEPTH = 4;                 // root = 0
+    // True upper bound on the hops-node array: two depth-MAX_DEPTH leaves whose LCA is the
+    // root yield lcaIn(=MAX_DEPTH) + 1 + lcaOut(=MAX_DEPTH) = 2*MAX_DEPTH+1 nodes (= 2*MAX_DEPTH
+    // legs). Prior value (6) was BOTH wrong (2*MAX_DEPTH = 8, not 6) AND never enforced. Now
+    // enforced in findRoutingPath as defense-in-depth against a malformed tree.
+    uint8 public constant MAX_PATH_LENGTH = 2 * MAX_DEPTH + 1;  // 9 nodes / 8 legs
 
     /// @notice Validate anchor: no cycles, depth <= MAX_DEPTH.
     function validateAnchor(IPool.PoolStorage storage $, address asset, address anchor)
@@ -110,7 +114,9 @@ library AnchorTree {
         if (lcaIn == type(uint256).max || lcaOut == type(uint256).max) revert Err.InvalidState();
 
         // tokenIn → ... → LCA → ... → tokenOut
-        path.hops = new address[](lcaIn + 1 + lcaOut);
+        uint256 nodes = lcaIn + 1 + lcaOut;
+        if (nodes > MAX_PATH_LENGTH) revert Err.InvalidPath();  // defense-in-depth: enforce the real bound
+        path.hops = new address[](nodes);
         for (uint256 i = 0; i <= lcaIn; i++) path.hops[i] = pathIn[i];
         for (uint256 i = 1; i <= lcaOut; i++) path.hops[lcaIn + i] = pathOut[lcaOut - i];
     }
