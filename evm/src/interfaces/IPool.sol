@@ -149,6 +149,8 @@ interface IPool is IOracle {
     // ── Phase 42H.B.3a: restricted setters gated by `admin` singleton ──
     function adminFreezeAsset(address token) external;
     function adminUnfreezeAsset(address token) external;
+    function adminPauseAsset(address token) external;
+    function adminUnpauseAsset(address token) external;
     function adminInitAsset(
         address token,
         OracleConfig calldata oracleCfg,

@@ -13,8 +13,10 @@ library Constants {
     uint16 internal constant DECAY_ENABLED_BIT = 1 << 3;
     uint16 internal constant FLASH_ENABLED_BIT = 1 << 4;
     uint16 internal constant FEE_ON_TRANSFER_BIT = 1 << 5;
-    // bit 6: RESERVED -was STAKEABLE_BIT (removed; Staking moved to shared singleton, no
-    //                  longer a per-pool capability). Do not reuse without ABI/flag audit.
+    // bit 6 (was RESERVED, ex-STAKEABLE): PROTOCOL_PAUSED. A guardian-set emergency halt, kept SEPARATE
+    // from FROZEN_BIT so unpausing never clobbers an independent per-asset risk freeze. Read on the swap
+    // hot path via the same const mask in checkRisk (+0 runtime gas). ABI/flag-audit note: bit reclaimed.
+    uint16 internal constant PROTOCOL_PAUSED_BIT = 1 << 6;
     uint16 internal constant BRIDGEABLE_BIT = 1 << 7;
 
     // --- Oracle modes ---

@@ -90,6 +90,8 @@ interface IAdmin {
     event ProtocolFeesCollected(address indexed pool, address indexed token, address indexed recipient, uint256 amount);
     event EmergencyFreeze(address indexed pool, address indexed token);
     event EmergencyUnfreeze(address indexed pool, address indexed token);
+    event ProtocolPause(address indexed pool, address indexed token);
+    event ProtocolUnpause(address indexed pool, address indexed token);
     event FlowCooldownUpdated(address indexed pool, uint16 oldCooldown, uint16 newCooldown);
 
     event TimelockRequested(address indexed pool, bytes32 indexed id, uint8 opType, uint48 executableAt);
