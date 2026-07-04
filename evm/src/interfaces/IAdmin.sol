@@ -92,6 +92,14 @@ interface IAdmin {
     event EmergencyUnfreeze(address indexed pool, address indexed token);
     event ProtocolPause(address indexed pool, address indexed token);
     event ProtocolUnpause(address indexed pool, address indexed token);
+    /// @dev Batch op applied to one (pool,token) leg; `op` = IAdmin.BatchOp.
+    event BatchRiskOp(address indexed pool, address indexed token, uint8 op);
+    /// @dev A batch leg that reverted (uninit pool / unlisted asset) and was SKIPPED, not reverted —
+    ///      one bad leg must never brick an emergency sweep. Operator reconciles from these.
+    event BatchLegSkipped(address indexed pool, address indexed token);
+
+    /// @notice Risk-op selector for `Admin.batchRiskOp`.
+    enum BatchOp { Freeze, Unfreeze, Pause, Unpause }
     event FlowCooldownUpdated(address indexed pool, uint16 oldCooldown, uint16 newCooldown);
 
     event TimelockRequested(address indexed pool, bytes32 indexed id, uint8 opType, uint48 executableAt);

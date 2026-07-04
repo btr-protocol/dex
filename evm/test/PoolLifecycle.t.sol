@@ -9,6 +9,7 @@ import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
+import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {Err} from "@btr-shared/Errors.sol";
@@ -184,6 +185,35 @@ contract PoolLifecycleTest is Test {
         assertTrue((f & C.FROZEN_BIT) != 0, "freeze must survive unpause");
         admin.unfreezeAsset(address(pool), address(base));
         vm.stopPrank();
+    }
+
+    /// One owner tx pauses N (pool,token) pairs; a bad leg (unlisted asset) is SKIPPED, not reverted.
+    function test_batch_pause_skips_bad_leg() public {
+        address[] memory pools = new address[](2);
+        address[] memory tokens = new address[](2);
+        pools[0] = address(pool);
+        tokens[0] = address(base); // good leg
+        pools[1] = address(pool);
+        tokens[1] = address(0xDEAD); // bad leg (not a listed asset) → must be skipped, not revert
+
+        vm.prank(OWNER);
+        admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Pause);
+
+        assertTrue((pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT) != 0, "good leg paused");
+
+        // unpause the good leg via the batch path too
+        tokens[1] = address(base);
+        vm.prank(OWNER);
+        admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Unpause);
+        assertEq(pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT, 0, "unpaused via batch");
+    }
+
+    function test_batch_length_mismatch_reverts() public {
+        address[] memory pools = new address[](2);
+        address[] memory tokens = new address[](1);
+        vm.prank(OWNER);
+        vm.expectRevert(Err.InvalidInput.selector);
+        admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Pause);
     }
 
     function test_admin_only_via_singleton() public {
