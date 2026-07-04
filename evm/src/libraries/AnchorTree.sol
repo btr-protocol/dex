@@ -6,12 +6,26 @@ import {Err} from "@btr-shared/Errors.sol";
 
 /// @title AnchorTree -depth-1 star topology (validation, routing).
 /// @dev Every non-base asset anchors DIRECTLY to the base numeraire (a star, not a deep tree). This is
-///      how PoolAdmin seeds assets by construction, and it is now the ENFORCED ceiling: a cross-spoke
-///      swap is always spoke→base→spoke (2 EDGE legs), never an interior mid-priced leg. That removes
-///      the route path-dependence a deep tree admits (the same economic trade priced via different
-///      decompositions gave different amounts, and interior legs charged mid-only with no spline impact
-///      / no reserve move) — with depth 1 there ARE no interior legs, so every leg carries full impact
-///      and reserve accounting, and A→B has one price regardless of decomposition.
+///      how PoolAdmin seeds assets by construction, and it is the ENFORCED ceiling: a cross-spoke swap
+///      is always spoke→base→spoke (2 EDGE legs), never an interior mid-priced leg. Every leg carries
+///      full spline impact + reserve accounting, so A→B has one price regardless of decomposition (no
+///      route path-dependence — the deep-tree impl mid-priced interior legs, making the same trade cost
+///      differently per decomposition and admitting cycle-arb).
+///  @dev WHY flat is CORRECT here, not merely simpler (expert-panel verdict, 2026-07): a deep "relative
+///      spline" for a correlated cluster (cbBTC/WBTC/BTCB, the 6 stables) only pays off if the RELATIVE
+///      rate carries information. It does not: NX-Rates maps every BTC-wrapper to the SAME BTC-USDT mark
+///      (keepers/alm.toml), so cbBTC/WBTC ≡ 1.0 — and there is no on-chain rate to build a real one. A
+///      tight 1.0-centered spline would concentrate MAX capital exactly at the depeg failure price
+///      (bridge/custody solvency: BitGo/Coinbase/Binance) = short-vol on the one axis that matters. Flat
+///      instead prices EACH wrapper vs base on its own reserves, so per-spoke coverage-skew auto-widens
+///      on a depeg (a natural circuit-breaker), and the 2× base-leg width is a feature, not a cost.
+///  @dev ponytail ceiling — deep is DEFERRED behind a provenance gate, not built: a depth-2 anchor is
+///      admissible ONLY behind a native monotone protocol-owned on-chain rate for the interior edge
+///      (LST `stEthPerToken`, ERC4626 `convertToAssets`) — a yield-accrual leg where a relative spline
+///      genuinely wins and is not depeg-blind. The current book has ZERO such assets, so MAX_DEPTH stays
+///      1 (validateAnchor rejects deeper) and the interior-settle / LCA machinery is intentionally
+///      UNWRITTEN. The anchor-pointer model is already in storage, so enabling deep later = config + one
+///      rate() source + interior reserve-settle against a live test vector, NOT a re-architecture.
 library AnchorTree {
     uint8 public constant MAX_DEPTH = 1; // base = 0, every spoke = 1 (direct-to-base star)
 
