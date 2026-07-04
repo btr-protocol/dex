@@ -20,6 +20,11 @@ library Pricing {
 
     /// @dev Profile weights sum (200 = 100%, 1 unit = 0.5% depth).
     uint256 private constant WEIGHT_SUM = 200;
+    // Staleness-premium coefficient (×100) for the A-S σ√age keeper-lag defense in `_pathSpread`.
+    // Global (not per-asset) to avoid a RiskConfig storage change; the deviation-push policy
+    // (minFee ≈ 2·θ) is the primary defense, so this only bites on a missed keeper push.
+    uint256 private constant STALE_Z = 100; // = coefficient 1.0
+
     uint256 private constant MAX_IMPACT = 2 * SC.WAD;   // 200%
     uint256 private constant MIN_ADJ = SC.WAD / 1000;   // 0.1%
 
@@ -297,6 +302,7 @@ library Pricing {
         uint16 gamma;
         uint16 coverageMin;
         uint16 coverageMax;
+        uint32 age;       // seconds since this endpoint's mark was last pushed (block.timestamp − updatedAt)
         uint256 price;  // 1e18 format
     }
 
@@ -354,24 +360,7 @@ library Pricing {
         }
 
         quote.amountIn = amountIn;
-        {
-            // Path spread: S_vol = 100 + σ·vega/100; U = Δ·λ/100; clamp [minFee,maxFee].
-            // U (adverse-selection surcharge) keys on Δ (deltaPair = fastOffset−slowOffset EMA
-            // divergence = stale-mark / momentum toxicity) ONLY — NOT gated on coverage direction.
-            // Coverage drives the MID (computeInventorySkew) alone; double-gating U on coverage
-            // over-taxed the healthy cooperative-rebalancing arb and under-charged coverage-improving
-            // stale-mark pick-offs. U self-gates via Δ: ≈0 in calm (honest rebalancing is cheap), wide
-            // only in a dislocation. (netCoverageImpact retained as a primitive — the re-peg toll uses it.)
-            uint256 sVol = 100
-                + (uint256(acc.sigmaPair) * uint256(cacheIn.vega > cacheOut.vega ? cacheIn.vega : cacheOut.vega))
-                    / (100 * SC.BPS);
-            uint256 rawSpread = sVol
-                + (uint256(acc.deltaPair) * uint256(cacheIn.lambda > cacheOut.lambda ? cacheIn.lambda : cacheOut.lambda))
-                    / SC.BPS;
-            quote.spreadBps = rawSpread < uint256(acc.minFeePath)
-                ? acc.minFeePath
-                : (rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread));
-        }
+        quote.spreadBps = _pathSpread(acc, cacheIn, cacheOut);
 
         uint256 halfSpread = uint256(quote.spreadBps) / 2;
         uint256 feeIn = (amountIn * halfSpread) / 1_000_000;
@@ -382,6 +371,44 @@ library Pricing {
 
         quote.skewIn = computeInventorySkew(cacheIn.reserves, cacheIn.liabilities, cacheIn.coverageMin, cacheIn.coverageMax, cacheIn.gamma);
         quote.skewOut = computeInventorySkew(cacheOut.reserves, cacheOut.liabilities, cacheOut.coverageMin, cacheOut.coverageMax, cacheOut.gamma);
+    }
+
+    /// @dev Full path spread (PBPS, clamped): S_vol + U (Δ-surcharge) + U_stale, then clamp to the
+    ///      path fee bounds. Pulled out of `getAnchorPathQuote` to keep that function off the
+    ///      stack-too-deep edge (sVol/rawSpread live here, not in the hot frame).
+    ///      - S_vol = 100 + σ·vega/100 (symmetric vol band).
+    ///      - U = Δ·λ/BPS (adverse-selection surcharge, keys on Δ only — NOT coverage direction; coverage
+    ///        drives the MID via computeInventorySkew alone).
+    ///      - U_stale = STALE_Z·σ·√(age)/100 keyed on the stalest endpoint: defense-in-depth for keeper
+    ///        LAG so a late/censored keeper degrades gracefully (wider quote) rather than being picked
+    ///        off up to the hard TTL revert. ≈0 when fresh (age→0). With the deviation-triggered push
+    ///        policy (minFee ≈ 2·θ) this rarely engages — it only bites when the keeper misses its push.
+    function _pathSpread(PathAccumulator memory acc, EndpointCache memory cIn, EndpointCache memory cOut)
+        private pure returns (uint16)
+    {
+        uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(cIn.vega > cOut.vega ? cIn.vega : cOut.vega)) / (100 * SC.BPS);
+        uint256 rawSpread = sVol
+            + (uint256(acc.deltaPair) * uint256(cIn.lambda > cOut.lambda ? cIn.lambda : cOut.lambda)) / SC.BPS
+            + _staleTerm(cIn.age > cOut.age ? cIn.age : cOut.age, acc.sigmaPair);
+        return rawSpread < uint256(acc.minFeePath)
+            ? acc.minFeePath
+            : (rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread));
+    }
+
+    /// @dev Staleness term (PBPS) = STALE_Z·σ·√(age)/100. sqrt(0)=0 ⇒ 0 when fresh; own frame keeps
+    ///      `_pathSpread` off the stack-too-deep edge.
+    function _staleTerm(uint32 age, uint32 sigma) private pure returns (uint256) {
+        return (STALE_Z * uint256(sigma) * FixedPointMathLib.sqrt(age)) / 100;
+    }
+
+    /// @dev Read a token's oracle price AND its staleness age (seconds since push) in one call. Kept
+    ///      out of `_cacheEndpoint` so the FeedData memory struct does not live in that frame.
+    function _readOracleAge(IPool.PoolStorage storage $, address token)
+        private returns (uint256 price, uint32 age)
+    {
+        IOracle.FeedData memory feed = _readOracle($, token);
+        (price,) = Oracle.decodeB64s(feed);
+        age = block.timestamp >= feed.updatedAt ? uint32(block.timestamp - feed.updatedAt) : 0;
     }
 
     /// @dev Single SLOAD/oracle read per endpoint.
@@ -401,8 +428,9 @@ library Pricing {
             // R44-2 (T3-HIGH2): if a base-token oracle is pinned, read real base price + halt
             //   swaps on depeg. Otherwise fallback to 1e18 (legacy stable-base behavior).
             cache.price = _readBasePriceOrHalt($);
+            // base leg is the numeraire (price≡1 / its own depeg breaker) — no keeper-staleness pick-off.
         } else {
-            (cache.price,) = Oracle.decodeB64s(_readOracle($, token));
+            (cache.price, cache.age) = _readOracleAge($, token);
         }
     }
 

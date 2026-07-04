@@ -144,6 +144,17 @@ contract AimmInvariantsTest is Test {
         pool.getSwapQuote(address(tok), address(base), 1e18);
     }
 
+    /// Staleness PREMIUM (soft, pre-TTL): a mark aged under its ttl must quote a WIDER spread than a
+    /// fresh one — the A-S STALE_Z·σ·√age keeper-lag defense in Pricing._pathSpread. This is the
+    /// graceful-degradation step that sits BELOW the hard TTL revert (test_stale_feed_reverts): as the
+    /// keeper lags, the pool widens instead of being picked off, then halts only if it goes fully stale.
+    function test_staleness_widens_spread() public {
+        IPool.SwapQuote memory qFresh = pool.getSwapQuote(address(tok), address(base), 1e18);
+        vm.warp(block.timestamp + 1800); // age the tok mark 1800s (< 3600s ttl → no revert)
+        IPool.SwapQuote memory qStale = pool.getSwapQuote(address(tok), address(base), 1e18);
+        assertGt(qStale.spreadBps, qFresh.spreadBps, "staleness premium must widen the spread as the mark ages");
+    }
+
     /// Sanity: a base->tok buy should cost >= TWAP per tok (buyer pays a spread), never a discount.
     function test_buy_never_discount() public {
         uint256 amtIn = 3000e18; // spend 3000 base, expect ~<=1 tok
