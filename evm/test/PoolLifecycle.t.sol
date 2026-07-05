@@ -93,8 +93,8 @@ contract PoolLifecycleTest is Test {
         IPool.LiquidityProfile memory pf = _defaultProfile();
 
         vm.startPrank(OWNER);
-        admin.addAsset(poolAddr, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(poolAddr, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(poolAddr, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
+        admin.addAsset(poolAddr, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
         vm.stopPrank();
     }
 

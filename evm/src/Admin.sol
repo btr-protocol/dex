@@ -144,12 +144,11 @@ contract Admin is IAdmin {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external onlyAdmin {
         IPool(pool).adminInitAsset(
             token, oracleCfg, riskCfg, profile, minFeeBps, decimals,
-            minDispersion, maxDispersion, gamma, vega, lambda
+            minDispersion, maxDispersion, gamma, vega
         );
         emit AssetAdded(pool, token, decimals, 0);
     }
@@ -189,14 +188,13 @@ contract Admin is IAdmin {
         uint16 maxFeeBps,
         uint16 gamma,
         uint16 vega,
-        uint16 lambda,
         uint16 haircutSuppressor,
         uint64 reservationPrice,
         uint64 reservationPriceMax
     ) external onlyAdmin {
         IPool(pool).adminSetAssetParams(
             token, minLiquidity, minFeeBps, maxFeeBps,
-            gamma, vega, lambda, haircutSuppressor, reservationPrice, reservationPriceMax
+            gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax
         );
         emit AssetParamsUpdated(pool, token, minLiquidity, reservationPrice);
     }
@@ -214,8 +212,7 @@ contract Admin is IAdmin {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external onlyAdmin {
         bytes32 key = _keyToken(pool, OP_ADD_ASSET, token);
         ATL.AddAssetPayload memory p = ATL.AddAssetPayload({
@@ -228,8 +225,7 @@ contract Admin is IAdmin {
             minDispersion: minDispersion,
             maxDispersion: maxDispersion,
             gamma: gamma,
-            vega: vega,
-            lambda: lambda
+            vega: vega
         });
         _emitQueued(key, SC.LOW_TIMELOCK, ATL.encodeAddAsset(p), pool, uint8(IPool.OpType.ADD_ASSET));
     }

@@ -81,12 +81,11 @@ contract PoolAux is ReentrancyGuardTransient {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external onlyAdmin {
         PoolAdminWrite.initAsset(
             $, address(this), token, oracleCfg, riskCfg, profile,
-            minFeeBps, decimals, minDispersion, maxDispersion, gamma, vega, lambda
+            minFeeBps, decimals, minDispersion, maxDispersion, gamma, vega
         );
     }
 
@@ -111,12 +110,11 @@ contract PoolAux is ReentrancyGuardTransient {
         uint16 maxFeeBps,
         uint16 gamma,
         uint16 vega,
-        uint16 lambda,
         uint16 haircutSuppressor,
         uint64 reservationPrice,
         uint64 reservationPriceMax
     ) external onlyAdmin {
-        PoolAdminWrite.setAssetParams($, token, minLiquidity, minFeeBps, maxFeeBps, gamma, vega, lambda, haircutSuppressor, reservationPrice, reservationPriceMax);
+        PoolAdminWrite.setAssetParams($, token, minLiquidity, minFeeBps, maxFeeBps, gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax);
     }
 
     function adminSetRiskConfig(address token, IPool.RiskConfig calldata cfg) external onlyAdmin {

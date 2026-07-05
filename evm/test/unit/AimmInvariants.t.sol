@@ -87,8 +87,8 @@ contract AimmInvariantsTest is Test {
         IPool.LiquidityProfile memory pf = _profile();
 
         vm.startPrank(OWNER);
-        admin.addAsset(address(pool), address(base), _oracle(address(base)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(address(pool), address(tok),  _oracle(address(tok)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(address(pool), address(base), _oracle(address(base)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
+        admin.addAsset(address(pool), address(tok),  _oracle(address(tok)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
         vm.stopPrank();
 
         // Seed reserves: deep on both sides so swaps do not reserve-clamp.
@@ -168,7 +168,7 @@ contract AimmInvariantsTest is Test {
     function test_reservation_band_halts_out_of_band_swap() public {
         vm.prank(OWNER);
         // ...reservationPrice=0 (no floor), reservationPriceMax = half the mark → tok mark is above it.
-        admin.setAssetParams(address(pool), address(tok), 1000, 100, 10_000, 10_000, 10_000, 10_000, 10_000, 0, uint64(M.encodeB64(PX / 2, 18)));
+        admin.setAssetParams(address(pool), address(tok), 1000, 100, 10_000, 10_000, 10_000, 10_000, 0, uint64(M.encodeB64(PX / 2, 18)));
         base.mint(USER, 30_000e18);
         vm.startPrank(USER);
         base.approve(address(pool), type(uint256).max);

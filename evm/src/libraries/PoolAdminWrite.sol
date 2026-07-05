@@ -54,15 +54,14 @@ library PoolAdminWrite {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external {
         address t = PoolIO.wrap($, token);
         if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
 
         PoolAdmin.validateProfileMemory(profile);
         PoolAdmin.validateOracleConfig(oracleCfg, self);
-        PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
+        PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega);
         PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
     }
 
@@ -87,7 +86,6 @@ library PoolAdminWrite {
         uint16 maxFeeBps,
         uint16 gamma,
         uint16 vega,
-        uint16 lambda,
         uint16 haircutSuppressor,
         uint64 reservationPrice,
         uint64 reservationPriceMax
@@ -103,7 +101,6 @@ library PoolAdminWrite {
         asset.maxFeeBps = maxFeeBps;
         asset.gamma = gamma;
         asset.vega = vega;
-        asset.lambda = lambda;
         asset.haircutSuppressor = haircutSuppressor;
         asset.reservationPrice = reservationPrice;
         asset.reservationPriceMax = reservationPriceMax;

@@ -70,7 +70,7 @@ library Constants {
     uint16 internal constant BASE_DEPEG_HALT_BPS = 500;
 
     // --- Greek var legend (auditors) ---
-    // ψ inventorySkew [-100,+100] · π progress [0,1] · γ gamma BPS · ν vega BPS · λ lambda BPS
+    // ψ inventorySkew [-100,+100] · π progress [0,1] · γ gamma BPS · ν vega BPS
     // η haircutSuppressor BPS · σ volatility PBPS · Δ delta PBPS · κ dispersion PBPS
     // Coverage: c = (R*WAD)/L · Spread S = 100 + (σ*ν)/100 · ψ = sign*γ*π/100 · Fee φ = (x*S)/(2*PBPS)
 }
