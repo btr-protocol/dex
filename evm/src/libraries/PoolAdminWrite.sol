@@ -109,7 +109,12 @@ library PoolAdminWrite {
     function setRiskConfig(IPool.PoolStorage storage $, address token, IPool.RiskConfig calldata cfg) external {
         address t = PoolIO.wrap($, token);
         _requireAsset($, t);
+        // Halt bits survive config writes: a freeze/pause raised during the timelock window must not
+        // be cleared (nor sneaked in) by executing a queued RiskConfig — only the explicit
+        // unfreeze/unpause ops touch HALT_MASK.
+        uint16 halt = $.riskConfigs[t].flags & C.HALT_MASK;
         $.riskConfigs[t] = cfg;
+        $.riskConfigs[t].flags = (cfg.flags & ~C.HALT_MASK) | halt;
     }
 
     function setOracleConfig(IPool.PoolStorage storage $, address self, address token, IPool.OracleConfig calldata cfg) external {
