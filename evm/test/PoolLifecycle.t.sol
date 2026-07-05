@@ -262,6 +262,44 @@ contract PoolLifecycleTest is Test {
         ac.rotate(OWNER);
     }
 
+    /// batchSwap transits base on every spoke↔spoke route, but each leg prices base as an ENDPOINT,
+    /// so Pricing's interior-hub HALT_MASK gate never fires there. Regression: a frozen (or
+    /// protocol-paused) base must block spoke→spoke batches exactly like the single-swap path.
+    function test_batchSwap_frozen_base_blocks_spoke_to_spoke() public {
+        MockERC20 tok2 = new MockERC20("Tok2", "TK2", 18);
+        oracle.setMark(address(tok2), M.encodeB64(1e18, 18));
+        vm.prank(OWNER);
+        admin.addAsset(address(pool), address(tok2), _oracleCfg(address(tok2)), _defaultRisk(), _defaultProfile(), 1000, 18, 1000, 100000, 10000, 10000);
+
+        // Seed reserves on base + both spokes (input leg quote→base draws base transiently).
+        base.mint(address(this), 1_000e18);
+        quote.mint(address(this), 1_000e18);
+        tok2.mint(address(this), 1_000e18);
+        base.approve(address(pool), type(uint256).max);
+        quote.approve(address(pool), type(uint256).max);
+        tok2.approve(address(pool), type(uint256).max);
+        pool.deposit(address(base), 1_000e18);
+        pool.deposit(address(quote), 1_000e18);
+        pool.deposit(address(tok2), 1_000e18);
+
+        // inputs entry: [token:160][amtB64:64][pad:32]; outputs entry: [token:160][weightBps:16][pad:16][minB64:64]
+        bytes memory inputs = abi.encodePacked(bytes32((uint256(uint160(address(quote))) << 96) | (uint256(M.encodeB64(100e18, 18)) << 32)));
+        bytes memory outputs = abi.encodePacked(bytes32((uint256(uint160(address(tok2))) << 96) | (uint256(10_000) << 80) | uint256(M.encodeB64(1, 18))));
+
+        quote.mint(USER, 1_000e18);
+        vm.startPrank(USER);
+        quote.approve(address(pool), type(uint256).max);
+        uint256[] memory outs = pool.batchSwap(inputs, outputs, USER); // sanity: routes pre-freeze
+        assertGt(outs[0], 0, "spoke->spoke batch routes while base live");
+        vm.stopPrank();
+
+        vm.prank(OWNER);
+        admin.freezeAsset(address(pool), address(base));
+        vm.prank(USER);
+        vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
+        pool.batchSwap(inputs, outputs, USER);
+    }
+
     function test_swap_simple() public {
         uint256 amt = 1_000e18;
         base.mint(USER, amt);
