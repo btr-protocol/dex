@@ -47,7 +47,6 @@ contract AimmExtractionTest is Test {
     }
     function _oracle(address token) internal view returns (IPool.OracleConfig memory o) {
         o.primary = address(oracle); o.feedId = bytes32(uint256(uint160(token)));
-        o.modeFlags = C.MODE_USE_EXTERNAL; o.accDecimals = 18;
     }
     function _feedId(address token) internal pure returns (bytes32) { return bytes32(uint256(uint160(token))); }
 

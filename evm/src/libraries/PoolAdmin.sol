@@ -37,17 +37,12 @@ library PoolAdmin {
         }
     }
 
-    /// @notice Validate oracle config: primary set + reachable; secondary reachable if set.
+    /// @notice Validate oracle config: primary set + reachable.
     /// @dev `self` = the calling Pool address; allows internal-oracle wiring without try/catch.
     function validateOracleConfig(IPool.OracleConfig memory cfg, address self) internal view {
         if (cfg.primary == address(0)) revert Err.InvalidInput();
         if (cfg.primary != self) {
             try IOracle(cfg.primary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {} catch {
-                revert Err.InvalidInput();
-            }
-        }
-        if (cfg.secondary != address(0) && cfg.secondary != self) {
-            try IOracle(cfg.secondary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {} catch {
                 revert Err.InvalidInput();
             }
         }
