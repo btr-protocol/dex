@@ -13,7 +13,7 @@ import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {MockAC} from "./fixtures/BaseTestSetup.sol";
+import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 
 /// @title PoolLifecycleTest
 /// @notice Pool lifecycle sanity -Pool is standalone (no proxy, no modules, no ERC-7201).
@@ -24,6 +24,7 @@ contract PoolLifecycleTest is Test {
     Admin admin;
     Flash flashSingleton;
     MockAC ac;
+    MockOracle oracle;
 
     Pool pool;        // clone, cast as Pool
     MockERC20 base;
@@ -48,11 +49,10 @@ contract PoolLifecycleTest is Test {
         r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
 
-    function _oracleCfg() internal view returns (IPool.OracleConfig memory o) {
-        o.primary = address(pool);
-        o.secondary = address(0);
-        o.feedId = bytes32(0);
-        o.modeFlags = C.MODE_USE_INTERNAL;
+    function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
+        o.primary = address(oracle);
+        o.feedId = bytes32(uint256(uint160(token)));
+        o.modeFlags = C.MODE_USE_EXTERNAL;
         o.accDecimals = 18;
     }
 
@@ -88,14 +88,15 @@ contract PoolLifecycleTest is Test {
         address poolAddr = factory.createPool(address(base), toks, initdata);
         pool = Pool(payable(poolAddr));
 
-        IPool.OracleConfig memory oc = _oracleCfg();
+        oracle = new MockOracle();
+        oracle.setMark(address(base),  M.encodeB64(1e18, 18));
+        oracle.setMark(address(quote), M.encodeB64(1e18, 18));
         IPool.RiskConfig    memory rc = _defaultRisk();
         IPool.LiquidityProfile memory pf = _defaultProfile();
-        uint64 priceB64 = M.encodeB64(1e18, 18);
 
         vm.startPrank(OWNER);
-        admin.addAsset(poolAddr, address(base),  oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(poolAddr, address(quote), oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(poolAddr, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(poolAddr, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
         vm.stopPrank();
     }
 

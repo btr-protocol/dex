@@ -78,9 +78,6 @@ contract PoolAux is ReentrancyGuardTransient {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
@@ -89,8 +86,7 @@ contract PoolAux is ReentrancyGuardTransient {
     ) external onlyAdmin {
         PoolAdminWrite.initAsset(
             $, address(this), token, oracleCfg, riskCfg, profile,
-            minFeeBps, decimals, initialPrice, initialFastVolEMA, initialSlowVolEMA,
-            minDispersion, maxDispersion, gamma, vega, lambda
+            minFeeBps, decimals, minDispersion, maxDispersion, gamma, vega, lambda
         );
     }
 
@@ -160,28 +156,5 @@ contract PoolAux is ReentrancyGuardTransient {
 
     function flashAccount(address token, uint256 fee, uint256 protoFee) external onlyFlash {
         PoolEdge.flashAccount($, token, fee, protoFee);
-    }
-
-    // ── ORACLE edge ──
-
-    function updateFeed(
-        address token,
-        uint64 initialPrice,
-        uint8 accDecimals,
-        uint32 fastVolEMA,
-        uint32 slowVolEMA
-    ) external {
-        // Cohort-3 Finding 5 -dead `msg.sender == address(this)` branch removed
-        // (no internal self-caller exists). Owner-only.
-        if (msg.sender != _owner()) revert Err.NotOwner();
-        PoolEdge.updateFeed($, token, initialPrice, accDecimals, fastVolEMA, slowVolEMA);
-    }
-
-    /// @notice Permissionless. Callable by anyone to update oracle accumulators
-    ///         for `tk` and return the refreshed mid price. Keepers expected.
-    /// @dev    Cohort-3 Finding 4 -intentionally unauthenticated; per-block TWAP
-    ///         poisoning guard lives in PoolOracle.
-    function pokeMidPrice(address tk) external returns (uint256) {
-        return PoolEdge.pokeMidPrice($, address(this), tk);
     }
 }

@@ -12,7 +12,7 @@ import {IPool} from "../src/interfaces/IPool.sol";
 import {IERC3156FlashBorrower} from "../src/interfaces/external/IERC3156FlashBorrower.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
-import {MockAC} from "./fixtures/BaseTestSetup.sol";
+import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
 contract MockBorrower is IERC3156FlashBorrower {
@@ -35,6 +35,7 @@ contract PoolFlashTest is Test {
     Admin admin;
     Flash flashSingleton;
     MockAC ac;
+    MockOracle oracle;
     Pool pool;
     MockERC20 base;
     MockERC20 quote;
@@ -51,8 +52,8 @@ contract PoolFlashTest is Test {
         r.coverageMin = 5000; r.coverageMax = 20000; r.depthAmplifier = 10000;
         r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT | C.FLASH_ENABLED_BIT;
     }
-    function _oracleCfg() internal view returns (IPool.OracleConfig memory o) {
-        o.primary = address(pool); o.modeFlags = C.MODE_USE_INTERNAL; o.accDecimals = 18;
+    function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
+        o.primary = address(oracle); o.feedId = bytes32(uint256(uint160(token))); o.modeFlags = C.MODE_USE_EXTERNAL; o.accDecimals = 18;
     }
 
     function setUp() public {
@@ -74,13 +75,14 @@ contract PoolFlashTest is Test {
         address pa = factory.createPool(address(base), toks, initdata);
         pool = Pool(payable(pa));
 
-        IPool.OracleConfig memory oc = _oracleCfg();
+        oracle = new MockOracle();
+        oracle.setMark(address(base),  M.encodeB64(1e18, 18));
+        oracle.setMark(address(quote), M.encodeB64(1e18, 18));
         IPool.RiskConfig memory rc = _risk();
         IPool.LiquidityProfile memory pf = _profile();
-        uint64 px = M.encodeB64(1e18, 18);
         vm.startPrank(OWNER);
-        admin.addAsset(pa, address(base),  oc, rc, pf, 1000, 18, px, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(pa, address(quote), oc, rc, pf, 1000, 18, px, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(pa, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(pa, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
         vm.stopPrank();
 
         // Seed liquidity.

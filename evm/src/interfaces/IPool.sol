@@ -73,24 +73,6 @@ interface IPool is IOracle {
     struct DepositResult { uint256 lpAmount; uint256 actualDeposit; }
     struct WithdrawResult { uint256 amountOut; uint256 lpBurned; }
 
-    /// @dev accDecimals: 6=stables, 12=ETH-like, 18=BTC-like
-    struct FeedAccumulator {
-        uint64 priceAccB64;
-        uint64 fastSnapB64;
-        uint64 slowSnapB64;
-        uint32 fastSnapshotTime;
-        uint32 slowSnapshotTime;
-        uint64 lastPriceB64;
-        int32 fastOffset;
-        int32 slowOffset;
-        uint32 lastUpdate;
-        uint32 fastVolEMA;
-        uint32 slowVolEMA;
-        uint16 ttl;
-        uint8 accDecimals;
-        uint8 confidence;
-    }
-
     struct RoutePath { address[] hops; }
 
     enum OpType {
@@ -126,14 +108,9 @@ interface IPool is IOracle {
         mapping(address => uint256) protocolFees;
         IPool.FeeParams feeParams;
         uint16 flowCooldownSeconds;
-        // Oracle accumulators (was: OracleStorage @ ORACLE_STORAGE_LOC).
-        mapping(address token => FeedAccumulator) accumulators;
         // Flow-guard cooldown timestamps (was: FlowGuardStorage @ FLOW_GUARD_STORAGE_LOC).
         mapping(address user => mapping(address asset => uint32)) lastDepositTime;
         mapping(address user => mapping(address lpToken => uint32)) lastLPStakeTime;
-        // Phase 42J.4 (F4) -TWAP poisoning defense. One accumulator update per
-        // token per block; subsequent in-block pushes early-return as no-op.
-        mapping(address token => uint256 blockNum) lastUpdateBlock;
         // R44-2 (T3-HIGH2): base-token oracle for depeg detection. Optional; address(0) preserves
         //   pre-Pass-44A 1e18-hardcoded stable-base behavior (backwards-compat). When set, Pricing
         //   reads base price + reverts swaps if |1e18 - basePrice|/1e18 > BASE_DEPEG_HALT_BPS.
@@ -159,9 +136,6 @@ interface IPool is IOracle {
         LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
@@ -287,12 +261,6 @@ interface IPool is IOracle {
         external view returns (SwapQuote memory quote);
 
     function getProtocolFees(address token) external view returns (uint256);
-    /// @notice Pure view of last cached price (no oracle dispatch).
-    /// @param token Asset address.
-    /// @return Last cached mid price (1e18 base units).
-    function midPrice(address token) external view returns (uint256);
-    /// @notice Refresh-then-read; mutates accumulators (keeper-callable).
-    function pokeMidPrice(address token) external returns (uint256);
 
     // ─── Liquidity functions ─────────────────────────────────────────────────
     /// @notice Deposit `amount` of `token`, mint LP shares to caller.

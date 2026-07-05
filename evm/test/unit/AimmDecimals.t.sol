@@ -11,7 +11,7 @@ import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
-import {MockAC} from "../fixtures/BaseTestSetup.sol";
+import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @title AimmDecimals
 /// @notice Mixed-decimal pricing tests. base = 6-dec (USDC-like), tok = 18-dec (WETH-like) @ $3000.
@@ -19,6 +19,7 @@ import {MockAC} from "../fixtures/BaseTestSetup.sol";
 ///         underflows to 0 for realistic buy sizes → zero size-dependent slippage on the buy side.
 contract AimmDecimalsTest is Test {
     PoolFactory factory; Pool poolImpl; Admin admin; Flash flashSingleton; MockAC ac;
+    MockOracle oracle;
     Pool pool; MockERC20 base; MockERC20 tok;
     address constant OWNER = address(0xA11CE);
     uint256 constant PX = 3000e18;
@@ -32,9 +33,9 @@ contract AimmDecimalsTest is Test {
         r.decaySlope=0; r.depthAmplifier=10000;
         r.flags=C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
-    function _oracle() internal view returns (IPool.OracleConfig memory o) {
-        o.primary=address(pool); o.secondary=address(0); o.feedId=bytes32(0);
-        o.modeFlags=C.MODE_USE_INTERNAL; o.accDecimals=18;
+    function _oracle(address token) internal view returns (IPool.OracleConfig memory o) {
+        o.primary=address(oracle); o.feedId=bytes32(uint256(uint160(token)));
+        o.modeFlags=C.MODE_USE_EXTERNAL; o.accDecimals=18;
     }
 
     function setUp() public {
@@ -53,10 +54,13 @@ contract AimmDecimalsTest is Test {
         bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
         pool = Pool(payable(factory.createPool(address(base), toks, initdata)));
 
-        IPool.OracleConfig memory oc=_oracle(); IPool.RiskConfig memory rc=_risk(); IPool.LiquidityProfile memory pf=_profile();
+        oracle = new MockOracle();
+        oracle.setMark(address(base), M.encodeB64(1e18, 18));
+        oracle.setMark(address(tok),  M.encodeB64(PX, 18));
+        IPool.RiskConfig memory rc=_risk(); IPool.LiquidityProfile memory pf=_profile();
         vm.startPrank(OWNER);
-        admin.addAsset(address(pool), address(base), oc, rc, pf, 1000, 6,  M.encodeB64(1e18, 18), 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(address(pool), address(tok),  oc, rc, pf, 1000, 18, M.encodeB64(PX,  18), 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(address(pool), address(base), _oracle(address(base)), rc, pf, 1000, 6,  1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(address(pool), address(tok),  _oracle(address(tok)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
         vm.stopPrank();
 
         base.mint(address(this), 100_000_000e6);

@@ -259,6 +259,7 @@ library Pricing {
         uint16 coverageMin;
         uint16 coverageMax;
         uint32 staleExcess; // seconds the mark is stale BEYOND the keeper grace (age − ttl/2, else 0)
+        uint16 confidence;  // feed 1σ CI (bps); widens the spread (see _pathSpread confidence surcharge)
         uint256 price;  // 1e18 format
     }
 
@@ -317,20 +318,24 @@ library Pricing {
         quote.skewOut = computeInventorySkew(cacheOut.reserves, cacheOut.liabilities, cacheOut.coverageMin, cacheOut.coverageMax, cacheOut.gamma);
     }
 
-    /// @dev Full path spread (PBPS, clamped): S_vol + U_stale, then clamp to the path fee bounds.
-    ///      Pulled out of `getAnchorPathQuote` to keep that function off the stack-too-deep edge
+    /// @dev Full path spread (PBPS, clamped): S_vol + U_stale + U_conf, then clamp to the path fee
+    ///      bounds. Pulled out of `getAnchorPathQuote` to keep that function off the stack-too-deep edge
     ///      (sVol/rawSpread live here, not in the hot frame).
     ///      - S_vol = 100 + σ·vega/100 (symmetric vol band).
     ///      - U_stale = STALE_Z·σ·√(age)/100 keyed on the stalest endpoint: defense-in-depth for keeper
     ///        LAG so a late/censored keeper degrades gracefully (wider quote) rather than being picked
     ///        off up to the hard TTL revert. ≈0 when fresh (age→0). With the deviation-triggered push
     ///        policy (minFee ≈ 2·θ) this rarely engages — it only bites when the keeper misses its push.
+    ///      - U_conf = confidence·(PBPS/BPS): the feed's 1σ CI (bps) widens the quote so uncertain marks
+    ///        are priced defensively. A CI past MAX_CONFIDENCE_HALT_BPS already halted in `_readOracle`.
     function _pathSpread(PathAccumulator memory acc, EndpointCache memory cIn, EndpointCache memory cOut)
         private pure returns (uint16)
     {
         uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(cIn.vega > cOut.vega ? cIn.vega : cOut.vega)) / (100 * SC.BPS);
+        uint256 conf = uint256(cIn.confidence > cOut.confidence ? cIn.confidence : cOut.confidence);
         uint256 rawSpread = sVol
-            + _staleTerm(cIn.staleExcess > cOut.staleExcess ? cIn.staleExcess : cOut.staleExcess, acc.sigmaPair);
+            + _staleTerm(cIn.staleExcess > cOut.staleExcess ? cIn.staleExcess : cOut.staleExcess, acc.sigmaPair)
+            + conf * (SC.PBPS / SC.BPS); // bps → PBPS
         return rawSpread < uint256(acc.minFeePath)
             ? acc.minFeePath
             : (rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread));
@@ -356,10 +361,11 @@ library Pricing {
     ///      ttl/2 so a healthy keeper never triggers it. Kept out of `_cacheEndpoint` so the FeedData
     ///      memory struct does not live in that frame.
     function _readOracleAge(IPool.PoolStorage storage $, address token)
-        private returns (uint256 price, uint32 staleExcess)
+        private returns (uint256 price, uint32 staleExcess, uint16 confidence)
     {
         IOracle.FeedData memory feed = _readOracle($, token);
-        (price,) = Oracle.decodeB64s(feed);
+        price = Oracle.mark(feed); // quote off the fresh mark (lastPrice), not the reference EMA
+        confidence = feed.confidence;
         uint256 age = block.timestamp >= feed.updatedAt ? block.timestamp - feed.updatedAt : 0;
         uint256 grace = uint256(feed.ttl) / 2;
         staleExcess = age > grace ? uint32(age - grace) : 0;
@@ -383,7 +389,7 @@ library Pricing {
             cache.price = _readBasePriceOrHalt($);
             // base leg is the numeraire (price≡1 / its own depeg breaker) — no keeper-staleness pick-off.
         } else {
-            (cache.price, cache.staleExcess) = _readOracleAge($, token);
+            (cache.price, cache.staleExcess, cache.confidence) = _readOracleAge($, token);
         }
     }
 
@@ -401,7 +407,7 @@ library Pricing {
         // otherwise pass unchecked. Fail-closed on a stale feed, mirroring _readOracle's per-feed TTL.
         uint256 baseAge = block.timestamp >= feed.updatedAt ? block.timestamp - feed.updatedAt : type(uint32).max;
         if (baseAge > feed.ttl) revert Err.StaleData(baseAge > type(uint32).max ? type(uint32).max : uint32(baseAge), feed.ttl);
-        (basePrice,) = Oracle.decodeB64s(feed);
+        basePrice = Oracle.mark(feed);
         if (basePrice == 0) revert Err.BaseDepegged(0, type(uint256).max);
         uint256 deviation = basePrice > 1e18 ? basePrice - 1e18 : 1e18 - basePrice;
         uint256 devBps = (deviation * SC.BPS) / 1e18;
@@ -455,7 +461,7 @@ library Pricing {
             twap = _readBasePriceOrHalt($);
         } else {
             feed = _readOracle($, profileAsset);
-            (twap,) = Oracle.decodeB64s(feed);
+            twap = Oracle.mark(feed); // fresh mark = quote source (kills LVR); ema is reference-only
         }
         sigma = Oracle.getSigma(feed);
 
@@ -483,17 +489,14 @@ library Pricing {
         uint256 price18 = (amountOut * 1e18 * (10 ** uint256(18 - decimalsTo))) /
             (amountIn * (10 ** uint256(18 - decimalsFrom)));
         uint256 priceOut = price18 / (10 ** uint256(18 - decimalsTo));
-        // Phase 42D A4-2: revert on degenerate zero (was: silent clamp to 1, which poisoned oracle).
+        // Phase 42D A4-2: revert on degenerate zero (was: silent clamp to 1).
         if (priceOut == 0) revert Err.ZeroValue();
-        // R44-9 (Pass-44B): sentinel = 0 → skip oracle push for this hop.
-        // Reserve-clamped exec price reflects pool emptiness, not market — polluting TWAP via
-        // accumulator push enables an attacker to drain reserves and inject manipulated prices.
-        // `pushOracle` consumer treats 0 as "do not push".
-        // The accumulator's canonical convention is anchor-per-profileAsset (readers decode then
-        // invert on downward legs, see `_readOracle` callsite above). `price18` is `to`-per-`from`:
+        // `execPriceB64` is an INFORMATIONAL per-hop execution price reported in SwapQuote.hopPrices
+        // (no on-chain consumer — the mark is external now; this is for UIs/analytics). Sentinel 0 =
+        // reserve-clamped (reflects pool emptiness, not market). Reported canonical anchor-per-child so
+        // it's directly comparable to the feed. `price18` is `to`-per-`from`:
         //   upward (child→anchor): to=anchor ⇒ price18 already anchor-per-child (canonical).
-        //   downward (anchor→child): to=child ⇒ price18 is child-per-anchor ⇒ must invert,
-        //     else the pushed mark is the reciprocal (~1/P) and poisons every reader.
+        //   downward (anchor→child): to=child ⇒ price18 is child-per-anchor ⇒ invert to anchor-per-child.
         if (clamped) {
             execPriceB64 = uint64(0);
         } else if (isUpward) {
@@ -545,7 +548,10 @@ library Pricing {
         }
     }
 
-    /// @dev Read oracle w/ transient cache. Supports internal (storage) + external (IOracle).
+    /// @dev Read the token's external feed w/ transient cache. Primary is ALWAYS an external IOracle
+    ///      (internal-TWAP discovery removed). Fail-closed on two axes: (1) STALE — revert if the mark
+    ///      is older than its per-feed `ttl` (a dead/censored keeper must halt, not be picked off);
+    ///      (2) UNCERTAIN — revert if the feed's 1σ CI exceeds MAX_CONFIDENCE_HALT_BPS. Halting > bleeding.
     function _readOracle(IPool.PoolStorage storage $, address token)
         private returns (IOracle.FeedData memory data)
     {
@@ -554,36 +560,15 @@ library Pricing {
         if (found) return data;
         IPool.OracleConfig memory cfg = $.oracleConfigs[token];
         if (cfg.primary == address(0)) revert Err.NotConfigured(Err.Resource.ORACLE, token);
-        // primary == address(this) → internal storage; else external IOracle.
-        data = cfg.primary == address(this)
-            ? _readInternalOracle($, token)
-            : IOracle(cfg.primary).getFeed(cfg.feedId);
-        // External-oracle safety: the swap hot-path previously consumed the feed with NO freshness
-        // gate — a dead/censored keeper (external) or an un-poked accumulator (internal) froze the
-        // mark, re-creating the unbounded pick-off external feeds exist to kill. Fail-closed: revert
-        // on a feed older than its per-feed `ttl` (short for followed flagships, long for price-leader
-        // internal feeds). Matches PoolOracle.readOracle + _readBasePriceOrHalt; halting > bleeding.
+        data = IOracle(cfg.primary).getFeed(cfg.feedId);
         uint256 age = block.timestamp >= data.updatedAt ? block.timestamp - data.updatedAt : type(uint32).max;
         if (age > data.ttl) {
             revert Err.StaleData(age > type(uint32).max ? type(uint32).max : uint32(age), data.ttl);
         }
+        if (data.confidence > C.MAX_CONFIDENCE_HALT_BPS) {
+            revert Err.ThresholdViolation(data.confidence, C.MAX_CONFIDENCE_HALT_BPS);
+        }
         TCache.cacheOracleFeed(token, data);
-    }
-
-    /// @dev Read from internal oracle storage (when cfg.primary == address(this)).
-    function _readInternalOracle(IPool.PoolStorage storage $, address token) private view returns (IOracle.FeedData memory data) {
-        IPool.FeedAccumulator storage acc = $.accumulators[token];
-        if (acc.lastUpdate == 0) revert Err.NotConfigured(Err.Resource.ORACLE, token);
-        data = IOracle.FeedData({
-            lastPriceB64: acc.lastPriceB64,
-            fastOffset: acc.fastOffset,
-            slowOffset: acc.slowOffset,
-            fastVolEMA: acc.fastVolEMA,
-            slowVolEMA: acc.slowVolEMA,
-            updatedAt: acc.lastUpdate,
-            ttl: acc.ttl,
-            confidence: acc.confidence
-        });
     }
 
     /// @notice Split totalFee → (proto, lp). protoShare ∈ [0,100].

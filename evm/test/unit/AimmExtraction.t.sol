@@ -11,7 +11,7 @@ import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
-import {MockAC} from "../fixtures/BaseTestSetup.sol";
+import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @title AimmExtraction
 /// @notice High-volatility extraction tests for the AIMM pricer. At high dispersion the spline
@@ -24,6 +24,7 @@ contract AimmExtractionTest is Test {
     Admin admin;
     Flash flashSingleton;
     MockAC ac;
+    MockOracle oracle;
 
     Pool pool;
     MockERC20 base;  // numeraire, 18d
@@ -44,10 +45,11 @@ contract AimmExtractionTest is Test {
         r.decaySlope = 0; r.depthAmplifier = 10000;
         r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
-    function _oracle() internal view returns (IPool.OracleConfig memory o) {
-        o.primary = address(pool); o.secondary = address(0); o.feedId = bytes32(0);
-        o.modeFlags = C.MODE_USE_INTERNAL; o.accDecimals = 18;
+    function _oracle(address token) internal view returns (IPool.OracleConfig memory o) {
+        o.primary = address(oracle); o.feedId = bytes32(uint256(uint160(token)));
+        o.modeFlags = C.MODE_USE_EXTERNAL; o.accDecimals = 18;
     }
+    function _feedId(address token) internal pure returns (bytes32) { return bytes32(uint256(uint160(token))); }
 
     function setUp() public {
         ac = new MockAC(OWNER);
@@ -65,12 +67,15 @@ contract AimmExtractionTest is Test {
         bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
         pool = Pool(payable(factory.createPool(address(base), toks, initdata)));
 
-        IPool.OracleConfig memory oc = _oracle();
+        oracle = new MockOracle();
+        // HIGH σ on both feeds drives dispersion to its max (was the internal vol-EMA seed).
+        oracle.setFeed(_feedId(address(base)), M.encodeB64(1e18, 18), HI_VOL, 0, type(uint16).max);
+        oracle.setFeed(_feedId(address(tok)),  M.encodeB64(PX, 18),   HI_VOL, 0, type(uint16).max);
         IPool.RiskConfig memory rc = _risk();
         IPool.LiquidityProfile memory pf = _profile();
         vm.startPrank(OWNER);
-        admin.addAsset(address(pool), address(base), oc, rc, pf, 1000, 18, M.encodeB64(1e18, 18), HI_VOL, HI_VOL, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(address(pool), address(tok),  oc, rc, pf, 1000, 18, M.encodeB64(PX, 18),  HI_VOL, HI_VOL, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(address(pool), address(base), _oracle(address(base)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(address(pool), address(tok),  _oracle(address(tok)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
         vm.stopPrank();
 
         base.mint(address(this), 100_000_000e18);

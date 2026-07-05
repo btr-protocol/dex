@@ -36,26 +36,24 @@ library TransientCache {
         return (true, data);
     }
 
-    // Layout: lastPrice(64)|fastOff(32)|slowOff(32)|fastVol(32)|slowVol(32)|updAt(32)|ttl(16)|conf(16)
+    // Layout: lastPrice(64)|emaPrice(64)|sigma(32)|updatedAt(32)|ttl(16)|confidence(16)|tau(32)
     function _packFeedData(IOracle.FeedData memory d) private pure returns (uint256 packed) {
         packed |= uint256(d.lastPriceB64) << 192;
-        packed |= uint256(uint32(d.fastOffset)) << 160;
-        packed |= uint256(uint32(d.slowOffset)) << 128;
-        packed |= uint256(d.fastVolEMA) << 96;
-        packed |= uint256(d.slowVolEMA) << 64;
-        packed |= uint256(d.updatedAt) << 32;
-        packed |= uint256(d.ttl) << 16;
-        packed |= uint256(d.confidence);
+        packed |= uint256(d.emaPriceB64) << 128;
+        packed |= uint256(d.sigma) << 96;
+        packed |= uint256(d.updatedAt) << 64;
+        packed |= uint256(d.ttl) << 48;
+        packed |= uint256(d.confidence) << 32;
+        packed |= uint256(d.tau);
     }
 
     function _unpackFeedData(uint256 packed) private pure returns (IOracle.FeedData memory d) {
+        d.tau = uint32(packed & 0xFFFFFFFF); packed >>= 32;
         d.confidence = uint16(packed & 0xFFFF); packed >>= 16;
         d.ttl = uint16(packed & 0xFFFF); packed >>= 16;
         d.updatedAt = uint32(packed & 0xFFFFFFFF); packed >>= 32;
-        d.slowVolEMA = uint32(packed & 0xFFFFFFFF); packed >>= 32;
-        d.fastVolEMA = uint32(packed & 0xFFFFFFFF); packed >>= 32;
-        d.slowOffset = int32(uint32(packed & 0xFFFFFFFF)); packed >>= 32;
-        d.fastOffset = int32(uint32(packed & 0xFFFFFFFF)); packed >>= 32;
+        d.sigma = uint32(packed & 0xFFFFFFFF); packed >>= 32;
+        d.emaPriceB64 = uint64(packed & 0xFFFFFFFFFFFFFFFF); packed >>= 64;
         d.lastPriceB64 = uint64(packed & 0xFFFFFFFFFFFFFFFF);
     }
 }

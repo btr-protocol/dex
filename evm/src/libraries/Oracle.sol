@@ -5,58 +5,65 @@ import {IOracle} from "../interfaces/IOracle.sol";
 import {Maths as M} from "./Maths.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @title Oracle -pure oracle math (decode/encode offsets, σ, Δ).
-/// @dev Caching @ LibTransientCache; no external calls here.
+/// @title Oracle -pure feed math (mark decode, σ, on-chain EMA recurrence).
+/// @dev No external calls, no storage. Feed = external keeper mark + on-chain rate-clamped EMA.
 library Oracle {
-    /// @notice Offset precision (0.00001%/unit, 10x finer than PBPS). int32 stored ⇒ ±21,474% range.
-    uint256 public constant ORACLE_PBPS = 10_000_000;
-
-    /// @dev ema = price * (1 + offset/ORACLE_PBPS), clamps to 1 wei on extreme negative.
-    function _applyOffset(uint256 price1e18, int32 offset) private pure returns (uint256 ema1e18) {
-        if (offset == 0) return price1e18;
-        int256 multiplier = int256(ORACLE_PBPS) + int256(offset);
-        if (multiplier <= 0) return 1;
-        // Phase 42D R3-A4-1: fullMulDiv hardens vs theoretical b64-extreme overflow.
-        return FixedPointMathLib.fullMulDiv(price1e18, uint256(multiplier), ORACLE_PBPS);
+    /// @notice Quote source: the fresh keeper mark in 1e18. Quoting off this (not the EMA) kills LVR.
+    function mark(IOracle.FeedData memory feed) internal pure returns (uint256) {
+        return M.b64To1e18(feed.lastPriceB64);
     }
 
-    /// @notice Decode feed → (priceFast, priceSlow) in 1e18.
-    function decodeB64s(IOracle.FeedData memory feed)
-        internal pure returns (uint256 priceFast, uint256 priceSlow)
-    {
-        uint256 cur = M.b64To1e18(feed.lastPriceB64);
-        priceFast = _applyOffset(cur, feed.fastOffset);
-        priceSlow = _applyOffset(cur, feed.slowOffset);
-    }
-
-    /// @notice Encode offset from 1e18 prices.
-    function encodeOffset1e18(uint256 currentPrice, uint256 emaPrice) internal pure returns (int32) {
-        if (currentPrice == 0) return 0;
-        uint256 ratio = (emaPrice * ORACLE_PBPS) / currentPrice;
-        int256 off = int256(ratio) - int256(ORACLE_PBPS);
-        if (off > int256(int32(type(int32).max))) return type(int32).max;
-        if (off < int256(int32(type(int32).min))) return type(int32).min;
-        return int32(off);
-    }
-
-    /// @notice σ = mean(σ_fast, σ_slow) in 1e6 units.
+    /// @notice Realized vol σ (1e6 base). Single (dual fast/slow average deleted).
     function getSigma(IOracle.FeedData memory feed) internal pure returns (uint32) {
-        return (feed.fastVolEMA + feed.slowVolEMA) / 2;
+        return feed.sigma;
     }
 
-    /// @notice Synthetic feed for base token (price 1.0, never expires).
+    /// @notice One-step on-chain EMA update: single time-decayed (α), RATE-clamped toward the mark.
+    /// @dev band = min(ema·K_BAND·confidence/BPS, ema·MAX_BAND_BPS/BPS). The clamp is on the RATE of
+    ///      change (a band around the CURRENT ema), NOT an absolute min/max — so the ema faithfully
+    ///      tracks a real crash over successive pushes yet can never brick like a LUNA/Venus minAnswer
+    ///      floor. α = min(Δt/τ, 1): Δt==0 (same block) ⇒ α=0 (frozen); τ==0 ⇒ α=1 (jump to clamped
+    ///      mark). Guarantee: a single push (even a manipulated one) displaces the ema by ≤ α·band.
+    ///      TRUST SPLIT: this guarantees only faithful clamp+decay; mark honesty = oracle-key gov +
+    ///      off-chain monitor + revokeOracle. The clamp bounds a compromised key's per-push damage.
+    function updateEma(uint64 emaB64, uint64 markB64, uint256 dt, uint32 tau, uint16 confidence)
+        internal pure returns (uint64)
+    {
+        uint256 ema = M.b64To1e18(emaB64);
+        uint256 p = M.b64To1e18(markB64);
+
+        uint256 bandCap = (ema * C.MAX_BAND_BPS) / SC.BPS;
+        uint256 band = (ema * C.K_BAND * uint256(confidence)) / SC.BPS;
+        if (band > bandCap) band = bandCap;
+        if (p > ema + band) p = ema + band;
+        else if (p + band < ema) p = ema - band;
+
+        uint256 alpha;
+        if (tau == 0) {
+            alpha = SC.WAD;
+        } else {
+            alpha = (dt * SC.WAD) / uint256(tau);
+            if (alpha > SC.WAD) alpha = SC.WAD;
+        }
+
+        uint256 newEma = p >= ema
+            ? ema + (alpha * (p - ema)) / SC.WAD
+            : ema - (alpha * (ema - p)) / SC.WAD;
+        return M.encodeB64(newEma, 18);
+    }
+
+    /// @notice Synthetic feed for the base token (numeraire): price ≡ ema ≡ 1.0, never expires.
     function getBaseFeed() internal view returns (IOracle.FeedData memory feed) {
+        uint64 unit = M.encodeB64(SC.WAD, 18);
         feed = IOracle.FeedData({
-            lastPriceB64: M.encodeB64(SC.WAD, 18),
-            fastOffset: 0,
-            slowOffset: 0,
-            fastVolEMA: uint32(SC.ONE_PCT_PBPS),
-            slowVolEMA: uint32(SC.ONE_PCT_PBPS),
+            lastPriceB64: unit,
+            emaPriceB64: unit,
+            sigma: uint32(SC.ONE_PCT_PBPS),
             updatedAt: uint32(block.timestamp),
             ttl: type(uint16).max,
-            confidence: 100
+            confidence: 0,
+            tau: 0
         });
     }
 }

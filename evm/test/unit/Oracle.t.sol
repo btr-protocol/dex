@@ -4,237 +4,88 @@ pragma solidity =0.8.35;
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {Oracle} from "../../src/libraries/Oracle.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
+import {Constants as C} from "../../src/libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
-import {Err} from "@btr-shared/Errors.sol";
 
 /// @title LibOracleTest
-/// @notice Comprehensive unit tests for LibOracle offset encoding/decoding and risk signals
+/// @notice Unit tests for the external-mark oracle lib: mark decode, single σ, on-chain EMA
+///         recurrence (rate clamp + time decay), and the synthetic base feed.
 contract LibOracleTest is BaseTestSetup {
+    // ─── mark / getSigma ───
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // EMA DECODING TESTS (Updated to use decodeB64s returning 1e18)
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    function test_decodeB64s_zero_offset() public view {
-        uint64 current = M.encodeB64(100e18, 18);
-        IOracle.FeedData memory feed = makeFeedData(
-            current,
-            0,  // zero fast offset
-            0,  // zero slow offset
-            VOL_1_PCT,
-            VOL_1_PCT
-        );
-
-        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
-
-        // With zero offset, should equal current price
-        assertEq(priceFast, 100e18);
-        assertEq(priceSlow, 100e18);
+    function test_mark_returns_lastPrice_1e18() public view {
+        IOracle.FeedData memory f = makeFeedData(M.encodeB64(3000e18, 18), VOL_1_PCT, 5);
+        assertApproxEqRel(Oracle.mark(f), 3000e18, 0.0001e18, "mark = b64To1e18(lastPrice)");
     }
 
-    function test_decodeB64s_positive_offset() public view {
-        uint64 current = M.encodeB64(100e18, 18);
-        IOracle.FeedData memory feed = makeFeedData(
-            current,
-            OFFSET_100_BPS,  // +1% fast offset
-            OFFSET_500_BPS,  // +5% slow offset
-            VOL_1_PCT,
-            VOL_1_PCT
-        );
-
-        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
-
-        // Prices should be higher than current (100e18)
-        assertGt(priceFast, 100e18);
-        assertGt(priceSlow, 100e18);
-
-        // Fast should be ~101e18, slow should be ~105e18
-        assertApproxEqRel(priceFast, 101e18, 0.01e18);
-        assertApproxEqRel(priceSlow, 105e18, 0.01e18);
+    function test_getSigma_passthrough() public view {
+        IOracle.FeedData memory f = makeFeedData(M.encodeB64(1e18, 18), 300_000, 0);
+        assertEq(Oracle.getSigma(f), 300_000, "sigma is a single passthrough field");
     }
 
-    function test_decodeB64s_negative_offset() public view {
-        uint64 current = M.encodeB64(100e18, 18);
-        IOracle.FeedData memory feed = makeFeedData(
-            current,
-            -OFFSET_100_BPS,  // -1% fast offset
-            -OFFSET_500_BPS,  // -5% slow offset
-            VOL_1_PCT,
-            VOL_1_PCT
-        );
+    // ─── getBaseFeed ───
 
-        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
-
-        // Prices should be lower than current
-        assertLt(priceFast, 100e18);
-        assertLt(priceSlow, 100e18);
-
-        // Fast should be ~99e18, slow should be ~95e18
-        assertApproxEqRel(priceFast, 99e18, 0.01e18);
-        assertApproxEqRel(priceSlow, 95e18, 0.01e18);
+    function test_getBaseFeed_isUnitAndNeverExpires() public view {
+        IOracle.FeedData memory f = Oracle.getBaseFeed();
+        assertApproxEqRel(Oracle.mark(f), SC.WAD, 0.0001e18, "base mark = 1.0");
+        assertEq(f.lastPriceB64, f.emaPriceB64, "base ema == mark");
+        assertEq(uint256(f.sigma), SC.ONE_PCT_PBPS, "base sigma = 1%");
+        assertEq(f.ttl, type(uint16).max, "base never expires");
+        assertEq(f.confidence, 0, "base has no CI");
     }
 
-    function test_decodeB64s_extreme_negative_offset_clamps() public view {
-        uint64 current = M.encodeB64(100e18, 18);
-        IOracle.FeedData memory feed = makeFeedData(
-            current,
-            type(int32).min,  // Most negative offset for fast
-            -int32(uint32(Oracle.ORACLE_PBPS)),  // -100% for slow
-            VOL_1_PCT,
-            VOL_1_PCT
-        );
+    // ─── updateEma: freeze / jump / clamp / decay ───
 
-        (uint256 priceFast, uint256 priceSlow) = Oracle.decodeB64s(feed);
-
-        // Should clamp to minimum (1 wei in 1e18)
-        assertEq(priceFast, 1);
-        assertEq(priceSlow, 1);
+    /// Same block (Δt==0) ⇒ α=0 ⇒ the EMA is frozen regardless of the mark.
+    function test_updateEma_sameBlockFrozen() public pure {
+        uint64 ema = M.encodeB64(100e18, 18);
+        uint64 got = Oracle.updateEma(ema, M.encodeB64(200e18, 18), 0, 100, 500);
+        assertApproxEqRel(M.b64To1e18(got), 100e18, 0.0001e18, "dt=0 freezes the EMA");
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // OFFSET ENCODING TESTS
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    function test_encodeOffset1e18_direct() public pure {
-        uint256 current = 100e18;
-        uint256 ema = 110e18;  // 10% higher
-
-        int32 result = Oracle.encodeOffset1e18(current, ema);
-
-        // Should be +10% = 1,000,000 in offset units
-        assertEq(result, 1_000_000);
+    /// τ==0 ⇒ α=1 ⇒ the EMA jumps straight to the (clamped) mark.
+    function test_updateEma_tauZeroJumpsToClampedMark() public pure {
+        uint64 got = Oracle.updateEma(M.encodeB64(100e18, 18), M.encodeB64(101e18, 18), 10, 0, 500);
+        assertApproxEqRel(M.b64To1e18(got), 101e18, 0.001e18, "tau=0 tracks the mark within band");
     }
 
-    function test_encodeOffset1e18_negative() public pure {
-        uint256 current = 100e18;
-        uint256 ema = 90e18;  // 10% lower
-
-        int32 result = Oracle.encodeOffset1e18(current, ema);
-
-        // Should be -10% = -1,000,000 in offset units
-        assertEq(result, -1_000_000);
+    /// A single manipulated push (10x mark) displaces the EMA by AT MOST α·band. Here band = ema·K·CI:
+    /// 100·8·(100bps)/BPS = 8, α=1 ⇒ new EMA = 108, NOT 1000. This is the LVR/manipulation guard.
+    function test_updateEma_clampBoundsSinglePush() public pure {
+        uint256 conf = 100; // 1% CI
+        uint64 ema = M.encodeB64(100e18, 18);
+        uint64 got = Oracle.updateEma(ema, M.encodeB64(1000e18, 18), 100, 100, uint16(conf));
+        uint256 band = (100e18 * C.K_BAND * conf) / SC.BPS; // = 8e18
+        assertApproxEqRel(M.b64To1e18(got), 100e18 + band, 0.001e18, "displaced by exactly alpha*band");
+        assertLe(M.b64To1e18(got), 100e18 + band + 1e15, "never exceeds ema+band");
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // ROUNDTRIP ENCODING/DECODING TESTS
-    // ═══════════════════════════════════════════════════════════════════════════
+    /// A huge claimed confidence cannot widen the band past MAX_BAND_BPS (20%): displacement ≤ 20.
+    function test_updateEma_bandCappedByMaxBand() public pure {
+        uint64 got = Oracle.updateEma(M.encodeB64(100e18, 18), M.encodeB64(1000e18, 18), 100, 100, type(uint16).max);
+        uint256 cap = (100e18 * C.MAX_BAND_BPS) / SC.BPS; // = 20e18
+        assertApproxEqRel(M.b64To1e18(got), 100e18 + cap, 0.001e18, "band capped at MAX_BAND_BPS");
+    }
 
-    function test_roundtrip_offset_encoding() public view {
-        uint64 currentB64 = M.encodeB64(100e18, 18);
+    /// Partial time decay: dt/τ = 0.5, mark within band ⇒ EMA moves half-way toward the mark.
+    function test_updateEma_partialDecay() public pure {
+        uint64 got = Oracle.updateEma(M.encodeB64(100e18, 18), M.encodeB64(105e18, 18), 50, 100, 1000);
+        assertApproxEqRel(M.b64To1e18(got), 102.5e18, 0.002e18, "alpha=0.5 half-step to mark");
+    }
 
-        // Test various offsets
-        int32[5] memory offsets = [
-            int32(0),
-            OFFSET_100_BPS,      // +1%
-            -OFFSET_100_BPS,     // -1%
-            OFFSET_500_BPS,      // +5%
-            -OFFSET_500_BPS      // -5%
-        ];
-
-        for (uint i = 0; i < offsets.length; i++) {
-            IOracle.FeedData memory feed = makeFeedData(
-                currentB64,
-                offsets[i],
-                0,
-                VOL_1_PCT,
-                VOL_1_PCT
-            );
-
-            // Decode to get fast EMA via decodeB64s
-            (uint256 emaPrice,) = Oracle.decodeB64s(feed);
-
-            // Re-encode the offset using 1e18 values
-            int32 recoveredOffset = Oracle.encodeOffset1e18(100e18, emaPrice);
-
-            // Should approximately match (small precision loss acceptable)
-            assertApproxEqAbs(recoveredOffset, offsets[i], 100);
+    /// A real move converges over successive full-decay pushes (each clamped by the band), never bricking.
+    function test_updateEma_convergesOverPushes() public pure {
+        uint64 ema = M.encodeB64(100e18, 18);
+        uint64 target = M.encodeB64(150e18, 18);
+        uint256 prev = 100e18;
+        for (uint256 i; i < 12; ++i) {
+            ema = Oracle.updateEma(ema, target, 100, 100, 1000); // band = 80/step, α=1
+            uint256 cur = M.b64To1e18(ema);
+            assertGe(cur, prev, "monotone climb toward the real mark");
+            assertLe(cur, 150e18 + 1e15, "never overshoots the mark");
+            prev = cur;
         }
+        assertApproxEqRel(prev, 150e18, 0.001e18, "converges to the new level");
     }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // SIGMA (VOLATILITY) COMPUTATION TESTS
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    function test_getSigma_equal_vols() public view {
-        IOracle.FeedData memory feed = makeFeedData(
-            M.encodeB64(100e18, 18),
-            0,
-            0,
-            VOL_1_PCT,      // 1% fast
-            VOL_1_PCT       // 1% slow
-        );
-
-        uint32 sigma = Oracle.getSigma(feed);
-
-        // Sigma should be average of fast and slow
-        assertEq(sigma, VOL_1_PCT);
-    }
-
-    function test_getSigma_different_vols() public view {
-        IOracle.FeedData memory feed = makeFeedData(
-            M.encodeB64(100e18, 18),
-            0,
-            0,
-            VOL_50_PCT,     // 50% fast
-            VOL_10_PCT      // 10% slow
-        );
-
-        uint32 sigma = Oracle.getSigma(feed);
-
-        // Sigma = (50% + 10%) / 2 = 30%
-        assertEq(sigma, 300_000);
-    }
-
-    function test_getSigma_zero_volatility() public view {
-        IOracle.FeedData memory feed = makeFeedData(
-            M.encodeB64(100e18, 18),
-            0,
-            0,
-            0,
-            0
-        );
-
-        uint32 sigma = Oracle.getSigma(feed);
-
-        assertEq(sigma, 0);
-    }
-
-    function test_getSigma_max_volatility() public view {
-        IOracle.FeedData memory feed = makeFeedData(
-            M.encodeB64(100e18, 18),
-            0,
-            0,
-            VOL_MAX,
-            VOL_MAX
-        );
-
-        uint32 sigma = Oracle.getSigma(feed);
-
-        assertEq(sigma, VOL_MAX);
-    }
-
-    function test_getSigma_blends_timeframes() public view {
-        // Fast spike: 80%, Slow baseline: 20%
-        IOracle.FeedData memory feed = makeFeedData(
-            M.encodeB64(100e18, 18),
-            0,
-            0,
-            800_000,        // 80%
-            200_000         // 20%
-        );
-
-        uint32 sigma = Oracle.getSigma(feed);
-
-        // Blended = (80% + 20%) / 2 = 50%
-        assertEq(sigma, 500_000);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // DELTA (DEVIATION) COMPUTATION TESTS
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // BASE TOKEN FEED SYNTHESIS TEST
-    // ═══════════════════════════════════════════════════════════════════════════
-
 }

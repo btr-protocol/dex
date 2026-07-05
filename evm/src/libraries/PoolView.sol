@@ -2,7 +2,6 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
-import {IOracle} from "../interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolLiquidity} from "./PoolLiquidity.sol";
@@ -14,22 +13,6 @@ import {PoolIO} from "./PoolIO.sol";
 ///         extracted; one-liners stay inlined in Pool (trampoline ≥ inline body).
 library PoolView {
     uint256 internal constant INIT_LIQUIDITY_INDEX = 1e12;
-
-    function getFeed(IPool.PoolStorage storage $, address token) external view returns (IOracle.FeedData memory data) {
-        address t = PoolIO.wrap($, token);
-        IPool.FeedAccumulator storage acc = $.accumulators[t];
-        if (acc.lastUpdate == 0) revert Err.NotConfigured(Err.Resource.ORACLE, t);
-        data = IOracle.FeedData({
-            lastPriceB64: acc.lastPriceB64,
-            fastOffset: acc.fastOffset,
-            slowOffset: acc.slowOffset,
-            fastVolEMA: acc.fastVolEMA,
-            slowVolEMA: acc.slowVolEMA,
-            updatedAt: acc.lastUpdate,
-            ttl: acc.ttl,
-            confidence: acc.confidence
-        });
-    }
 
     function previewWithdraw(IPool.PoolStorage storage $, address tk, uint256 lp) external view returns (uint256 amountOut, uint256 haircut) {
         IPool.Asset storage a = $.assets[PoolIO.wrap($, tk)];
