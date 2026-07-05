@@ -11,6 +11,7 @@ import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @title AimmInvariants
@@ -174,6 +175,38 @@ contract AimmInvariantsTest is Test {
         base.approve(address(pool), type(uint256).max);
         vm.expectRevert(); // Err.PriceBelowReservation — tok mark (PX) > reservationPriceMax (PX/2)
         pool.swap(address(base), address(tok), 30_000e18, 0, USER);
+        vm.stopPrank();
+    }
+
+    /// Feed-relative depeg band must fail-closed on a STALE reference feed: the quoting path
+    /// freshness-gates only the asset's own feedId, so a dead refFeedId keeper would otherwise
+    /// anchor the band to a corpse price (pass/halt against dead data).
+    function test_refBand_stale_reference_feed_fails_closed() public {
+        bytes32 refId = bytes32(uint256(0xB7C));
+        oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 100); // short ttl → rots during timelock
+        IPool.OracleConfig memory oc;
+        oc.primary = address(oracle);
+        oc.feedId = _feedId(address(tok));
+        oc.refFeedId = refId;
+        oc.refBandBps = 500;
+        vm.startPrank(OWNER);
+        admin.requestOracleUpdate(address(pool), address(tok), oc);
+        vm.warp(block.timestamp + 2 days + 1); // BASE_TIMELOCK
+        admin.executeOracleUpdate(address(pool), address(tok));
+        vm.stopPrank();
+        // Refresh the main feed post-warp; the reference feed is left stale (age >> ttl).
+        oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), 10_000, 0, 3600);
+
+        base.mint(USER, 6_000e18);
+        vm.startPrank(USER);
+        base.approve(address(pool), type(uint256).max);
+        vm.expectPartialRevert(Err.StaleData.selector);
+        pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+
+        // Fresh reference at parity → band passes, swap resumes.
+        oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 3600);
+        uint256 out = pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+        assertGt(out, 0, "swap resumes once the reference feed is fresh");
         vm.stopPrank();
     }
 

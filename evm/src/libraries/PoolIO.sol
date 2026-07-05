@@ -127,7 +127,13 @@ library PoolIO {
         if (lo != 0 && p < M.b64To1e18(lo)) revert Err.PriceBelowReservation(price, lo);
         if (hi != 0 && p > M.b64To1e18(hi)) revert Err.PriceBelowReservation(price, hi);
         if (refBand) {
-            uint256 refP = Oracle.mark(IOracle(oc.primary).getFeed(oc.refFeedId));
+            IOracle.FeedData memory ref = IOracle(oc.primary).getFeed(oc.refFeedId);
+            // Fail-closed on a stale reference (same per-feed TTL convention as Pricing._readOracle):
+            // the quoting path freshness-gates only feedId — a dead refFeedId keeper would otherwise
+            // anchor the band to a corpse price and pass/halt against dead data.
+            uint256 refAge = block.timestamp >= ref.updatedAt ? block.timestamp - ref.updatedAt : type(uint32).max;
+            if (refAge > ref.ttl) revert Err.StaleData(refAge > type(uint32).max ? type(uint32).max : uint32(refAge), ref.ttl);
+            uint256 refP = Oracle.mark(ref);
             uint256 dev = p > refP ? p - refP : refP - p;
             if (dev * SC.BPS > refP * uint256(oc.refBandBps)) revert Err.PriceBelowReservation(price, uint64(refP));
         }
