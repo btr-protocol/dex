@@ -8,9 +8,9 @@
 > activity), and a MATURE DEX-only UI. End state: a shareable testnet demo to pitch VCs/LPs/traders.
 
 ## LOCKED DECISIONS (team lead calls — do not relitigate without new evidence)
-- **Feed rework = OPTION A (full migration).** External-keeper mark + on-chain EMA REPLACE internal-oracle
-  mode everywhere (midPrice→lastPriceB64, getFastTWAP→emaPriceB64, drop per-swap pushOracle write, migrate
-  harness). Rationale: external-keeper launch + ALM being phased out removes the main internal consumer.
+- **Feed rework = OPTION A (full migration).** External-keeper mark + on-chain EMA replace the
+  **write-on-swap TDWAP accumulator** (midPrice→lastPriceB64, getFastTWAP→emaPriceB64, drop per-swap
+  pushOracle write, migrate harness). Rationale: keeper-mark quoting kills LVR vs lagging internal discovery.
 - **FeedData = 7 fields, ONE slot (256b):** `{uint64 lastPriceB64; uint64 emaPriceB64; uint32 sigma;
   uint32 updatedAt; uint16 ttl; uint16 confidence; uint32 tau;}`. Quote off lastPrice (kills LVR); ema =
   on-chain manip-resistant reference (Pyth-parity, servable oracle); confidence = 1σ CI (bps) → surcharge
@@ -18,7 +18,8 @@
 - **On-chain EMA:** single, time-decayed (α=min(Δt/τ,1)), RATE-clamped (band=k·confidence, cap
   MAX_BAND_BPS=2000; rate-clamp NOT absolute → dodges LUNA/Venus minAnswer brick). k=8, τ default 1800s.
 - **Delete (no-deferred):** Δ/U momentum surcharge (directional=RW), fastOffset/slowOffset/slowVolEMA,
-  covPremiumBps + RiskConfig{kappaCovBps,premCapBps,covFlags}, internal-oracle mode (after migration).
+  covPremiumBps + RiskConfig{premCapBps,covFlags}, write-on-swap TDWAP accumulator machinery.
+  **Keep:** `ORACLE_MODE_INTERNAL` constant-peg (optional; not configured at stable-core launch).
 - **Keep:** flash-inflight pool-wide guard (safer than token-key; audit ruled optimization not fix);
   depeg price band (reservationPrice/Max + refFeedId/refBandBps); HALT_MASK pause; staleness premium;
   depth-1 star topology (validated — correlated clusters priced per-spoke, band halts depeg).
