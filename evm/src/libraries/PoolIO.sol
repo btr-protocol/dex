@@ -97,9 +97,10 @@ library PoolIO {
         uint256 minReq = q.amountOut + q.protoFee + aOut.minLiquidity;
         if (aOut.reserves < minReq) revert Err.InsufficientAmount(aOut.reserves, minReq);
 
-        uint256 inFee = (amtIn * q.spreadBps / 2) / 1_000_000;
-        aIn.reserves += uint128(amtIn - inFee);
-        $.protocolFees[tkIn] += inFee;
+        // The full amtIn is credited to reserves; the swap fee is charged ONCE on the output side
+        // (q.protoFee is the protocol's share of feeOut, q.lpFee stays in reserves). Skimming a
+        // separate input-side half-spread here double-counts the fee and drains LP into the treasury.
+        aIn.reserves += uint128(amtIn);
         aOut.reserves -= uint128(q.amountOut + q.protoFee);
         $.protocolFees[tkOut] += q.protoFee;
 

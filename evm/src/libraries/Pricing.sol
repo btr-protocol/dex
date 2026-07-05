@@ -307,11 +307,15 @@ library Pricing {
         quote.amountIn = amountIn;
         quote.spreadBps = _pathSpread(acc, cacheIn, cacheOut);
 
+        // The gross output (acc.currentAmount) is priced off the FULL amountIn (the spline applies
+        // price-impact only, no fee), so the pool nets exactly feeOut of value on the swap. That is the
+        // whole fee pot — split once between protocol and LP. (A separate input-side half-spread would
+        // be phantom revenue: the trader was already credited full amountIn in the gross output, so
+        // skimming the input side just drains LP reserves into the treasury.)
         uint256 halfSpread = uint256(quote.spreadBps) / 2;
-        uint256 feeIn = (amountIn * halfSpread) / 1_000_000;
         uint256 feeOut = (acc.currentAmount * halfSpread) / 1_000_000;
 
-        (quote.protoFee, quote.lpFee) = splitFee(feeOut + (feeIn * acc.currentAmount) / amountIn, $.feeParams.protoShare);
+        (quote.protoFee, quote.lpFee) = splitFee(feeOut, $.feeParams.protoShare);
         quote.amountOut = acc.currentAmount - feeOut;
 
         quote.skewIn = computeInventorySkew(cacheIn.reserves, cacheIn.liabilities, cacheIn.coverageMin, cacheIn.coverageMax, cacheIn.gamma);
