@@ -24,9 +24,6 @@ library Constants {
     // leaves flash loans / interior-hop routing open is exactly the bypass this prevents).
     uint16 internal constant HALT_MASK = FROZEN_BIT | PROTOCOL_PAUSED_BIT;
 
-    // --- Oracle mode (external-mark only; internal-TWAP discovery removed) ---
-    uint16 internal constant MODE_USE_EXTERNAL = 1 << 1;
-
     // --- On-chain EMA (ExternalOracle reference price) ---
     /// @notice Rate-clamp gain: a single push may move the EMA at most K_BAND·confidence (bps) toward
     ///         the mark. Trust the mark within k·(its 1σ CI); a manipulated push displaces ≤ α·band.

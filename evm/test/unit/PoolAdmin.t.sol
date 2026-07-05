@@ -149,16 +149,6 @@ contract PoolAdminTest is Test {
         h.callValidateOracleConfig(cfg, address(h));
     }
 
-    function test_validateOracle_secondaryReverts() public {
-        MockOracle bad = new MockOracle();
-        bad.setRevert(true);
-        IPool.OracleConfig memory cfg;
-        cfg.primary = address(mock);
-        cfg.secondary = address(bad);
-        vm.expectRevert(Err.InvalidInput.selector);
-        h.callValidateOracleConfig(cfg, address(h));
-    }
-
     // ─── initAsset ───
 
     function test_initAsset_baseTokenHasNoAnchor() public {

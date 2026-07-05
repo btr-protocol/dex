@@ -51,17 +51,14 @@ interface IPool is IOracle {
     }
 
     struct OracleConfig {
-        address primary;
-        address secondary;
-        bytes32 feedId;
+        bytes32 feedId; // mark feed id on `primary`
         // Depeg guard: halt swaps if this asset's mark leaves refBandBps of the REFERENCE feed's price
         // (e.g. WBTC vs the BTC feed, XAUT vs a gold feed). refFeedId is a MITCH ticker id (u64, matches
         // the NX-Rates side). 0 = disabled (use the absolute reservationPrice band instead).
         bytes32 refFeedId;
+        address primary; // external mark source; IOracle.getFeed(feedId) = fresh quote mark
         uint16 refBandBps; // symmetric tolerance in BPS (200 = ±2%); 0 = disabled
-        uint16 modeFlags;
-        uint8 accDecimals;
-        uint8[11] _pad;
+        uint8[10] _pad;
     }
 
     struct FeeParams {
