@@ -34,7 +34,10 @@ library Oracle {
         uint256 p = M.b64To1e18(markB64);
 
         uint256 bandCap = (ema * C.MAX_BAND_BPS) / SC.BPS;
-        uint256 band = (ema * C.K_BAND * uint256(confidence)) / SC.BPS;
+        // Confidence floor 1: conf==0 must NOT zero the band, or every mark clamps back to the
+        // current ema forever while isFeedFresh() stays true — a permanent servable-EMA freeze that
+        // violates the no-brick guarantee above. Floored, the ema still converges at K_BAND bps/push.
+        uint256 band = (ema * C.K_BAND * (confidence == 0 ? 1 : uint256(confidence))) / SC.BPS;
         if (band > bandCap) band = bandCap;
         if (p > ema + band) p = ema + band;
         else if (p + band < ema) p = ema - band;
