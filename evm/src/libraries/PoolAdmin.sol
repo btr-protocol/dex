@@ -57,8 +57,7 @@ library PoolAdmin {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) internal {
         IPool.Asset storage asset = $.assets[t];
         asset.decimals = decimals;
@@ -74,7 +73,6 @@ library PoolAdmin {
         asset.maxDispersion = mx;
         asset.gamma = gamma == 0 ? uint16(SC.BPS) : gamma;
         asset.vega = vega == 0 ? uint16(SC.BPS) : vega;
-        asset.lambda = lambda == 0 ? uint16(SC.BPS) : lambda;
         asset.haircutSuppressor = uint16(SC.BPS);
 
         if (t == $.baseToken) {

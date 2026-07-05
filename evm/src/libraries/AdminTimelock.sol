@@ -18,7 +18,6 @@ library AdminTimelock {
         uint32 maxDispersion;
         uint16 gamma;
         uint16 vega;
-        uint16 lambda;
     }
 
     function encodeAddAsset(AddAssetPayload memory p) internal pure returns (bytes memory) {
@@ -32,8 +31,7 @@ library AdminTimelock {
             p.minDispersion,
             p.maxDispersion,
             p.gamma,
-            p.vega,
-            p.lambda
+            p.vega
         );
     }
 
@@ -48,8 +46,7 @@ library AdminTimelock {
             p.minDispersion,
             p.maxDispersion,
             p.gamma,
-            p.vega,
-            p.lambda
+            p.vega
         ) = abi.decode(
             raw,
             (
@@ -61,7 +58,6 @@ library AdminTimelock {
                 uint8,
                 uint32,
                 uint32,
-                uint16,
                 uint16,
                 uint16
             )
@@ -82,8 +78,7 @@ library AdminTimelock {
             p.minDispersion,
             p.maxDispersion,
             p.gamma,
-            p.vega,
-            p.lambda
+            p.vega
         );
         return p.decimals;
     }

@@ -96,8 +96,8 @@ contract PoolBaseDepegTest is Test {
         IPool.RiskConfig memory rc = _risk();
         IPool.LiquidityProfile memory pf = _profile();
         vm.startPrank(OWNER);
-        admin.addAsset(pa, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(pa, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(pa, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
+        admin.addAsset(pa, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
         vm.stopPrank();
 
         // Seed both sides.
@@ -173,7 +173,7 @@ contract PoolBaseDepegTest is Test {
         IPool.RiskConfig memory rc = _risk();
         IPool.LiquidityProfile memory pf = _profile();
         vm.prank(OWNER);
-        admin.addAsset(address(pool), address(cTok), _oracleCfg(address(cTok)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(address(pool), address(cTok), _oracleCfg(address(cTok)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
         // Seed C.
         cTok.mint(address(this), 1_000_000e18);
         cTok.approve(address(pool), type(uint256).max);

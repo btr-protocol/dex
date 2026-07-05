@@ -23,8 +23,7 @@ interface IAdmin {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external;
     function collectProtocolFees(address pool, address token, address recipient) external;
     function setFlowCooldown(address pool, uint16 cooldownSeconds) external;
@@ -37,7 +36,6 @@ interface IAdmin {
         uint16 maxFeeBps,
         uint16 gamma,
         uint16 vega,
-        uint16 lambda,
         uint16 haircutSuppressor,
         uint64 reservationPrice,
         uint64 reservationPriceMax
@@ -55,8 +53,7 @@ interface IAdmin {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external;
     function executeAddAsset(address pool, address token) external;
 

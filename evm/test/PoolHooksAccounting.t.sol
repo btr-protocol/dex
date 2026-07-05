@@ -115,8 +115,8 @@ contract PoolHooksAccountingTest is Test {
         IPool.RiskConfig memory rc = _risk();
         IPool.LiquidityProfile memory pf = _profile();
         vm.startPrank(OWNER);
-        admin.addAsset(pa, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(pa, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(pa, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
+        admin.addAsset(pa, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
         vm.stopPrank();
 
         // Seed both sides w/ liquidity so swaps execute.

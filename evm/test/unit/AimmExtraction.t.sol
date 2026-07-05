@@ -73,8 +73,8 @@ contract AimmExtractionTest is Test {
         IPool.RiskConfig memory rc = _risk();
         IPool.LiquidityProfile memory pf = _profile();
         vm.startPrank(OWNER);
-        admin.addAsset(address(pool), address(base), _oracle(address(base)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(address(pool), address(tok),  _oracle(address(tok)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(address(pool), address(base), _oracle(address(base)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
+        admin.addAsset(address(pool), address(tok),  _oracle(address(tok)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
         vm.stopPrank();
 
         base.mint(address(this), 100_000_000e18);

@@ -28,11 +28,10 @@ interface IPool is IOracle {
         uint8[2] _pad1;
         uint16 gamma;
         uint16 vega;
-        uint16 lambda;
         uint16 haircutSuppressor;
         uint64 reservationPrice;    // absolute MIN swap price (base-per-asset, b64); 0 = no floor
         uint64 reservationPriceMax; // absolute MAX swap price (b64); 0 = no ceiling
-        uint8[8] _pad2;
+        uint8[10] _pad2;
     }
 
     struct RiskConfig {
@@ -136,8 +135,7 @@ interface IPool is IOracle {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external;
     function adminCollectProtocolFees(address token, address recipient) external returns (uint256);
     function adminSetFlowCooldown(uint16 cooldownSeconds) external;
@@ -149,7 +147,6 @@ interface IPool is IOracle {
         uint16 maxFeeBps,
         uint16 gamma,
         uint16 vega,
-        uint16 lambda,
         uint16 haircutSuppressor,
         uint64 reservationPrice,
         uint64 reservationPriceMax
