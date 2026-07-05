@@ -69,6 +69,19 @@ library Constants {
     ///         backwards-compat mode (no halt).
     uint16 internal constant BASE_DEPEG_HALT_BPS = 500;
 
+    // --- Internal-oracle stableswap mode ---
+    /// @notice OracleConfig.mode selector. EXTERNAL (default): quote off the keeper mark. INTERNAL:
+    ///         quote off a per-asset constant peg (pegB64); the external feed only GATES (depeg breaker).
+    uint8 internal constant ORACLE_MODE_EXTERNAL = 0;
+    uint8 internal constant ORACLE_MODE_INTERNAL = 1;
+    /// @notice Synthetic σ (PBPS, 1e6 base) for the internal constant-peg feed. Low but nonzero so the
+    ///         S_vol spread band stays alive (a peg is not zero-vol — it can jump-depeg).
+    uint32 internal constant STABLE_SIGMA = 1_000; // 0.1% (PBPS 1e6 base; = @btr-shared ONE_PCT_PBPS/10)
+    /// @notice Max external depeg-band width (bps) admissible for INTERNAL mode. Enforces the fixed-peg
+    ///         ELIGIBILITY rule on-chain: a loosely/variable-pegged unit (rebaser, FX/yield-bearing)
+    ///         cannot sit inside so tight a band, so it is rejected at config and must use EXTERNAL mode.
+    uint16 internal constant MAX_STABLE_DEPEG_BAND_BPS = 50;
+
     // --- Greek var legend (auditors) ---
     // ψ inventorySkew [-100,+100] · π progress [0,1] · γ gamma BPS · ν vega BPS
     // η haircutSuppressor BPS · σ volatility PBPS · Δ delta PBPS · κ dispersion PBPS

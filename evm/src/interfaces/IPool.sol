@@ -31,7 +31,9 @@ interface IPool is IOracle {
         uint16 haircutSuppressor;
         uint64 reservationPrice;    // absolute MIN swap price (base-per-asset, b64); 0 = no floor
         uint64 reservationPriceMax; // absolute MAX swap price (b64); 0 = no ceiling
-        uint8[10] _pad2;
+        // INTERNAL-mode quote peg (B64 base-per-asset); default WAD=1.0 at init. EXTERNAL mode ignores.
+        uint64 pegB64;
+        uint8[2] _pad2;
     }
 
     struct RiskConfig {
@@ -41,7 +43,10 @@ interface IPool is IOracle {
         uint32 decaySlope;
         uint16 depthAmplifier;
         uint16 flags;
-        uint8[16] _pad;
+        // κ (bps): convex coverage-wall strength (Pricing._covToll). 0 = off (volatiles, 0 gas). >0
+        // requires depthAmplifier==0 (the c<1 depth subsidy fights the wall) — enforced at config.
+        uint16 kappaCovBps;
+        uint8[14] _pad;
     }
 
     struct LiquidityProfile {
@@ -57,7 +62,12 @@ interface IPool is IOracle {
         bytes32 refFeedId;
         address primary; // external mark source; IOracle.getFeed(feedId) = fresh quote mark
         uint16 refBandBps; // symmetric tolerance in BPS (200 = ±2%); 0 = disabled
-        uint8[10] _pad;
+        // Internal-oracle stableswap mode. EXTERNAL (0, default): quote off the keeper mark. INTERNAL
+        // (1): quote off Asset.pegB64 (fixed peg; default WAD=1.0 at init). primary/feedId/refFeedId/
+        // refBandBps STAY populated — the external feed is the depeg breaker (gate), not the price
+        // source. Eligibility: fixed-peg assets ONLY (see setOracleConfig validation).
+        uint8 mode;
+        uint8[9] _pad;
     }
 
     struct FeeParams {

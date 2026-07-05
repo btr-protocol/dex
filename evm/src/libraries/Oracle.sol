@@ -56,17 +56,23 @@ library Oracle {
         return M.encodeB64(newEma, 18);
     }
 
-    /// @notice Synthetic feed for the base token (numeraire): price ≡ ema ≡ 1.0, never expires.
-    function getBaseFeed() internal view returns (IOracle.FeedData memory feed) {
-        uint64 unit = M.encodeB64(SC.WAD, 18);
+    /// @notice Synthetic never-stale peg feed: lastPrice ≡ ema ≡ `pegB64`, confidence 0, ttl max. Backs
+    ///         both the base numeraire (peg=1.0) and INTERNAL-mode stable assets (peg=pegB64 constant).
+    ///         A constant mark cannot be poisoned ⇒ the write-on-swap LVR leak is structurally void.
+    function getPegFeed(uint64 pegB64, uint32 sigma) internal view returns (IOracle.FeedData memory feed) {
         feed = IOracle.FeedData({
-            lastPriceB64: unit,
-            emaPriceB64: unit,
-            sigma: uint32(SC.ONE_PCT_PBPS),
+            lastPriceB64: pegB64,
+            emaPriceB64: pegB64,
+            sigma: sigma,
             updatedAt: uint32(block.timestamp),
             ttl: type(uint16).max,
             confidence: 0,
             tau: 0
         });
+    }
+
+    /// @notice Synthetic feed for the base token (numeraire): price ≡ ema ≡ 1.0, never expires.
+    function getBaseFeed() internal view returns (IOracle.FeedData memory feed) {
+        return getPegFeed(M.encodeB64(SC.WAD, 18), uint32(SC.ONE_PCT_PBPS));
     }
 }

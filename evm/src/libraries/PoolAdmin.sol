@@ -4,6 +4,8 @@ pragma solidity =0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
+import {Maths as M} from "./Maths.sol";
+import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title PoolAdmin -admin-side validation + initialization helpers for Pool.
@@ -35,6 +37,32 @@ library PoolAdmin {
         if (int16(profile.knots[knotCount - 1]) - int16(profile.knots[0]) != 100) {
             revert Err.InvalidInput();
         }
+    }
+
+    /// @notice Validate risk config: κ>0 (convex coverage wall) forbids depthAmplifier>0. The
+    ///         calculateDepth c<1 branch SUBSIDIZES a draining trade (extra virtual depth), which fights
+    ///         the wall it is meant to erect — mutually exclusive by construction, enforced here.
+    function validateRiskConfig(IPool.RiskConfig memory cfg) internal pure {
+        if (cfg.kappaCovBps > 0 && cfg.depthAmplifier > 0) revert Err.BadConfig();
+    }
+
+    /// @notice Validate oracle config: primary set + reachable, plus INTERNAL-mode gating.
+    /// @dev INTERNAL (constant-peg) mode requires: pegB64>0; a live gate feed (primary+feedId); a depeg
+    ///      breaker (absolute reservation band on the asset OR refFeedId+refBandBps); and — the on-chain
+    ///      ELIGIBILITY rule — any ref band be TIGHT (≤ MAX_STABLE_DEPEG_BAND_BPS), so a loosely/variable-
+    ///      pegged unit (which cannot hold so tight a band) is rejected and must use EXTERNAL mode.
+    function validateInternalMode(IPool.PoolStorage storage $, address token, IPool.OracleConfig memory cfg)
+        internal view
+    {
+        if (cfg.mode == C.ORACLE_MODE_EXTERNAL) return;
+        if (cfg.mode != C.ORACLE_MODE_INTERNAL) revert Err.BadConfig();
+        IPool.Asset storage a = $.assets[token];
+        if (a.pegB64 == 0) revert Err.BadConfig();
+        if (cfg.primary == address(0) || cfg.feedId == bytes32(0)) revert Err.NotConfigured(Err.Resource.ORACLE, token);
+        bool refBand = cfg.refFeedId != bytes32(0) && cfg.refBandBps != 0;
+        bool absBand = a.reservationPrice != 0 || a.reservationPriceMax != 0;
+        if (!refBand && !absBand) revert Err.NotConfigured(Err.Resource.ORACLE, token);
+        if (refBand && cfg.refBandBps > C.MAX_STABLE_DEPEG_BAND_BPS) revert Err.BadConfig();
     }
 
     /// @notice Validate oracle config: primary set + reachable.
@@ -74,6 +102,7 @@ library PoolAdmin {
         asset.gamma = gamma == 0 ? uint16(SC.BPS) : gamma;
         asset.vega = vega == 0 ? uint16(SC.BPS) : vega;
         asset.haircutSuppressor = uint16(SC.BPS);
+        asset.pegB64 = M.encodeB64(SC.WAD, 18); // INTERNAL-mode default peg (1.0 base-per-asset)
 
         if (t == $.baseToken) {
             asset.anchor = address(0);

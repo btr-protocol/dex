@@ -104,23 +104,31 @@ library PoolIO {
         aOut.reserves -= uint128(q.amountOut + q.protoFee);
         $.protocolFees[tkOut] += q.protoFee;
 
-        priceBandGuard($, tkOut, aOut);
+        _priceBandGuard($, tkOut, aOut);
     }
 
     /// @dev Depeg guard on the OUTPUT asset's fresh mark: an absolute floor/ceiling (reservationPrice /
     ///      reservationPriceMax) AND an optional feed-relative band (mark within refBandBps of a
     ///      reference feed — e.g. WBTC vs the BTC feed, XAUT vs a gold feed). 0 fields = disabled;
     ///      when none is set we skip the oracle read entirely (the swap-path freshness/confidence gate
-    ///      already ran during quoting via Pricing._readOracle). Shared by swap (`exec`) and cross-
-    ///      asset `withdrawTo` — both deliver output-token reserves to the user.
-    function priceBandGuard(IPool.PoolStorage storage $, address token, IPool.Asset storage a) internal view {
+    ///      already ran during quoting via Pricing._readOracle).
+    function _priceBandGuard(IPool.PoolStorage storage $, address token, IPool.Asset storage a) private view {
         uint64 lo = a.reservationPrice;
         uint64 hi = a.reservationPriceMax;
         IPool.OracleConfig storage oc = $.oracleConfigs[token];
         bool refBand = oc.refFeedId != 0 && oc.refBandBps != 0;
         if (lo == 0 && hi == 0 && !refBand) return;
 
-        uint64 price = IOracle(oc.primary).getFeed(oc.feedId).lastPriceB64;
+        IOracle.FeedData memory gf = IOracle(oc.primary).getFeed(oc.feedId);
+        // INTERNAL mode quotes off the constant peg and NEVER freshness-gates the external feed on the
+        // swap path (Pricing._readOracle returns a synthetic peg feed). Here that external feed is the
+        // depeg breaker, so a STALE gate must FAIL-CLOSED (revert) — not silently anchor the band to a
+        // corpse price. EXTERNAL mode already TTL-gated feedId while quoting, so this is internal-only.
+        if (oc.mode == C.ORACLE_MODE_INTERNAL) {
+            uint256 gAge = block.timestamp >= gf.updatedAt ? block.timestamp - gf.updatedAt : type(uint32).max;
+            if (gAge > gf.ttl) revert Err.StaleData(gAge > type(uint32).max ? type(uint32).max : uint32(gAge), gf.ttl);
+        }
+        uint64 price = gf.lastPriceB64;
         // Compare in numeric (1e18) space, NOT raw uint64: B64 packs mantissa in the high bits, so
         // raw </> orders by mantissa first and is non-monotonic across a decimal-decade boundary — a
         // catastrophic depeg into a different decade would silently bypass the floor/ceiling.
