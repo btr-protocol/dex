@@ -136,8 +136,9 @@ halt bits (d142d8c) · refFeed no-staleness-gate (3c551e1) · conf=0 EMA freeze 
 - Volatile feeds: ttl SHORT (120–300s) so staleness grace = ttl/2 ≈ 60–150s ≈ keeper heartbeat — closes the
   dead-keeper pick-off window (papers: minutes-scale lag destroys LP economics). Stables can keep longer ttl.
   Enforce ops rule ttl ≈ 2·heartbeat.
-- Volatile minFee: 2·(θ + z·σ√δ) not just 2·θ. ETH-class on 2s chain ≈ 19bp (z=3) to cover latency-drift
-  residual LVR (the 2θ knife-edge). Stables: 2·θ ≈ 2bp is exactly right. Per-asset minFee via setAssetParams.
+- Volatile minFee: 2.5 bp floor (250 PBPS) via setAssetParams; size to 2·(θ + z·σ√δ) for ETH-class
+  on fast chains (z=3) — may land ~19 bp at high σ. Stables: 0.02–0.10 bp (2–10 PBPS) per asset;
+  majors (USDC/USDT) at 0.02 bp. Canonical table: `dex/evm/deploy/chapel-asset-params.json`.
 
 **OWNER DESIGN DECISIONS (flagged, NOT auto-applied — need your call):**
 - D1 On-chain push deviation clamp: quotes read the RAW pushed mark; EMA clamp protects only the servable
