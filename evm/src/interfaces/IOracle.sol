@@ -4,7 +4,7 @@ pragma solidity =0.8.35;
 /// @title IOracle
 /// @notice Shared oracle interface. Quote source = lastPriceB64 (fresh keeper mark); emaPriceB64 is
 ///         an on-chain rate-clamped, time-decayed reference (Pyth/Chainlink-parity servable object).
-/// @dev Prices in B64 (56-bit mantissa, 8-bit signed exp). Volatility (sigma) 1e6 base (SC.PBPS).
+/// @dev Prices in B64 (52-bit mantissa, 5-bit decimals, 7-bit exp+bias). Volatility (sigma) 1e6 base (SC.PBPS).
 ///      confidence = 1σ CI in bps. One 256-bit storage slot per feed.
 interface IOracle {
     struct FeedData {
