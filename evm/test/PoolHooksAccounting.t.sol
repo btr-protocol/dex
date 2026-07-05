@@ -153,6 +153,30 @@ contract PoolHooksAccountingTest is Test {
         assertGt(feesOut, 0, "protoFee charged on tokenOut");
     }
 
+    /// @notice LP profitability: a swap must NEVER reduce total LP reserve value. base/quote both mark
+    ///         1:1, so aggregate LP value = reservesBase + reservesQuote. Pre-fix the input-side fee was
+    ///         skimmed 100% into protocolFees[tkIn] while the output was priced off the full input, so
+    ///         LP net was negative (-protoFee/swap) and treasury over-collected. Now the fee is charged
+    ///         once on the output; LP retains lpFee + price-impact and the treasury only takes protoFee.
+    function test_LP_reserve_value_never_decreases_on_swap() public {
+        uint256 amt = 10_000e18;
+        base.mint(USER, amt);
+        vm.prank(USER); base.approve(address(pool), type(uint256).max);
+
+        uint256 lpBefore = uint256(pool.getAsset(address(base)).reserves) + pool.getAsset(address(quote)).reserves;
+        uint256 protoQBefore = pool.getProtocolFees(address(quote));
+
+        vm.prank(USER);
+        pool.swap(address(base), address(quote), amt, 0, USER);
+
+        uint256 lpAfter = uint256(pool.getAsset(address(base)).reserves) + pool.getAsset(address(quote)).reserves;
+        assertGe(lpAfter, lpBefore, "LP total reserve value must not decrease on a swap");
+        // Fee is taken on the output side only; treasury still earns its protoFee share.
+        assertGt(pool.getProtocolFees(address(quote)) - protoQBefore, 0, "treasury earns protoFee on output");
+        // Input side must NOT be skimmed into the treasury (the drained-LP vector).
+        assertEq(pool.getProtocolFees(address(base)), 0, "no input-side protocol fee");
+    }
+
     /// @notice R8 fuzz: conservation holds across a range of input sizes.
     function test_R8_conservation_fuzz(uint96 amtFuzz) public {
         uint256 amt = bound(uint256(amtFuzz), 1e15, 100_000e18);
