@@ -181,6 +181,7 @@ library PoolLiquidity {
         IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
         IPool.Asset storage assetTo = $.assets[ctx.toTk];
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, ctx.fromTk, ctx.toTk, ctx.withdrawValue);
+        PoolIO.priceBandGuard($, ctx.toTk, assetTo);
         (ctx.amt, ctx.haircut) = applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
         if (assetTo.reserves < ctx.amt + q.protoFee) revert Err.InsufficientAmount(assetTo.reserves, ctx.amt + q.protoFee);
 
