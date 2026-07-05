@@ -104,15 +104,16 @@ library PoolIO {
         aOut.reserves -= uint128(q.amountOut + q.protoFee);
         $.protocolFees[tkOut] += q.protoFee;
 
-        _priceBandGuard($, tkOut, aOut);
+        priceBandGuard($, tkOut, aOut);
     }
 
     /// @dev Depeg guard on the OUTPUT asset's fresh mark: an absolute floor/ceiling (reservationPrice /
     ///      reservationPriceMax) AND an optional feed-relative band (mark within refBandBps of a
     ///      reference feed — e.g. WBTC vs the BTC feed, XAUT vs a gold feed). 0 fields = disabled;
     ///      when none is set we skip the oracle read entirely (the swap-path freshness/confidence gate
-    ///      already ran during quoting via Pricing._readOracle).
-    function _priceBandGuard(IPool.PoolStorage storage $, address token, IPool.Asset storage a) private view {
+    ///      already ran during quoting via Pricing._readOracle). Shared by swap (`exec`) and cross-
+    ///      asset `withdrawTo` — both deliver output-token reserves to the user.
+    function priceBandGuard(IPool.PoolStorage storage $, address token, IPool.Asset storage a) internal view {
         uint64 lo = a.reservationPrice;
         uint64 hi = a.reservationPriceMax;
         IPool.OracleConfig storage oc = $.oracleConfigs[token];
