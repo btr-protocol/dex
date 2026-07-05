@@ -262,6 +262,35 @@ contract PoolLifecycleTest is Test {
         ac.rotate(OWNER);
     }
 
+    /// Executing a queued RiskConfig update overwrites the whole flags word: a freeze/pause raised
+    /// DURING the timelock window must survive the execute (halt bits clear only via explicit
+    /// unfreeze/unpause), and a queued config must not sneak halt bits IN either.
+    function test_riskConfig_update_preserves_halt_bits() public {
+        IPool.RiskConfig memory cfg = _defaultRisk();
+        cfg.flags |= C.FROZEN_BIT; // attempt to sneak a halt bit IN via config — must be stripped
+        vm.startPrank(OWNER);
+        admin.requestUpdateRiskConfig(address(pool), address(quote), cfg);
+        // Emergency raised while the update sits in the timelock queue.
+        admin.freezeAsset(address(pool), address(quote));
+        admin.pauseAsset(address(pool), address(quote));
+        vm.warp(block.timestamp + 1 days + 1);
+        admin.executeUpdateRiskConfig(address(pool), address(quote));
+        vm.stopPrank();
+
+        uint16 f = pool.getRiskFlags(address(quote));
+        assertTrue((f & C.FROZEN_BIT) != 0, "freeze must survive config execute");
+        assertTrue((f & C.PROTOCOL_PAUSED_BIT) != 0, "pause must survive config execute");
+        assertTrue((f & C.SWAP_ENABLED_BIT) != 0, "non-halt config flags applied");
+
+        // Explicit ops remain the only way to clear halt bits.
+        vm.startPrank(OWNER);
+        admin.unfreezeAsset(address(pool), address(quote));
+        admin.unpauseAsset(address(pool), address(quote));
+        vm.stopPrank();
+        f = pool.getRiskFlags(address(quote));
+        assertEq(f & C.HALT_MASK, 0, "explicit unfreeze/unpause clears halt (sneaked bit stripped too)");
+    }
+
     /// batchSwap transits base on every spoke↔spoke route, but each leg prices base as an ENDPOINT,
     /// so Pricing's interior-hub HALT_MASK gate never fires there. Regression: a frozen (or
     /// protocol-paused) base must block spoke→spoke batches exactly like the single-swap path.
