@@ -8,8 +8,8 @@ import {Constants as C} from "./Constants.sol";
 /// @notice Phase 42H.D · Round 2 · G1 LOC reduction -extracted from `Pool.sol`
 ///         (was `_applyDecay` + `_calculateDecay`). Keeps Pool focused on user-flow
 ///         orchestration and isolates the time-decay rule for audit clarity.
-/// @dev    Same delegatecall-free model as `Pricing` / `PoolOracle`. Internal lib
-///         calls inline at the call-site → identical gas vs prior private helpers.
+/// @dev    Same delegatecall-free model as `Pricing`. Internal lib calls inline
+///         at the call-site → identical gas vs prior private helpers.
 library PoolDecay {
     /// @notice Apply liability decay to a single asset slot in-place.
     /// @dev    Reads `riskConfigs[token]` for slope/threshold, writes `asset.lastUpdate`

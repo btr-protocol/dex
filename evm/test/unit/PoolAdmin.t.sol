@@ -3,7 +3,6 @@ pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolAdmin} from "../../src/libraries/PoolAdmin.sol";
-import {PoolOracle} from "../../src/libraries/PoolOracle.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
@@ -28,7 +27,6 @@ contract PoolAdminHarness {
     function getOracleConfig(address t) external view returns (IPool.OracleConfig memory) { return $.oracleConfigs[t]; }
     function getRiskConfig(address t) external view returns (IPool.RiskConfig memory) { return $.riskConfigs[t]; }
     function getProfile(address t) external view returns (IPool.LiquidityProfile memory) { return $.profiles[t]; }
-    function getAccumulator(address t) external view returns (IPool.FeedAccumulator memory) { return $.accumulators[t]; }
 
     function callValidateProfileMemory(IPool.LiquidityProfile memory p) external pure {
         PoolAdmin.validateProfileMemory(p);
@@ -52,16 +50,12 @@ contract PoolAdminHarness {
     }
 
     function callSetupOracleAndConfig(
-        address self,
         address t,
         IPool.OracleConfig memory oracleCfg,
         IPool.RiskConfig memory riskCfg,
-        IPool.LiquidityProfile memory profile,
-        uint64 initialPrice,
-        uint32 fastVol,
-        uint32 slowVol
+        IPool.LiquidityProfile memory profile
     ) external {
-        PoolAdmin.setupOracleAndConfig($, self, t, oracleCfg, riskCfg, profile, initialPrice, fastVol, slowVol);
+        PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
     }
 }
 
@@ -208,38 +202,11 @@ contract PoolAdminTest is Test {
         rc.decayStartRatioBps = 5000;
         IPool.LiquidityProfile memory p = _validProfile();
 
-        h.callSetupOracleAndConfig(
-            address(h), TKA, oc, rc, p,
-            M.encodeB64(1e18, 6), uint32(100), uint32(50)
-        );
+        h.callSetupOracleAndConfig(TKA, oc, rc, p);
 
         assertEq(h.getOracleConfig(TKA).primary, address(mock));
         assertEq(h.getRiskConfig(TKA).decayStartRatioBps, 5000);
         assertEq(uint256(h.getProfile(TKA).weights[0]), 100);
-        // Non-self primary → no accumulator seeding.
-        assertEq(h.getAccumulator(TKA).lastUpdate, 0, "non-self oracle skips initFeed");
-    }
-
-    function test_setupOracleAndConfig_selfOracleSeedsAccumulator() public {
-        IPool.OracleConfig memory oc;
-        oc.primary = address(h); // self
-        oc.accDecimals = 0; // → defaults to 6
-        IPool.RiskConfig memory rc;
-        IPool.LiquidityProfile memory p = _validProfile();
-        uint64 px = M.encodeB64(1500e18, 6);
-
-        h.callSetupOracleAndConfig(
-            address(h), TKA, oc, rc, p, px, uint32(123), uint32(456)
-        );
-
-        IPool.FeedAccumulator memory acc = h.getAccumulator(TKA);
-        assertEq(acc.lastPriceB64, px);
-        assertEq(acc.accDecimals, 6, "default accDecimals=6");
-        assertEq(acc.fastVolEMA, 123);
-        assertEq(acc.slowVolEMA, 456);
-        assertEq(acc.lastUpdate, uint32(block.timestamp));
-        assertEq(acc.confidence, 100);
-        assertEq(acc.ttl, PoolOracle.DEFAULT_TTL);
     }
 
     // ─── R44-7 (Pass-44B): minDispersion ≤ maxDispersion ───

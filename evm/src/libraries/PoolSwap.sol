@@ -44,7 +44,6 @@ library PoolSwap {
             revert Err.ThresholdViolation(aOut.reserves, aOut.minLiquidity);
         }
 
-        PoolSwapQuote.pushOracle($, q);
         if (out < minAmountOut) revert Err.ThresholdViolation(out, minAmountOut);
 
         PoolIO.push($, tokenOut, recipient, out);

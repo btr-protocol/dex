@@ -11,7 +11,7 @@ import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
-import {MockAC} from "../fixtures/BaseTestSetup.sol";
+import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @title AimmInvariants
 /// @notice Reproduction + invariant tests for the AIMM pricer at NON-UNITY price.
@@ -26,6 +26,7 @@ contract AimmInvariantsTest is Test {
     Admin admin;
     Flash flashSingleton;
     MockAC ac;
+    MockOracle oracle;
 
     Pool pool;
     MockERC20 base;   // numeraire, 18d, price 1.0
@@ -52,13 +53,13 @@ contract AimmInvariantsTest is Test {
         r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
 
-    function _oracle() internal view returns (IPool.OracleConfig memory o) {
-        o.primary = address(pool);
-        o.secondary = address(0);
-        o.feedId = bytes32(0);
-        o.modeFlags = C.MODE_USE_INTERNAL;
+    function _oracle(address token) internal view returns (IPool.OracleConfig memory o) {
+        o.primary = address(oracle);
+        o.feedId = bytes32(uint256(uint160(token)));
+        o.modeFlags = C.MODE_USE_EXTERNAL;
         o.accDecimals = 18;
     }
+    function _feedId(address token) internal pure returns (bytes32) { return bytes32(uint256(uint160(token))); }
 
     function setUp() public {
         ac = new MockAC(OWNER);
@@ -80,15 +81,16 @@ contract AimmInvariantsTest is Test {
         bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
         pool = Pool(payable(factory.createPool(address(base), toks, initdata)));
 
-        IPool.OracleConfig memory oc = _oracle();
+        oracle = new MockOracle();
+        oracle.setMark(address(base), M.encodeB64(1e18, 18));
+        // tok: fresh mark 3000 (base per tok, NON-UNITY), σ=1%, CI=0, finite ttl for staleness tests.
+        oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), 10_000, 0, 3600);
         IPool.RiskConfig memory rc = _risk();
         IPool.LiquidityProfile memory pf = _profile();
 
         vm.startPrank(OWNER);
-        // base: price 1.0
-        admin.addAsset(address(pool), address(base), oc, rc, pf, 1000, 18, M.encodeB64(1e18, 18), 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
-        // tok: price 3000 (base per tok)  <-- NON-UNITY: this is what unmasks the bugs
-        admin.addAsset(address(pool), address(tok), oc, rc, pf, 1000, 18, M.encodeB64(PX, 18), 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(address(pool), address(base), _oracle(address(base)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(address(pool), address(tok),  _oracle(address(tok)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000, 10000);
         vm.stopPrank();
 
         // Seed reserves: deep on both sides so swaps do not reserve-clamp.
@@ -100,26 +102,22 @@ contract AimmInvariantsTest is Test {
         pool.deposit(address(tok), 3_000e18);        // 3000 tok = $9M
     }
 
-    /// BUG-1: after a base->tok BUY, the tok internal mark must still read ~3000 (base per tok),
-    /// not its reciprocal ~1/3000. midPrice() returns the raw stored lastPriceB64.
-    function test_bug1_oracle_orientation_after_buy() public {
-        uint256 pre = pool.midPrice(address(tok));
-        assertApproxEqRel(pre, PX, 0.01e18, "seed mark should be ~3000");
+    /// Confidence surcharge: the feed's 1σ CI widens the quoted spread (uncertain marks priced
+    /// defensively). With CI=0 the spread floors to minFee (σ·vega alone is small); a material CI
+    /// must lift it above that floor. NB: the tx-scoped oracle TCache would serve a stale cached feed
+    /// on a re-quote of the SAME token, so we assert against the known floor rather than re-quoting.
+    function test_confidence_surcharge_widens_beyond_floor() public {
+        uint16 floorFee = pool.getAsset(address(tok)).minFeeBps; // 0.1%
+        oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), 10_000, 200, 3600); // 2% CI
+        IPool.SwapQuote memory q = pool.getSwapQuote(address(tok), address(base), 1e18);
+        assertGt(q.spreadBps, floorFee, "confidence surcharge must widen beyond the minFee floor");
+    }
 
-        // Escape the per-block 1-update/token TWAP rate-limit so the swap actually pushes the mark.
-        vm.roll(block.number + 1);
-        skip(301);
-
-        base.mint(USER, 30_000e18);
-        vm.startPrank(USER);
-        base.approve(address(pool), type(uint256).max);
-        pool.swap(address(base), address(tok), 30_000e18, 0, USER); // buy ~10 tok
-        vm.stopPrank();
-
-        // BUG-1: a base->tok BUY must leave the tok mark denominated base-per-tok (~3000),
-        // not its reciprocal (~1/3000). Pre-fix this flipped to ~3.33e14.
-        uint256 post = pool.midPrice(address(tok));
-        assertApproxEqRel(post, PX, 0.20e18, "BUG-1: tok mark flipped to reciprocal after buy");
+    /// Confidence halt: a feed CI past MAX_CONFIDENCE_HALT_BPS (10%) fail-closes the swap path.
+    function test_confidence_halt_reverts_past_cap() public {
+        oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), 10_000, C.MAX_CONFIDENCE_HALT_BPS + 1, 3600);
+        vm.expectRevert(); // Err.ThresholdViolation(confidence, MAX_CONFIDENCE_HALT_BPS)
+        pool.getSwapQuote(address(tok), address(base), 1e18);
     }
 
     /// BUG-2: selling tok->base must never quote a PREMIUM. Effective price (base out per tok in)

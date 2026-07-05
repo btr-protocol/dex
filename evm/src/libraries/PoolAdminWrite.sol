@@ -51,25 +51,19 @@ library PoolAdminWrite {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
         uint16 vega,
         uint16 lambda
     ) external {
-        if (initialPrice == 0) revert Err.ZeroValue();
-        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
-
         address t = PoolIO.wrap($, token);
         if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
 
         PoolAdmin.validateProfileMemory(profile);
         PoolAdmin.validateOracleConfig(oracleCfg, self);
         PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
-        PoolAdmin.setupOracleAndConfig($, self, t, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
+        PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
     }
 
     function setFlowCooldown(IPool.PoolStorage storage $, uint16 cooldownSeconds) external {

@@ -65,9 +65,4 @@ library PoolSwapQuote {
 
         _reconcile($.assets[tk[1]], out, q.amountOut);
     }
-
-    /// @notice Push hop prices to the oracle accumulator post-swap.
-    function pushOracle(IPool.PoolStorage storage $, IPool.SwapQuote memory q) external {
-        PoolIO.pushOracle($, q);
-    }
 }

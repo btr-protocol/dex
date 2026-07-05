@@ -141,9 +141,6 @@ contract Admin is IAdmin {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
@@ -152,7 +149,6 @@ contract Admin is IAdmin {
     ) external onlyAdmin {
         IPool(pool).adminInitAsset(
             token, oracleCfg, riskCfg, profile, minFeeBps, decimals,
-            initialPrice, initialFastVolEMA, initialSlowVolEMA,
             minDispersion, maxDispersion, gamma, vega, lambda
         );
         emit AssetAdded(pool, token, decimals, 0);
@@ -215,17 +211,12 @@ contract Admin is IAdmin {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
         uint16 vega,
         uint16 lambda
     ) external onlyAdmin {
-        if (initialPrice == 0) revert Err.ZeroValue();
-        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
         bytes32 key = _keyToken(pool, OP_ADD_ASSET, token);
         ATL.AddAssetPayload memory p = ATL.AddAssetPayload({
             token: token,
@@ -234,9 +225,6 @@ contract Admin is IAdmin {
             profile: profile,
             minFeeBps: minFeeBps,
             decimals: decimals,
-            initialPrice: initialPrice,
-            initialFastVolEMA: initialFastVolEMA,
-            initialSlowVolEMA: initialSlowVolEMA,
             minDispersion: minDispersion,
             maxDispersion: maxDispersion,
             gamma: gamma,

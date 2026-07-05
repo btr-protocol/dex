@@ -5,7 +5,6 @@ import {IPool} from "../interfaces/IPool.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
-import {PoolOracle} from "./PoolOracle.sol";
 
 /// @title PoolAdmin -admin-side validation + initialization helpers for Pool.
 /// @notice Phase 42H.D · Round 2 · G1 LOC reduction -extracts oracle/risk/profile
@@ -92,26 +91,17 @@ library PoolAdmin {
         }
     }
 
-    /// @notice Wire oracle/risk/profile slots + seed internal accumulator if self-oracle.
+    /// @notice Wire oracle/risk/profile slots. The mark now lives in the external oracle (primary);
+    ///         no per-asset feed is seeded on-chain (internal-TWAP discovery removed).
     function setupOracleAndConfig(
         IPool.PoolStorage storage $,
-        address self,
         address t,
         IPool.OracleConfig memory oracleCfg,
         IPool.RiskConfig memory riskCfg,
-        IPool.LiquidityProfile memory profile,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA
+        IPool.LiquidityProfile memory profile
     ) internal {
         $.oracleConfigs[t] = oracleCfg;
         $.riskConfigs[t] = riskCfg;
         $.profiles[t] = profile;
-
-        if (oracleCfg.primary == self) {
-            uint8 accDec = oracleCfg.accDecimals == 0 ? 6 : oracleCfg.accDecimals;
-            PoolOracle.initFeed($, t, initialPrice, accDec, initialFastVolEMA, initialSlowVolEMA);
-            emit IOracle.OracleUpdated(t, initialPrice, initialFastVolEMA, initialSlowVolEMA);
-        }
     }
 }

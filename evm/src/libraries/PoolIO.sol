@@ -8,7 +8,6 @@ import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
-import {PoolOracle} from "./PoolOracle.sol";
 import {Oracle} from "./Oracle.sol";
 import {Maths as M} from "./Maths.sol";
 
@@ -107,47 +106,26 @@ library PoolIO {
         _priceBandGuard($, tkOut, aOut);
     }
 
-    /// @dev Depeg guard on the OUTPUT asset's mark: an absolute floor/ceiling (reservationPrice /
+    /// @dev Depeg guard on the OUTPUT asset's fresh mark: an absolute floor/ceiling (reservationPrice /
     ///      reservationPriceMax) AND an optional feed-relative band (mark within refBandBps of a
-    ///      reference feed — e.g. WBTC vs the BTC feed, XAUT vs a gold feed). 0 fields = disabled.
-    function _priceBandGuard(IPool.PoolStorage storage $, address token, IPool.Asset storage a) private {
-        uint64 price = PoolOracle.readOracle($, address(this), token).lastPriceB64;
+    ///      reference feed — e.g. WBTC vs the BTC feed, XAUT vs a gold feed). 0 fields = disabled;
+    ///      when none is set we skip the oracle read entirely (the swap-path freshness/confidence gate
+    ///      already ran during quoting via Pricing._readOracle).
+    function _priceBandGuard(IPool.PoolStorage storage $, address token, IPool.Asset storage a) private view {
         uint64 lo = a.reservationPrice;
         uint64 hi = a.reservationPriceMax;
+        IPool.OracleConfig storage oc = $.oracleConfigs[token];
+        bool refBand = oc.refFeedId != 0 && oc.refBandBps != 0;
+        if (lo == 0 && hi == 0 && !refBand) return;
+
+        uint64 price = IOracle(oc.primary).getFeed(oc.feedId).lastPriceB64;
         if (lo != 0 && price < lo) revert Err.PriceBelowReservation(price, lo);
         if (hi != 0 && price > hi) revert Err.PriceBelowReservation(price, hi);
-        IPool.OracleConfig storage oc = $.oracleConfigs[token];
-        if (oc.refFeedId != 0 && oc.refBandBps != 0 && oc.primary != address(this)) {
-            (uint256 refP,) = Oracle.decodeB64s(IOracle(oc.primary).getFeed(oc.refFeedId));
+        if (refBand) {
+            uint256 refP = Oracle.mark(IOracle(oc.primary).getFeed(oc.refFeedId));
             uint256 p = M.b64To1e18(price);
             uint256 dev = p > refP ? p - refP : refP - p;
             if (dev * SC.BPS > refP * uint256(oc.refBandBps)) revert Err.PriceBelowReservation(price, uint64(refP));
-        }
-    }
-
-    function pushOracle(IPool.PoolStorage storage $, IPool.SwapQuote memory q) internal {
-        if (q.routeHops.length < 2 || q.hopPrices.length == 0) return;
-        address base = $.baseToken;
-
-        for (uint256 i; i < q.routeHops.length - 1;) {
-            address a = q.routeHops[i];
-            address b = q.routeHops[i + 1];
-            uint64 p = q.hopPrices[i];
-
-            if (p == 0) {
-                unchecked {
-                    ++i;
-                }
-                continue;
-            }
-
-            if (a == base) PoolOracle.pushFeedInternal($, b, address(0), p, 0);
-            else if (b == base) PoolOracle.pushFeedInternal($, a, address(0), p, 0);
-            else PoolOracle.pushFeedInternal($, a, b, p, p);
-
-            unchecked {
-                ++i;
-            }
         }
     }
 }

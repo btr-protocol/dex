@@ -2,15 +2,12 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "./interfaces/IPool.sol";
-import {IOracle} from "./interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Pricing} from "./libraries/Pricing.sol";
-import {Maths as M} from "./libraries/Maths.sol";
 import {Constants as C} from "./libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
-import {PoolOracle} from "./libraries/PoolOracle.sol";
 import {PoolBatch} from "./libraries/PoolBatch.sol";
 import {PoolLiquidity} from "./libraries/PoolLiquidity.sol";
 import {PoolSwap} from "./libraries/PoolSwap.sol";
@@ -24,8 +21,8 @@ import {PoolView} from "./libraries/PoolView.sol";
 /// @notice Phase 42H.B.3d -drops ERC-7201, deletes Base.sol, collapses PoolProxy.
 ///         Each pool instance is a direct EIP-1167 minimal-proxy clone of this impl
 ///         (deployment via PoolFactory). Per-clone state is initialized via initialize().
-/// @dev Wave-3a (EIP-170): cold-path selectors (all admin*/staking/flash/updateFeed/
-///      pokeMidPrice) routed via `fallback()` DELEGATECALL to the PoolAux singleton.
+/// @dev Wave-3a (EIP-170): cold-path selectors (all admin*/staking/flash) routed via
+///      `fallback()` DELEGATECALL to the PoolAux singleton.
 ///      Hot-path entries (swap, deposit, withdraw, frequently-called views) remain
 ///      explicit. ABI surface unchanged from callers' perspective — fallback forwards
 ///      msg.data transparently.
@@ -33,8 +30,6 @@ import {PoolView} from "./libraries/PoolView.sol";
 ///      `IPool.PoolStorage $` lives at slot 0 of every clone. PoolAux mirrors the
 ///      same layout so delegatecalls hit the right slots.
 contract Pool is ReentrancyGuardTransient {
-    using {M.b64To1e18} for uint64;
-
     // ────────────────────────────────────────────────────────────────
     // STORAGE (slot 0; mirrored in PoolAux)
     // ────────────────────────────────────────────────────────────────
@@ -69,10 +64,6 @@ contract Pool is ReentrancyGuardTransient {
     // ────────────────────────────────────────────────────────────────
 
     uint256 private constant INIT_LIQUIDITY_INDEX = 1e12;
-
-    // Cohort-3 Finding 10 -dead `internal constant` mirrors of PoolOracle.*
-    // removed (0 references inside Pool.sol body). SDK exposes the canonical
-    // values via the constants table (Wave-1 plan).
 
     // Cohort-3 Finding 1 -Deposited/Withdrawn/LiabilitySwapped/Donated event
     // declarations dropped: emitted only from PoolLiquidity (declared there +
@@ -121,30 +112,6 @@ contract Pool is ReentrancyGuardTransient {
     /// @notice ERC7802 bridge auth -bridgeable tokens query this.
     function getAuthorizedBridge() external view returns (address) {
         return $.bridge;
-    }
-
-    // ────────────────────────────────────────────────────────────────
-    // ORACLE views (hot)
-    // ────────────────────────────────────────────────────────────────
-
-    function getFeed(address token) external view returns (IOracle.FeedData memory) {
-        return PoolView.getFeed($, token);
-    }
-
-    function isFeedFresh(address token, uint32 maxAge) external view returns (bool) {
-        IPool.FeedAccumulator storage acc = $.accumulators[_wrap(token)];
-        if (acc.lastUpdate == 0) return false;
-        unchecked { return block.timestamp - acc.lastUpdate <= maxAge; }
-    }
-
-    function isFeedFresh(address token) external view returns (bool) {
-        IPool.FeedAccumulator storage acc = $.accumulators[_wrap(token)];
-        if (acc.lastUpdate == 0) return false;
-        unchecked { return block.timestamp - acc.lastUpdate <= acc.ttl; }
-    }
-
-    function getFastTWAP(address token) external view returns (uint64) {
-        return PoolOracle.computeFastTWAP($, _wrap(token));
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -245,9 +212,6 @@ contract Pool is ReentrancyGuardTransient {
         h = $.hooks[t];
         if (h == address(0)) return address(0);
         return ($.hookFlags[t] & flag) != 0 ? h : address(0);
-    }
-    function midPrice(address tk) external view returns (uint256) {
-        return $.accumulators[_wrap(tk)].lastPriceB64.b64To1e18();
     }
     function getCoverageRatio(address tk) external view returns (uint256) {
         return PoolView.getCoverageRatio($, tk);

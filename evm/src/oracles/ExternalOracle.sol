@@ -4,23 +4,26 @@ pragma solidity =0.8.35;
 import {IOracle} from "../interfaces/IOracle.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Constants as C} from "../libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Oracle} from "../libraries/Oracle.sol";
-import {Maths as M} from "../libraries/Maths.sol";
 
 /// @title ExternalOracle
-/// @notice Push-based external oracle with dual TWAP (fast/slow) and volatility tracking
+/// @notice Push-based external oracle. Each push carries a FRESH mark (lastPriceB64 = quote source)
+///         plus σ and a 1σ CI (confidence). An on-chain rate-clamped, time-decayed EMA (emaPriceB64)
+///         is maintained as a Pyth/Chainlink-parity SERVABLE reference (getEma) — never the quote
+///         source. See `Oracle.updateEma` for the clamp/decay guarantee + trust split.
 contract ExternalOracle is IOracle {
     /// @notice Shared singleton AccessControl -single source of truth for owner.
     address public immutable AC;
     // ─── constants ───
     uint32 public constant MAX_VOLATILITY = 100 * uint32(SC.PBPS);
-    /// @dev Phase 42D A4-5 DISCARD (by-design): event-only enforcement. The on-chain code does
-    ///      NOT check deviation against this threshold; deviation checks are done off-chain by the
-    ///      oracle pusher pre-push. The constant is a UX hint emitted via `FeedAdded.maxDeviation`
-    ///      so integrators understand what the off-chain pusher's policy is. Integrators MUST NOT
-    ///      treat this as an on-chain safety guarantee -only as a published policy.
+    /// @dev F-A3-R14-1 DISCARD (by-design): `maxDeviation` is event-only. The on-chain code does NOT
+    ///      check a push's deviation against it; deviation enforcement is delegated to the off-chain
+    ///      oracle-key pipeline pre-push. Emitted via `FeedAdded.maxDeviation` as a published policy
+    ///      hint — integrators MUST NOT treat it as an on-chain guarantee. On-chain, a compromised key
+    ///      can push any mark subject only to `_validate` (non-zero, σ ≤ MAX_VOLATILITY); the EMA's
+    ///      per-push displacement is bounded by the rate clamp, and mark trust rests on key gov +
+    ///      off-chain monitoring + `revokeOracle`.
     uint16 public constant MAX_DEV_THRESHOLD = 65_000; // 6.5% in SC.BPS precision (off-chain hint)
     uint16 public constant DEFAULT_TTL = 3600;
 
@@ -34,19 +37,19 @@ contract ExternalOracle is IOracle {
         bytes32 indexed feedId,
         address indexed base,
         address indexed quote,
-        uint64 fastEMA,
-        uint64 slowEMA,
-        uint32 fastVolEMA,
-        uint32 slowVolEMA,
+        uint64 price,
+        uint32 sigma,
+        uint16 confidence,
+        uint32 tau,
         uint16 maxDeviation
     );
     event FeedUpdated(bytes32 indexed feedId, uint16 maxDeviation, uint16 ttl);
     event Pushed(
         bytes32 indexed feedId,
-        uint64 fastEMA,
-        uint64 slowEMA,
-        uint32 fastVolEMA,
-        uint32 slowVolEMA,
+        uint64 price,
+        uint64 ema,
+        uint32 sigma,
+        uint16 confidence,
         address indexed pusher
     );
     event BatchPushed(bytes32[] feedIds, address indexed pusher);
@@ -76,39 +79,39 @@ contract ExternalOracle is IOracle {
     function addFeed(
         address base,
         address quote,
-        uint64 fastEMA,
-        uint64 slowEMA,
-        uint32 fastVolEMA,
-        uint32 slowVolEMA,
+        uint64 price,
+        uint32 sigma,
+        uint16 confidence,
+        uint32 tau,
         uint16 maxDeviation,
         uint16 ttl
     ) external onlyAdmin {
         if (base == address(0) || quote == address(0)) revert Err.ZeroValue();
-        _validate(fastEMA, slowEMA, fastVolEMA, slowVolEMA);
+        _validate(price, sigma);
         if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
 
         bytes32 feedId = keccak256(abi.encodePacked(base, quote));
         if (feeds[feedId].updatedAt != 0) revert Err.FeedAlreadyExists(feedId);
 
+        // Seed lastPrice = ema = price (no displacement on the first read).
         feeds[feedId] = FeedData({
-            lastPriceB64: fastEMA,
-            fastOffset: 0,
-            slowOffset: 0,
-            fastVolEMA: fastVolEMA,
-            slowVolEMA: slowVolEMA,
+            lastPriceB64: price,
+            emaPriceB64: price,
+            sigma: sigma,
             updatedAt: uint32(block.timestamp),
             ttl: ttl,
-            confidence: 100
+            confidence: confidence,
+            tau: tau
         });
         feedIds.push(feedId);
-        emit FeedAdded(feedId, base, quote, fastEMA, slowEMA, fastVolEMA, slowVolEMA, maxDeviation);
+        emit FeedAdded(feedId, base, quote, price, sigma, confidence, tau, maxDeviation);
     }
 
     function updateFeed(bytes32 feedId, uint16 maxDeviation, uint16 ttl) external onlyAdmin {
         if (feeds[feedId].updatedAt == 0) revert Err.FeedNotFound(feedId);
         if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
         feeds[feedId].ttl = ttl;
-        // NB: maxDeviation event-only; deviation checks done off-chain pre-push
+        // NB: maxDeviation event-only; deviation checks done off-chain pre-push (see MAX_DEV_THRESHOLD).
         emit FeedUpdated(feedId, maxDeviation, ttl);
     }
 
@@ -124,77 +127,60 @@ contract ExternalOracle is IOracle {
     }
 
     // ─── oracle ───
-    /// @dev F-A3-R14-1 (R14 LOW, DESIGN-DISCARDED): on-chain `maxDeviation` is event-only
-    ///      (see `updateFeed`); deviation enforcement is delegated to the off-chain oracle key
-    ///      pipeline pre-push. An oracle-key compromise can therefore push arbitrary EMAs
-    ///      subject only to `_validate` (non-zero, vol < MAX_VOLATILITY). Mitigation lives
-    ///      in oracle-key governance + off-chain monitoring + revokeOracle. Adding an on-chain
-    ///      bound would change the push-based design + couple oracle latency to the latest
-    ///      committed snapshot, which conflicts with the multi-source aggregation contract.
-    function pushFeed(
-        bytes32 feedId,
-        uint64 newFastEMA,
-        uint64 newSlowEMA,
-        uint32 newFastVolEMA,
-        uint32 newSlowVolEMA
-    ) external onlyOracle {
-        _pushInternal(feedId, newFastEMA, newSlowEMA, newFastVolEMA, newSlowVolEMA);
-        emit Pushed(feedId, newFastEMA, newSlowEMA, newFastVolEMA, newSlowVolEMA, msg.sender);
+    function pushFeed(bytes32 feedId, uint64 newPriceB64, uint32 newSigma, uint16 newConfidence)
+        external onlyOracle
+    {
+        uint64 ema = _pushInternal(feedId, newPriceB64, newSigma, newConfidence);
+        emit Pushed(feedId, newPriceB64, ema, newSigma, newConfidence, msg.sender);
     }
 
     function batchPush(
         bytes32[] calldata _feedIds,
-        uint64[] calldata fastEMAs,
-        uint64[] calldata slowEMAs,
-        uint32[] calldata fastVolEMAs,
-        uint32[] calldata slowVolEMAs
+        uint64[] calldata prices,
+        uint32[] calldata sigmas,
+        uint16[] calldata confidences
     ) external onlyOracle {
         uint256 length = _feedIds.length;
         if (
             length == 0 ||
-            fastEMAs.length != length ||
-            slowEMAs.length != length ||
-            fastVolEMAs.length != length ||
-            slowVolEMAs.length != length
+            prices.length != length ||
+            sigmas.length != length ||
+            confidences.length != length
         ) revert Err.InvalidInput();
 
         for (uint256 i; i < length;) {
-            _pushInternal(_feedIds[i], fastEMAs[i], slowEMAs[i], fastVolEMAs[i], slowVolEMAs[i]);
+            _pushInternal(_feedIds[i], prices[i], sigmas[i], confidences[i]);
             unchecked { ++i; }
         }
         emit BatchPushed(_feedIds, msg.sender);
     }
 
     // ─── internal ───
-    function _validate(uint64 fastEMA, uint64 slowEMA, uint32 fastVol, uint32 slowVol) internal pure {
-        if (fastEMA == 0 || slowEMA == 0) revert Err.ZeroValue();
-        if (fastVol > MAX_VOLATILITY || slowVol > MAX_VOLATILITY) {
-            revert Err.ThresholdViolation(fastVol > slowVol ? fastVol : slowVol, MAX_VOLATILITY);
-        }
+    function _validate(uint64 price, uint32 sigma) internal pure {
+        if (price == 0) revert Err.ZeroValue();
+        // confidence is left unbounded on purpose: the EMA's MAX_BAND_BPS cap makes a huge CI harmless
+        // (it only widens the clamp band to its cap), and the swap-side MAX_CONFIDENCE_HALT_BPS gate
+        // fail-closes trading past a sane CI — so validation stays minimal.
+        if (sigma > MAX_VOLATILITY) revert Err.ThresholdViolation(sigma, MAX_VOLATILITY);
     }
 
-    function _pushInternal(
-        bytes32 feedId,
-        uint64 newFastEMA,
-        uint64 newSlowEMA,
-        uint32 newFastVolEMA,
-        uint32 newSlowVolEMA
-    ) internal {
+    function _pushInternal(bytes32 feedId, uint64 newPriceB64, uint32 newSigma, uint16 newConfidence)
+        internal returns (uint64 ema)
+    {
         FeedData storage feed = feeds[feedId];
         if (feed.updatedAt == 0) revert Err.FeedNotFound(feedId);
-        _validate(newFastEMA, newSlowEMA, newFastVolEMA, newSlowVolEMA);
+        _validate(newPriceB64, newSigma);
 
-        // `lastPriceB64` is the fast EMA, so fastOffset = 0 (current ≡ fast) and slowOffset encodes
-        // (slow/fast − 1) in ORACLE_PBPS units — the SAME convention the reader applies
-        // (`Oracle._applyOffset`: ema = price·(ORACLE_PBPS+offset)/ORACLE_PBPS). The prior code stored
-        // a raw int16 B64-value difference, which the int32 ORACLE_PBPS reader decoded as garbage.
-        feed.lastPriceB64 = newFastEMA;
-        feed.fastOffset = 0;
-        feed.slowOffset = Oracle.encodeOffset1e18(M.b64To1e18(newFastEMA), M.b64To1e18(newSlowEMA));
-        feed.fastVolEMA = newFastVolEMA;
-        feed.slowVolEMA = newSlowVolEMA;
+        // Decay the reference EMA toward the (rate-clamped) new mark, then commit the fresh mark.
+        uint256 dt;
+        unchecked { dt = block.timestamp - feed.updatedAt; } // Δt==0 same block ⇒ α=0 (ema frozen)
+        ema = Oracle.updateEma(feed.emaPriceB64, newPriceB64, dt, feed.tau, newConfidence);
+
+        feed.emaPriceB64 = ema;
+        feed.lastPriceB64 = newPriceB64;
+        feed.sigma = newSigma;
+        feed.confidence = newConfidence;
         feed.updatedAt = uint32(block.timestamp);
-        feed.confidence = 100;
     }
 
     // ─── IOracle ───
@@ -215,10 +201,11 @@ contract ExternalOracle is IOracle {
         unchecked { return block.timestamp - f.updatedAt <= f.ttl; }
     }
 
-    function getFastEMA(bytes32 feedId) external view override returns (uint64) {
+    /// @notice Servable reference price (rate-clamped time-decayed EMA), 1σ-parity with Pyth/Chainlink.
+    function getEma(bytes32 feedId) external view override returns (uint64) {
         FeedData storage f = feeds[feedId];
         if (f.updatedAt == 0) revert Err.FeedNotFound(feedId);
-        return f.lastPriceB64;
+        return f.emaPriceB64;
     }
 
     // ─── views ───

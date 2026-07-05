@@ -42,7 +42,6 @@ library PoolBatch {
         if (tk == base) return amt;
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk, base, amt);
         PoolIO.exec($, tk, base, amt, q);
-        PoolIO.pushOracle($, q);
         return q.amountOut;
     }
 
@@ -74,7 +73,6 @@ library PoolBatch {
         } else {
             IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, base, tk, baseIn);
             PoolIO.exec($, base, tk, baseIn, q);
-            PoolIO.pushOracle($, q);
             outAmt = q.amountOut;
         }
 
