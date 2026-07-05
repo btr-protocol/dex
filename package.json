@@ -1,31 +1,29 @@
 {
-  "name": "@btr/monorepo",
+  "name": "@btr/dex",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "bun scripts/dev.ts",
-    "dev:agents": "cd back/services/agents && bun run dev",
-    "dev:collector": "cd back/services/collector && bun run dev",
-    "dev:swap": "cd back/services/swap && bun run dev",
-    "dev:front": "cd front && bun run dev",
-    "build": "cd sdk && bun run build && cd ../front && bun run build",
-    "typecheck": "cd sdk && bun run typecheck && cd ../back/services/collector && bun run typecheck && cd ../agents && bun run typecheck && cd ../../../front && bun run typecheck",
+    "prod": "bun scripts/prod.ts",
+    "anvil": "scripts/start-anvil.sh",
+    "build:search-index": "bun scripts/build-search-index.ts",
+    "precompile:md": "bun scripts/precompile-markdown.ts",
     "lint": "oxlint .",
     "fmt": "oxlint --fix .",
     "clean": "bun run clean:dist && bun run clean:deps",
     "clean:dist": "find . -name 'dist' -type d -exec rm -rf {} +",
     "clean:deps": "find . -name 'node_modules' -type d -prune -exec rm -rf {} +"
   },
-  "workspaces": [
-    "front"
-  ],
   "devDependencies": {
     "typescript": "^5.8.0",
     "oxlint": "^0.15.0"
   },
   "dependencies": {
     "asciimath2ml": "^1.0.8",
+    "dotenv": "^16.6.1",
+    "minisearch": "^7.2.0",
+    "playwright": "^1.59.1",
     "prismjs": "^1.30.0"
   }
 }
