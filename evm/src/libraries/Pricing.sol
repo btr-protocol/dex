@@ -351,7 +351,7 @@ library Pricing {
     /// @dev Full path spread (PBPS, clamped): S_vol + U_stale + U_conf, then clamp to the path fee
     ///      bounds. Pulled out of `getAnchorPathQuote` to keep that function off the stack-too-deep edge
     ///      (sVol/rawSpread live here, not in the hot frame).
-    ///      - S_vol = 100 + σ·vega/100 (symmetric vol band).
+    ///      - S_vol = minFeePath + σ·vega/(100·BPS) — per-asset floor at σ=0 (stable 0.02 bp, volatile 2.5 bp).
     ///      - U_stale = STALE_Z·σ·√(age)/100 keyed on the stalest endpoint: defense-in-depth for keeper
     ///        LAG so a late/censored keeper degrades gracefully (wider quote) rather than being picked
     ///        off up to the hard TTL revert. ≈0 when fresh (age→0). With the deviation-triggered push
@@ -361,14 +361,13 @@ library Pricing {
     function _pathSpread(PathAccumulator memory acc, EndpointCache memory cIn, EndpointCache memory cOut)
         private pure returns (uint16)
     {
-        uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(cIn.vega > cOut.vega ? cIn.vega : cOut.vega)) / (100 * SC.BPS);
+        uint256 sVol = uint256(acc.minFeePath)
+            + (uint256(acc.sigmaPair) * uint256(cIn.vega > cOut.vega ? cIn.vega : cOut.vega)) / (100 * SC.BPS);
         uint256 conf = uint256(cIn.confidence > cOut.confidence ? cIn.confidence : cOut.confidence);
         uint256 rawSpread = sVol
             + _staleTerm(cIn.staleExcess > cOut.staleExcess ? cIn.staleExcess : cOut.staleExcess, acc.sigmaPair)
             + conf * (SC.PBPS / SC.BPS); // bps → PBPS
-        return rawSpread < uint256(acc.minFeePath)
-            ? acc.minFeePath
-            : (rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread));
+        return rawSpread > uint256(acc.maxFeePath) ? acc.maxFeePath : uint16(rawSpread);
     }
 
     /// @dev Staleness term (PBPS) = STALE_Z·σ·√(staleExcess)/BPS, where staleExcess = age beyond the
