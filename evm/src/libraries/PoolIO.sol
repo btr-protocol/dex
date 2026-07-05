@@ -119,11 +119,14 @@ library PoolIO {
         if (lo == 0 && hi == 0 && !refBand) return;
 
         uint64 price = IOracle(oc.primary).getFeed(oc.feedId).lastPriceB64;
-        if (lo != 0 && price < lo) revert Err.PriceBelowReservation(price, lo);
-        if (hi != 0 && price > hi) revert Err.PriceBelowReservation(price, hi);
+        // Compare in numeric (1e18) space, NOT raw uint64: B64 packs mantissa in the high bits, so
+        // raw </> orders by mantissa first and is non-monotonic across a decimal-decade boundary — a
+        // catastrophic depeg into a different decade would silently bypass the floor/ceiling.
+        uint256 p = M.b64To1e18(price);
+        if (lo != 0 && p < M.b64To1e18(lo)) revert Err.PriceBelowReservation(price, lo);
+        if (hi != 0 && p > M.b64To1e18(hi)) revert Err.PriceBelowReservation(price, hi);
         if (refBand) {
             uint256 refP = Oracle.mark(IOracle(oc.primary).getFeed(oc.refFeedId));
-            uint256 p = M.b64To1e18(price);
             uint256 dev = p > refP ? p - refP : refP - p;
             if (dev * SC.BPS > refP * uint256(oc.refBandBps)) revert Err.PriceBelowReservation(price, uint64(refP));
         }
