@@ -157,8 +157,11 @@ contract ExternalOracle is IOracle {
     }
 
     // ─── internal ───
-    function _validate(uint64 price, uint32 sigma) internal pure {
-        if (price == 0 || M.b64To1e18(price) == 0) revert Err.ZeroValue();
+    /// @dev Returns the mark decoded to 1e18 so the push hot path reuses it (single B64 decode).
+    ///      NB: b64To1e18 itself reverts Err.ZeroValue on a zero packed word, so only the
+    ///      decodes-to-zero case (truncation permabrick, B64-audit Low) needs the explicit check.
+    function _validate(uint64 price, uint32 sigma) internal pure returns (uint256 mark1e18) {
+        if ((mark1e18 = M.b64To1e18(price)) == 0) revert Err.ZeroValue();
         // confidence is left unbounded on purpose: the EMA's MAX_BAND_BPS cap makes a huge CI harmless
         // (it only widens the clamp band to its cap), and the swap-side MAX_CONFIDENCE_HALT_BPS gate
         // fail-closes trading past a sane CI — so validation stays minimal.
@@ -171,12 +174,12 @@ contract ExternalOracle is IOracle {
         FeedData storage feed = feeds[feedId];
         uint32 prevAt = feed.updatedAt;
         if (prevAt == 0) revert Err.FeedNotFound(feedId);
-        _validate(newPriceB64, newSigma);
+        uint256 mark1e18 = _validate(newPriceB64, newSigma);
 
         // Decay the reference EMA toward the (rate-clamped) new mark, then commit the fresh mark.
         uint256 dt;
         unchecked { dt = block.timestamp - prevAt; } // Δt==0 same block ⇒ α=0 (ema frozen)
-        ema = Oracle.updateEma(feed.emaPriceB64, newPriceB64, dt, feed.tau, newConfidence);
+        ema = Oracle.updateEmaMark1e18(feed.emaPriceB64, mark1e18, dt, feed.tau, newConfidence);
 
         // FeedData packs into exactly one slot: whole-struct assignment ⇒ single SSTORE
         // (vs 5 field writes), and ttl/tau reads reuse the already-warm SLOAD.

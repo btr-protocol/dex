@@ -30,15 +30,30 @@ library Oracle {
     function updateEma(uint64 emaB64, uint64 markB64, uint256 dt, uint32 tau, uint16 confidence)
         internal pure returns (uint64)
     {
-        uint256 ema = M.b64To1e18(emaB64);
-        uint256 p = M.b64To1e18(markB64);
+        return updateEmaMark1e18(emaB64, M.b64To1e18(markB64), dt, tau, confidence);
+    }
 
-        uint256 bandCap = (ema * C.MAX_BAND_BPS) / SC.BPS;
+    /// @notice `updateEma` core taking the mark already decoded to 1e18 — lets the push hot path
+    ///         reuse the decode `_validate` already paid for instead of decoding the mark twice.
+    function updateEmaMark1e18(uint64 emaB64, uint256 mark1e18, uint256 dt, uint32 tau, uint16 confidence)
+        internal pure returns (uint64)
+    {
+        // α=0 ⇒ ema mathematically unchanged: return the stored word verbatim. Skips the full
+        // decode/clamp/encode round-trip (~2.1k gas) on same-block re-pushes (HA redundant pushers)
+        // and is exact by construction (no codec re-normalization of the frozen value).
+        if (dt == 0 && tau != 0) return emaB64;
+
+        uint256 ema = M.b64To1e18(emaB64);
+        uint256 p = mark1e18;
+
         // Confidence floor 1: conf==0 must NOT zero the band, or every mark clamps back to the
         // current ema forever while isFeedFresh() stays true — a permanent servable-EMA freeze that
         // violates the no-brick guarantee above. Floored, the ema still converges at K_BAND bps/push.
-        uint256 band = (ema * C.K_BAND * (confidence == 0 ? 1 : uint256(confidence))) / SC.BPS;
-        if (band > bandCap) band = bandCap;
+        // min(K_BAND·conf, MAX_BAND_BPS) applied pre-multiply: exact (same divisor, mul monotone),
+        // one mul+div instead of two.
+        uint256 kc = C.K_BAND * (confidence == 0 ? 1 : uint256(confidence));
+        if (kc > C.MAX_BAND_BPS) kc = C.MAX_BAND_BPS;
+        uint256 band = (ema * kc) / SC.BPS;
         if (p > ema + band) p = ema + band;
         else if (p + band < ema) p = ema - band;
 
