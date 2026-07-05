@@ -10,6 +10,7 @@ import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Oracle} from "./Oracle.sol";
 import {Maths as M} from "./Maths.sol";
+import {TransientCache as TCache} from "./TransientCache.sol";
 
 /// @title PoolIO
 /// @notice Shared pool-local token I/O, risk gating, and swap accounting helpers.
@@ -120,7 +121,15 @@ library PoolIO {
         bool refBand = oc.refFeedId != 0 && oc.refBandBps != 0;
         if (lo == 0 && hi == 0 && !refBand) return;
 
-        IOracle.FeedData memory gf = IOracle(oc.primary).getFeed(oc.feedId);
+        // EXTERNAL mode: reuse the tx-scoped transient cache — Pricing._readOracle read, TTL/CI-gated
+        // and cached this exact feed (same primary/feedId, keyed by token) while quoting earlier in
+        // this tx, so a second external getFeed round-trip is pure waste (~1k gas). INTERNAL mode must
+        // NOT touch the cache: there it holds the SYNTHETIC peg feed (the quote source), while this
+        // guard needs the real external feed (the depeg breaker) — always read it fresh.
+        IOracle.FeedData memory gf;
+        bool cached;
+        if (oc.mode != C.ORACLE_MODE_INTERNAL) (cached, gf) = TCache.tryLoadOracleFeed(token);
+        if (!cached) gf = IOracle(oc.primary).getFeed(oc.feedId);
         // INTERNAL mode quotes off the constant peg and NEVER freshness-gates the external feed on the
         // swap path (Pricing._readOracle returns a synthetic peg feed). Here that external feed is the
         // depeg breaker, so a STALE gate must FAIL-CLOSED (revert) — not silently anchor the band to a
