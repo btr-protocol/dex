@@ -26,6 +26,39 @@
   the depeg tail). No LSTs at launch (on-chain-illiquid).
 - **Testnet chain: BNB testnet (chapel, id 97).**
 - **Feed IDs = MITCH ticker u64** (same both sides, NX↔DEX).
+- **Heartbeat = staleness bound, not liveness watchdog.** `heartbeat_s` is the max
+  interval between on-chain price pushes per feed. The same K0S `oracle-daemon`
+  pushes NX marks when `|Δ|>θ` **or** heartbeat elapsed — not a separate “keeper
+  alive” process. Size on-chain `ttl` relative to heartbeat (`ttl ≈ 2·heartbeat`).
+- **Stable-core oracle mode at launch:** all stable-core assets **EXTERNAL** (keeper
+  mark + on-chain EMA). INTERNAL constant-peg (`ORACLE_MODE_INTERNAL`) stays in
+  contract but is **not** configured at testnet deploy.
+
+## OPS (oracle keeper + HA)
+
+### Push triggers (single daemon)
+One `btr-keeper oracle-daemon` per cluster instance. Per feed, push when:
+- cold-start (no prior on-chain mark), **or**
+- `|m − p_last| / p_last > θ` (±1 bp stables, ±5 bp volatiles), **or**
+- `heartbeat_s` elapsed since last on-chain push for that feed.
+
+Heartbeat is the staleness ceiling the daemon enforces — not an independent
+watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
+`ttl`; do not conflate with process health checks.
+
+### ttl vs heartbeat
+- Volatile feeds: ttl SHORT (120–300s) so staleness grace = ttl/2 ≈ 60–150s ≈ keeper
+  heartbeat — closes the dead-keeper pick-off window. Stables can keep longer ttl.
+- Enforce ops rule **ttl ≈ 2·heartbeat** (see deploy params below).
+
+### Testnet vs mainnet keeper topology
+- **Testnet:** single keeper instance on K0S; monitoring + alerts preferred over
+  redundant pushers (extra pushes = gas with no demo benefit).
+- **Mainnet (FUTURE OPS — not implemented in code):** primary / secondary / tertiary
+  pushers with **θ-gated failover** — secondary acts only if primary has not landed
+  a mark within θ+heartbeat; tertiary as last resort. Economic tradeoff: HA
+  redundancy costs gas on every θ/heartbeat cycle if all tiers push blindly; gate
+  failover on upstream silence, not parallel triple-push.
 
 ## POOLS (BNB testnet, base = USDC for both)
 - **Stable core:** USDC(base), USDT, USD1, USDE, USDS, FDUSD. (Most-liquid BNB stables.)
@@ -68,7 +101,8 @@
 ### Phase 3 — BNB TESTNET DEPLOYMENT.
 - [ ] Deploy mock ERC20s (symbols/decimals mirror real) + a Faucet contract (rate-limited claim).
 - [ ] Deploy DEX (PoolFactory, Pool impl, PoolAux, Admin, ExternalOracle, Router, singletons) via
-      script/Deploy.s.sol adapted for chapel. Create the 2 pools; add assets; seed liquidity.
+      script/Deploy.s.sol adapted for chapel. Create the 2 pools; add assets (stable-core: all
+      EXTERNAL mode — do not configure INTERNAL constant-peg); seed liquidity.
 - [ ] **Oracle on K0S** (nxrates cluster): ExternalOracle keeper service pushing NX marks per θ+heartbeat
       rules. Feed IDs = MITCH. In-cluster BuildKit build (never Mac/prod-node podman).
 - [ ] **Simulation keeper** (BTR tester key): artificial trades sized so pool util/APY/volume MATCH real BNB
@@ -118,3 +152,9 @@ halt bits (d142d8c) · refFeed no-staleness-gate (3c551e1) · conf=0 EMA freeze 
 - 2026-07-05: Plan created. Decisions locked. Feed rework (A) delegated to worktree agent on HEAD.
 - 2026-07-05: Feed rework + cleanup + audit + paper validation done (248 green). Depth-viz + order-book terminal
   UI in flight. Keeper oracle-daemon WIP stashed (feat/keeper-oracle-push). Deploy params + 2 design calls above.
+- 2026-07-05 (orchestration): DEX-only pivot across keepers/sdk/docs/front. Triple audit → 1 new fix
+  (withdrawTo priceBandGuard bypass, `c267c0f`/`5f0f4be`). Front UI owner checklist closed (7 commits).
+  Keepers: ALM→archive, oracle-daemon+Dockerfile. SDK: ALM archived, ABIs regen, AccessControl restored.
+  Docs: ALM/Prime archived, oracle modes clarified. Internal-oracle stableswap landed (`42b2e0c`…`1ba27fd`, **255/255**).
+- 2026-07-05: Locked heartbeat semantics (staleness bound, not liveness watchdog), stable-core EXTERNAL-only
+  at testnet deploy, mainnet keeper HA pattern documented as future ops (single keeper on testnet).
