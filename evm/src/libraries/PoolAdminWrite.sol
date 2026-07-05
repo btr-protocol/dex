@@ -61,8 +61,10 @@ library PoolAdminWrite {
 
         PoolAdmin.validateProfileMemory(profile);
         PoolAdmin.validateOracleConfig(oracleCfg, self);
+        PoolAdmin.validateRiskConfig(riskCfg);
         PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega);
         PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
+        PoolAdmin.validateInternalMode($, t, oracleCfg); // after asset init: reads reservation band
     }
 
     function setFlowCooldown(IPool.PoolStorage storage $, uint16 cooldownSeconds) external {
@@ -109,6 +111,7 @@ library PoolAdminWrite {
     function setRiskConfig(IPool.PoolStorage storage $, address token, IPool.RiskConfig calldata cfg) external {
         address t = PoolIO.wrap($, token);
         _requireAsset($, t);
+        PoolAdmin.validateRiskConfig(cfg); // κ>0 ⇒ depthAmplifier==0
         // Halt bits survive config writes: a freeze/pause raised during the timelock window must not
         // be cleared (nor sneaked in) by executing a queued RiskConfig — only the explicit
         // unfreeze/unpause ops touch HALT_MASK.
@@ -119,6 +122,7 @@ library PoolAdminWrite {
 
     function setOracleConfig(IPool.PoolStorage storage $, address self, address token, IPool.OracleConfig calldata cfg) external {
         PoolAdmin.validateOracleConfig(cfg, self);
+        PoolAdmin.validateInternalMode($, token, cfg);
         $.oracleConfigs[token] = cfg;
     }
 
