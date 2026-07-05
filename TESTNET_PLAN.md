@@ -85,5 +85,36 @@
 - Keeper key mgmt: KEEPER_PRIVATE_KEY never logged; tester key for the sim keeper is separate.
 - Router/solver off-chain = centralization; needs min-out guard + fallback (built into the plan).
 
+## AUDIT + PAPER OUTCOMES (2026-07-05)
+Feed rework landed (7-field 1-slot FeedData, on-chain rate-clamped EMA, confidence surcharge/halt, internal-
+oracle deleted, quote off fresh mark). Dead-config cleanup landed. Adversarial 7-dim audit (findings refuted 2×)
++ 3-paper validation (Bergault/Swaap line: arXiv 2212.00336, 2405.03496, Swaap v2 WP) run. dex @ 248 tests green.
+
+**Fixed (committed):** depeg-band B64 raw-compare bypass (efe7aa7) · withdrawTo halt bypass (d872486) ·
+input-fee double-count LP drain (1500869) · batchSwap frozen-base transit (f7c2f6d) · setRiskConfig clobbering
+halt bits (d142d8c) · refFeed no-staleness-gate (3c551e1) · conf=0 EMA freeze (6e0a314).
+
+**Verdict:** AIMM = faithful implementation of the paper line (external-mark quoting kills CFMM-LVR; linear skew
++ σ-spread + spline VWAP = their optimal-quote forms). Detail in memory project_aimm_paper_validation.
+
+**DEPLOY PARAMS derived from the papers (set these at addFeed / addAsset — code is correct, params must be right):**
+- Volatile feeds: ttl SHORT (120–300s) so staleness grace = ttl/2 ≈ 60–150s ≈ keeper heartbeat — closes the
+  dead-keeper pick-off window (papers: minutes-scale lag destroys LP economics). Stables can keep longer ttl.
+  Enforce ops rule ttl ≈ 2·heartbeat.
+- Volatile minFee: 2·(θ + z·σ√δ) not just 2·θ. ETH-class on 2s chain ≈ 19bp (z=3) to cover latency-drift
+  residual LVR (the 2θ knife-edge). Stables: 2·θ ≈ 2bp is exactly right. Per-asset minFee via setAssetParams.
+
+**OWNER DESIGN DECISIONS (flagged, NOT auto-applied — need your call):**
+- D1 On-chain push deviation clamp: quotes read the RAW pushed mark; EMA clamp protects only the servable
+  reference. 3 sources flag it (audit + LVR paper manip-warning + Swaap Chainlink-anchor asymmetry). Stolen key
+  ⇒ drain to confidence-halt limit. Testnet OK (trust the keeper). MAINNET-BLOCKING → add per-push |mark−ema|
+  clamp on lastPrice, or 2-of-N pusher quorum, or optional Chainlink cross-check per feed.
+- D2 Δ/U toxic-flow surcharge: dropped from Solidity (directional=RW + no-deferred) but the fees paper endorses
+  a Z-Hawkes trend-widening term as adverse-selection premium (distinct from directional alpha). KEEP-deleted
+  (sVol+staleness already widen on vol) vs PORT-back (paper-optimal). Currently sim-only → aimm.rs header made
+  honest; keep/port pending your call.
+
 ## STATUS LOG (append as we go)
 - 2026-07-05: Plan created. Decisions locked. Feed rework (A) delegated to worktree agent on HEAD.
+- 2026-07-05: Feed rework + cleanup + audit + paper validation done (248 green). Depth-viz + order-book terminal
+  UI in flight. Keeper oracle-daemon WIP stashed (feat/keeper-oracle-push). Deploy params + 2 design calls above.
