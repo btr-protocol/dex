@@ -210,6 +210,50 @@ contract AimmInvariantsTest is Test {
         vm.stopPrank();
     }
 
+    /// Cross-asset withdrawTo must hit the same output-side price band as swap: a reservationPriceMax
+    /// below the live mark blocks delivery of `tokenTo` reserves, not just the swap entrypoint.
+    function test_reservation_band_halts_cross_withdraw() public {
+        vm.prank(OWNER);
+        admin.setAssetParams(
+            address(pool),
+            address(tok),
+            1000,
+            100,
+            10_000,
+            10_000,
+            10_000,
+            10_000,
+            0,
+            uint64(M.encodeB64(PX / 2, 18))
+        );
+        uint256 lp = pool.getLPBalance(address(this), address(base));
+        skip(20);
+        vm.expectRevert(); // Err.PriceBelowReservation — tok mark (PX) > reservationPriceMax (PX/2)
+        pool.withdrawTo(address(base), address(tok), lp / 10, 0);
+    }
+
+    /// Feed-relative band on cross-withdraw: stale refFeedId must fail-closed exactly like swap.
+    function test_refBand_stale_reference_feed_halts_cross_withdraw() public {
+        bytes32 refId = bytes32(uint256(0xB7D));
+        oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 100);
+        IPool.OracleConfig memory oc;
+        oc.primary = address(oracle);
+        oc.feedId = _feedId(address(tok));
+        oc.refFeedId = refId;
+        oc.refBandBps = 500;
+        vm.startPrank(OWNER);
+        admin.requestOracleUpdate(address(pool), address(tok), oc);
+        vm.warp(block.timestamp + 2 days + 1);
+        admin.executeOracleUpdate(address(pool), address(tok));
+        vm.stopPrank();
+        oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), 10_000, 0, 3600);
+
+        uint256 lp = pool.getLPBalance(address(this), address(base));
+        skip(20);
+        vm.expectPartialRevert(Err.StaleData.selector);
+        pool.withdrawTo(address(base), address(tok), lp / 10, 0);
+    }
+
     /// Sanity: a base->tok buy should cost >= TWAP per tok (buyer pays a spread), never a discount.
     function test_buy_never_discount() public {
         uint256 amtIn = 3000e18; // spend 3000 base, expect ~<=1 tok

@@ -169,6 +169,25 @@ contract PoolLifecycleTest is Test {
         assertEq(pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT, 0, "unpaused");
     }
 
+    /// PROTOCOL_PAUSED on an asset must block withdraw (same HALT_MASK gate as swap/deposit).
+    function test_pause_blocks_withdraw() public {
+        uint256 amt = 100e18;
+        base.mint(USER, amt);
+        vm.startPrank(USER);
+        base.approve(address(pool), type(uint256).max);
+        pool.deposit(address(base), amt);
+        uint256 lp = pool.getLPBalance(USER, address(base));
+        skip(60);
+        vm.stopPrank();
+
+        vm.prank(OWNER);
+        admin.pauseAsset(address(pool), address(base));
+
+        vm.prank(USER);
+        vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
+        pool.withdraw(address(base), lp / 2, 0);
+    }
+
     /// PROTOCOL_PAUSED_BIT (bit6) is SEPARATE from FROZEN_BIT (bit0): an emergency pause + an
     /// independent per-asset risk freeze coexist, and clearing one must NOT clear the other.
     function test_pause_and_freeze_are_independent() public {
