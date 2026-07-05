@@ -128,6 +128,13 @@ library PoolLiquidity {
             IPool.Asset storage assetTo = $.assets[ctx.toTk];
             if (assetFrom.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, ctx.fromTk);
             if (assetTo.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, ctx.toTk);
+            // FROZEN/PROTOCOL_PAUSED halt on BOTH endpoints: withdrawTo is a value-moving user
+            // entrypoint (esp. cross-asset, priced off the output mark). Without this a guardian
+            // freeze/pause is bypassed — draining a halted asset's reserves, or pushing a good asset
+            // out priced by a halted/compromised feed. Interior-node halts (Pricing) don't cover
+            // endpoints, and the direct spoke→base case has no interior node at all.
+            PoolIO.checkRisk($, ctx.fromTk, 0);
+            PoolIO.checkRisk($, ctx.toTk, 0);
             PoolDecay.applyDecay($, ctx.fromTk, assetFrom);
             PoolDecay.applyDecay($, ctx.toTk, assetTo);
 
