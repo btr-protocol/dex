@@ -168,19 +168,26 @@ contract ExternalOracle is IOracle {
         internal returns (uint64 ema)
     {
         FeedData storage feed = feeds[feedId];
-        if (feed.updatedAt == 0) revert Err.FeedNotFound(feedId);
+        uint32 prevAt = feed.updatedAt;
+        if (prevAt == 0) revert Err.FeedNotFound(feedId);
         _validate(newPriceB64, newSigma);
 
         // Decay the reference EMA toward the (rate-clamped) new mark, then commit the fresh mark.
         uint256 dt;
-        unchecked { dt = block.timestamp - feed.updatedAt; } // Δt==0 same block ⇒ α=0 (ema frozen)
+        unchecked { dt = block.timestamp - prevAt; } // Δt==0 same block ⇒ α=0 (ema frozen)
         ema = Oracle.updateEma(feed.emaPriceB64, newPriceB64, dt, feed.tau, newConfidence);
 
-        feed.emaPriceB64 = ema;
-        feed.lastPriceB64 = newPriceB64;
-        feed.sigma = newSigma;
-        feed.confidence = newConfidence;
-        feed.updatedAt = uint32(block.timestamp);
+        // FeedData packs into exactly one slot: whole-struct assignment ⇒ single SSTORE
+        // (vs 5 field writes), and ttl/tau reads reuse the already-warm SLOAD.
+        feeds[feedId] = FeedData({
+            lastPriceB64: newPriceB64,
+            emaPriceB64: ema,
+            sigma: newSigma,
+            updatedAt: uint32(block.timestamp),
+            ttl: feed.ttl,
+            confidence: newConfidence,
+            tau: feed.tau
+        });
     }
 
     // ─── IOracle ───
