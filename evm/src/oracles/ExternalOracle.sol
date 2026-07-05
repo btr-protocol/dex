@@ -6,6 +6,7 @@ import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Oracle} from "../libraries/Oracle.sol";
+import {Maths as M} from "../libraries/Maths.sol";
 
 /// @title ExternalOracle
 /// @notice Push-based external oracle. Each push carries a FRESH mark (lastPriceB64 = quote source)
@@ -157,7 +158,7 @@ contract ExternalOracle is IOracle {
 
     // ─── internal ───
     function _validate(uint64 price, uint32 sigma) internal pure {
-        if (price == 0) revert Err.ZeroValue();
+        if (price == 0 || M.b64To1e18(price) == 0) revert Err.ZeroValue();
         // confidence is left unbounded on purpose: the EMA's MAX_BAND_BPS cap makes a huge CI harmless
         // (it only widens the clamp band to its cap), and the swap-side MAX_CONFIDENCE_HALT_BPS gate
         // fail-closes trading past a sane CI — so validation stays minimal.
