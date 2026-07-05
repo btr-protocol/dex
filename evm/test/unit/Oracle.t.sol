@@ -74,6 +74,22 @@ contract LibOracleTest is BaseTestSetup {
         assertApproxEqRel(M.b64To1e18(got), 102.5e18, 0.002e18, "alpha=0.5 half-step to mark");
     }
 
+    /// conf==0 must NOT zero the rate-clamp band: band=0 would clamp every mark back to the current
+    /// ema forever (isFeedFresh stays true), permanently freezing the servable EMA — a no-brick
+    /// violation. With the confidence floor the ema still converges (K_BAND bps/push) toward the mark.
+    function test_updateEma_zeroConfidenceStillConverges() public pure {
+        uint64 ema = M.encodeB64(100e18, 18);
+        uint64 target = M.encodeB64(110e18, 18);
+        // First push must MOVE (pre-fix: band=0 ⇒ frozen at 100 forever).
+        uint64 first = Oracle.updateEma(ema, target, 100, 100, 0); // α=1, conf=0
+        assertGt(M.b64To1e18(first), 100e18, "conf=0 must not freeze the EMA");
+        // And keep converging: band/push = K_BAND bps ⇒ +10% needs ~120 pushes; 500 is ample.
+        for (uint256 i; i < 500; ++i) {
+            ema = Oracle.updateEma(ema, target, 100, 100, 0);
+        }
+        assertApproxEqRel(M.b64To1e18(ema), 110e18, 0.001e18, "conf=0 EMA converges to the mark");
+    }
+
     /// A real move converges over successive full-decay pushes (each clamped by the band), never bricking.
     function test_updateEma_convergesOverPushes() public pure {
         uint64 ema = M.encodeB64(100e18, 18);
