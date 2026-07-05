@@ -29,50 +29,6 @@ library Pricing {
     uint256 private constant MAX_IMPACT = 2 * SC.WAD;   // 200%
     uint256 private constant MIN_ADJ = SC.WAD / 1000;   // 0.1%
 
-
-    /// @dev covFlags bit0: convex (1/c−1) coverage premium (diverges as c→0 = hard no-drain wall,
-    ///      for stables) vs the linear (1−c) bounded spring (for volatiles).
-    uint16 internal constant COV_CONVEX_BIT = 0x01;
-
-    /// @notice Coverage-convergence premium (PBPS), the vol-INDEPENDENT re-peg term. Quotes an
-    ///         under-covered asset (c<1) at a premium so corrective flow re-pegs it to 1; over-covered
-    ///         (c>1) gets a symmetric discount. Convex form `κ·(1/c−1)` diverges as c→0 (Wombat-grade
-    ///         no-drain wall, for stables); linear `κ·(1−c)` is bounded (for volatiles). Clamped to
-    ///         ±premCap (PBPS). Returns a signed PBPS offset to ADD to the price multiplier.
-    /// @dev Unlike the dispersion-scaled skew (∝σ, ~0 for stables), this is vol-independent so it
-    ///      re-pegs stables strongly. Complements the skew (does not replace it). κ=0 ⇒ 0 (disabled).
-    /// @dev ⚠ NOT wired into pricing yet. A naive uniform mark-shift injection (twap·(1+premium) at
-    ///      pre-trade coverage) is NON-CONSERVATIVE and round-trip-extractable in the uncapped regime
-    ///      — proven by `test/unit/PoolRepegExploit.t.sol` (sell under-covered → buy back nets +0.8%).
-    ///      Production re-peg must integrate the premium along the coverage path (Wombat-style
-    ///      invariant), not shift the mark uniformly. This primitive + the RiskConfig params are the
-    ///      validated building blocks for that conservative injection; the sim (prime `amm/aimm.rs`)
-    ///      proves convergence under honest flow.
-    function covPremiumBps(
-        uint256 coverage, // WAD (1e18 = 100%)
-        uint16 kappaCovBps,
-        uint16 premCapBps,
-        bool convex
-    ) internal pure returns (int256 offBps) {
-        if (kappaCovBps == 0 || coverage == SC.WAD) return 0;
-        bool under = coverage < SC.WAD;
-        // deficit magnitude in WAD: convex 1/c−1 (unbounded as c→0) or linear |1−c|.
-        uint256 defWad;
-        if (convex) {
-            // |1/c − 1| = |WAD − c| / c  (in WAD)
-            uint256 diff = under ? SC.WAD - coverage : coverage - SC.WAD;
-            defWad = (diff * SC.WAD) / coverage;
-        } else {
-            defWad = under ? SC.WAD - coverage : coverage - SC.WAD;
-        }
-        // premium (PBPS) = κ · deficit; κ in BPS. defWad(WAD)·κ(BPS)/BPS → WAD; ·PBPS/WAD → PBPS.
-        uint256 prem = (defWad * uint256(kappaCovBps)) / SC.BPS; // WAD-scaled
-        prem = (prem * SC.PBPS) / SC.WAD; // → PBPS
-        uint256 cap = uint256(premCapBps);
-        if (prem > cap) prem = cap;
-        return under ? int256(prem) : -int256(prem);
-    }
-
     /// @notice Avellaneda-Stoikov inventory skew. Linear: skew = sign*γ*100*progress, clamp [-100,+100].
     ///         At critMin: +γ*100 (premium); target=WAD: 0; critMax: -γ*100 (discount).
     ///         coverageMin/Max in 0.01% units (10000=100%). gamma in BPS (10000=1x).
@@ -299,7 +255,6 @@ library Pricing {
         uint128 reserves;
         uint128 liabilities;
         uint16 vega;
-        uint16 lambda;
         uint16 gamma;
         uint16 coverageMin;
         uint16 coverageMax;
@@ -311,7 +266,6 @@ library Pricing {
     struct PathAccumulator {
         uint256 currentAmount;
         uint32 sigmaPair;
-        uint32 deltaPair;
         uint16 minFeePath;
         uint16 maxFeePath;
     }
@@ -363,12 +317,10 @@ library Pricing {
         quote.skewOut = computeInventorySkew(cacheOut.reserves, cacheOut.liabilities, cacheOut.coverageMin, cacheOut.coverageMax, cacheOut.gamma);
     }
 
-    /// @dev Full path spread (PBPS, clamped): S_vol + U (Δ-surcharge) + U_stale, then clamp to the
-    ///      path fee bounds. Pulled out of `getAnchorPathQuote` to keep that function off the
-    ///      stack-too-deep edge (sVol/rawSpread live here, not in the hot frame).
+    /// @dev Full path spread (PBPS, clamped): S_vol + U_stale, then clamp to the path fee bounds.
+    ///      Pulled out of `getAnchorPathQuote` to keep that function off the stack-too-deep edge
+    ///      (sVol/rawSpread live here, not in the hot frame).
     ///      - S_vol = 100 + σ·vega/100 (symmetric vol band).
-    ///      - U = Δ·λ/BPS (adverse-selection surcharge, keys on Δ only — NOT coverage direction; coverage
-    ///        drives the MID via computeInventorySkew alone).
     ///      - U_stale = STALE_Z·σ·√(age)/100 keyed on the stalest endpoint: defense-in-depth for keeper
     ///        LAG so a late/censored keeper degrades gracefully (wider quote) rather than being picked
     ///        off up to the hard TTL revert. ≈0 when fresh (age→0). With the deviation-triggered push
@@ -378,7 +330,6 @@ library Pricing {
     {
         uint256 sVol = 100 + (uint256(acc.sigmaPair) * uint256(cIn.vega > cOut.vega ? cIn.vega : cOut.vega)) / (100 * SC.BPS);
         uint256 rawSpread = sVol
-            + (uint256(acc.deltaPair) * uint256(cIn.lambda > cOut.lambda ? cIn.lambda : cOut.lambda)) / SC.BPS
             + _staleTerm(cIn.staleExcess > cOut.staleExcess ? cIn.staleExcess : cOut.staleExcess, acc.sigmaPair);
         return rawSpread < uint256(acc.minFeePath)
             ? acc.minFeePath
@@ -423,7 +374,6 @@ library Pricing {
         cache.reserves = asset.reserves;
         cache.liabilities = asset.liabilities;
         cache.vega = asset.vega;
-        cache.lambda = asset.lambda;
         cache.gamma = asset.gamma;
         cache.coverageMin = rc.coverageMin;
         cache.coverageMax = rc.coverageMax;
@@ -468,25 +418,24 @@ library Pricing {
         IPool.SwapQuote memory quote
     ) private {
         for (uint256 i = 0; i < path.hops.length - 1; i++) {
-            (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minF, uint16 maxF, uint64 execPriceB64) =
+            (uint256 amountOut, uint32 sigma, uint16 minF, uint16 maxF, uint64 execPriceB64) =
                 _executeLeg($, path.hops[i], path.hops[i + 1], acc.currentAmount);
             acc.currentAmount = amountOut;
             quote.hopAmounts[i + 1] = amountOut;
             quote.hopPrices[i] = execPriceB64;
             if (sigma > acc.sigmaPair) acc.sigmaPair = sigma;
-            if (delta > acc.deltaPair) acc.deltaPair = delta;
             if (minF > acc.minFeePath) acc.minFeePath = minF;
             if (maxF > acc.maxFeePath) acc.maxFeePath = maxF;
         }
     }
 
-    /// @dev Execute one path leg → (out, σ, Δ, minFee, maxFee, execPriceB64).
+    /// @dev Execute one path leg → (out, σ, minFee, maxFee, execPriceB64).
     function _executeLeg(
         IPool.PoolStorage storage $,
         address from,
         address to,
         uint256 amountIn
-    ) private returns (uint256 amountOut, uint32 sigma, uint32 delta, uint16 minFee, uint16 maxFee, uint64 execPriceB64) {
+    ) private returns (uint256 amountOut, uint32 sigma, uint16 minFee, uint16 maxFee, uint64 execPriceB64) {
         // F-A4-3 (LOW): guard against zero amountIn -mirrors HIGH-style explicit zero checks.
         // Prior code did execPriceB64 derivation by `amountOut * 1e18 ... / amountIn`, which divides
         // by zero on amountIn==0; revert here gives a clean error vs panic.
@@ -509,8 +458,6 @@ library Pricing {
             (twap,) = Oracle.decodeB64s(feed);
         }
         sigma = Oracle.getSigma(feed);
-        int32 fastSpread = feed.fastOffset - feed.slowOffset;
-        delta = fastSpread < 0 ? uint32(-fastSpread) : uint32(fastSpread);
 
         IPool.Asset storage asset = $.assets[profileAsset];
         IPool.RiskConfig memory rc = $.riskConfigs[profileAsset];
