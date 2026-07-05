@@ -20,48 +20,21 @@ library AdminTimelock {
         uint16 vega;
     }
 
+    /// @dev Two-blob encode keeps `abi.decode` off the via_ir stack-too-deep edge as IPool structs grow.
     function encodeAddAsset(AddAssetPayload memory p) internal pure returns (bytes memory) {
-        return abi.encode(
-            p.token,
-            p.oracleCfg,
-            p.riskCfg,
-            p.profile,
-            p.minFeeBps,
-            p.decimals,
-            p.minDispersion,
-            p.maxDispersion,
-            p.gamma,
-            p.vega
-        );
+        bytes memory head = abi.encode(p.token, p.oracleCfg, p.riskCfg, p.profile);
+        bytes memory tail = abi.encode(p.minFeeBps, p.decimals, p.minDispersion, p.maxDispersion, p.gamma, p.vega);
+        return abi.encode(head, tail);
     }
 
     function decodeAddAsset(bytes memory raw) internal pure returns (AddAssetPayload memory p) {
-        (
-            p.token,
-            p.oracleCfg,
-            p.riskCfg,
-            p.profile,
-            p.minFeeBps,
-            p.decimals,
-            p.minDispersion,
-            p.maxDispersion,
-            p.gamma,
-            p.vega
-        ) = abi.decode(
-            raw,
-            (
-                address,
-                IPool.OracleConfig,
-                IPool.RiskConfig,
-                IPool.LiquidityProfile,
-                uint16,
-                uint8,
-                uint32,
-                uint32,
-                uint16,
-                uint16
-            )
-        );
+        bytes memory head;
+        bytes memory tail;
+        (head, tail) = abi.decode(raw, (bytes, bytes));
+        (p.token, p.oracleCfg, p.riskCfg, p.profile) =
+            abi.decode(head, (address, IPool.OracleConfig, IPool.RiskConfig, IPool.LiquidityProfile));
+        (p.minFeeBps, p.decimals, p.minDispersion, p.maxDispersion, p.gamma, p.vega) =
+            abi.decode(tail, (uint16, uint8, uint32, uint32, uint16, uint16));
     }
 
     /// @dev External entry gets a fresh stack frame (avoids stack-too-deep on the pool call).
