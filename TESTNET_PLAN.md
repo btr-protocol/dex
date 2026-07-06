@@ -97,6 +97,7 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
 - [ ] Mature + polished (owner: UI must be sharp for VC/LP/trader pitch) BEFORE testnet deploy.
 
 ### Phase 3 — BNB TESTNET DEPLOYMENT.
+- [x] **Deploy script:** `TestnetDeploy.s.sol` — mocks + Faucet + ExternalOracle + 2 pools + seed liquidity + JSON.
 - [ ] Deploy mock ERC20s (symbols/decimals mirror real) + a Faucet contract (rate-limited claim).
 - [ ] Deploy DEX (PoolFactory, Pool impl, PoolAux, Admin, ExternalOracle, Router, singletons) via
       script/Deploy.s.sol adapted for chapel. Create the 2 pools; add assets (stable-core: all
