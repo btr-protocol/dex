@@ -160,3 +160,5 @@ back/services/*/data/
 
 # Native addons
 *.node
+
+.claude/

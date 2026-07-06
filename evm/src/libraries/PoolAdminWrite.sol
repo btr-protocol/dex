@@ -30,6 +30,18 @@ library PoolAdminWrite {
         $.riskConfigs[t].flags &= ~C.FROZEN_BIT;
     }
 
+    function pauseAsset(IPool.PoolStorage storage $, address token) external {
+        address t = PoolIO.wrap($, token);
+        _requireAsset($, t);
+        $.riskConfigs[t].flags |= C.PROTOCOL_PAUSED_BIT;
+    }
+
+    function unpauseAsset(IPool.PoolStorage storage $, address token) external {
+        address t = PoolIO.wrap($, token);
+        _requireAsset($, t);
+        $.riskConfigs[t].flags &= ~C.PROTOCOL_PAUSED_BIT; // clears ONLY bit6 — an independent FROZEN survives
+    }
+
     function initAsset(
         IPool.PoolStorage storage $,
         address self,
@@ -39,25 +51,21 @@ library PoolAdminWrite {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external {
-        if (initialPrice == 0) revert Err.ZeroValue();
-        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
-
         address t = PoolIO.wrap($, token);
         if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
 
         PoolAdmin.validateProfileMemory(profile);
         PoolAdmin.validateOracleConfig(oracleCfg, self);
-        PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
-        PoolAdmin.setupOracleAndConfig($, self, t, oracleCfg, riskCfg, profile, initialPrice, initialFastVolEMA, initialSlowVolEMA);
+        PoolAdmin.validateRiskConfig(riskCfg);
+        if (minFeeBps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
+        PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega);
+        PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
+        PoolAdmin.validateInternalMode($, t, oracleCfg); // after asset init: reads reservation band
     }
 
     function setFlowCooldown(IPool.PoolStorage storage $, uint16 cooldownSeconds) external {
@@ -81,33 +89,42 @@ library PoolAdminWrite {
         uint16 maxFeeBps,
         uint16 gamma,
         uint16 vega,
-        uint16 lambda,
         uint16 haircutSuppressor,
-        uint64 reservationPrice
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
     ) external {
         address t = PoolIO.wrap($, token);
         IPool.Asset storage asset = $.assets[t];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
         if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
+        if (minFeeBps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
+        if (reservationPriceMax != 0 && reservationPriceMax < reservationPrice) revert Err.InvalidInput();
 
         asset.minLiquidity = minLiquidity;
         asset.minFeeBps = minFeeBps;
         asset.maxFeeBps = maxFeeBps;
         asset.gamma = gamma;
         asset.vega = vega;
-        asset.lambda = lambda;
         asset.haircutSuppressor = haircutSuppressor;
         asset.reservationPrice = reservationPrice;
+        asset.reservationPriceMax = reservationPriceMax;
     }
 
     function setRiskConfig(IPool.PoolStorage storage $, address token, IPool.RiskConfig calldata cfg) external {
         address t = PoolIO.wrap($, token);
         _requireAsset($, t);
+        PoolAdmin.validateRiskConfig(cfg); // κ>0 ⇒ depthAmplifier==0
+        // Halt bits survive config writes: a freeze/pause raised during the timelock window must not
+        // be cleared (nor sneaked in) by executing a queued RiskConfig — only the explicit
+        // unfreeze/unpause ops touch HALT_MASK.
+        uint16 halt = $.riskConfigs[t].flags & C.HALT_MASK;
         $.riskConfigs[t] = cfg;
+        $.riskConfigs[t].flags = (cfg.flags & ~C.HALT_MASK) | halt;
     }
 
     function setOracleConfig(IPool.PoolStorage storage $, address self, address token, IPool.OracleConfig calldata cfg) external {
         PoolAdmin.validateOracleConfig(cfg, self);
+        PoolAdmin.validateInternalMode($, token, cfg);
         $.oracleConfigs[token] = cfg;
     }
 

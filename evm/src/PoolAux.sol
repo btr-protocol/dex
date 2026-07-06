@@ -63,6 +63,14 @@ contract PoolAux is ReentrancyGuardTransient {
         PoolAdminWrite.unfreezeAsset($, token);
     }
 
+    function adminPauseAsset(address token) external onlyAdmin {
+        PoolAdminWrite.pauseAsset($, token);
+    }
+
+    function adminUnpauseAsset(address token) external onlyAdmin {
+        PoolAdminWrite.unpauseAsset($, token);
+    }
+
     function adminInitAsset(
         address token,
         IPool.OracleConfig calldata oracleCfg,
@@ -70,19 +78,14 @@ contract PoolAux is ReentrancyGuardTransient {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external onlyAdmin {
         PoolAdminWrite.initAsset(
             $, address(this), token, oracleCfg, riskCfg, profile,
-            minFeeBps, decimals, initialPrice, initialFastVolEMA, initialSlowVolEMA,
-            minDispersion, maxDispersion, gamma, vega, lambda
+            minFeeBps, decimals, minDispersion, maxDispersion, gamma, vega
         );
     }
 
@@ -107,11 +110,11 @@ contract PoolAux is ReentrancyGuardTransient {
         uint16 maxFeeBps,
         uint16 gamma,
         uint16 vega,
-        uint16 lambda,
         uint16 haircutSuppressor,
-        uint64 reservationPrice
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
     ) external onlyAdmin {
-        PoolAdminWrite.setAssetParams($, token, minLiquidity, minFeeBps, maxFeeBps, gamma, vega, lambda, haircutSuppressor, reservationPrice);
+        PoolAdminWrite.setAssetParams($, token, minLiquidity, minFeeBps, maxFeeBps, gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax);
     }
 
     function adminSetRiskConfig(address token, IPool.RiskConfig calldata cfg) external onlyAdmin {
@@ -151,28 +154,5 @@ contract PoolAux is ReentrancyGuardTransient {
 
     function flashAccount(address token, uint256 fee, uint256 protoFee) external onlyFlash {
         PoolEdge.flashAccount($, token, fee, protoFee);
-    }
-
-    // ── ORACLE edge ──
-
-    function updateFeed(
-        address token,
-        uint64 initialPrice,
-        uint8 accDecimals,
-        uint32 fastVolEMA,
-        uint32 slowVolEMA
-    ) external {
-        // Cohort-3 Finding 5 -dead `msg.sender == address(this)` branch removed
-        // (no internal self-caller exists). Owner-only.
-        if (msg.sender != _owner()) revert Err.NotOwner();
-        PoolEdge.updateFeed($, token, initialPrice, accDecimals, fastVolEMA, slowVolEMA);
-    }
-
-    /// @notice Permissionless. Callable by anyone to update oracle accumulators
-    ///         for `tk` and return the refreshed mid price. Keepers expected.
-    /// @dev    Cohort-3 Finding 4 -intentionally unauthenticated; per-block TWAP
-    ///         poisoning guard lives in PoolOracle.
-    function pokeMidPrice(address tk) external returns (uint256) {
-        return PoolEdge.pokeMidPrice($, address(this), tk);
     }
 }
