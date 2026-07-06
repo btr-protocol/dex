@@ -54,7 +54,7 @@ library PoolLiquidity {
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tkn);
 
         PoolDecay.applyDecay($, tkn, asset);
-        if (($.riskConfigs[tkn].flags & C.FROZEN_BIT) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
+        if (($.riskConfigs[tkn].flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
 
         uint256 amt = PoolIO.pull($, token, amount);
         if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
@@ -128,6 +128,13 @@ library PoolLiquidity {
             IPool.Asset storage assetTo = $.assets[ctx.toTk];
             if (assetFrom.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, ctx.fromTk);
             if (assetTo.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, ctx.toTk);
+            // FROZEN/PROTOCOL_PAUSED halt on BOTH endpoints: withdrawTo is a value-moving user
+            // entrypoint (esp. cross-asset, priced off the output mark). Without this a guardian
+            // freeze/pause is bypassed — draining a halted asset's reserves, or pushing a good asset
+            // out priced by a halted/compromised feed. Interior-node halts (Pricing) don't cover
+            // endpoints, and the direct spoke→base case has no interior node at all.
+            PoolIO.checkRisk($, ctx.fromTk, 0);
+            PoolIO.checkRisk($, ctx.toTk, 0);
             PoolDecay.applyDecay($, ctx.fromTk, assetFrom);
             PoolDecay.applyDecay($, ctx.toTk, assetTo);
 
@@ -174,6 +181,7 @@ library PoolLiquidity {
         IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
         IPool.Asset storage assetTo = $.assets[ctx.toTk];
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, ctx.fromTk, ctx.toTk, ctx.withdrawValue);
+        PoolIO.priceBandGuard($, ctx.toTk, assetTo);
         (ctx.amt, ctx.haircut) = applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
         if (assetTo.reserves < ctx.amt + q.protoFee) revert Err.InsufficientAmount(assetTo.reserves, ctx.amt + q.protoFee);
 

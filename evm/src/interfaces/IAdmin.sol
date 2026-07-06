@@ -20,14 +20,10 @@ interface IAdmin {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external;
     function collectProtocolFees(address pool, address token, address recipient) external;
     function setFlowCooldown(address pool, uint16 cooldownSeconds) external;
@@ -40,9 +36,9 @@ interface IAdmin {
         uint16 maxFeeBps,
         uint16 gamma,
         uint16 vega,
-        uint16 lambda,
         uint16 haircutSuppressor,
-        uint64 reservationPrice
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
     ) external;
 
     // ── timelocked governance ──
@@ -54,14 +50,10 @@ interface IAdmin {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external;
     function executeAddAsset(address pool, address token) external;
 
@@ -90,6 +82,16 @@ interface IAdmin {
     event ProtocolFeesCollected(address indexed pool, address indexed token, address indexed recipient, uint256 amount);
     event EmergencyFreeze(address indexed pool, address indexed token);
     event EmergencyUnfreeze(address indexed pool, address indexed token);
+    event ProtocolPause(address indexed pool, address indexed token);
+    event ProtocolUnpause(address indexed pool, address indexed token);
+    /// @dev Batch op applied to one (pool,token) leg; `op` = IAdmin.BatchOp.
+    event BatchRiskOp(address indexed pool, address indexed token, uint8 op);
+    /// @dev A batch leg that reverted (uninit pool / unlisted asset) and was SKIPPED, not reverted —
+    ///      one bad leg must never brick an emergency sweep. Operator reconciles from these.
+    event BatchLegSkipped(address indexed pool, address indexed token);
+
+    /// @notice Risk-op selector for `Admin.batchRiskOp`.
+    enum BatchOp { Freeze, Unfreeze, Pause, Unpause }
     event FlowCooldownUpdated(address indexed pool, uint16 oldCooldown, uint16 newCooldown);
 
     event TimelockRequested(address indexed pool, bytes32 indexed id, uint8 opType, uint48 executableAt);

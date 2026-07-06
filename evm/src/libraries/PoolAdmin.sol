@@ -4,8 +4,9 @@ pragma solidity =0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
+import {Maths as M} from "./Maths.sol";
+import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
-import {PoolOracle} from "./PoolOracle.sol";
 
 /// @title PoolAdmin -admin-side validation + initialization helpers for Pool.
 /// @notice Phase 42H.D · Round 2 · G1 LOC reduction -extracts oracle/risk/profile
@@ -38,17 +39,38 @@ library PoolAdmin {
         }
     }
 
-    /// @notice Validate oracle config: primary set + reachable; secondary reachable if set.
+    /// @notice Validate risk config: κ>0 (convex coverage wall) forbids depthAmplifier>0. The
+    ///         calculateDepth c<1 branch SUBSIDIZES a draining trade (extra virtual depth), which fights
+    ///         the wall it is meant to erect — mutually exclusive by construction, enforced here.
+    function validateRiskConfig(IPool.RiskConfig memory cfg) internal pure {
+        if (cfg.kappaCovBps > 0 && cfg.depthAmplifier > 0) revert Err.BadConfig();
+    }
+
+    /// @notice Validate oracle config: primary set + reachable, plus INTERNAL-mode gating.
+    /// @dev INTERNAL (constant-peg) mode requires: pegB64>0; a live gate feed (primary+feedId); a depeg
+    ///      breaker (absolute reservation band on the asset OR refFeedId+refBandBps); and — the on-chain
+    ///      ELIGIBILITY rule — any ref band be TIGHT (≤ MAX_STABLE_DEPEG_BAND_BPS), so a loosely/variable-
+    ///      pegged unit (which cannot hold so tight a band) is rejected and must use EXTERNAL mode.
+    function validateInternalMode(IPool.PoolStorage storage $, address token, IPool.OracleConfig memory cfg)
+        internal view
+    {
+        if (cfg.mode == C.ORACLE_MODE_EXTERNAL) return;
+        if (cfg.mode != C.ORACLE_MODE_INTERNAL) revert Err.BadConfig();
+        IPool.Asset storage a = $.assets[token];
+        if (a.pegB64 == 0) revert Err.BadConfig();
+        if (cfg.primary == address(0) || cfg.feedId == bytes32(0)) revert Err.NotConfigured(Err.Resource.ORACLE, token);
+        bool refBand = cfg.refFeedId != bytes32(0) && cfg.refBandBps != 0;
+        bool absBand = a.reservationPrice != 0 || a.reservationPriceMax != 0;
+        if (!refBand && !absBand) revert Err.NotConfigured(Err.Resource.ORACLE, token);
+        if (refBand && cfg.refBandBps > C.MAX_STABLE_DEPEG_BAND_BPS) revert Err.BadConfig();
+    }
+
+    /// @notice Validate oracle config: primary set + reachable.
     /// @dev `self` = the calling Pool address; allows internal-oracle wiring without try/catch.
     function validateOracleConfig(IPool.OracleConfig memory cfg, address self) internal view {
         if (cfg.primary == address(0)) revert Err.InvalidInput();
         if (cfg.primary != self) {
             try IOracle(cfg.primary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {} catch {
-                revert Err.InvalidInput();
-            }
-        }
-        if (cfg.secondary != address(0) && cfg.secondary != self) {
-            try IOracle(cfg.secondary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {} catch {
                 revert Err.InvalidInput();
             }
         }
@@ -63,8 +85,7 @@ library PoolAdmin {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) internal {
         IPool.Asset storage asset = $.assets[t];
         asset.decimals = decimals;
@@ -80,8 +101,8 @@ library PoolAdmin {
         asset.maxDispersion = mx;
         asset.gamma = gamma == 0 ? uint16(SC.BPS) : gamma;
         asset.vega = vega == 0 ? uint16(SC.BPS) : vega;
-        asset.lambda = lambda == 0 ? uint16(SC.BPS) : lambda;
         asset.haircutSuppressor = uint16(SC.BPS);
+        asset.pegB64 = M.encodeB64(SC.WAD, 18); // INTERNAL-mode default peg (1.0 base-per-asset)
 
         if (t == $.baseToken) {
             asset.anchor = address(0);
@@ -92,26 +113,17 @@ library PoolAdmin {
         }
     }
 
-    /// @notice Wire oracle/risk/profile slots + seed internal accumulator if self-oracle.
+    /// @notice Wire oracle/risk/profile slots. The mark now lives in the external oracle (primary);
+    ///         no per-asset feed is seeded on-chain (internal-TWAP discovery removed).
     function setupOracleAndConfig(
         IPool.PoolStorage storage $,
-        address self,
         address t,
         IPool.OracleConfig memory oracleCfg,
         IPool.RiskConfig memory riskCfg,
-        IPool.LiquidityProfile memory profile,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA
+        IPool.LiquidityProfile memory profile
     ) internal {
         $.oracleConfigs[t] = oracleCfg;
         $.riskConfigs[t] = riskCfg;
         $.profiles[t] = profile;
-
-        if (oracleCfg.primary == self) {
-            uint8 accDec = oracleCfg.accDecimals == 0 ? 6 : oracleCfg.accDecimals;
-            PoolOracle.initFeed($, t, initialPrice, accDec, initialFastVolEMA, initialSlowVolEMA);
-            emit IOracle.OracleUpdated(t, initialPrice, initialFastVolEMA, initialSlowVolEMA);
-        }
     }
 }

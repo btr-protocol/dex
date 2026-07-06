@@ -13,7 +13,7 @@ import {IPoolHooks} from "../src/interfaces/IPoolHooks.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {PoolHookExec} from "../src/libraries/PoolHookExec.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
-import {MockAC} from "./fixtures/BaseTestSetup.sol";
+import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
 /// @notice MockHooks: records inbound calls + returns configurable fee/delta.
@@ -66,6 +66,7 @@ contract PoolHooksAccountingTest is Test {
     Admin admin;
     Flash flashSingleton;
     MockAC ac;
+    MockOracle oracle;
     Pool pool;
     MockERC20 base;
     MockERC20 quote;
@@ -85,8 +86,8 @@ contract PoolHooksAccountingTest is Test {
         r.depthAmplifier = 10000;
         r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
-    function _oracleCfg() internal view returns (IPool.OracleConfig memory o) {
-        o.primary = address(pool); o.modeFlags = C.MODE_USE_INTERNAL; o.accDecimals = 18;
+    function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
+        o.primary = address(oracle); o.feedId = bytes32(uint256(uint160(token)));
     }
 
     function setUp() public {
@@ -108,13 +109,14 @@ contract PoolHooksAccountingTest is Test {
         address pa = factory.createPool(address(base), toks, initdata);
         pool = Pool(payable(pa));
 
-        IPool.OracleConfig memory oc = _oracleCfg();
+        oracle = new MockOracle();
+        oracle.setMark(address(base),  M.encodeB64(1e18, 18));
+        oracle.setMark(address(quote), M.encodeB64(1e18, 18));
         IPool.RiskConfig memory rc = _risk();
         IPool.LiquidityProfile memory pf = _profile();
-        uint64 px = M.encodeB64(1e18, 18);
         vm.startPrank(OWNER);
-        admin.addAsset(pa, address(base),  oc, rc, pf, 1000, 18, px, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(pa, address(quote), oc, rc, pf, 1000, 18, px, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(pa, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
+        admin.addAsset(pa, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
         vm.stopPrank();
 
         // Seed both sides w/ liquidity so swaps execute.
@@ -149,6 +151,30 @@ contract PoolHooksAccountingTest is Test {
 
         // Sanity: protoFee was actually charged on tokenOut (otherwise invariant is trivial).
         assertGt(feesOut, 0, "protoFee charged on tokenOut");
+    }
+
+    /// @notice LP profitability: a swap must NEVER reduce total LP reserve value. base/quote both mark
+    ///         1:1, so aggregate LP value = reservesBase + reservesQuote. Pre-fix the input-side fee was
+    ///         skimmed 100% into protocolFees[tkIn] while the output was priced off the full input, so
+    ///         LP net was negative (-protoFee/swap) and treasury over-collected. Now the fee is charged
+    ///         once on the output; LP retains lpFee + price-impact and the treasury only takes protoFee.
+    function test_LP_reserve_value_never_decreases_on_swap() public {
+        uint256 amt = 10_000e18;
+        base.mint(USER, amt);
+        vm.prank(USER); base.approve(address(pool), type(uint256).max);
+
+        uint256 lpBefore = uint256(pool.getAsset(address(base)).reserves) + pool.getAsset(address(quote)).reserves;
+        uint256 protoQBefore = pool.getProtocolFees(address(quote));
+
+        vm.prank(USER);
+        pool.swap(address(base), address(quote), amt, 0, USER);
+
+        uint256 lpAfter = uint256(pool.getAsset(address(base)).reserves) + pool.getAsset(address(quote)).reserves;
+        assertGe(lpAfter, lpBefore, "LP total reserve value must not decrease on a swap");
+        // Fee is taken on the output side only; treasury still earns its protoFee share.
+        assertGt(pool.getProtocolFees(address(quote)) - protoQBefore, 0, "treasury earns protoFee on output");
+        // Input side must NOT be skimmed into the treasury (the drained-LP vector).
+        assertEq(pool.getProtocolFees(address(base)), 0, "no input-side protocol fee");
     }
 
     /// @notice R8 fuzz: conservation holds across a range of input sizes.

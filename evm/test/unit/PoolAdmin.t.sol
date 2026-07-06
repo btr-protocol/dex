@@ -3,7 +3,6 @@ pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolAdmin} from "../../src/libraries/PoolAdmin.sol";
-import {PoolOracle} from "../../src/libraries/PoolOracle.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
@@ -28,7 +27,6 @@ contract PoolAdminHarness {
     function getOracleConfig(address t) external view returns (IPool.OracleConfig memory) { return $.oracleConfigs[t]; }
     function getRiskConfig(address t) external view returns (IPool.RiskConfig memory) { return $.riskConfigs[t]; }
     function getProfile(address t) external view returns (IPool.LiquidityProfile memory) { return $.profiles[t]; }
-    function getAccumulator(address t) external view returns (IPool.FeedAccumulator memory) { return $.accumulators[t]; }
 
     function callValidateProfileMemory(IPool.LiquidityProfile memory p) external pure {
         PoolAdmin.validateProfileMemory(p);
@@ -45,23 +43,18 @@ contract PoolAdminHarness {
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external {
-        PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega, lambda);
+        PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega);
     }
 
     function callSetupOracleAndConfig(
-        address self,
         address t,
         IPool.OracleConfig memory oracleCfg,
         IPool.RiskConfig memory riskCfg,
-        IPool.LiquidityProfile memory profile,
-        uint64 initialPrice,
-        uint32 fastVol,
-        uint32 slowVol
+        IPool.LiquidityProfile memory profile
     ) external {
-        PoolAdmin.setupOracleAndConfig($, self, t, oracleCfg, riskCfg, profile, initialPrice, fastVol, slowVol);
+        PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
     }
 }
 
@@ -155,20 +148,10 @@ contract PoolAdminTest is Test {
         h.callValidateOracleConfig(cfg, address(h));
     }
 
-    function test_validateOracle_secondaryReverts() public {
-        MockOracle bad = new MockOracle();
-        bad.setRevert(true);
-        IPool.OracleConfig memory cfg;
-        cfg.primary = address(mock);
-        cfg.secondary = address(bad);
-        vm.expectRevert(Err.InvalidInput.selector);
-        h.callValidateOracleConfig(cfg, address(h));
-    }
-
     // ─── initAsset ───
 
     function test_initAsset_baseTokenHasNoAnchor() public {
-        h.callInitAsset(BASE, 18, 30, 0, 0, 0, 0, 0);
+        h.callInitAsset(BASE, 18, 30, 0, 0, 0, 0);
         IPool.Asset memory a = h.getAsset(BASE);
         assertEq(a.decimals, 18);
         assertEq(a.minFeeBps, 30);
@@ -180,12 +163,11 @@ contract PoolAdminTest is Test {
         assertEq(a.maxDispersion, 100000);
         assertEq(a.gamma, 10000);
         assertEq(a.vega, 10000);
-        assertEq(a.lambda, 10000);
         assertEq(a.haircutSuppressor, 10000);
     }
 
     function test_initAsset_nonBaseAnchorsToBase() public {
-        h.callInitAsset(TKA, 6, 25, 500, 50000, 8000, 9000, 9500);
+        h.callInitAsset(TKA, 6, 25, 500, 50000, 8000, 9000);
         IPool.Asset memory a = h.getAsset(TKA);
         assertEq(a.decimals, 6);
         assertEq(a.minFeeBps, 25);
@@ -195,7 +177,6 @@ contract PoolAdminTest is Test {
         assertEq(a.maxDispersion, 50000);
         assertEq(a.gamma, 8000);
         assertEq(a.vega, 9000);
-        assertEq(a.lambda, 9500);
     }
 
     // ─── setupOracleAndConfig ───
@@ -208,38 +189,11 @@ contract PoolAdminTest is Test {
         rc.decayStartRatioBps = 5000;
         IPool.LiquidityProfile memory p = _validProfile();
 
-        h.callSetupOracleAndConfig(
-            address(h), TKA, oc, rc, p,
-            M.encodeB64(1e18, 6), uint32(100), uint32(50)
-        );
+        h.callSetupOracleAndConfig(TKA, oc, rc, p);
 
         assertEq(h.getOracleConfig(TKA).primary, address(mock));
         assertEq(h.getRiskConfig(TKA).decayStartRatioBps, 5000);
         assertEq(uint256(h.getProfile(TKA).weights[0]), 100);
-        // Non-self primary → no accumulator seeding.
-        assertEq(h.getAccumulator(TKA).lastUpdate, 0, "non-self oracle skips initFeed");
-    }
-
-    function test_setupOracleAndConfig_selfOracleSeedsAccumulator() public {
-        IPool.OracleConfig memory oc;
-        oc.primary = address(h); // self
-        oc.accDecimals = 0; // → defaults to 6
-        IPool.RiskConfig memory rc;
-        IPool.LiquidityProfile memory p = _validProfile();
-        uint64 px = M.encodeB64(1500e18, 6);
-
-        h.callSetupOracleAndConfig(
-            address(h), TKA, oc, rc, p, px, uint32(123), uint32(456)
-        );
-
-        IPool.FeedAccumulator memory acc = h.getAccumulator(TKA);
-        assertEq(acc.lastPriceB64, px);
-        assertEq(acc.accDecimals, 6, "default accDecimals=6");
-        assertEq(acc.fastVolEMA, 123);
-        assertEq(acc.slowVolEMA, 456);
-        assertEq(acc.lastUpdate, uint32(block.timestamp));
-        assertEq(acc.confidence, 100);
-        assertEq(acc.ttl, PoolOracle.DEFAULT_TTL);
     }
 
     // ─── R44-7 (Pass-44B): minDispersion ≤ maxDispersion ───
@@ -247,12 +201,12 @@ contract PoolAdminTest is Test {
     /// @notice initAsset must revert BadConfig when minDispersion > maxDispersion.
     function test_R44_7_initAsset_reverts_when_min_gt_max() public {
         vm.expectRevert(Err.BadConfig.selector);
-        h.callInitAsset(TKA, 6, 25, 50000, 1000, 8000, 9000, 9500);
+        h.callInitAsset(TKA, 6, 25, 50000, 1000, 8000, 9000);
     }
 
     /// @notice Boundary: min == max is allowed (degenerate but well-formed: pinned dispersion).
     function test_R44_7_initAsset_allows_min_eq_max() public {
-        h.callInitAsset(TKA, 6, 25, 5000, 5000, 8000, 9000, 9500);
+        h.callInitAsset(TKA, 6, 25, 5000, 5000, 8000, 9000);
         IPool.Asset memory a = h.getAsset(TKA);
         assertEq(a.minDispersion, 5000);
         assertEq(a.maxDispersion, 5000);
@@ -260,7 +214,7 @@ contract PoolAdminTest is Test {
 
     /// @notice Default substitution: 0 inputs resolve to (1000, 100000) which is ordered.
     function test_R44_7_initAsset_defaults_remain_ordered() public {
-        h.callInitAsset(TKA, 6, 25, 0, 0, 0, 0, 0);
+        h.callInitAsset(TKA, 6, 25, 0, 0, 0, 0);
         IPool.Asset memory a = h.getAsset(TKA);
         assertEq(a.minDispersion, 1000);
         assertEq(a.maxDispersion, 100000);
@@ -272,12 +226,12 @@ contract PoolAdminTest is Test {
     ///         min=0 maliciously expecting their explicit max to win.
     function test_R44_7_initAsset_reverts_when_min_default_exceeds_max() public {
         vm.expectRevert(Err.BadConfig.selector);
-        h.callInitAsset(TKA, 6, 25, 0, 500, 8000, 9000, 9500); // min defaulted=1000 > 500
+        h.callInitAsset(TKA, 6, 25, 0, 500, 8000, 9000); // min defaulted=1000 > 500
     }
 
     /// @notice Explicit ordering preserved end-to-end.
     function test_R44_7_initAsset_explicit_values_persist() public {
-        h.callInitAsset(TKA, 6, 25, 2500, 75000, 8000, 9000, 9500);
+        h.callInitAsset(TKA, 6, 25, 2500, 75000, 8000, 9000);
         IPool.Asset memory a = h.getAsset(TKA);
         assertEq(a.minDispersion, 2500);
         assertEq(a.maxDispersion, 75000);

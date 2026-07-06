@@ -9,10 +9,11 @@ import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
+import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {MockAC} from "./fixtures/BaseTestSetup.sol";
+import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 
 /// @title PoolLifecycleTest
 /// @notice Pool lifecycle sanity -Pool is standalone (no proxy, no modules, no ERC-7201).
@@ -23,6 +24,7 @@ contract PoolLifecycleTest is Test {
     Admin admin;
     Flash flashSingleton;
     MockAC ac;
+    MockOracle oracle;
 
     Pool pool;        // clone, cast as Pool
     MockERC20 base;
@@ -47,12 +49,9 @@ contract PoolLifecycleTest is Test {
         r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
 
-    function _oracleCfg() internal view returns (IPool.OracleConfig memory o) {
-        o.primary = address(pool);
-        o.secondary = address(0);
-        o.feedId = bytes32(0);
-        o.modeFlags = C.MODE_USE_INTERNAL;
-        o.accDecimals = 18;
+    function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
+        o.primary = address(oracle);
+        o.feedId = bytes32(uint256(uint160(token)));
     }
 
     function setUp() public {
@@ -87,14 +86,15 @@ contract PoolLifecycleTest is Test {
         address poolAddr = factory.createPool(address(base), toks, initdata);
         pool = Pool(payable(poolAddr));
 
-        IPool.OracleConfig memory oc = _oracleCfg();
+        oracle = new MockOracle();
+        oracle.setMark(address(base),  M.encodeB64(1e18, 18));
+        oracle.setMark(address(quote), M.encodeB64(1e18, 18));
         IPool.RiskConfig    memory rc = _defaultRisk();
         IPool.LiquidityProfile memory pf = _defaultProfile();
-        uint64 priceB64 = M.encodeB64(1e18, 18);
 
         vm.startPrank(OWNER);
-        admin.addAsset(poolAddr, address(base),  oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
-        admin.addAsset(poolAddr, address(quote), oc, rc, pf, 1000, 18, priceB64, 10_000, 10_000, 1000, 100000, 10000, 10000, 10000);
+        admin.addAsset(poolAddr, address(base),  _oracleCfg(address(base)),  rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
+        admin.addAsset(poolAddr, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000);
         vm.stopPrank();
     }
 
@@ -159,6 +159,81 @@ contract PoolLifecycleTest is Test {
         assertEq(pool.getRiskFlags(address(base)) & C.FROZEN_BIT, 0, "unfrozen");
     }
 
+    function test_admin_pause_unpause() public {
+        vm.prank(OWNER);
+        admin.pauseAsset(address(pool), address(base));
+        assertTrue((pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT) != 0, "paused");
+
+        vm.prank(OWNER);
+        admin.unpauseAsset(address(pool), address(base));
+        assertEq(pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT, 0, "unpaused");
+    }
+
+    /// PROTOCOL_PAUSED on an asset must block withdraw (same HALT_MASK gate as swap/deposit).
+    function test_pause_blocks_withdraw() public {
+        uint256 amt = 100e18;
+        base.mint(USER, amt);
+        vm.startPrank(USER);
+        base.approve(address(pool), type(uint256).max);
+        pool.deposit(address(base), amt);
+        uint256 lp = pool.getLPBalance(USER, address(base));
+        skip(60);
+        vm.stopPrank();
+
+        vm.prank(OWNER);
+        admin.pauseAsset(address(pool), address(base));
+
+        vm.prank(USER);
+        vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
+        pool.withdraw(address(base), lp / 2, 0);
+    }
+
+    /// PROTOCOL_PAUSED_BIT (bit6) is SEPARATE from FROZEN_BIT (bit0): an emergency pause + an
+    /// independent per-asset risk freeze coexist, and clearing one must NOT clear the other.
+    function test_pause_and_freeze_are_independent() public {
+        vm.startPrank(OWNER);
+        admin.pauseAsset(address(pool), address(base));
+        admin.freezeAsset(address(pool), address(base));
+        uint16 f = pool.getRiskFlags(address(base));
+        assertTrue((f & C.PROTOCOL_PAUSED_BIT) != 0 && (f & C.FROZEN_BIT) != 0, "both set");
+
+        admin.unpauseAsset(address(pool), address(base)); // clears ONLY bit6
+        f = pool.getRiskFlags(address(base));
+        assertEq(f & C.PROTOCOL_PAUSED_BIT, 0, "pause cleared");
+        assertTrue((f & C.FROZEN_BIT) != 0, "freeze must survive unpause");
+        admin.unfreezeAsset(address(pool), address(base));
+        vm.stopPrank();
+    }
+
+    /// One owner tx pauses N (pool,token) pairs; a bad leg (unlisted asset) is SKIPPED, not reverted.
+    function test_batch_pause_skips_bad_leg() public {
+        address[] memory pools = new address[](2);
+        address[] memory tokens = new address[](2);
+        pools[0] = address(pool);
+        tokens[0] = address(base); // good leg
+        pools[1] = address(pool);
+        tokens[1] = address(0xDEAD); // bad leg (not a listed asset) → must be skipped, not revert
+
+        vm.prank(OWNER);
+        admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Pause);
+
+        assertTrue((pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT) != 0, "good leg paused");
+
+        // unpause the good leg via the batch path too
+        tokens[1] = address(base);
+        vm.prank(OWNER);
+        admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Unpause);
+        assertEq(pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT, 0, "unpaused via batch");
+    }
+
+    function test_batch_length_mismatch_reverts() public {
+        address[] memory pools = new address[](2);
+        address[] memory tokens = new address[](1);
+        vm.prank(OWNER);
+        vm.expectRevert(Err.InvalidInput.selector);
+        admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Pause);
+    }
+
     function test_admin_only_via_singleton() public {
         vm.prank(USER);
         vm.expectRevert(Err.NotOwner.selector);
@@ -204,6 +279,73 @@ contract PoolLifecycleTest is Test {
         assertEq(pool.owner(), USER);
         // Restore for other tests.
         ac.rotate(OWNER);
+    }
+
+    /// Executing a queued RiskConfig update overwrites the whole flags word: a freeze/pause raised
+    /// DURING the timelock window must survive the execute (halt bits clear only via explicit
+    /// unfreeze/unpause), and a queued config must not sneak halt bits IN either.
+    function test_riskConfig_update_preserves_halt_bits() public {
+        IPool.RiskConfig memory cfg = _defaultRisk();
+        cfg.flags |= C.FROZEN_BIT; // attempt to sneak a halt bit IN via config — must be stripped
+        vm.startPrank(OWNER);
+        admin.requestUpdateRiskConfig(address(pool), address(quote), cfg);
+        // Emergency raised while the update sits in the timelock queue.
+        admin.freezeAsset(address(pool), address(quote));
+        admin.pauseAsset(address(pool), address(quote));
+        vm.warp(block.timestamp + 1 days + 1);
+        admin.executeUpdateRiskConfig(address(pool), address(quote));
+        vm.stopPrank();
+
+        uint16 f = pool.getRiskFlags(address(quote));
+        assertTrue((f & C.FROZEN_BIT) != 0, "freeze must survive config execute");
+        assertTrue((f & C.PROTOCOL_PAUSED_BIT) != 0, "pause must survive config execute");
+        assertTrue((f & C.SWAP_ENABLED_BIT) != 0, "non-halt config flags applied");
+
+        // Explicit ops remain the only way to clear halt bits.
+        vm.startPrank(OWNER);
+        admin.unfreezeAsset(address(pool), address(quote));
+        admin.unpauseAsset(address(pool), address(quote));
+        vm.stopPrank();
+        f = pool.getRiskFlags(address(quote));
+        assertEq(f & C.HALT_MASK, 0, "explicit unfreeze/unpause clears halt (sneaked bit stripped too)");
+    }
+
+    /// batchSwap transits base on every spoke↔spoke route, but each leg prices base as an ENDPOINT,
+    /// so Pricing's interior-hub HALT_MASK gate never fires there. Regression: a frozen (or
+    /// protocol-paused) base must block spoke→spoke batches exactly like the single-swap path.
+    function test_batchSwap_frozen_base_blocks_spoke_to_spoke() public {
+        MockERC20 tok2 = new MockERC20("Tok2", "TK2", 18);
+        oracle.setMark(address(tok2), M.encodeB64(1e18, 18));
+        vm.prank(OWNER);
+        admin.addAsset(address(pool), address(tok2), _oracleCfg(address(tok2)), _defaultRisk(), _defaultProfile(), 1000, 18, 1000, 100000, 10000, 10000);
+
+        // Seed reserves on base + both spokes (input leg quote→base draws base transiently).
+        base.mint(address(this), 1_000e18);
+        quote.mint(address(this), 1_000e18);
+        tok2.mint(address(this), 1_000e18);
+        base.approve(address(pool), type(uint256).max);
+        quote.approve(address(pool), type(uint256).max);
+        tok2.approve(address(pool), type(uint256).max);
+        pool.deposit(address(base), 1_000e18);
+        pool.deposit(address(quote), 1_000e18);
+        pool.deposit(address(tok2), 1_000e18);
+
+        // inputs entry: [token:160][amtB64:64][pad:32]; outputs entry: [token:160][weightBps:16][pad:16][minB64:64]
+        bytes memory inputs = abi.encodePacked(bytes32((uint256(uint160(address(quote))) << 96) | (uint256(M.encodeB64(100e18, 18)) << 32)));
+        bytes memory outputs = abi.encodePacked(bytes32((uint256(uint160(address(tok2))) << 96) | (uint256(10_000) << 80) | uint256(M.encodeB64(1, 18))));
+
+        quote.mint(USER, 1_000e18);
+        vm.startPrank(USER);
+        quote.approve(address(pool), type(uint256).max);
+        uint256[] memory outs = pool.batchSwap(inputs, outputs, USER); // sanity: routes pre-freeze
+        assertGt(outs[0], 0, "spoke->spoke batch routes while base live");
+        vm.stopPrank();
+
+        vm.prank(OWNER);
+        admin.freezeAsset(address(pool), address(base));
+        vm.prank(USER);
+        vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
+        pool.batchSwap(inputs, outputs, USER);
     }
 
     function test_swap_simple() public {

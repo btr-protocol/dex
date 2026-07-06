@@ -14,73 +14,30 @@ library AdminTimelock {
         IPool.LiquidityProfile profile;
         uint16 minFeeBps;
         uint8 decimals;
-        uint64 initialPrice;
-        uint32 initialFastVolEMA;
-        uint32 initialSlowVolEMA;
         uint32 minDispersion;
         uint32 maxDispersion;
         uint16 gamma;
         uint16 vega;
-        uint16 lambda;
     }
 
+    /// @dev Two-blob encode keeps `abi.decode` off the via_ir stack-too-deep edge as IPool structs grow.
     function encodeAddAsset(AddAssetPayload memory p) internal pure returns (bytes memory) {
-        return abi.encode(
-            p.token,
-            p.oracleCfg,
-            p.riskCfg,
-            p.profile,
-            p.minFeeBps,
-            p.decimals,
-            p.initialPrice,
-            p.initialFastVolEMA,
-            p.initialSlowVolEMA,
-            p.minDispersion,
-            p.maxDispersion,
-            p.gamma,
-            p.vega,
-            p.lambda
-        );
+        bytes memory head = abi.encode(p.token, p.oracleCfg, p.riskCfg, p.profile);
+        bytes memory tail = abi.encode(p.minFeeBps, p.decimals, p.minDispersion, p.maxDispersion, p.gamma, p.vega);
+        return abi.encode(head, tail);
     }
 
     function decodeAddAsset(bytes memory raw) internal pure returns (AddAssetPayload memory p) {
-        (
-            p.token,
-            p.oracleCfg,
-            p.riskCfg,
-            p.profile,
-            p.minFeeBps,
-            p.decimals,
-            p.initialPrice,
-            p.initialFastVolEMA,
-            p.initialSlowVolEMA,
-            p.minDispersion,
-            p.maxDispersion,
-            p.gamma,
-            p.vega,
-            p.lambda
-        ) = abi.decode(
-            raw,
-            (
-                address,
-                IPool.OracleConfig,
-                IPool.RiskConfig,
-                IPool.LiquidityProfile,
-                uint16,
-                uint8,
-                uint64,
-                uint32,
-                uint32,
-                uint32,
-                uint32,
-                uint16,
-                uint16,
-                uint16
-            )
-        );
+        bytes memory head;
+        bytes memory tail;
+        (head, tail) = abi.decode(raw, (bytes, bytes));
+        (p.token, p.oracleCfg, p.riskCfg, p.profile) =
+            abi.decode(head, (address, IPool.OracleConfig, IPool.RiskConfig, IPool.LiquidityProfile));
+        (p.minFeeBps, p.decimals, p.minDispersion, p.maxDispersion, p.gamma, p.vega) =
+            abi.decode(tail, (uint16, uint8, uint32, uint32, uint16, uint16));
     }
 
-    /// @dev External entry gets a fresh stack frame (avoids stack-too-deep on 14-arg pool call).
+    /// @dev External entry gets a fresh stack frame (avoids stack-too-deep on the pool call).
     function applyAddAsset(address pool, address token, bytes memory raw) external returns (uint8 decimals) {
         AddAssetPayload memory p = decodeAddAsset(raw);
         if (p.token != token) revert Err.InvalidInput();
@@ -91,14 +48,10 @@ library AdminTimelock {
             p.profile,
             p.minFeeBps,
             p.decimals,
-            p.initialPrice,
-            p.initialFastVolEMA,
-            p.initialSlowVolEMA,
             p.minDispersion,
             p.maxDispersion,
             p.gamma,
-            p.vega,
-            p.lambda
+            p.vega
         );
         return p.decimals;
     }

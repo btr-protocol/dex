@@ -42,7 +42,6 @@ library PoolBatch {
         if (tk == base) return amt;
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk, base, amt);
         PoolIO.exec($, tk, base, amt, q);
-        PoolIO.pushOracle($, q);
         return q.amountOut;
     }
 
@@ -74,7 +73,6 @@ library PoolBatch {
         } else {
             IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, base, tk, baseIn);
             PoolIO.exec($, base, tk, baseIn, q);
-            PoolIO.pushOracle($, q);
             outAmt = q.amountOut;
         }
 
@@ -95,6 +93,11 @@ library PoolBatch {
         if (outputs.length % 32 != 0 || outLen == 0 || outLen > 8) revert Err.InvalidInput();
 
         address base = $.baseToken;
+        // Hub halt gate: every batch transits base (inputs accumulate into it, outputs draw from it),
+        // but each leg prices base as an ENDPOINT, so Pricing's interior-node HALT_MASK check never
+        // fires — a frozen/paused base would still route spoke↔spoke. Mirror the single-swap interior
+        // gate here (base as an explicit input/output is halt-checked per-entry regardless).
+        PoolIO.checkRisk($, base, 0);
         amountsOut = new uint256[](outLen);
         uint256 baseTotal;
 

@@ -89,6 +89,50 @@ contract Admin is IAdmin {
         emit EmergencyUnfreeze(pool, token);
     }
 
+    /// @notice Guardian emergency halt for one asset on one pool (bit6, separate from FROZEN so
+    ///         unpausing never clobbers an independent risk freeze). Protocol-wide = loop these over
+    ///         PoolFactory.getPoolsForToken / getPoolTokens off-chain via Safe MultiSend (Multicall3
+    ///         fails onlyAdmin — msg.sender must be the AC owner). // ponytail: onlyAdmin today; a
+    ///         dedicated fast onlyPauser guardian (never the keeper key) is the next-layer upgrade.
+    function pauseAsset(address pool, address token) external onlyAdmin {
+        IPool(pool).adminPauseAsset(token);
+        emit ProtocolPause(pool, token);
+    }
+
+    function unpauseAsset(address pool, address token) external onlyAdmin {
+        IPool(pool).adminUnpauseAsset(token);
+        emit ProtocolUnpause(pool, token);
+    }
+
+    /// @notice Batch a freeze/unfreeze/pause/unpause across (pool,token) pairs in ONE owner tx — works
+    ///         from an EOA OR a multisig (no Safe MultiSend / Multicall3 needed; the loop runs inside
+    ///         `Admin`, so `msg.sender` stays the AC owner throughout). The UI/operator enumerates pools
+    ///         off-chain (`PoolFactory.officialPools` / `getPoolsForToken` / `getPoolTokens`) and passes
+    ///         the arrays. Per-leg try/catch: a bad leg (uninit pool / unlisted asset) is SKIPPED +
+    ///         logged (`BatchLegSkipped`), so one failure never bricks an emergency sweep — reconcile
+    ///         from the events. // ponytail: onlyAdmin today; a dedicated fast onlyPauser guardian
+    ///         (never the keeper key) is the next-layer upgrade.
+    function batchRiskOp(address[] calldata pools, address[] calldata tokens, BatchOp op) external onlyAdmin {
+        uint256 n = pools.length;
+        if (n != tokens.length) revert Err.InvalidInput();
+        for (uint256 i; i < n; ++i) {
+            address p = pools[i];
+            address t = tokens[i];
+            bool ok;
+            if (op == BatchOp.Pause) {
+                try IPool(p).adminPauseAsset(t) { ok = true; } catch {}
+            } else if (op == BatchOp.Unpause) {
+                try IPool(p).adminUnpauseAsset(t) { ok = true; } catch {}
+            } else if (op == BatchOp.Freeze) {
+                try IPool(p).adminFreezeAsset(t) { ok = true; } catch {}
+            } else {
+                try IPool(p).adminUnfreezeAsset(t) { ok = true; } catch {}
+            }
+            if (ok) emit BatchRiskOp(p, t, uint8(op));
+            else emit BatchLegSkipped(p, t);
+        }
+    }
+
     function addAsset(
         address pool,
         address token,
@@ -97,19 +141,14 @@ contract Admin is IAdmin {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external onlyAdmin {
         IPool(pool).adminInitAsset(
             token, oracleCfg, riskCfg, profile, minFeeBps, decimals,
-            initialPrice, initialFastVolEMA, initialSlowVolEMA,
-            minDispersion, maxDispersion, gamma, vega, lambda
+            minDispersion, maxDispersion, gamma, vega
         );
         emit AssetAdded(pool, token, decimals, 0);
     }
@@ -149,13 +188,13 @@ contract Admin is IAdmin {
         uint16 maxFeeBps,
         uint16 gamma,
         uint16 vega,
-        uint16 lambda,
         uint16 haircutSuppressor,
-        uint64 reservationPrice
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
     ) external onlyAdmin {
         IPool(pool).adminSetAssetParams(
             token, minLiquidity, minFeeBps, maxFeeBps,
-            gamma, vega, lambda, haircutSuppressor, reservationPrice
+            gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax
         );
         emit AssetParamsUpdated(pool, token, minLiquidity, reservationPrice);
     }
@@ -170,17 +209,11 @@ contract Admin is IAdmin {
         IPool.LiquidityProfile calldata profile,
         uint16 minFeeBps,
         uint8 decimals,
-        uint64 initialPrice,
-        uint32 initialFastVolEMA,
-        uint32 initialSlowVolEMA,
         uint32 minDispersion,
         uint32 maxDispersion,
         uint16 gamma,
-        uint16 vega,
-        uint16 lambda
+        uint16 vega
     ) external onlyAdmin {
-        if (initialPrice == 0) revert Err.ZeroValue();
-        if (initialFastVolEMA == 0 || initialSlowVolEMA == 0) revert Err.InvalidInput();
         bytes32 key = _keyToken(pool, OP_ADD_ASSET, token);
         ATL.AddAssetPayload memory p = ATL.AddAssetPayload({
             token: token,
@@ -189,14 +222,10 @@ contract Admin is IAdmin {
             profile: profile,
             minFeeBps: minFeeBps,
             decimals: decimals,
-            initialPrice: initialPrice,
-            initialFastVolEMA: initialFastVolEMA,
-            initialSlowVolEMA: initialSlowVolEMA,
             minDispersion: minDispersion,
             maxDispersion: maxDispersion,
             gamma: gamma,
-            vega: vega,
-            lambda: lambda
+            vega: vega
         });
         _emitQueued(key, SC.LOW_TIMELOCK, ATL.encodeAddAsset(p), pool, uint8(IPool.OpType.ADD_ASSET));
     }
