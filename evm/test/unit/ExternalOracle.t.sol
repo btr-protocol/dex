@@ -48,6 +48,9 @@ contract ExternalOracleTest is Test {
         assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 3030e18, 0.001e18, "lastPrice = fresh mark");
         assertApproxEqRel(M.b64To1e18(f.emaPriceB64), 3030e18, 0.01e18, "ema decayed toward mark");
         assertEq(f.updatedAt, uint32(block.timestamp), "updatedAt stamped");
+        // Locks the manual slot codec in _pushInternal: config fields must survive a push in place.
+        assertEq(f.ttl, 3600, "ttl preserved across push");
+        assertEq(f.tau, TAU, "tau preserved across push");
     }
 
     /// A single manipulated push (5x) cannot move the EMA past ema+band (rate clamp), but the fresh
