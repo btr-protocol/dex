@@ -24,10 +24,12 @@ contract MockBaseOracle {
     function getFeed(bytes32) external view returns (IOracle.FeedData memory feed) {
         feed.lastPriceB64 = priceB64;
         feed.emaPriceB64 = priceB64;
-        feed.sigma = 1_000_000;
+        feed.sigmaEma = 1_000_000;
         feed.updatedAt = uint32(block.timestamp);
         feed.ttl = type(uint16).max;
         feed.confidence = 0;
+        feed.tau = 0;
+        feed.tauSigma = 0;
     }
 
     function isFeedFresh(bytes32, uint32) external pure returns (bool) { return true; }

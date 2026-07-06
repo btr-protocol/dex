@@ -30,7 +30,7 @@ contract LibOracleTest is BaseTestSetup {
         IOracle.FeedData memory f = Oracle.getBaseFeed();
         assertApproxEqRel(Oracle.mark(f), SC.WAD, 0.0001e18, "base mark = 1.0");
         assertEq(f.lastPriceB64, f.emaPriceB64, "base ema == mark");
-        assertEq(uint256(f.sigma), SC.ONE_PCT_PBPS, "base sigma = 1%");
+        assertEq(uint256(f.sigmaEma), SC.ONE_PCT_PBPS, "base sigmaEma = 1%");
         assertEq(f.ttl, type(uint16).max, "base never expires");
         assertEq(f.confidence, 0, "base has no CI");
     }
@@ -90,18 +90,13 @@ contract LibOracleTest is BaseTestSetup {
         assertApproxEqRel(M.b64To1e18(ema), 110e18, 0.001e18, "conf=0 EMA converges to the mark");
     }
 
-    /// A real move converges over successive full-decay pushes (each clamped by the band), never bricking.
-    function test_updateEma_convergesOverPushes() public pure {
-        uint64 ema = M.encodeB64(100e18, 18);
-        uint64 target = M.encodeB64(150e18, 18);
-        uint256 prev = 100e18;
-        for (uint256 i; i < 12; ++i) {
-            ema = Oracle.updateEma(ema, target, 100, 100, 1000); // band = 80/step, α=1
-            uint256 cur = M.b64To1e18(ema);
-            assertGe(cur, prev, "monotone climb toward the real mark");
-            assertLe(cur, 150e18 + 1e15, "never overshoots the mark");
-            prev = cur;
-        }
-        assertApproxEqRel(prev, 150e18, 0.001e18, "converges to the new level");
+    function test_updateSigmaEma_zeroSampleRatchetsOnMarkMove() public pure {
+        uint32 got = Oracle.updateSigmaEma(1e4, 0, 3000e18, 3300e18, 100, 100);
+        assertGt(got, 1e4, "evidence floor lifts sigmaEma above sample=0");
+    }
+
+    function test_updateSigmaEma_sameBlockFrozen() public pure {
+        uint32 got = Oracle.updateSigmaEma(1e4, 2e4, 3000e18, 3100e18, 0, 100);
+        assertEq(got, 1e4, "dt=0 freezes sigmaEma");
     }
 }

@@ -23,7 +23,7 @@ contract ExternalOracleGasTest is Test {
         for (uint256 i; i < MAX_N; ++i) {
             address base = address(uint160(0xB000 + i));
             address quote = address(uint160(0x9000 + i));
-            ext.addFeed(base, quote, M.encodeB64(3000e18, 18), 1e4, 5, TAU, 0, 3600);
+            ext.addFeed(base, quote, M.encodeB64(3000e18, 18), 1e4, 5, uint16(TAU), uint16(TAU), 0, 3600);
             feedIdList.push(keccak256(abi.encodePacked(base, quote)));
         }
         // Warm push so benchmarks measure steady-state (non-zero slots, dt > 0).

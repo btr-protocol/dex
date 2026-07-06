@@ -6,7 +6,6 @@ import {IOracle} from "../interfaces/IOracle.sol";
 /// @title TransientCache
 /// @notice Tx-scoped oracle cache via transient storage (EIP-1153). ~2.1k gas/hit.
 library TransientCache {
-    // SALT (high 64 bits) | TYPE (bit 168) | ADDR (160 bits) -collision-free.
     uint256 private constant NAMESPACE_SALT = uint256(keccak256("pool.cache")) >> 192 << 192;
     uint256 private constant TYPE_ORACLE_FEED = 1 << 168;
 
@@ -14,7 +13,6 @@ library TransientCache {
         unchecked { slot = bytes32(NAMESPACE_SALT | typeMask | uint256(uint160(token))); }
     }
 
-    /// @notice Cache oracle feed (packed in single 256-bit slot).
     function cacheOracleFeed(address token, IOracle.FeedData memory data) internal {
         bytes32 slot = _slot(TYPE_ORACLE_FEED, token);
         uint256 packed = _packFeedData(data);
@@ -22,7 +20,6 @@ library TransientCache {
         assembly { tstore(slot, packed) }
     }
 
-    /// @notice Try-load cached oracle feed.
     function tryLoadOracleFeed(address token)
         internal
         view
@@ -36,23 +33,25 @@ library TransientCache {
         return (true, data);
     }
 
-    // Layout: lastPrice(64)|emaPrice(64)|sigma(32)|updatedAt(32)|ttl(16)|confidence(16)|tau(32)
+    // Layout: lastPrice(64)|ema(64)|sigmaEma(32)|updatedAt(32)|ttl(16)|confidence(16)|tau(16)|tauSigma(16)
     function _packFeedData(IOracle.FeedData memory d) private pure returns (uint256 packed) {
         packed |= uint256(d.lastPriceB64) << 192;
         packed |= uint256(d.emaPriceB64) << 128;
-        packed |= uint256(d.sigma) << 96;
+        packed |= uint256(d.sigmaEma) << 96;
         packed |= uint256(d.updatedAt) << 64;
         packed |= uint256(d.ttl) << 48;
         packed |= uint256(d.confidence) << 32;
-        packed |= uint256(d.tau);
+        packed |= uint256(d.tau) << 16;
+        packed |= uint256(d.tauSigma);
     }
 
     function _unpackFeedData(uint256 packed) private pure returns (IOracle.FeedData memory d) {
-        d.tau = uint32(packed & 0xFFFFFFFF); packed >>= 32;
+        d.tauSigma = uint16(packed & 0xFFFF); packed >>= 16;
+        d.tau = uint16(packed & 0xFFFF); packed >>= 16;
         d.confidence = uint16(packed & 0xFFFF); packed >>= 16;
         d.ttl = uint16(packed & 0xFFFF); packed >>= 16;
         d.updatedAt = uint32(packed & 0xFFFFFFFF); packed >>= 32;
-        d.sigma = uint32(packed & 0xFFFFFFFF); packed >>= 32;
+        d.sigmaEma = uint32(packed & 0xFFFFFFFF); packed >>= 32;
         d.emaPriceB64 = uint64(packed & 0xFFFFFFFFFFFFFFFF); packed >>= 64;
         d.lastPriceB64 = uint64(packed & 0xFFFFFFFFFFFFFFFF);
     }
