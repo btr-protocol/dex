@@ -210,7 +210,29 @@ contract AimmInvariantsTest is Test {
         vm.stopPrank();
     }
 
-    /// Cross-asset withdrawTo must hit the same output-side price band as swap: a reservationPriceMax
+    /// setAssetParams rejects minFee below MIN_FEE_PBPS (1 = 0.01 bp finest quantum).
+    function test_MIN_FEE_PBPS_setAssetParams_reverts_below_floor() public {
+        vm.prank(OWNER);
+        vm.expectRevert(Err.InvalidInput.selector);
+        admin.setAssetParams(address(pool), address(tok), 0, 0, 10_000, 10_000, 10_000, 10_000, 0, 0);
+    }
+
+    function test_MIN_FEE_PBPS_setAssetParams_accepts_floor() public {
+        vm.prank(OWNER);
+        admin.setAssetParams(address(pool), address(tok), 0, C.MIN_FEE_PBPS, 10_000, 10_000, 10_000, 10_000, 0, 0);
+        assertEq(pool.getAsset(address(tok)).minFeeBps, C.MIN_FEE_PBPS);
+    }
+
+    /// 1 PBPS spread at σ=0 must still settle fees — halving spread before multiply would zero them.
+    function test_MIN_FEE_PBPS_floor_spread_collects_fee() public {
+        vm.prank(OWNER);
+        admin.setAssetParams(address(pool), address(tok), 0, C.MIN_FEE_PBPS, 10_000, 10_000, 10_000, 10_000, 0, 0);
+        oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), 0, 0, 3600);
+        IPool.SwapQuote memory q = pool.getSwapQuote(address(tok), address(base), 1000e18);
+        assertEq(q.spreadBps, C.MIN_FEE_PBPS);
+        assertGt(q.lpFee + q.protoFee, 0, "1 PBPS floor must settle non-zero fees");
+    }
+
     /// below the live mark blocks delivery of `tokenTo` reserves, not just the swap entrypoint.
     function test_reservation_band_halts_cross_withdraw() public {
         vm.prank(OWNER);

@@ -2,19 +2,20 @@
 pragma solidity =0.8.35;
 
 /// @title IOracle
-/// @notice Shared oracle interface. Quote source = lastPriceB64 (fresh keeper mark); emaPriceB64 is
-///         an on-chain rate-clamped, time-decayed reference (Pyth/Chainlink-parity servable object).
-/// @dev Prices in B64 (52-bit mantissa, 5-bit decimals, 7-bit exp+bias). Volatility (sigma) 1e6 base (SC.PBPS).
-///      confidence = 1σ CI in bps. One 256-bit storage slot per feed.
+/// @notice Shared oracle interface. Quote = `lastPriceB64` (fresh keeper mark). Price EMA and σ-EMA
+///         are on-chain derived state (rate-clamped); swap path reads mark + `sigmaEma`.
+/// @dev Prices in B64 (52-bit mantissa, 5-bit decimals, 7-bit exp+bias). σ in PBPS (1e6 = 100%).
+///      `confidence` = mark uncertainty (bps), decoupled from σ. One 256-bit slot per feed.
 interface IOracle {
     struct FeedData {
         uint64 lastPriceB64; // fresh mark, B64. QUOTE SOURCE (kills LVR).
-        uint64 emaPriceB64;  // on-chain rate-clamped, time-decayed EMA. SERVABLE reference (getEma).
-        uint32 sigma;        // realized vol, 1e6 base (SC.PBPS units).
-        uint32 updatedAt;    // push timestamp.
-        uint16 ttl;          // freshness window (s).
-        uint16 confidence;   // 1σ CI in bps. Spread surcharge + halt input.
-        uint32 tau;          // EMA decay time-constant (s), per-feed. Set at addFeed.
+        uint64 emaPriceB64;  // on-chain rate-clamped price EMA. SERVABLE reference (getEma).
+        uint32 sigmaEma;       // on-chain rate-clamped σ EMA (PBPS). PRICING INPUT — not the raw sample.
+        uint32 updatedAt;      // push timestamp.
+        uint16 ttl;            // freshness window (s).
+        uint16 confidence;     // mark 1σ CI (bps). Spread surcharge + halt + price-EMA band.
+        uint16 tau;            // price-EMA time-constant (s). Set at addFeed.
+        uint16 tauSigma;       // σ-EMA time-constant (s). Set at addFeed.
     }
 
     function getFeed(bytes32 feedId) external view returns (FeedData memory data);

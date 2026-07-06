@@ -340,7 +340,8 @@ library Pricing {
         // whole fee pot — split once between protocol and LP. (A separate input-side half-spread would
         // be phantom revenue: the trader was already credited full amountIn in the gross output, so
         // skimming the input side just drains LP reserves into the treasury.)
-        uint256 feeOut = (acc.currentAmount * (uint256(quote.spreadBps) / 2)) / 1_000_000;
+        // Multiply before halving — (spread/2) as uint16 truncates 1 PBPS to 0 and zeroes fees at the floor.
+        uint256 feeOut = (acc.currentAmount * uint256(quote.spreadBps)) / (2 * 1_000_000);
         (quote.protoFee, quote.lpFee) = splitFee(feeOut, $.feeParams.protoShare);
         quote.amountOut = acc.currentAmount - feeOut;
 
@@ -351,7 +352,7 @@ library Pricing {
     /// @dev Full path spread (PBPS, clamped): S_vol + U_stale + U_conf, then clamp to the path fee
     ///      bounds. Pulled out of `getAnchorPathQuote` to keep that function off the stack-too-deep edge
     ///      (sVol/rawSpread live here, not in the hot frame).
-    ///      - S_vol = minFeePath + σ·vega/(100·BPS) — per-asset floor at σ=0 (stable 0.02 bp, volatile 2.5 bp).
+    ///      - S_vol = minFeePath + σ·vega/(100·BPS) — per-asset floor at σ=0 (MIN_FEE_PBPS = 1 PBPS = 0.01 bp).
     ///      - U_stale = STALE_Z·σ·√(age)/100 keyed on the stalest endpoint: defense-in-depth for keeper
     ///        LAG so a late/censored keeper degrades gracefully (wider quote) rather than being picked
     ///        off up to the hard TTL revert. ≈0 when fresh (age→0). With the deviation-triggered push

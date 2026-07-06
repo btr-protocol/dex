@@ -40,11 +40,12 @@ contract MockOracle is IOracle {
         feeds[id] = FeedData({
             lastPriceB64: priceB64,
             emaPriceB64: priceB64,
-            sigma: sigma,
+            sigmaEma: sigma,
             updatedAt: uint32(block.timestamp),
             ttl: ttl,
             confidence: confidence,
-            tau: 0
+            tau: 0,
+            tauSigma: 0
         });
     }
 
@@ -121,11 +122,12 @@ abstract contract BaseTestSetup is Test {
         return IOracle.FeedData({
             lastPriceB64: priceB64,
             emaPriceB64: priceB64,
-            sigma: sigma,
+            sigmaEma: sigma,
             updatedAt: uint32(block.timestamp),
             ttl: 3600,
             confidence: confidence,
-            tau: 0
+            tau: 0,
+            tauSigma: 0
         });
     }
 

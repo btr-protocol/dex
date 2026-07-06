@@ -11,8 +11,7 @@
 - **Feed rework = OPTION A (full migration).** External-keeper mark + on-chain EMA replace the
   **write-on-swap TDWAP accumulator** (midPrice→lastPriceB64, getFastTWAP→emaPriceB64, drop per-swap
   pushOracle write, migrate harness). Rationale: keeper-mark quoting kills LVR vs lagging internal discovery.
-- **FeedData = 7 fields, ONE slot (256b):** `{uint64 lastPriceB64; uint64 emaPriceB64; uint32 sigma;
-  uint32 updatedAt; uint16 ttl; uint16 confidence; uint32 tau;}`. Quote off lastPrice (kills LVR); ema =
+- **FeedData = 8 fields, ONE slot (256b):** `{lastPriceB64; emaPriceB64; sigmaEma; updatedAt; ttl; confidence; tau; tauSigma}`. Keeper pushes mark + σ **sample** + CI; chain folds σ-EMA. Quote = lastPrice; pricing σ = sigmaEma.
   on-chain manip-resistant reference (Pyth-parity, servable oracle); confidence = 1σ CI (bps) → surcharge
   + halt; sigma = realized vol (our edge vs Pyth/CL). See memory project_dex_feed_ema_design.
 - **On-chain EMA:** single, time-decayed (α=min(Δt/τ,1)), RATE-clamped (band=k·confidence, cap
@@ -70,13 +69,11 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
 ## PHASES + TO-DO (checkbox = open)
 
 ### Phase 1 — DEX CODE PERFECTION (on-chain + keeper + NX). Gate before testnet.
-- [ ] **Feed rework (Option A)** — redo on HEAD (prev worktree agent used wrong base f53d09b):
-      slim FeedData 8→7, delete Δ/U + offsets + dual-vol, wire on-chain EMA (clamp+decay) into push path,
-      wire confidence surcharge+halt, migrate midPrice/getFastTWAP→lastPrice/emaPrice, drop per-swap
-      pushOracle, delete internal-oracle accumulator machinery, migrate 6-file test harness to
-      ExternalOracle mocks. Build+test green each stage. Regen sdk ABIs.
-- [ ] **Confidence plumbing end-to-end:** ExternalOracle.pushFeed carries real NX 1σ CI (drop hardcoded
-      100); Pricing spread += confidence-widen + halt if confidence>maxConfBps (per-asset).
+- [x] **Feed rework (Option A)** — 8-field 1-slot FeedData, σ-EMA v2, on-chain price EMA, confidence
+      surcharge+halt, ExternalOracle mocks migrated, sdk ABIs regen'd. 268 forge tests green.
+- [x] **Confidence plumbing end-to-end:** keeper `confidence_from_mark_uncertainty` (interim 25%·σ);
+      Pricing spread += confidence-widen + halt if confidence>maxConfBps.
+- [x] **Min fee path:** MIN_FEE_PBPS=1, Pricing spread rounding fix, deploy SSoT `testnet-asset-params.json`.
 - [ ] **Re-run AAA audit** on the final code (prev audit outputs may be lost to session reset — see memory
       project_dex_phd_review + the wf outputs if present). Fix all confirmed findings (≥2 auditors each).
       Known-open from last audit: none critical outstanding; verify HALT_MASK/staleness/band all intact
@@ -136,9 +133,9 @@ halt bits (d142d8c) · refFeed no-staleness-gate (3c551e1) · conf=0 EMA freeze 
 - Volatile feeds: ttl SHORT (120–300s) so staleness grace = ttl/2 ≈ 60–150s ≈ keeper heartbeat — closes the
   dead-keeper pick-off window (papers: minutes-scale lag destroys LP economics). Stables can keep longer ttl.
   Enforce ops rule ttl ≈ 2·heartbeat.
-- Volatile minFee: 2.5 bp floor (250 PBPS) via setAssetParams; size to 2·(θ + z·σ√δ) for ETH-class
-  on fast chains (z=3) — may land ~19 bp at high σ. Stables: 0.02–0.10 bp (2–10 PBPS) per asset;
-  majors (USDC/USDT) at 0.02 bp. Canonical table: `dex/evm/deploy/chapel-asset-params.json`.
+- Volatile minFee floor: **1 PBPS (0.01 bp)** via `MIN_FEE_PBPS` + `setAssetParams`; size production
+  fees to 2·(θ + z·σ√δ) when LVR requires (may land ~19 bp ETH-class). Stables same floor.
+  Canonical table: `dex/evm/deploy/testnet-asset-params.json` (JSON SSoT — sim yaml mirrors it).
 
 **OWNER DESIGN DECISIONS (flagged, NOT auto-applied — need your call):**
 - D1 On-chain push deviation clamp: quotes read the RAW pushed mark; EMA clamp protects only the servable

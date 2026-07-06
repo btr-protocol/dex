@@ -82,6 +82,20 @@ library Constants {
     ///         cannot sit inside so tight a band, so it is rejected at config and must use EXTERNAL mode.
     uint16 internal constant MAX_STABLE_DEPEG_BAND_BPS = 50;
 
+    /// @notice Protocol-wide minimum path spread floor (PBPS). 1 PBPS = 0.0001% = 0.01 bp
+    ///         (100 PBPS = 1 bp). Finest on-chain quantum — enables sub-1 bp quotes at σ=0.
+    uint16 internal constant MIN_FEE_PBPS = 1;
+
+    // --- σ-EMA (on-chain fold of keeper Parkinson sample) ---
+    /// @notice Per full-α push: σ may rise by max(relative band, SIGMA_BAND_FLOOR_PBPS).
+    uint16 internal constant SIGMA_UP_BPS = 10_000; // 100%
+    /// @notice Per full-α push: σ may fall by at most this fraction of current σ.
+    uint16 internal constant SIGMA_DOWN_BPS = 2_500; // 25%
+    /// @notice Absolute minimum up-band (PBPS) so σ≈0 cannot brick ratchet-up.
+    uint32 internal constant SIGMA_BAND_FLOOR_PBPS = 1_000; // 0.1%
+    /// @notice Cap on σ-EMA and pushed samples (10_000% = 100× in PBPS units).
+    uint32 internal constant MAX_SIGMA_PBPS = 100_000_000;
+
     // --- Greek var legend (auditors) ---
     // ψ inventorySkew [-100,+100] · π progress [0,1] · γ gamma BPS · ν vega BPS
     // η haircutSuppressor BPS · σ volatility PBPS · Δ delta PBPS · κ dispersion PBPS

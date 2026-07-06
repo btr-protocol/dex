@@ -62,6 +62,7 @@ library PoolAdminWrite {
         PoolAdmin.validateProfileMemory(profile);
         PoolAdmin.validateOracleConfig(oracleCfg, self);
         PoolAdmin.validateRiskConfig(riskCfg);
+        if (minFeeBps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
         PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega);
         PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
         PoolAdmin.validateInternalMode($, t, oracleCfg); // after asset init: reads reservation band
@@ -96,6 +97,7 @@ library PoolAdminWrite {
         IPool.Asset storage asset = $.assets[t];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
         if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
+        if (minFeeBps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
         if (reservationPriceMax != 0 && reservationPriceMax < reservationPrice) revert Err.InvalidInput();
 
         asset.minLiquidity = minLiquidity;

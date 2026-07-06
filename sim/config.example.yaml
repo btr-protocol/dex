@@ -1,5 +1,6 @@
 # AMM Simulation Configuration
-# This file defines all parameters for comparing multiple AMM implementations
+# Per-asset fee/risk/spline params: SSoT is ../evm/deploy/testnet-asset-params.json (JSON only).
+# min_fee below is decimal fraction of price (0.000001 = 0.0001% = 0.01 bp = 1 PBPS on-chain).
 
 # General simulation configuration
 simulation:
@@ -71,10 +72,10 @@ amms:
             base_token: USDC
             assets:
               USDC:
-                min_fee: 0.000002
+                min_fee: 0.000001
                 max_fee: 0.02
               USDT:
-                min_fee: 0.000002
+                min_fee: 0.000001
                 max_fee: 0.02
                 price_anchor: USDC
                 min_dispersion: 0.00002
@@ -85,7 +86,7 @@ amms:
                 haircut_suppressor: 0.5
                 reservation_price: 0.9
               WBTC:
-                min_fee: 0.00025
+                min_fee: 0.000001
                 max_fee: 0.03
                 min_dispersion: 0.0001
                 max_dispersion: 0.3
@@ -95,7 +96,7 @@ amms:
                 haircut_suppressor: 0.5
                 reservation_price: 0
               WETH:
-                min_fee: 0.00025
+                min_fee: 0.000001
                 max_fee: 0.03
                 min_dispersion: 0.0001
                 max_dispersion: 0.3
