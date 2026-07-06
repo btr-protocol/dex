@@ -49,3 +49,24 @@ Benchmarks: `evm/test/unit/ExternalOracleGas.t.sol` — warm slots, non-zero→n
 **On-chain optimizations (commit `4a2b223`):** raw `calldataload` loop, manual one-slot `FeedData` codec, slim `BatchPushed` event (~16% marginal savings vs prior). Prior: dedup B64 decode, α=0 fast path, single SSTORE.
 
 **Keeper-side:** skip unchanged feeds per tick — no on-chain benefit pushing identical mark/σ/conf.
+
+## Chapel deploy (chainId 97)
+
+```bash
+cd evm
+export DEPLOYER_PK=0x...          # funded chapel key
+export ORACLE_PUSHER=0x...        # optional; defaults to deployer (grantOracle on deploy)
+forge script script/TestnetDeploy.s.sol:TestnetDeploy \
+  --sig deployTestnet \
+  --rpc-url chapel \
+  --broadcast \
+  --verify  # optional
+
+# Propagate addresses → env + token map
+bun scripts/propagate-deploy.ts 97
+# → deployments/97.env, deployments/97.tokens.json
+```
+
+Artifacts: `deployments/97.deploy.json` (router, factory, admin, oracle, faucet, pools, tokens, feed ids).
+
+Keeper: fill `keepers/oracle.example.toml` feed_id fields from deploy JSON (`keccak256(asset, USDC)` per pair), apply `keepers/k8s/oracle-daemon.yaml` on nxrates k0s (BuildKit image only).

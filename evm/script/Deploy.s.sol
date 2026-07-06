@@ -49,6 +49,12 @@ contract Deploy is DeployBase {
     }
 
     function run() external returns (Addrs memory a) {
+        a = _broadcastDeploy();
+        _logAndPersist(a);
+    }
+
+    /// @dev Core singleton + peripheral deploy inside one broadcast session.
+    function _broadcastDeploy() internal returns (Addrs memory a) {
         a.deployer = _resolveDeployer();
         a.treasury_owner = _resolveTreasury(a.deployer);
         address lzEndpoint = vm.envOr("LZ_ENDPOINT", address(0xDEAD));
@@ -106,8 +112,6 @@ contract Deploy is DeployBase {
         // through AC.owner() automatically; no separate transferOwnership call needed.
 
         vm.stopBroadcast();
-
-        _logAndPersist(a);
     }
 
     /// @notice Log addrs + persist deployment JSON via vm.serializeAddress chain.
