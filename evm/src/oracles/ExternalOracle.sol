@@ -53,7 +53,9 @@ contract ExternalOracle is IOracle {
         uint16 confidence,
         address indexed pusher
     );
-    event BatchPushed(bytes32[] feedIds, address indexed pusher);
+    /// @dev Count only — the pushed feedIds are recoverable from tx calldata; logging the dynamic
+    ///      array cost 256 gas/feed (LOG data) + a calldata→memory copy for zero on-chain consumers.
+    event BatchPushed(uint256 count, address indexed pusher);
     event OracleGranted(address indexed oracle);
     event OracleRevoked(address indexed oracle);
 
@@ -149,11 +151,21 @@ contract ExternalOracle is IOracle {
             confidences.length != length
         ) revert Err.InvalidInput();
 
+        // Raw calldataload: one bounds check up-front (lengths above) instead of 4 per iteration.
+        // ABI pads each element to a 32B word; the uint64/32/16 casts mask any dirty upper bits.
         for (uint256 i; i < length;) {
-            _pushInternal(_feedIds[i], prices[i], sigmas[i], confidences[i]);
+            bytes32 id; uint256 p; uint256 s; uint256 c;
+            assembly ("memory-safe") {
+                let w := shl(5, i)
+                id := calldataload(add(_feedIds.offset, w))
+                p := calldataload(add(prices.offset, w))
+                s := calldataload(add(sigmas.offset, w))
+                c := calldataload(add(confidences.offset, w))
+            }
+            _pushInternal(id, uint64(p), uint32(s), uint16(c));
             unchecked { ++i; }
         }
-        emit BatchPushed(_feedIds, msg.sender);
+        emit BatchPushed(length, msg.sender);
     }
 
     // ─── internal ───
@@ -168,30 +180,39 @@ contract ExternalOracle is IOracle {
         if (sigma > MAX_VOLATILITY) revert Err.ThresholdViolation(sigma, MAX_VOLATILITY);
     }
 
+    /// @dev Manual one-slot FeedData codec: exactly one SLOAD + one SSTORE per push. Field offsets
+    ///      mirror the IOracle.FeedData declaration order (low→high bits):
+    ///      lastPriceB64[0:64) | emaPriceB64[64:128) | sigma[128:160) | updatedAt[160:192)
+    ///      | ttl[192:208) | confidence[208:224) | tau[224:256). Covered by ExternalOracle.t.sol
+    ///      field-level assertions via getFeed (Solidity-decoded), so layout drift cannot pass CI.
     function _pushInternal(bytes32 feedId, uint64 newPriceB64, uint32 newSigma, uint16 newConfidence)
         internal returns (uint64 ema)
     {
         FeedData storage feed = feeds[feedId];
-        uint32 prevAt = feed.updatedAt;
+        uint256 slot;
+        uint256 word;
+        assembly ("memory-safe") {
+            slot := feed.slot
+            word := sload(slot)
+        }
+        uint32 prevAt = uint32(word >> 160);
         if (prevAt == 0) revert Err.FeedNotFound(feedId);
         uint256 mark1e18 = _validate(newPriceB64, newSigma);
 
         // Decay the reference EMA toward the (rate-clamped) new mark, then commit the fresh mark.
         uint256 dt;
         unchecked { dt = block.timestamp - prevAt; } // Δt==0 same block ⇒ α=0 (ema frozen)
-        ema = Oracle.updateEmaMark1e18(feed.emaPriceB64, mark1e18, dt, feed.tau, newConfidence);
+        uint32 tau = uint32(word >> 224);
+        ema = Oracle.updateEmaMark1e18(uint64(word >> 64), mark1e18, dt, tau, newConfidence);
 
-        // FeedData packs into exactly one slot: whole-struct assignment ⇒ single SSTORE
-        // (vs 5 field writes), and ttl/tau reads reuse the already-warm SLOAD.
-        feeds[feedId] = FeedData({
-            lastPriceB64: newPriceB64,
-            emaPriceB64: ema,
-            sigma: newSigma,
-            updatedAt: uint32(block.timestamp),
-            ttl: feed.ttl,
-            confidence: newConfidence,
-            tau: feed.tau
-        });
+        uint256 newWord = uint256(newPriceB64)
+            | (uint256(ema) << 64)
+            | (uint256(newSigma) << 128)
+            | (uint256(uint32(block.timestamp)) << 160)
+            | (word & (uint256(0xFFFF) << 192)) // ttl preserved in place
+            | (uint256(newConfidence) << 208)
+            | (uint256(tau) << 224);
+        assembly ("memory-safe") { sstore(slot, newWord) }
     }
 
     // ─── IOracle ───
