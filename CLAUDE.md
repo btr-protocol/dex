@@ -1,6 +1,6 @@
 # BTR DEX — agent guide
 
-Custom AIMM: adaptive multi-asset AMM (hub-and-spoke routing, dynamic fees, dual-EMA internal oracle, ERC-1155 rebasing LP, piecewise bonding curve). Flat-`Pool` arch — no Diamond/proxy/ERC-7201; EIP-1167 clones via `PoolFactory`. Solidity contracts ONLY — front/back/sdk/docs live in sibling repos under `~/Work/btr/` (see `~/Work/btr/CLAUDE.md`); do NOT recreate them here.
+Custom AIMM: adaptive multi-asset AMM (hub-and-spoke routing, dynamic fees, keeper-pushed external-mark oracle, ERC-1155 rebasing LP, piecewise bonding curve). Flat-`Pool` arch — no Diamond/proxy/ERC-7201; EIP-1167 clones via `PoolFactory`. Solidity contracts ONLY — front/back/sdk/docs live in sibling repos under `~/Work/btr/` (see `~/Work/btr/CLAUDE.md`); do NOT recreate them here.
 
 ## Layout
 - `evm/`     — Solidity 0.8.35 (Foundry). `src/`, `test/`, `script/`. Deps: `@btr-shared/` → `../../shared/evm/src/` remap; `foundry.lock` symlinked to `../../alm/evm/foundry.lock`.

@@ -1,6 +1,6 @@
 # BTR DEX — EVM Contracts
 
-Solidity (Foundry) implementation of the BTR adaptive multi-asset AMM: hub-and-spoke routing, dynamic fees, dual-EMA internal oracle, ERC-1155 rebasing LP, piecewise bonding curve. Flat-`Pool` architecture: **no Diamond, no proxy indirection, no ERC-7201 storage namespacing**. EIP-1167 minimal-proxy clones via `PoolFactory`.
+Solidity (Foundry) implementation of the BTR adaptive multi-asset AMM: hub-and-spoke routing, dynamic fees, keeper-pushed external-mark oracle, ERC-1155 rebasing LP, piecewise bonding curve. Flat-`Pool` architecture: **no Diamond, no proxy indirection, no ERC-7201 storage namespacing**. EIP-1167 minimal-proxy clones via `PoolFactory`.
 
 Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under `.deps/solady/`.
 
@@ -8,7 +8,7 @@ Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under
 
 - **Multi-asset hub-and-spoke** — All swaps route through a base token.
 - **Dynamic fees** — Multi-factor adaptive fees driven by volatility, inventory, divergence.
-- **Dual-EMA internal oracle** — Fast and slow EMAs for price and volatility; bounded by external Chainlink-style adapter.
+- **Keeper-pushed external-mark oracle** — A keeper (`onlyOracle`, Safe multisig in prod) pushes a fresh mark per feed on a deviation-θ + heartbeat schedule. Swaps quote off that fresh mark (`lastPriceB64`), not a lagging internal EMA — this is what kills LVR. The contract folds an on-chain σ-EMA (pricing vol) + a servable price EMA (reference only). Between pushes the mark is fixed but the quoted price drifts with order flow via the inventory skew. No Chainlink in the quote path.
 - **Rebasing LP tokens** — Auto-compounding ERC-1155 LP shares with a liquidity index.
 - **Piecewise bonding curve** — Adaptive liquidity distribution with volatility-based breadth.
 - **Protocol fees** — Configurable split between LPs and treasury.
@@ -27,10 +27,10 @@ src/
 ├── Router.sol            # Hub-and-spoke swap router (batch + multi-leg).
 ├── interfaces/           # IPool, IPoolFactory, IPoolHooks, IAdmin, IFlash, IRouter, IOracle, …
 ├── oracles/
-│   └── ExternalOracle.sol  # Chainlink-style adapter; bounds the internal dual-EMA mark.
-└── libraries/            # AnchorTree, Constants, Maths, Oracle, PoolAdmin, PoolAdminWrite,
+│   └── ExternalOracle.sol  # Keeper-push external oracle (onlyOracle); fresh pushed mark = quote source.
+└── libraries/            # AdminTimelock, AnchorTree, Constants, Maths, Oracle, PoolAdmin, PoolAdminWrite,
                           # PoolBatch, PoolIO, PoolDecay, PoolEdge, PoolHookExec,
-                          # PoolLiquidity, PoolOracle, PoolSwap, PoolSwapQuote, PoolView,
+                          # PoolLiquidity, PoolSwap, PoolSwapQuote, PoolView,
                           # Pricing, Spline, TransientCache.
 ```
 
