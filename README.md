@@ -1,6 +1,6 @@
 # BTR DEX
 
-Adaptive multi-asset AMM with hub-and-spoke routing, dynamic fees, dual-EMA internal oracle, ERC-1155 rebasing LP, and a piecewise bonding curve. Flat-`Pool` architecture: no Diamond, no proxy indirection, no ERC-7201 storage namespacing. EIP-1167 minimal-proxy clones via `PoolFactory`.
+Adaptive multi-asset AMM with hub-and-spoke routing, dynamic fees, a keeper-pushed external-mark oracle, ERC-1155 rebasing LP, and a piecewise bonding curve. Flat-`Pool` architecture: no Diamond, no proxy indirection, no ERC-7201 storage namespacing. EIP-1167 minimal-proxy clones via `PoolFactory`.
 
 ## Repo scope
 
@@ -32,7 +32,7 @@ Local layout:
 | `Admin.sol` | Per-chain singleton: protocol-fee collection, risk-flag/fee curation, pool-side admin setters. |
 | `Flash.sol` | Flash-loan singleton (cross-pool flash mints). |
 | `Router.sol` | Hub-and-spoke swap router (batch + multi-leg). |
-| `oracles/ExternalOracle.sol` | Chainlink-style adapter; bounds the internal dual-EMA mark. |
+| `oracles/ExternalOracle.sol` | Keeper-push external oracle (`onlyOracle`); the fresh pushed mark (`lastPriceB64`) is the quote source. Quoting off the fresh mark — not a lagging internal EMA — is what kills LVR. Also folds an on-chain σ-EMA + a servable price EMA (reference only, never the quote). No Chainlink in the quote path. |
 
 Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`, `GovToken`, `StakedAsset`, `Bridge`, `tokens/BridgeableERC20`) live in `~/Work/btr/shared` and are consumed via `@btr-shared/` remap. `Bridge.sol` = LayerZero OFT bridge; `BridgeableERC20` = ERC-7802 bridgeable token mixin.
 
@@ -40,7 +40,7 @@ Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`,
 
 ## Libraries (`evm/src/libraries/`)
 
-`AnchorTree`, `Constants`, `Maths`, `Oracle`, `PoolAdmin`, `PoolAdminWrite`, `PoolBatch`, `PoolDecay`, `PoolEdge`, `PoolHookExec`, `PoolLiquidity`, `PoolOracle`, `PoolSwap`, `PoolSwapQuote`, `PoolView`, `Pricing`, `Spline`, `TransientCache`.
+`AdminTimelock`, `AnchorTree`, `Constants`, `Maths`, `Oracle`, `PoolAdmin`, `PoolAdminWrite`, `PoolBatch`, `PoolDecay`, `PoolEdge`, `PoolHookExec`, `PoolIO`, `PoolLiquidity`, `PoolSwap`, `PoolSwapQuote`, `PoolView`, `Pricing`, `Spline`, `TransientCache`.
 
 `PoolSwap` (entry + I/O) DELEGATECALLs into `PoolSwapQuote` (post-quote pipeline) so both fit under EIP-170 (Phase 42K.10D.B2 split).
 
