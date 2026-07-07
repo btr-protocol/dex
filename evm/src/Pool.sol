@@ -173,8 +173,8 @@ contract Pool is ReentrancyGuardTransient {
         address tokenIn,
         address tokenOut,
         uint256 amountIn
-    ) external returns (IPool.SwapQuote memory) {
-        return Pricing.getAnchorPathQuote($, _wrap(tokenIn), _wrap(tokenOut), amountIn);
+    ) external view returns (IPool.SwapQuote memory) {
+        return Pricing.getAnchorPathQuoteView($, _wrap(tokenIn), _wrap(tokenOut), amountIn);
     }
 
     function batchSwap(

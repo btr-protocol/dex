@@ -303,7 +303,7 @@ contract Router is IRouter, ReentrancyGuardTransient, UUPSUpgradeable {
     }
 
     function getSwapQuote(address pool, address tokenIn, address tokenOut, uint256 amountIn)
-        external override returns (IExchange.SwapQuote memory)
+        external view override returns (IExchange.SwapQuote memory)
     {
         return IExchange(pool).getSwapQuote(tokenIn, tokenOut, amountIn);
     }
