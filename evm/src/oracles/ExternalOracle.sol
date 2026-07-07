@@ -23,6 +23,11 @@ contract ExternalOracle is IOracle {
     mapping(address => bool) public oracles;
     mapping(bytes32 => FeedData) private feeds;
     bytes32[] public feedIds;
+    /// @notice Opt-in per-feed max mark move per in-band push (bps). 0 = disabled (fast/light default).
+    /// @dev Stored here, not in the packed `FeedData` slot (which is full — 256 bits), so the single
+    ///      SLOAD/SSTORE push encoding is untouched and the shared IOracle.FeedData ABI does not grow.
+    ///      Enforced in `_pushInternal`: bounds a compromised key to maxDeviation/push (see there).
+    mapping(bytes32 => uint16) public maxDeviations;
 
     event FeedAdded(
         bytes32 indexed feedId,
@@ -96,6 +101,7 @@ contract ExternalOracle is IOracle {
             tauSigma: tauSigma
         });
         feedIds.push(feedId);
+        maxDeviations[feedId] = maxDeviation; // 0 = clamp disabled (opt-in)
         emit FeedAdded(feedId, base, quote, price, sigmaSample, confidence, tau, tauSigma, maxDeviation);
     }
 
@@ -103,6 +109,7 @@ contract ExternalOracle is IOracle {
         if (feeds[feedId].updatedAt == 0) revert Err.FeedNotFound(feedId);
         if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
         feeds[feedId].ttl = ttl;
+        maxDeviations[feedId] = maxDeviation; // persist (was previously dropped — only emitted)
         emit FeedUpdated(feedId, maxDeviation, ttl);
     }
 
@@ -161,7 +168,8 @@ contract ExternalOracle is IOracle {
         if (sigmaSample > MAX_VOLATILITY) revert Err.ThresholdViolation(sigmaSample, MAX_VOLATILITY);
     }
 
-    /// @dev One SLOAD + one SSTORE. Slot layout (low→high bits):
+    /// @dev One feed-slot SLOAD + one SSTORE (+ one maxDeviations SLOAD for the opt-in push clamp).
+    ///      Slot layout (low→high bits):
     ///      lastPriceB64[0:64) | emaPriceB64[64:128) | sigmaEma[128:160) | updatedAt[160:192)
     ///      | ttl[192:208) | confidence[208:224) | tau[224:240) | tauSigma[240:256).
     function _pushInternal(bytes32 feedId, uint64 newPriceB64, uint32 sigmaSample, uint16 newConfidence)
@@ -184,6 +192,22 @@ contract ExternalOracle is IOracle {
         uint256 dt;
         unchecked { dt = block.timestamp - prevAt; }
 
+        uint16 ttl = uint16((word >> 192) & 0xFFFF);
+        // D1 (BUG#1) opt-in per-feed push clamp. The pool QUOTES off the raw mark (lastPriceB64), not
+        // the rate-clamped EMA, so an unbounded push = mark-to-arbitrary + self-swap-drain. maxDev==0 →
+        // disabled (fast/light opt-out: no bound). Within a heartbeat (dt < ttl = a normal in-band push)
+        // a push may move the mark at most maxDeviation bps vs the last on-chain mark, so a COMPROMISED
+        // key is bounded to maxDeviation/push (a gradual, monitorable walk — not an instant one-tx
+        // drain). dt >= ttl ⇒ the feed already went stale and the pool HALTS swaps on it, so a scheduled
+        // re-sync is allowed to jump (post-downtime truth-discovery). Fail-closed: REJECT the out-of-band
+        // push (last good mark survives) rather than silently clamping to a partial move.
+        uint16 maxDev = maxDeviations[feedId];
+        if (maxDev != 0 && dt < ttl) {
+            uint256 diff = mark1e18 > prevMark1e18 ? mark1e18 - prevMark1e18 : prevMark1e18 - mark1e18;
+            uint256 devBps = (diff * SC.BPS) / prevMark1e18;
+            if (devBps > maxDev) revert Err.ThresholdViolation(devBps, maxDev);
+        }
+
         uint16 tau = uint16((word >> 224) & 0xFFFF);
         uint16 tauSigma = uint16((word >> 240) & 0xFFFF);
         uint32 prevSigmaEma = uint32((word >> 128) & 0xFFFFFFFF);
@@ -191,7 +215,6 @@ contract ExternalOracle is IOracle {
         ema = Oracle.updateEmaMark1e18(uint64((word >> 64) & 0xFFFFFFFFFFFFFFFF), mark1e18, dt, tau, newConfidence);
         sigmaEma = Oracle.updateSigmaEma(prevSigmaEma, sigmaSample, prevMark1e18, mark1e18, dt, tauSigma);
 
-        uint16 ttl = uint16((word >> 192) & 0xFFFF);
         uint256 newWord = uint256(newPriceB64) | (uint256(ema) << 64) | (uint256(sigmaEma) << 128)
             | (uint256(uint32(block.timestamp)) << 160) | (uint256(ttl) << 192) | (uint256(newConfidence) << 208)
             | (uint256(tau) << 224) | (uint256(tauSigma) << 240);

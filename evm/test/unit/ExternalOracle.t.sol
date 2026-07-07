@@ -122,4 +122,64 @@ contract ExternalOracleTest is Test {
         ext.grantOracle(safe);
         assertTrue(ext.isOracle(safe), "multisig address can be oracle pusher");
     }
+
+    // ─── BUG#1 (D1): opt-in per-feed push deviation clamp ───
+
+    address constant DA = address(0xDA5E);
+    address constant DB = address(0xDB5E);
+    uint16 constant DEV_BAND = 500; // 5% in bps
+    uint16 constant DEV_TTL = 3600;
+
+    /// Add a fresh feed at price 100 with a per-push band; returns its id.
+    function _addBandedFeed(uint16 band) internal returns (bytes32 id) {
+        ext.addFeed(DA, DB, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, band, DEV_TTL);
+        id = keccak256(abi.encodePacked(DA, DB));
+    }
+
+    function test_maxDeviation_storedAtAddFeed() public {
+        bytes32 id = _addBandedFeed(DEV_BAND);
+        assertEq(ext.maxDeviations(id), DEV_BAND, "maxDeviation persisted at addFeed");
+    }
+
+    /// A push within the band on a fresh, in-heartbeat feed commits normally (fast/light unslowed).
+    function test_maxDeviation_withinBand_pushSucceeds() public {
+        bytes32 id = _addBandedFeed(DEV_BAND);
+        skip(10); // dt=10 < ttl → in-band regime
+        ext.pushFeed(id, M.encodeB64(104e18, 18), 1e4, 5); // +4% < 5%
+        assertApproxEqRel(Oracle.mark(ext.getFeed(id)), 104e18, 0.001e18, "in-band mark committed");
+    }
+
+    /// A push beyond the band WITHIN the heartbeat is rejected (fail-closed): last good mark survives.
+    function test_maxDeviation_outOfBand_withinHeartbeat_reverts() public {
+        bytes32 id = _addBandedFeed(DEV_BAND);
+        skip(10); // dt=10 < ttl → clamp active
+        vm.expectRevert(abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(DEV_BAND)));
+        ext.pushFeed(id, M.encodeB64(110e18, 18), 1e4, 5); // +10% > 5%
+        assertApproxEqRel(Oracle.mark(ext.getFeed(id)), 100e18, 0.001e18, "mark unchanged after reject");
+    }
+
+    /// After the heartbeat elapses (feed stale ⇒ pool halts) a scheduled re-sync may jump the mark.
+    function test_maxDeviation_resyncAfterHeartbeat_succeeds() public {
+        bytes32 id = _addBandedFeed(DEV_BAND);
+        skip(uint256(DEV_TTL) + 1); // dt > ttl → re-sync exempt from the clamp
+        ext.pushFeed(id, M.encodeB64(300e18, 18), 1e4, 5); // +200% jump allowed on re-sync
+        assertApproxEqRel(Oracle.mark(ext.getFeed(id)), 300e18, 0.001e18, "re-sync jump committed");
+    }
+
+    /// maxDeviation==0 keeps the compromise-resistant clamp OFF (owner's fast/light opt-out).
+    function test_maxDeviation_zero_disablesClamp() public {
+        bytes32 id = _addBandedFeed(0);
+        skip(10);
+        ext.pushFeed(id, M.encodeB64(500e18, 18), 1e4, 5); // +400% instant, no clamp
+        assertApproxEqRel(Oracle.mark(ext.getFeed(id)), 500e18, 0.001e18, "unclamped push committed");
+    }
+
+    /// updateFeed now persists maxDeviation (previously dropped — only emitted).
+    function test_updateFeed_persistsMaxDeviation_thenEnforced() public {
+        ext.updateFeed(feedId, 300, DEV_TTL); // 3% band on the 3000 seed feed
+        assertEq(ext.maxDeviations(feedId), 300, "updateFeed persisted maxDeviation");
+        skip(10);
+        vm.expectRevert(); // +10% (3300 vs 3000) > 3%
+        ext.pushFeed(feedId, M.encodeB64(3300e18, 18), 1e4, 5);
+    }
 }
