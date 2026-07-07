@@ -280,13 +280,27 @@ library Pricing {
         uint16 maxFeePath;
     }
 
-    /// @notice Get anchor path swap quote through graph routing
+    /// @notice Swap-exec entry: pre-warm the tx oracle cache, then quote. Non-view — the cache write
+    ///         is a hot-path dedup (leg walk + priceBandGuard tload instead of a second getFeed).
+    /// @dev Quote-ONLY callers (Pool.getSwapQuote → Router route-discovery STATICCALL) MUST use the
+    ///      `view` variant below, which never writes the transient cache, so the STATICCALL succeeds.
     function getAnchorPathQuote(
         IPool.PoolStorage storage $,
         address tokenIn,
         address tokenOut,
         uint256 amountIn
     ) internal returns (IPool.SwapQuote memory quote) {
+        _primeOracleCache($, tokenIn, tokenOut);
+        return getAnchorPathQuoteView($, tokenIn, tokenOut, amountIn);
+    }
+
+    /// @notice Get anchor path swap quote through graph routing (pure `view` — no cache writes).
+    function getAnchorPathQuoteView(
+        IPool.PoolStorage storage $,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    ) internal view returns (IPool.SwapQuote memory quote) {
         IPool.RoutePath memory path = AnchorTree.findRoutingPath($, tokenIn, tokenOut);
 
         quote.routeHops = path.hops;
@@ -384,7 +398,7 @@ library Pricing {
 
     /// @dev Staleness excess + confidence for spread surcharge. Price is read separately on the leg path.
     function _readOracleStale(IPool.PoolStorage storage $, address token)
-        private returns (uint32 staleExcess, uint16 confidence)
+        private view returns (uint32 staleExcess, uint16 confidence)
     {
         IOracle.FeedData memory feed = _readOracle($, token);
         confidence = feed.confidence;
@@ -395,7 +409,7 @@ library Pricing {
 
     /// @dev Single SLOAD/oracle read per endpoint.
     function _cacheEndpoint(IPool.PoolStorage storage $, address token)
-        private returns (EndpointCache memory cache)
+        private view returns (EndpointCache memory cache)
     {
         IPool.Asset storage asset = $.assets[token];
         IPool.RiskConfig storage rc = $.riskConfigs[token];
@@ -445,7 +459,7 @@ library Pricing {
         IPool.RoutePath memory path,
         PathAccumulator memory acc,
         IPool.SwapQuote memory quote
-    ) private {
+    ) private view {
         for (uint256 i = 0; i < path.hops.length - 1; i++) {
             LegResult memory r = _executeLeg($, path.hops[i], path.hops[i + 1], acc.currentAmount);
             acc.currentAmount = r.amountOut;
@@ -463,7 +477,7 @@ library Pricing {
         address from,
         address to,
         uint256 amountIn
-    ) private returns (LegResult memory r) {
+    ) private view returns (LegResult memory r) {
         if (amountIn == 0) revert Err.ZeroValue();
         bool isUpward = $.assets[from].anchor == to;
         address profileAsset = isUpward ? from : to;
@@ -496,7 +510,7 @@ library Pricing {
 
     /// @dev Leg oracle read + fee bounds. Own frame keeps `_executeLeg` stack-safe under via_ir.
     function _legMarkAndFees(IPool.PoolStorage storage $, address profileAsset)
-        private returns (uint256 twap, uint32 sigma, uint16 minFee, uint16 maxFee)
+        private view returns (uint256 twap, uint32 sigma, uint16 minFee, uint16 maxFee)
     {
         if (profileAsset == $.baseToken) {
             twap = _readBasePriceOrHalt($);
@@ -574,16 +588,25 @@ library Pricing {
         }
     }
 
-    /// @dev Read the token's external feed w/ transient cache. Primary is ALWAYS an external IOracle
-    ///      (internal-TWAP discovery removed). Fail-closed on two axes: (1) STALE — revert if the mark
-    ///      is older than its per-feed `ttl` (a dead/censored keeper must halt, not be picked off);
-    ///      (2) UNCERTAIN — revert if the feed's 1σ CI exceeds MAX_CONFIDENCE_HALT_BPS. Halting > bleeding.
+    /// @dev Read the token's external feed, tx-cache hit first. VIEW: never writes the transient cache
+    ///      — the swap-exec path pre-warms it via `_primeOracleCache`, so a quote-only call
+    ///      (Pool.getSwapQuote → Router route-discovery STATICCALL) stays a pure `view`.
     function _readOracle(IPool.PoolStorage storage $, address token)
-        private returns (IOracle.FeedData memory data)
+        private view returns (IOracle.FeedData memory data)
     {
         bool found;
         (found, data) = TCache.tryLoadOracleFeed(token);
         if (found) return data;
+        return _fetchFeed($, token);
+    }
+
+    /// @dev Fetch + fail-closed gate a feed, NO cache write. Primary is ALWAYS an external IOracle
+    ///      (internal-TWAP discovery removed). Two axes: (1) STALE — revert if the mark is older than
+    ///      its per-feed `ttl` (a dead/censored keeper must halt, not be picked off); (2) UNCERTAIN —
+    ///      revert if the feed's 1σ CI exceeds MAX_CONFIDENCE_HALT_BPS. Halting > bleeding.
+    function _fetchFeed(IPool.PoolStorage storage $, address token)
+        private view returns (IOracle.FeedData memory data)
+    {
         IPool.OracleConfig memory cfg = $.oracleConfigs[token];
         if (cfg.primary == address(0)) revert Err.NotConfigured(Err.Resource.ORACLE, token);
         // INTERNAL mode: quote off a synthetic never-stale peg feed (mark = ema = pegB64, σ = STABLE_SIGMA,
@@ -591,9 +614,7 @@ library Pricing {
         // This also makes _readOracleAge yield staleExcess=confidence=0 (fresh, certain) automatically.
         // The external feed still GATES via _priceBandGuard (depeg breaker) — it is not the price source.
         if (cfg.mode == C.ORACLE_MODE_INTERNAL) {
-            data = Oracle.getPegFeed($.assets[token].pegB64, C.STABLE_SIGMA);
-            TCache.cacheOracleFeed(token, data);
-            return data;
+            return Oracle.getPegFeed($.assets[token].pegB64, C.STABLE_SIGMA);
         }
         data = IOracle(cfg.primary).getFeed(cfg.feedId);
         uint256 age = block.timestamp >= data.updatedAt ? block.timestamp - data.updatedAt : type(uint32).max;
@@ -603,7 +624,22 @@ library Pricing {
         if (data.confidence > C.MAX_CONFIDENCE_HALT_BPS) {
             revert Err.ThresholdViolation(data.confidence, C.MAX_CONFIDENCE_HALT_BPS);
         }
-        TCache.cacheOracleFeed(token, data);
+    }
+
+    /// @dev Swap-exec pre-warm: cache both endpoints' feeds once so the leg walk + priceBandGuard
+    ///      dedupe to tload hits (the multi-leg gas optimization, unchanged from pre-split behavior).
+    ///      Base token is priced via `_readBasePriceOrHalt`, never `_readOracle` ⇒ nothing to cache.
+    ///      Uses the identical fetch+gate as a cache-miss read, so cached == fresh (no behavior change).
+    function _primeOracleCache(IPool.PoolStorage storage $, address tokenIn, address tokenOut) private {
+        _cacheFeed($, tokenIn);
+        _cacheFeed($, tokenOut);
+    }
+
+    function _cacheFeed(IPool.PoolStorage storage $, address token) private {
+        if (token == $.baseToken) return;
+        (bool found,) = TCache.tryLoadOracleFeed(token);
+        if (found) return;
+        TCache.cacheOracleFeed(token, _fetchFeed($, token));
     }
 
     /// @dev Convex coverage toll — port of prime aimm.rs `cov_q` (sim-validated, commit 2d21a29). Charges

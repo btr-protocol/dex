@@ -36,7 +36,7 @@ interface IRouter {
         external payable returns (uint256[] memory amountsOut);
 
     function getSwapQuote(address pool, address tokenIn, address tokenOut, uint256 amountIn)
-        external returns (IExchange.SwapQuote memory quote);
+        external view returns (IExchange.SwapQuote memory quote);
 
     function requestUpgrade(address implementation) external;
     function executeUpgrade() external;
