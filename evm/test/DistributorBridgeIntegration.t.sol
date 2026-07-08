@@ -81,6 +81,14 @@ contract DistributorBridgeIntegrationTest is Test {
         vm.stopPrank();
     }
 
+    /// @dev Propose a root as OWNER (campaign manager), wait out ROOT_COOLDOWN (24h), finalize it live.
+    function _goLive(address p, uint256 id, bytes32 root, uint256 total) internal {
+        vm.prank(OWNER);
+        dist.proposeCampaignRoot(p, id, root, uint32(block.timestamp), total);
+        vm.warp(block.timestamp + 1 days + 1);
+        dist.finalizeCampaignRoot(p, id);
+    }
+
     // ─── R14 Distributor ───
 
     /// @notice R14 MED: first campaign id is 1, never 0 (lazy-bump fix).
@@ -110,8 +118,7 @@ contract DistributorBridgeIntegrationTest is Test {
         bytes32 leaf = keccak256(abi.encodePacked(address(pool), id, idx, USER, totalEarned));
         bytes32[] memory proof = new bytes32[](0);
 
-        vm.prank(OWNER);
-        dist.updateCampaignRoot(address(pool), id, leaf, uint32(block.timestamp), totalEarned);
+        _goLive(address(pool), id, leaf, totalEarned);
 
         // Valid claim (correct pool + id).
         vm.prank(USER);
@@ -130,8 +137,7 @@ contract DistributorBridgeIntegrationTest is Test {
         uint256 id2 = dist.createTokenCampaign(pool2, address(reward), OWNER);
         // Same leaf bytes -but interpreted under (pool2, id2). MerkleProofLib.verify with
         // empty proof: leaf must equal root. Here leaf-under-pool2 != stored-root (pool-bound).
-        vm.prank(OWNER);
-        dist.updateCampaignRoot(pool2, id2, leaf, uint32(block.timestamp), totalEarned);
+        _goLive(pool2, id2, leaf, totalEarned);
 
         // Claim against pool2 with same (idx, USER, totalEarned). Internal recomputed leaf
         // uses (pool2, id2) → ≠ stored root (which is the (pool,id)-leaf). Returns claimable=0
@@ -141,7 +147,7 @@ contract DistributorBridgeIntegrationTest is Test {
         dist.claimCampaign(pool2, id2, idx, USER, totalEarned, proof);
     }
 
-    /// @notice R14: updateCampaignRoot forbids lowering totalAllocated below already-claimed.
+    /// @notice R14: proposeCampaignRoot forbids lowering totalAllocated below already-claimed.
     function test_R14_totalAllocated_floor() public {
         MockERC20 reward = new MockERC20("R","R",18);
         reward.mint(address(dist), 1_000e18);
@@ -149,8 +155,7 @@ contract DistributorBridgeIntegrationTest is Test {
         uint256 id = dist.createTokenCampaign(address(pool), address(reward), OWNER);
 
         bytes32 leaf = keccak256(abi.encodePacked(address(pool), id, uint256(0), USER, uint256(100e18)));
-        vm.prank(OWNER);
-        dist.updateCampaignRoot(address(pool), id, leaf, uint32(block.timestamp), 100e18);
+        _goLive(address(pool), id, leaf, 100e18);
 
         bytes32[] memory proof = new bytes32[](0);
         vm.prank(USER);
@@ -159,7 +164,7 @@ contract DistributorBridgeIntegrationTest is Test {
         // Now try to lower totalClaimable below 100e18 (already-claimed).
         vm.prank(OWNER);
         vm.expectRevert(Err.InvalidInput.selector);
-        dist.updateCampaignRoot(address(pool), id, bytes32(uint256(1)), uint32(block.timestamp), 50e18);
+        dist.proposeCampaignRoot(address(pool), id, bytes32(uint256(1)), uint32(block.timestamp), 50e18);
     }
 
     // ─── R15 Treasury bridge selector ───
@@ -272,8 +277,7 @@ contract DistributorBridgeIntegrationTest is Test {
         vm.prank(OWNER);
         uint256 id = dist.createTokenCampaign(address(pool), address(reward), OWNER);
         bytes32 leaf = keccak256(abi.encodePacked(address(pool), id, uint256(0), USER, uint256(100e18)));
-        vm.prank(OWNER);
-        dist.updateCampaignRoot(address(pool), id, leaf, uint32(block.timestamp), 100e18);
+        _goLive(address(pool), id, leaf, 100e18);
 
         vm.prank(OWNER);
         dist.pauseCampaign(address(pool), id);
@@ -297,7 +301,7 @@ contract DistributorBridgeIntegrationTest is Test {
         uint256 id = dist.createTokenCampaign(address(pool), address(reward), OWNER);
         vm.prank(USER);
         vm.expectRevert(Ownable.Unauthorized.selector);
-        dist.updateCampaignRoot(address(pool), id, bytes32(uint256(1)), uint32(block.timestamp), 1);
+        dist.proposeCampaignRoot(address(pool), id, bytes32(uint256(1)), uint32(block.timestamp), 1);
     }
 
     /// @notice R14: pre-claim, claimable for unbounded leaf returns 0 (won't revert at view).
