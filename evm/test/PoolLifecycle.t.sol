@@ -13,6 +13,7 @@ import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {Err} from "@btr-shared/Errors.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 
 /// @title PoolLifecycleTest
@@ -346,6 +347,94 @@ contract PoolLifecycleTest is Test {
         vm.prank(USER);
         vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
         pool.batchSwap(inputs, outputs, USER);
+    }
+
+    // ─── perpetual profile recalibration (requestUpdateProfile / executeUpdateProfile) ───
+
+    /// @dev A coarser 2-segment shape (span still 100, sum still 200) distinct from `_defaultProfile`.
+    function _recalProfile() internal pure returns (IPool.LiquidityProfile memory p) {
+        p.weights[0] = 100; p.weights[1] = 100;
+        p.knots[0] = -50; p.knots[1] = 0; p.knots[2] = 50;
+    }
+
+    /// @dev Seed base+quote reserves so a base→quote quote isn't reserve-clamped; quote is the
+    ///      profile asset (base is the anchorless hub), so recalibrating `quote` moves this curve.
+    function _seedForQuote(uint256 amt) internal {
+        base.mint(address(this), amt);
+        quote.mint(address(this), amt);
+        base.approve(address(pool), type(uint256).max);
+        quote.approve(address(pool), type(uint256).max);
+        pool.deposit(address(base), amt);
+        pool.deposit(address(quote), amt);
+    }
+
+    /// (a) Recalibration after timelock reshapes the depth curve: same fixed trade prices differently.
+    ///     Widening the dispersion band scales every spline price-offset up (y = knot·dispersion/100),
+    ///     so the taker's slippage strictly increases → less out.
+    function test_updateProfile_recalibrates_price_impact() public {
+        _seedForQuote(1_000e18);
+        uint256 amtIn = 10e18;
+        uint256 outBefore = pool.getSwapQuote(address(base), address(quote), amtIn).amountOut;
+        assertGt(outBefore, 0, "baseline quote");
+
+        vm.prank(OWNER);
+        admin.requestUpdateProfile(address(pool), address(quote), _recalProfile(), 80_000, 80_000);
+        vm.warp(block.timestamp + 1 days + 1);
+        // Keeper marks would refresh over a 1-day window; without it the mock feed staleness-halts.
+        oracle.setMark(address(base),  M.encodeB64(1e18, 18));
+        oracle.setMark(address(quote), M.encodeB64(1e18, 18));
+        vm.prank(OWNER);
+        admin.executeUpdateProfile(address(pool), address(quote));
+
+        IPool.Asset memory a = pool.getAsset(address(quote));
+        assertEq(a.minDispersion, 80_000, "min dispersion written");
+        assertEq(a.maxDispersion, 80_000, "max dispersion written");
+
+        uint256 outAfter = pool.getSwapQuote(address(base), address(quote), amtIn).amountOut;
+        assertTrue(outAfter != outBefore, "recalibration changed the price-impact curve");
+        assertLt(outAfter, outBefore, "wider dispersion steepens curve, more slippage");
+    }
+
+    /// (b1) Malformed profile (weights sum != 200) reverts at execute via the existing validator.
+    function test_updateProfile_invalidWeights_reverts() public {
+        IPool.LiquidityProfile memory bad = _recalProfile();
+        bad.weights[1] = 99; // sum = 199 ≠ 200
+        vm.startPrank(OWNER);
+        admin.requestUpdateProfile(address(pool), address(quote), bad, 1000, 100000);
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.expectRevert(Err.InvalidInput.selector);
+        admin.executeUpdateProfile(address(pool), address(quote));
+        vm.stopPrank();
+    }
+
+    /// (b2) Inverted dispersion band (min > max) reverts at execute (sanitizeDispersion ordering guard).
+    function test_updateProfile_invalidDispersion_reverts() public {
+        vm.startPrank(OWNER);
+        admin.requestUpdateProfile(address(pool), address(quote), _recalProfile(), 90_000, 1000);
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.expectRevert(Err.BadConfig.selector);
+        admin.executeUpdateProfile(address(pool), address(quote));
+        vm.stopPrank();
+    }
+
+    /// (c) Executing before the LOW_TIMELOCK (1 day) elapses reverts NotReady.
+    function test_updateProfile_beforeTimelock_reverts() public {
+        vm.startPrank(OWNER);
+        admin.requestUpdateProfile(address(pool), address(quote), _recalProfile(), 1000, 100000);
+        vm.warp(block.timestamp + 1 hours); // < 1 day
+        vm.expectRevert(Err.NotReady.selector);
+        admin.executeUpdateProfile(address(pool), address(quote));
+        vm.stopPrank();
+    }
+
+    /// (d) Only the AC owner may queue/execute a recalibration.
+    function test_updateProfile_nonAdmin_reverts() public {
+        vm.startPrank(USER);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        admin.requestUpdateProfile(address(pool), address(quote), _recalProfile(), 1000, 100000);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        admin.executeUpdateProfile(address(pool), address(quote));
+        vm.stopPrank();
     }
 
     function test_swap_simple() public {

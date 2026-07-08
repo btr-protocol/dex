@@ -59,6 +59,15 @@ interface IAdmin {
 
     function requestUpdateRiskConfig(address pool, address token, IPool.RiskConfig calldata cfg) external;
     function executeUpdateRiskConfig(address pool, address token) external;
+    function requestUpdateProfile(
+        address pool,
+        address token,
+        IPool.LiquidityProfile calldata newProfile,
+        uint32 minDispersion,
+        uint32 maxDispersion
+    ) external;
+    function executeUpdateProfile(address pool, address token) external;
+    function cancelUpdateProfile(address pool, address token) external;
     function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external;
     function executeUpdateFeeParams(address pool) external;
 
@@ -97,6 +106,8 @@ interface IAdmin {
     event TimelockRequested(address indexed pool, bytes32 indexed id, uint8 opType, uint48 executableAt);
     event TimelockCancelled(address indexed pool, bytes32 indexed id, uint8 opType);
     event RiskConfigUpdated(address indexed pool, address indexed token, uint128 minLiquidity, uint16 flags);
+    /// @dev Emitted on profile recalibration execute — indexer re-reads the new shape from Pool state.
+    event ProfileUpdated(address indexed pool, address indexed token);
     event FeeParamsUpdated(address indexed pool, uint16 protoShare, uint16 flashFeeBps);
     event BridgeUpdated(address indexed pool, address indexed oldBridge, address indexed newBridge);
     event TreasuryUpdated(address indexed pool, address indexed oldTreasury, address indexed newTreasury);

@@ -125,6 +125,15 @@ contract PoolAux is ReentrancyGuardTransient {
         PoolAdminWrite.setOracleConfig($, address(this), token, cfg);
     }
 
+    function adminSetProfile(
+        address token,
+        IPool.LiquidityProfile calldata profile,
+        uint32 minDispersion,
+        uint32 maxDispersion
+    ) external onlyAdmin {
+        PoolAdminWrite.setProfile($, token, profile, minDispersion, maxDispersion);
+    }
+
     function adminSetFeeParams(IPool.FeeParams calldata params) external onlyAdmin {
         PoolAdminWrite.setFeeParams($, params);
     }
