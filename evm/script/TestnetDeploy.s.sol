@@ -31,7 +31,6 @@ contract TestnetDeploy is Deploy {
         TestnetERC20 usdt;
         TestnetERC20 usd1;
         TestnetERC20 usde;
-        TestnetERC20 usds;
         TestnetERC20 fdusd;
         TestnetERC20 btcb;
         TestnetERC20 eth;
@@ -84,7 +83,6 @@ contract TestnetDeploy is Deploy {
         t.usdt = new TestnetERC20("Tether USD", "USDT", 18);
         t.usd1 = new TestnetERC20("World Liberty USD", "USD1", 18);
         t.usde = new TestnetERC20("Ethena USDe", "USDE", 18);
-        t.usds = new TestnetERC20("Sky USDS", "USDS", 18);
         t.fdusd = new TestnetERC20("First Digital USD", "FDUSD", 18);
         t.btcb = new TestnetERC20("Bitcoin BEP20", "BTCB", 18);
         t.eth = new TestnetERC20("Ethereum Peg", "ETH", 18);
@@ -101,7 +99,6 @@ contract TestnetDeploy is Deploy {
         _addPairFeed(oracle, address(t.usdt), usdc, M.encodeB64(1e18, 18), STABLE_TTL);
         _addPairFeed(oracle, address(t.usd1), usdc, M.encodeB64(1e18, 18), STABLE_TTL);
         _addPairFeed(oracle, address(t.usde), usdc, M.encodeB64(1e18, 18), STABLE_TTL);
-        _addPairFeed(oracle, address(t.usds), usdc, M.encodeB64(1e18, 18), STABLE_TTL);
         _addPairFeed(oracle, address(t.fdusd), usdc, M.encodeB64(1e18, 18), STABLE_TTL);
 
         _addPairFeed(oracle, address(t.btcb), usdc, M.encodeB64(62_000e18, 18), VOLATILE_TTL);
@@ -122,13 +119,12 @@ contract TestnetDeploy is Deploy {
     }
 
     function _stableList(Tokens memory t) internal pure returns (address[] memory list) {
-        list = new address[](6);
+        list = new address[](5);
         list[0] = address(t.usdc);
         list[1] = address(t.usdt);
         list[2] = address(t.usd1);
         list[3] = address(t.usde);
-        list[4] = address(t.usds);
-        list[5] = address(t.fdusd);
+        list[4] = address(t.fdusd);
     }
 
     function _volatileList(Tokens memory t) internal pure returns (address[] memory list) {
@@ -226,7 +222,7 @@ contract TestnetDeploy is Deploy {
 
     function _seedAmount(address tok, Tokens memory t, uint256 seedUsdc) internal pure returns (uint256) {
         if (tok == address(t.usdc) || tok == address(t.usdt) || tok == address(t.usd1) || tok == address(t.usde)
-            || tok == address(t.usds) || tok == address(t.fdusd)) {
+            || tok == address(t.fdusd)) {
             return seedUsdc;
         }
         if (tok == address(t.btcb)) return seedUsdc * 1e18 / 62_000e18;
@@ -247,18 +243,17 @@ contract TestnetDeploy is Deploy {
     }
 
     function _allTokens(Tokens memory t) internal pure returns (address[] memory list) {
-        list = new address[](11);
+        list = new address[](10);
         list[0] = address(t.usdc);
         list[1] = address(t.usdt);
         list[2] = address(t.usd1);
         list[3] = address(t.usde);
-        list[4] = address(t.usds);
-        list[5] = address(t.fdusd);
-        list[6] = address(t.btcb);
-        list[7] = address(t.eth);
-        list[8] = address(t.wbnb);
-        list[9] = address(t.cake);
-        list[10] = address(t.xaut);
+        list[4] = address(t.fdusd);
+        list[5] = address(t.btcb);
+        list[6] = address(t.eth);
+        list[7] = address(t.wbnb);
+        list[8] = address(t.cake);
+        list[9] = address(t.xaut);
     }
 
     function _logTestnet(TestnetAddrs memory a) internal view {
@@ -287,7 +282,6 @@ contract TestnetDeploy is Deploy {
         vm.serializeAddress(k, "usdt", address(a.tok.usdt));
         vm.serializeAddress(k, "usd1", address(a.tok.usd1));
         vm.serializeAddress(k, "usde", address(a.tok.usde));
-        vm.serializeAddress(k, "usds", address(a.tok.usds));
         vm.serializeAddress(k, "fdusd", address(a.tok.fdusd));
         vm.serializeAddress(k, "btcb", address(a.tok.btcb));
         vm.serializeAddress(k, "eth", address(a.tok.eth));
