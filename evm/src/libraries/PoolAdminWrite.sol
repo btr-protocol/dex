@@ -122,6 +122,25 @@ library PoolAdminWrite {
         $.riskConfigs[t].flags = (cfg.flags & ~C.HALT_MASK) | halt;
     }
 
+    /// @notice Perpetual profile recalibration: rewrite an asset's Hermite liquidity-profile SHAPE
+    ///         (weights/knots) + dispersion band after listing. Pricing-shape only — reserves,
+    ///         liabilities and coverage are untouched, so live LP positions are not repriced by fiat.
+    ///         Gated by the LOW_TIMELOCK request/execute path (see Admin.requestUpdateProfile).
+    function setProfile(
+        IPool.PoolStorage storage $,
+        address token,
+        IPool.LiquidityProfile calldata profile,
+        uint32 minDispersion,
+        uint32 maxDispersion
+    ) external {
+        address t = PoolIO.wrap($, token);
+        IPool.Asset storage asset = $.assets[t];
+        if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
+        PoolAdmin.validateProfileMemory(profile);
+        (asset.minDispersion, asset.maxDispersion) = PoolAdmin.sanitizeDispersion(minDispersion, maxDispersion);
+        $.profiles[t] = profile;
+    }
+
     function setOracleConfig(IPool.PoolStorage storage $, address self, address token, IPool.OracleConfig calldata cfg) external {
         PoolAdmin.validateOracleConfig(cfg, self);
         PoolAdmin.validateInternalMode($, token, cfg);

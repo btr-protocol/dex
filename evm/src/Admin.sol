@@ -36,6 +36,7 @@ contract Admin is IAdmin {
     bytes32 private constant OP_UPDATE_TREASURY      = keccak256("UPDATE_TREASURY");
     bytes32 private constant OP_BASE_MIGRATION       = keccak256("BASE_MIGRATION");
     bytes32 private constant OP_UPDATE_ORACLE        = keccak256("UPDATE_ORACLE");
+    bytes32 private constant OP_UPDATE_PROFILE       = keccak256("UPDATE_PROFILE");
 
     constructor(address ac_) {
         if (ac_ == address(0)) revert Err.ZeroAddr();
@@ -247,6 +248,40 @@ contract Admin is IAdmin {
         if (storedToken != token) revert Err.InvalidInput();
         IPool(pool).adminSetRiskConfig(token, cfg);
         emit RiskConfigUpdated(pool, token, cfg.flags, 0);
+    }
+
+    /// @notice Queue a perpetual profile recalibration: new Hermite shape (weights/knots) + dispersion
+    ///         band for an already-listed asset. Same LOW_TIMELOCK tier as risk-config — it retunes the
+    ///         depth-concentration curve, not custody. Validation (weights sum / knot span / min≤max)
+    ///         runs at execute via `adminSetProfile`, matching the risk/oracle queue idiom.
+    function requestUpdateProfile(
+        address pool,
+        address token,
+        IPool.LiquidityProfile calldata newProfile,
+        uint32 minDispersion,
+        uint32 maxDispersion
+    ) external onlyAdmin {
+        bytes32 key = _keyToken(pool, OP_UPDATE_PROFILE, token);
+        _emitQueued(
+            key,
+            SC.LOW_TIMELOCK,
+            abi.encode(token, newProfile, minDispersion, maxDispersion),
+            pool,
+            uint8(IPool.OpType.UPDATE_PROFILE)
+        );
+    }
+
+    function executeUpdateProfile(address pool, address token) external onlyAdmin {
+        bytes32 key = _keyToken(pool, OP_UPDATE_PROFILE, token);
+        (address storedToken, IPool.LiquidityProfile memory profile, uint32 minDisp, uint32 maxDisp) =
+            abi.decode(_consume(key), (address, IPool.LiquidityProfile, uint32, uint32));
+        if (storedToken != token) revert Err.InvalidInput();
+        IPool(pool).adminSetProfile(token, profile, minDisp, maxDisp);
+        emit ProfileUpdated(pool, token);
+    }
+
+    function cancelUpdateProfile(address pool, address token) external onlyAdmin {
+        _cancel(pool, _keyToken(pool, OP_UPDATE_PROFILE, token), uint8(IPool.OpType.UPDATE_PROFILE));
     }
 
     function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external onlyAdmin {

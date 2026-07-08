@@ -90,7 +90,8 @@ interface IPool is IOracle {
         UPDATE_RISK,
         UPDATE_FEES,
         UPDATE_BRIDGE,
-        UPDATE_TREASURY
+        UPDATE_TREASURY,
+        UPDATE_PROFILE
     }
 
     /// @dev Phase 42H.B.3d -ERC-7201 indirection dropped. Pool storage is now plain
@@ -163,6 +164,13 @@ interface IPool is IOracle {
     ) external;
     function adminSetRiskConfig(address token, RiskConfig calldata cfg) external;
     function adminSetOracleConfig(address token, OracleConfig calldata cfg) external;
+    /// @notice Recalibrate an asset's liquidity-profile SHAPE + dispersion band (pricing-shape only).
+    function adminSetProfile(
+        address token,
+        LiquidityProfile calldata profile,
+        uint32 minDispersion,
+        uint32 maxDispersion
+    ) external;
     function adminSetFeeParams(FeeParams calldata params) external;
     function adminSetBridge(address newBridge) external;
     function adminSetTreasury(address newTreasury) external;

@@ -46,6 +46,18 @@ library PoolAdmin {
         if (cfg.kappaCovBps > 0 && cfg.depthAmplifier > 0) revert Err.BadConfig();
     }
 
+    /// @notice Normalize dispersion bounds: 0 → protocol default (min 1000, max 100000). Enforces the
+    ///         R44-7 (Pass-44B) ordering invariant — without min≤max, `_calculateDispersion`'s clamp
+    ///         branches collapse to a single bound and produce an undefined dispersion band. Shared by
+    ///         asset init and profile recalibration so the bound semantics can never diverge.
+    function sanitizeDispersion(uint32 minDispersion, uint32 maxDispersion)
+        internal pure returns (uint32 mn, uint32 mx)
+    {
+        mn = minDispersion == 0 ? 1000 : minDispersion;
+        mx = maxDispersion == 0 ? 100000 : maxDispersion;
+        if (mn > mx) revert Err.BadConfig();
+    }
+
     /// @notice Validate oracle config: primary set + reachable, plus INTERNAL-mode gating.
     /// @dev INTERNAL (constant-peg) mode requires: pegB64>0; a live gate feed (primary+feedId); a depeg
     ///      breaker (absolute reservation band on the asset OR refFeedId+refBandBps); and — the on-chain
@@ -92,13 +104,7 @@ library PoolAdmin {
         asset.minFeeBps = minFeeBps;
         asset.maxFeeBps = uint16(SC.BPS);
         asset.minLiquidity = 0;
-        uint32 mn = minDispersion == 0 ? 1000 : minDispersion;
-        uint32 mx = maxDispersion == 0 ? 100000 : maxDispersion;
-        // R44-7 (Pass-44B): enforce ordering invariant. Without it, `_calculateDispersion`
-        // clamp branches collapse to a single bound and produce undefined dispersion bands.
-        if (mn > mx) revert Err.BadConfig();
-        asset.minDispersion = mn;
-        asset.maxDispersion = mx;
+        (asset.minDispersion, asset.maxDispersion) = sanitizeDispersion(minDispersion, maxDispersion);
         asset.gamma = gamma == 0 ? uint16(SC.BPS) : gamma;
         asset.vega = vega == 0 ? uint16(SC.BPS) : vega;
         asset.haircutSuppressor = uint16(SC.BPS);
