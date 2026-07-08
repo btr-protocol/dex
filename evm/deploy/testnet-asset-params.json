@@ -27,17 +27,30 @@
         "vega": 10000,
         "oracleMode": "EXTERNAL",
         "refBandBps": 100,
-        "thetaBps": 1,
+        "thetaBps": 0.5,
         "heartbeatS": 3600,
         "ttlS": 7200
       },
+      "_paramNote": "5 tokens (USDS dropped — 0 BSC stable-swap volume in the 6mo tape). θ=0.5bp = tight centering (~700 pushes/day, ~$60/mo; keeper trigger, off-chain, fractional-bp ok). minFeeBps=1 (0.01bp absolute floor, owner's aggressive-competitive call); effective fee is σ-driven ~0.1-0.25bp in calm — well under the ~1bp incumbent. Capture sim's revenue-optimum was ~1bp spread (see prime/research/stable-core/LAUNCH_PARAMS.md) — raise per-asset minFee via setAssetParams post-launch if leaving APR on the table. All 5 priced off Pyth (see priceFeeds).",
       "assets": {
         "USDC": { "minFeeBps": 1, "refBandBps": 50 },
         "USDT": { "minFeeBps": 1, "refBandBps": 100, "refFeedId": "USDC" },
         "USD1": { "minFeeBps": 1, "refBandBps": 150 },
         "USDE": { "minFeeBps": 1, "refBandBps": 150 },
-        "USDS": { "minFeeBps": 1, "refBandBps": 150 },
         "FDUSD": { "minFeeBps": 1, "refBandBps": 200 }
+      },
+      "priceFeeds": {
+        "_comment": "Keeper reads Pyth Hermes off-chain per token → pushes to ExternalOracle (deviation-θ + heartbeat + on-chain EMA). Pyth is the SOURCE, not on the quote path. All 5 verified live on Pyth (BSC contract 0x4D7E825f80bDf85e913E0DD2A2D54927e9dE1594). USD1 = young token, quiet Pyth add — monitor conf/heartbeat, NX-Rates fallback ready.",
+        "source": "pyth",
+        "pythBscContract": "0x4D7E825f80bDf85e913E0DD2A2D54927e9dE1594",
+        "ids": {
+          "USDC":  "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a",
+          "USDT":  "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b",
+          "USD1":  "0x0a2425d43486780990d8b63543029e20556be51fd756cca584212f4d539611d4",
+          "USDE":  "0x6ec879b1e9963de5ee97e9c8710b742d6228252a5e2ca12d4ae81d7fe5ee8c5d",
+          "FDUSD": "0xccdc1a08923e2e4f4b1e6ea89de6acbc5fe1948e9706f5604b8cb50bc1ed3979"
+        },
+        "usd1Fallback": "NX-Rates feed if Pyth conf/heartbeat degrades (young token)"
       }
     },
     "volatile-core": {
