@@ -19,7 +19,7 @@
     "stable-core": {
       "base": "USDC",
       "classDefaults": {
-        "minFeeBps": 1,
+        "minFeeBps": 100,
         "maxFeeBps": 2000,
         "minDispersion": 1000,
         "maxDispersion": 100000,
@@ -27,17 +27,25 @@
         "vega": 10000,
         "oracleMode": "EXTERNAL",
         "refBandBps": 100,
-        "thetaBps": 0.5,
+        "thetaBps": 0.3,
         "heartbeatS": 3600,
         "ttlS": 7200
       },
-      "_paramNote": "5 tokens (USDS dropped — 0 BSC stable-swap volume in the 6mo tape). θ=0.5bp = tight centering (~700 pushes/day, ~$60/mo; keeper trigger, off-chain, fractional-bp ok). minFeeBps=1 (0.01bp absolute floor, owner's aggressive-competitive call); effective fee is σ-driven ~0.1-0.25bp in calm — well under the ~1bp incumbent. Capture sim's revenue-optimum was ~1bp spread (see prime/research/stable-core/LAUNCH_PARAMS.md) — raise per-asset minFee via setAssetParams post-launch if leaving APR on the table. All 5 priced off Pyth (see priceFeeds).",
+      "_paramNote": "SIM-TUNED (faithful 3mo state-machine replay of 11.5M BSC swaps; prime/research/stable-core/RISK_PARAMS_TESTNET.md + stable_report.html). minFeeBps=100 (1bp spread) is the LP<->trader EQUILIBRIUM: wins ~23% of trades / ~12% of volume (sane, non-toxic flow) at ~11-15% LP net APR. Lower starves LPs (0.5bp->8% APR, 0.3bp->5%), higher sheds trader share (1.5bp->18% win). Floor is 1 PBPS (0.01bp) — reserved for a price war via setAssetParams, NOT the launch value; on stables σ is too small to lift a 1-PBPS floor off the floor. θ=0.3bp = the CRITICAL LP-protection knob: fresh marks keep the pool at true peg so it takes balanced flow (rebalancing stays ~2-4% of won volume, LVR ~0). ~800 pushes/day, ~$60/mo. Coverage band is NOT load-bearing (covMin 0.5..0.8 all equivalent in sim) — freshness is. All 5 priced off Pyth (see priceFeeds).",
       "assets": {
-        "USDC": { "minFeeBps": 1, "refBandBps": 50 },
-        "USDT": { "minFeeBps": 1, "refBandBps": 100, "refFeedId": "USDC" },
-        "USD1": { "minFeeBps": 1, "refBandBps": 150 },
-        "USDE": { "minFeeBps": 1, "refBandBps": 150 },
-        "FDUSD": { "minFeeBps": 1, "refBandBps": 200 }
+        "USDC": { "minFeeBps": 100, "refBandBps": 50 },
+        "USDT": { "minFeeBps": 100, "refBandBps": 100, "refFeedId": "USDC" },
+        "USD1": { "minFeeBps": 100, "refBandBps": 150 },
+        "USDE": { "minFeeBps": 100, "refBandBps": 200 },
+        "FDUSD": { "minFeeBps": 100, "refBandBps": 200 }
+      },
+      "depositCapScheduleUsd": {
+        "_comment": "Testnet growth schedule $50K->$1M. Per-asset split = observed 3mo stable-stable volume weights (base USDC 35%, USDT 26%, USD1 27%, FDUSD 8.5%, USDe 3.5%). USDe kept tiny (near-0 BSC flow + depeg risk). Raise the active tier via setAssetParams as TVL fills; win-share by count (~23%) is TVL-invariant, volume-share and abs fees scale up ($8k/yr@50K -> $111k/yr@1M).",
+        "50000":   { "USDC": 17500, "USDT": 13000, "USD1": 13500, "FDUSD": 4300, "USDE": 1750 },
+        "100000":  { "USDC": 35000, "USDT": 26000, "USD1": 27000, "FDUSD": 8500, "USDE": 3500 },
+        "250000":  { "USDC": 87500, "USDT": 65000, "USD1": 67500, "FDUSD": 21000, "USDE": 8750 },
+        "500000":  { "USDC": 175000, "USDT": 130000, "USD1": 135000, "FDUSD": 42500, "USDE": 17500 },
+        "1000000": { "USDC": 350000, "USDT": 260000, "USD1": 270000, "FDUSD": 85000, "USDE": 35000 }
       },
       "priceFeeds": {
         "_comment": "Keeper reads Pyth Hermes off-chain per token → pushes to ExternalOracle (deviation-θ + heartbeat + on-chain EMA). Pyth is the SOURCE, not on the quote path. All 5 verified live on Pyth (BSC contract 0x4D7E825f80bDf85e913E0DD2A2D54927e9dE1594). USD1 = young token, quiet Pyth add — monitor conf/heartbeat, NX-Rates fallback ready.",
