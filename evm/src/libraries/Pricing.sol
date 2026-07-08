@@ -29,7 +29,10 @@ library Pricing {
     uint256 private constant MAX_IMPACT = 2 * SC.WAD;   // 200%
     uint256 private constant MIN_ADJ = SC.WAD / 1000;   // 0.1%
 
-    /// @notice Avellaneda-Stoikov inventory skew. Linear: skew = sign*γ*100*progress, clamp [-100,+100].
+    /// @notice Coverage-driven inventory skew — lineage: DODO PMM (oracle-anchored inventory-aware mid
+    ///         shift, the `i`/`k` proactive-maker intuition), the Platypus/Wombat coverage-ratio (R/L) as
+    ///         the pool-health metric, and the Avellaneda-Stoikov reservation price as the continuous-time
+    ///         optimal-control framing. Linear: skew = sign*γ*100*progress, clamp [-100,+100].
     ///         At critMin: +γ*100 (premium); target=WAD: 0; critMax: -γ*100 (discount).
     ///         coverageMin/Max in 0.01% units (10000=100%). gamma in BPS (10000=1x).
     function computeInventorySkew(
