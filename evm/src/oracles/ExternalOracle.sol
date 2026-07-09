@@ -195,6 +195,14 @@ contract ExternalOracle is IOracle {
 
         uint256 dt;
         unchecked { dt = block.timestamp - prevAt; }
+        // One mark update per feed per block. The per-push clamp below bounds a move against the
+        // PREVIOUS push's mark; within a single block dt==0 so the band never grows, and N pushes
+        // (looped pushFeed, or a feedId repeated inside one batchPush) would each pass the band yet
+        // compound geometrically to an unbounded one-tx move — exactly the drain P4/H-2 claim to
+        // prevent. Rejecting a same-block re-push bounds the per-BLOCK move to a single band step and
+        // makes a duplicate feedId in a batch fail-closed. Honest keepers push once per feed per tick
+        // (≥ poll interval ≫ 1 block), so this never bites them.
+        if (dt == 0) revert Err.CooldownActive(1);
 
         uint16 ttl = uint16((word >> 192) & 0xFFFF);
         // Per-feed push clamp (D1). The pool QUOTES off the raw mark (lastPriceB64), not the rate-clamped

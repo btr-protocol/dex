@@ -92,6 +92,7 @@ contract RouterRouteDiscoveryTest is Test {
         _seed(quote, 1_000_000e18);
 
         router = new Router(address(ac));
+        vm.prank(OWNER);
         router.initialize(address(factory));
     }
 
@@ -99,6 +100,15 @@ contract RouterRouteDiscoveryTest is Test {
         tk.mint(address(this), amt);
         tk.approve(address(pool), type(uint256).max);
         pool.deposit(address(tk), amt);
+    }
+
+    /// Audit fix: Router.initialize enforces msg.sender == AC.owner(), so a front-run in a non-atomic
+    /// proxy deploy reverts instead of permanently binding an attacker-supplied factory.
+    function test_initialize_nonOwner_reverts() public {
+        Router r = new Router(address(ac));
+        vm.prank(address(0xBAD));
+        vm.expectRevert(); // Ownable.Unauthorized
+        r.initialize(address(factory));
     }
 
     /// getBestDirectQuote MUST resolve the funded official pool with a non-zero output — the assertion

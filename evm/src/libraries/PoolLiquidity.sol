@@ -92,7 +92,12 @@ library PoolLiquidity {
         asset.liabilities += uint128(amt);
 
         uint256 idx = asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex;
-        asset.liquidityIndex = uint64(liabBefore == 0 ? idx : (idx * (liabBefore + amt)) / liabBefore);
+        uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + amt)) / liabBefore;
+        // Checked cast: liquidityIndex (uint64) is the sole share↔value converter for all LPs of this
+        // asset; a raw cast would wrap on overflow and silently corrupt every holder's balance. Fail
+        // closed instead — a donation that would overflow the index reverts.
+        if (newIndex > type(uint64).max) revert Err.ExcessiveAmount(newIndex, type(uint64).max);
+        asset.liquidityIndex = uint64(newIndex);
 
         emit IPool.Donated(msg.sender, token, amt);
     }
@@ -210,6 +215,10 @@ library PoolLiquidity {
         if (assetIn.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, inTk);
         if (assetOut.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, outTk);
 
+        // JIT flow-guard: subject to the same cooldown as withdrawTo, else deposit→swapLiability→withdraw
+        // exits the position before the anti-JIT window elapses.
+        _checkCooldown($, $.lastDepositTime[msg.sender][inTk]);
+
         PoolDecay.applyDecay($, inTk, assetIn);
         PoolDecay.applyDecay($, outTk, assetOut);
         PoolIO.checkRisk($, inTk, C.LIABILITY_SWAP_ENABLED_BIT);
@@ -223,6 +232,10 @@ library PoolLiquidity {
         if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
 
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, inTk, outTk, liabIn);
+        // Depeg breaker on both legs — liability re-denomination is priced off both marks, so a
+        // wrong-but-fresh mark must halt it exactly like swap/withdrawTo (which gate the output leg).
+        PoolIO.priceBandGuard($, outTk, assetOut);
+        PoolIO.priceBandGuard($, inTk, assetIn);
         uint256 liabOut = q.amountOut;
         uint256 haircut;
 
@@ -238,6 +251,10 @@ library PoolLiquidity {
 
         $.lpBalances[msg.sender][inTk] -= lpAmountIn;
         $.lpBalances[msg.sender][outTk] += lpAmountOut;
+        // Rebalanced position INHERITS the JIT cooldown (never resets it earlier): a later swapLiability
+        // or withdraw on the destination is still gated by the original deposit's timestamp.
+        uint32 prevOut = $.lastDepositTime[msg.sender][outTk];
+        if (block.timestamp > prevOut) $.lastDepositTime[msg.sender][outTk] = uint32(block.timestamp);
 
         emit IPool.LiabilitySwapped(msg.sender, inTk, outTk, lpAmountIn, lpAmountOut, haircut);
         return lpAmountOut;

@@ -51,6 +51,10 @@ contract Router is IRouter, ReentrancyGuardTransient, UUPSUpgradeable {
     function initialize(address factory_) external {
         if (_initialized) revert Err.InvalidState();
         if (factory_ == address(0)) revert Err.ZeroValue();
+        // Enforce msg.sender == AC.owner() so a front-run in a non-atomic proxy deploy reverts
+        // Ownable.Unauthorized instead of permanently binding an attacker-supplied factory (which
+        // gates isOfficialPool / route resolution). Mirrors Treasury.initialize.
+        if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
         factory = factory_;
         _initialized = true;
     }

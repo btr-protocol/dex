@@ -62,14 +62,30 @@ contract ExternalOracleTest is Test {
         assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 15000e18, 0.001e18, "mark still commits raw");
     }
 
-    function test_pushFeed_sameBlockFreezesEmaAndSigmaEma() public {
-        uint64 emaSeed = ext.getFeed(feedId).emaPriceB64;
-        uint32 sigmaSeed = ext.getFeed(feedId).sigmaEma;
-        ext.pushFeed(feedId, M.encodeB64(3100e18, 18), 500, 5);
-        IOracle.FeedData memory f = ext.getFeed(feedId);
-        assertEq(f.emaPriceB64, emaSeed, "same-block ema frozen");
-        assertEq(f.sigmaEma, sigmaSeed, "same-block sigmaEma frozen");
-        assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 3100e18, 0.001e18, "mark updated same block");
+    /// One mark update per feed per block: a same-block re-push reverts. This is the audit fix (all 3
+    /// cohorts) for the cumulative-clamp bypass — the per-push deviation band is measured against the
+    /// previous push, so N same-block pushes would each pass the band yet compound geometrically to an
+    /// unbounded one-tx move. Rejecting the same-block re-push bounds the per-block move to one band.
+    function test_pushFeed_sameBlockRepushReverts() public {
+        vm.warp(block.timestamp + TAU);
+        ext.pushFeed(feedId, M.encodeB64(3030e18, 18), 1e4, 5); // first push this block: ok
+        vm.expectRevert(abi.encodeWithSelector(Err.CooldownActive.selector, uint256(1)));
+        ext.pushFeed(feedId, M.encodeB64(3060e18, 18), 1e4, 5); // second, same block → reject
+    }
+
+    /// Regression: a feedId repeated inside one batchPush cannot compound past a single band — the
+    /// duplicate's second occurrence hits the same-block guard and fail-closes the whole batch.
+    function test_batchPush_duplicateFeedId_reverts() public {
+        vm.warp(block.timestamp + TAU);
+        bytes32[] memory ids = new bytes32[](2);
+        uint64[] memory prices = new uint64[](2);
+        uint32[] memory sigmas = new uint32[](2);
+        uint16[] memory confs = new uint16[](2);
+        ids[0] = feedId; ids[1] = feedId; // duplicate feed → compounding attempt
+        prices[0] = M.encodeB64(3030e18, 18); prices[1] = M.encodeB64(3060e18, 18);
+        sigmas[0] = 1e4; sigmas[1] = 1e4; confs[0] = 5; confs[1] = 5;
+        vm.expectRevert(abi.encodeWithSelector(Err.CooldownActive.selector, uint256(1)));
+        ext.batchPush(ids, prices, sigmas, confs);
     }
 
     /// σ sample=0 cannot collapse sigmaEma when mark moves — evidence floor ratchets from |Δmark|.
