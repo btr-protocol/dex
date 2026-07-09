@@ -25,7 +25,7 @@
 - **Topology: flat depth-1 star** (deep tree ruled out — wrapper relative rate info-free → deep = short-vol
   the depeg tail). No LSTs at launch (on-chain-illiquid).
 - **Testnet chain: BNB testnet (chapel, id 97).**
-- **Feed IDs = MITCH ticker u64** (same both sides, NX↔DEX).
+- **Feed IDs = `keccak256(abi.encodePacked(base, quote))`** on `ExternalOracle` (code won: `ExternalOracle.addFeed` derives the id; keeper maps MITCH tickers → keccak ids off-chain, see `keepers/oracle.example.toml`). ~~MITCH ticker u64 both sides~~ — superseded.
 - **Heartbeat = staleness bound, not liveness watchdog.** `heartbeat_s` is the max
   interval between on-chain price pushes per feed. The same K0S `oracle-daemon`
   pushes NX marks when `|Δ|>θ` **or** heartbeat elapsed — not a separate “keeper
@@ -39,7 +39,7 @@
 ### Push triggers (single daemon)
 One `btr-keeper oracle-daemon` per cluster instance. Per feed, push when:
 - cold-start (no prior on-chain mark), **or**
-- `|m − p_last| / p_last > θ` (±1 bp stables, ±5 bp volatiles), **or**
+- `|m − p_last| / p_last > θ` (±0.3–0.5 bp stables, ±5 bp volatiles), **or**
 - `heartbeat_s` elapsed since last on-chain push for that feed.
 
 Heartbeat is the staleness ceiling the daemon enforces — not an independent
@@ -61,7 +61,7 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
   failover on upstream silence, not parallel triple-push.
 
 ## POOLS (BNB testnet, base = USDC for both)
-- **Stable core:** USDC(base), USDT, USD1, USDE, USDS, FDUSD. (Most-liquid BNB stables.)
+- **Stable core (FINAL, 5 tokens, 2026-07-08):** USDC(base), USDT, USD1, USDE, FDUSD — **USDS dropped** (no live Pyth feed / negligible BSC flow). All 5 priced off **Pyth** (keeper reads Hermes, pushes to ExternalOracle; Pyth = source, never on the quote path). θ stables = **0.3–0.5 bp** (not ±1 bp). SSoT: `dex/evm/deploy/testnet-asset-params.json`.
 - **Volatile core:** USDC(base), USDT, BTCB(=BTC), ETH, WBNB(=BNB), CAKE, XAUT(gold, fallback PAXG).
   (CAKE = PancakeSwap native, top BNB liquidity; XAUT = tokenized gold. Verify final liquidity list.)
 - Testnet = MOCK ERC20s mirroring real symbols/decimals; oracle pushes REAL NX prices for them.
@@ -81,7 +81,7 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
 - [ ] **Lean/clean sweep** (ponytail): dead code zero-tolerance, consolidate, gas pass (SLOAD/SSTORE/
       calldata), storage packing, comment trim. style-reviewer + /simplify.
 - [ ] **Keeper (btr-keeper):** update push callers to new pushFeed sig (priceB64, sigma, confidence, tau@add);
-      implement deviation-trigger (|Δ|>θ: ±1bp stable, ±5bp volatile) + heartbeat (≤3600s) push loop.
+      implement deviation-trigger (|Δ|>θ: ±0.3–0.5bp stable, ±5bp volatile) + heartbeat (≤3600s) push loop.
 - [ ] **NX Rates:** confirm it emits per-asset {mid→b64, Parkinson σ, 1σ CI (ci), MITCH ticker id};
       wire the BNB-testnet asset set (mocks map to real NX symbols; wrappers→underlying ticker).
 - [ ] **Docs sync** (owner flagged lag): FeedData spec, spread model (drop U/Δ, add confidence), oracle/
@@ -102,8 +102,8 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
 - [ ] Deploy DEX (PoolFactory, Pool impl, PoolAux, Admin, ExternalOracle, Router, singletons) via
       script/Deploy.s.sol adapted for chapel. Create the 2 pools; add assets (stable-core: all
       EXTERNAL mode — do not configure INTERNAL constant-peg); seed liquidity.
-- [ ] **Oracle on K0S** (nxrates cluster): ExternalOracle keeper service pushing NX marks per θ+heartbeat
-      rules. Feed IDs = MITCH. In-cluster BuildKit build (never Mac/prod-node podman).
+- [ ] **Oracle on K0S** (nxrates cluster): ExternalOracle keeper service pushing marks per θ+heartbeat
+      rules. Feed IDs = keccak256(base, quote) (keeper maps tickers off-chain). In-cluster BuildKit build (never Mac/prod-node podman).
 - [ ] **Simulation keeper** (BTR tester key): artificial trades sized so pool util/APY/volume MATCH real BNB
       DEX activity — infer per-pair daily volume from PancakeSwap v3 + Infinity, Uni v3/v4, Curve on BNB
       (via their subgraphs / on-chain). NOT guessed. Feeds the UI's util/APY/TVL charts.
@@ -119,7 +119,7 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
 - Router/solver off-chain = centralization; needs min-out guard + fallback (built into the plan).
 
 ## AUDIT + PAPER OUTCOMES (2026-07-05)
-Feed rework landed (7-field 1-slot FeedData, on-chain rate-clamped EMA, confidence surcharge/halt, internal-
+Feed rework landed (8-field 1-slot FeedData `{lastPriceB64; emaPriceB64; sigmaEma; updatedAt; ttl; confidence; tau; tauSigma}`, on-chain rate-clamped EMA, confidence surcharge/halt, internal-
 oracle deleted, quote off fresh mark). Dead-config cleanup landed. Adversarial 7-dim audit (findings refuted 2×)
 + 3-paper validation (Bergault/Swaap line: arXiv 2212.00336, 2405.03496, Swaap v2 WP) run. dex @ 248 tests green.
 
@@ -138,11 +138,12 @@ halt bits (d142d8c) · refFeed no-staleness-gate (3c551e1) · conf=0 EMA freeze 
   fees to 2·(θ + z·σ√δ) when LVR requires (may land ~19 bp ETH-class). Stables same floor.
   Canonical table: `dex/evm/deploy/testnet-asset-params.json` (JSON SSoT — sim yaml mirrors it).
 
-**OWNER DESIGN DECISIONS (flagged, NOT auto-applied — need your call):**
-- D1 On-chain push deviation clamp: quotes read the RAW pushed mark; EMA clamp protects only the servable
-  reference. 3 sources flag it (audit + LVR paper manip-warning + Swaap Chainlink-anchor asymmetry). Stolen key
-  ⇒ drain to confidence-halt limit. Testnet OK (trust the keeper). MAINNET-BLOCKING → add per-push |mark−ema|
-  clamp on lastPrice, or 2-of-N pusher quorum, or optional Chainlink cross-check per feed.
+**OWNER DESIGN DECISIONS (flagged):**
+- D1 On-chain push deviation clamp — **RESOLVED / SHIPPED (46fab34, 2026-07-08)**: opt-in per-feed
+  `maxDeviations[feedId]` clamp enforced in `_pushInternal` — an in-heartbeat push moving the mark
+  > maxDeviation bps vs the last on-chain mark REVERTS (fail-closed; last good mark survives; post-TTL
+  re-sync may jump). Bounds a stolen key to maxDeviation/push. Remaining mainnet item: 2-of-N pusher
+  (plan: Safe multisig as the granted oracle key).
 - D2 Δ/U toxic-flow surcharge: dropped from Solidity (directional=RW + no-deferred) but the fees paper endorses
   a Z-Hawkes trend-widening term as adverse-selection premium (distinct from directional alpha). KEEP-deleted
   (sVol+staleness already widen on vol) vs PORT-back (paper-optimal). Currently sim-only → aimm.rs header made
@@ -158,3 +159,11 @@ halt bits (d142d8c) · refFeed no-staleness-gate (3c551e1) · conf=0 EMA freeze 
   Docs: ALM/Prime archived, oracle modes clarified. Internal-oracle stableswap landed (`42b2e0c`…`1ba27fd`, **255/255**).
 - 2026-07-05: Locked heartbeat semantics (staleness bound, not liveness watchdog), stable-core EXTERNAL-only
   at testnet deploy, mainnet keeper HA pattern documented as future ops (single keeper on testnet).
+- 2026-07-06: Chapel params SSoT `testnet-asset-params.json` (`1b0a381`); minFeePath σ=0 fix (`478f608`);
+  oracle perf series.
+- 2026-07-07: σ-EMA v2 + `MIN_FEE_PBPS=1` (`f659706`); `TestnetDeploy.s.sol` + Faucet (`fd1644b`); PR#3.
+- 2026-07-08: Pure-view quote (`5daf76c`); **deviation clamp SHIPPED** (`46fab34` — resolves D1 above);
+  hub-neutral cross (`1241099`/`e79d955`); `requestUpdateProfile` (`9eb780e`); **stable-core finalized:
+  5 tokens (USDS dropped), θ=0.3–0.5bp, priced off Pyth** (`1dd2e28`); Distributor propose/finalize root
+  cooldown (`44024fd`); sim params (`1a88b84`).
+- 2026-07-09: Per-asset stable-core minFee/dispersion/refBand differentiation (`08bc838`).

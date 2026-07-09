@@ -140,7 +140,7 @@ Full write-up (cited, code-verified) in `prime/research/PEER_ARCHITECTURES.md`.
 | Settlement | on-chain | on-chain | on-chain | on-chain | SAME (all four) |
 | Trust anchor | Chainlink + LP | Pyth + POL | permissioned MM signer | **keeper mark writer** + on-chain breakers | Closest to Lifinity; LP-open |
 | LVR defense | curve arb'd on lag | per-slot freshness | no curve (MM eats it) | **fresh mark + σ√τ premium + minFee≈2θ** | **DIFFERS**: only BTR explicitly *prices* residual keeper-lag |
-| LP model | permissionless | POL (closed) | MM inventory | **permissionless (ERC-1155)** | SAME as DoDo; DIFFERS from Lifinity/Hashflow |
+| LP model | permissionless | POL (closed) | MM inventory | **permissionless (internal LP ledger)** | SAME as DoDo; DIFFERS from Lifinity/Hashflow |
 | Per-asset peg mode | no | no | n/a | **EXTERNAL \| INTERNAL(peg)** | **UNIQUE to BTR** |
 
 **One-liner:** BTR is oracle-priced + fully on-chain like DoDo/Lifinity (not RFQ like Hashflow), but is
