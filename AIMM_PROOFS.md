@@ -256,12 +256,17 @@ regime 1.
   *wall*; rebate variant unported". If tighter stable re-peg is wanted later: port the
   surplus-capped rebate (extra state; extraction surface re-opens — needs its own proof).
 - **P2 — uint16 κ ceiling** caps the provable floor at c* ≈ 0.868 (§4).
-- **P3 — base κ = 0 and skew-neutral base is convention, not code.** Theorem 2's cross-leg
-  argument assumes it. Enforce `kappaCovBps == 0` for the base at config.
-- **P4 — single oracle key.** All economic theorems condition on an honest mark within θ of
-  truth. A stolen pusher key defeats them up to the per-push deviation clamp (opt-in,
-  `maxDeviations`, ExternalOracle.sol:204–209) and the confidence/TTL halts. 2-of-N quorum
-  remains mainnet-blocking work.
+- **P3 — CLOSED.** Base `kappaCovBps == 0` is now enforced at `addAsset`/`setRiskConfig`
+  (PoolAdminWrite.sol) — a walled base reverts `BadConfig`. Theorem 2's cross-leg assumption is
+  code-backed. (Skew-neutral base still holds by the base being the numeraire priced via
+  `_readBasePriceOrHalt`, not the spline.)
+- **P4 — single oracle key, now BOUNDED.** All economic theorems condition on an honest mark
+  within θ of truth. A stolen pusher key can no longer drain in one tx: the per-push deviation
+  clamp is **mandatory non-zero** and its band grows only linearly with staleness
+  (`maxDev·(1+dt/ttl)`, capped) — see ExternalOracle.sol `_pushInternal` — so a compromised key
+  is confined to a monitorable, time-proportional walk, and the confidence/TTL halts still fire.
+  Full defeat still needs multisig compromise; **2-of-N pusher quorum remains recommended
+  mainnet hardening** (defense-in-depth), no longer a single-point drain.
 - **P5 — discrete decomposition gap** in Theorem 2 step 3 is fuzz-anchored, not closed-form.
 - **P6 — sim numeric transfer.** Sim charges the full spread where the chain charges half
   (aimm.rs:371 vs Pricing.sol:363) and composes the fee floor differently — sim-tuned fee/vega
