@@ -1,0 +1,901 @@
+{
+ "_comment": "BSC stable-stable pool registry for the stable-core study (built 2026-07-07). Same spirit as pool-fees/pools.json: HyperSync pulls = swaps/volume/liquidity per pool. All tokens verified 18 decimals on BSC (incl USDT/USDC \u2014 NOT 6 like mainnet). usd_token semantics n/a here (both legs USD): volume leg = token0 unless noted. tvl_usd + vol24h_usd = GeckoTerminal/DefiLlama/dexscreener snapshot 2026-07-07 (indicative only; verify from tape). swaps_14d = HyperSync Swap-log count last 2,688,000 blocks (14d @0.45s); singleton pools carry swaps_3d (576,000-block sweep) instead. Families univ4/pcs-infinity-cl are singletons: address = PoolManager, filter Swap logs by topic1 = pool_id.",
+ "chain": "bsc",
+ "endpoint": "https://bsc.hypersync.xyz",
+ "block_range": {
+  "head_block": 108632883,
+  "head_ts": 1783443513,
+  "block_6mo": 74231575,
+  "block_6mo_ts": 1767675964,
+  "block_time_s_measured": 0.4504,
+  "block_time_note": "empirical: (ts(107631883)-ts(107516683))/115200 = 0.4504s at head; window avg (head-6mo) = (1783443513-1767675964)/(108632883-74231575) = 0.4583s. BSC is sub-0.5s (post-Maxwell 0.75s halved again by 2026 upgrade) \u2014 NOT 0.75s; size pulls accordingly (~34.4M blocks / 6mo)."
+ },
+ "tokens": {
+  "USDT": {
+   "address": "0x55d398326f99059fF775485246999027B3197955",
+   "decimals": 18
+  },
+  "USDC": {
+   "address": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+   "decimals": 18
+  },
+  "USD1": {
+   "address": "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d",
+   "decimals": 18
+  },
+  "USDe": {
+   "address": "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34",
+   "decimals": 18
+  },
+  "FDUSD": {
+   "address": "0xc5f0f7b66764F6ec8C8Dff7BA683102295E16409",
+   "decimals": 18
+  },
+  "TUSD": {
+   "address": "0x40af3827F39D0EAcBF4A168f8D4ee67c121D11c9",
+   "decimals": 18
+  },
+  "DAI": {
+   "address": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
+   "decimals": 18
+  },
+  "BUSD": {
+   "address": "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56",
+   "decimals": 18,
+   "note": "legacy, Paxos wind-down"
+  }
+ },
+ "swap_events": {
+  "univ3": {
+   "sig": "Swap(address,address,int256,int256,uint160,uint128,int24)",
+   "topic0": "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67",
+   "note": "Uniswap v3 + Algebra (THENA fusion) + Topaz. data: amount0 int256, amount1 int256, sqrtPriceX96, liquidity, tick"
+  },
+  "pcsv3": {
+   "sig": "Swap(address,address,int256,int256,uint160,uint128,int24,uint128,uint128)",
+   "topic0": "0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83",
+   "note": "PancakeSwap v3. Same first-5-word layout as univ3, +protocolFees words"
+  },
+  "univ4": {
+   "sig": "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)",
+   "topic0": "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f",
+   "note": "Uniswap v4 PoolManager singleton; topic1 = poolId; data: amount0 int128, amount1 int128 (each in a full word), sqrtPriceX96, liquidity, tick, fee. NB v4 amounts are signed FROM THE SWAPPER'S perspective (negative = into pool) BSC PoolManager=0x28e2ea090877bf75740558f6bfb36a5ffee9e9df, PositionManager(poolKeys)=0x7A4a5c919aE2541AeD11041A1AEeE68f1287f95B."
+  },
+  "pcs-infinity-cl": {
+   "sig": "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24,uint16)",
+   "topic0": "0x04206ad2b7c0f463bff3dd4f33c5735b0f2957a351e4f79763a4fa9e775dd237",
+   "note": "PancakeSwap Infinity CLPoolManager singleton; topic1 = poolId; +protocolFee word BSC CLPoolManager=0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b (poolIdToPoolKey)."
+  },
+  "pcs-stable": {
+   "sig": "TokenExchange(address,uint256,uint256,uint256,uint256)",
+   "topic0": "0xb2e76ae99761dc136e598d4a629bb347eccb9532a5f8bbd72e18467c3c34cc98",
+   "note": "PancakeSwap StableSwap (Ellipsis-lineage, uint256 coin ids). buyer indexed; data: sold_id, tokens_sold, bought_id, tokens_bought. fee=1bp admin 50%."
+  },
+  "curve": {
+   "sig": "TokenExchange(address,int128,uint256,int128,uint256)",
+   "topic0": "0x8b3e96f2b889fa771c53c981b40daf005f63f637f1869f707052d15a3dd97140",
+   "note": "Curve-BSC + Ellipsis (int128 coin ids)"
+  },
+  "solidly": {
+   "sig": "Swap(address,uint256,uint256,uint256,uint256,address)",
+   "topic0": "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822",
+   "note": "UniswapV2-layout event shared by PCS v2, THENA solidly pairs AND Nomiswap-stable (amount0In, amount1In, amount0Out, amount1Out; sender+to indexed)"
+  },
+  "wombat": {
+   "sig": "Swap(address,address,address,uint256,uint256,address)",
+   "topic0": "0x54787c404bb33c88e86f4baf88183a3b0141d0a848e6a9f7a13b66ae3a9b73d1",
+   "note": "Wombat Pool (multi-asset): sender indexed, data: fromToken, toToken, fromAmount, toAmount; to indexed"
+  },
+  "dodo": {
+   "sig": "DODOSwap(address,address,uint256,uint256,address,address)",
+   "topic0": "0xc2c0245e056d5fb095f04cd6373bc770802ebd1e6c918eb78fdef843cdb37b0f",
+   "note": "DODO DVM/DSP/DPP: data: fromToken, toToken, fromAmount, toAmount, trader, receiver"
+  }
+ },
+ "pools": [
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0x92b7807bF19b7DDdf89b706143896d05228f3121",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 34900000,
+   "vol24h_usd": 5200000,
+   "label": "PCSv3_USDT_USDC_100",
+   "notes": "THE reference BSC stable pool. fee()=100 (0.01%). token0=USDT token1=USDC.",
+   "swaps_14d": 140819,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0x4f31Fa980a675570939B737Ebdde0471a4Be40Eb",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 5,
+   "tvl_usd": 38300000,
+   "vol24h_usd": 490000,
+   "label": "PCSv3_USDT_USDC_500",
+   "notes": "0.05% tier; huge TVL, thin flow (loses to 100-tier).",
+   "swaps_14d": 43841,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0x9c4ee895e4f6ce07ada631c508d1306db7502cce",
+   "tokens": [
+    "USDT",
+    "USD1"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 5220000,
+   "vol24h_usd": 1460000,
+   "label": "PCSv3_USD1_USDT_100",
+   "notes": "Main USD1 pool. token0=USDT token1=USD1.",
+   "swaps_14d": 50413,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0xb3f27fe82bd1e5d7458e02b543cf0c6610ffad83",
+   "tokens": [
+    "USDC",
+    "USD1"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 329000,
+   "vol24h_usd": 197000,
+   "label": "PCSv3_USD1_USDC_100",
+   "notes": "token0=USDC token1=USD1.",
+   "swaps_14d": 10413,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0xbf72b6485e4b31601afe7b0a1210be2004d2b1d6",
+   "tokens": [
+    "USDT",
+    "FDUSD"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 132000,
+   "vol24h_usd": 52000,
+   "label": "PCSv3_FDUSD_USDT_100",
+   "notes": "token0=USDT token1=FDUSD. FDUSD flow decayed vs 2024-25 Binance era; pull 6mo to quantify.",
+   "swaps_14d": 5719,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0xf66a930ed3b004ba16ee11b3a9b142eaf2259b0d",
+   "tokens": [
+    "USDC",
+    "FDUSD"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 66000,
+   "vol24h_usd": 34000,
+   "label": "PCSv3_FDUSD_USDC_100",
+   "notes": "token0=USDC token1=FDUSD.",
+   "swaps_14d": 2097,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0xe043558b77e2b4c262d7d6e579b005ceb7f4591c",
+   "tokens": [
+    "DAI",
+    "USDT"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 104000,
+   "vol24h_usd": 90000,
+   "label": "PCSv3_DAI_USDT_100",
+   "notes": "token0=DAI token1=USDT.",
+   "swaps_14d": 5089,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0x7a72b31918f598154f3e6171c5f341fbaf1fd0b7",
+   "tokens": [
+    "DAI",
+    "USDC"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 23000,
+   "vol24h_usd": 95000,
+   "label": "PCSv3_DAI_USDC_100",
+   "notes": "token0=DAI token1=USDC.",
+   "swaps_14d": 4060,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0x9dfb6ce3f6a3a103f4d44a5fdddab0815c111406",
+   "tokens": [
+    "USDT",
+    "USDe"
+   ],
+   "fee_bps": 25,
+   "tvl_usd": 27000,
+   "vol24h_usd": 21000,
+   "label": "PCSv3_USDe_USDT_2500",
+   "notes": "token0=USDT token1=USDe. fee()=2500 (0.25%!). USDe has near-zero BSC DEX liquidity \u2014 CEX + mint/redeem dominate.",
+   "swaps_14d": 845,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0xdc35157217a3aeff3dcaf2e86327254fbf9f4601",
+   "tokens": [
+    "USDT",
+    "USDe"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 370,
+   "vol24h_usd": 140,
+   "label": "PCSv3_USDe_USDT_100",
+   "notes": "dust TVL; kept for USDe tape completeness.",
+   "swaps_14d": 341,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "pancakeswap-v3",
+   "family": "pcsv3",
+   "address": "0xd881D9d0e0767719701305c614903F555d589586",
+   "tokens": [
+    "TUSD",
+    "USDT"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 993000,
+   "vol24h_usd": 3400,
+   "label": "PCSv3_TUSD_USDT_100",
+   "notes": "token0=TUSD token1=USDT. $1M TVL parked, ~no flow \u2014 TUSD is dead weight.",
+   "swaps_14d": 1324,
+   "verified": true,
+   "observed_topic_family": "pcsv3"
+  },
+  {
+   "venue": "uniswap-v3",
+   "family": "univ3",
+   "address": "0x2C3c320D49019D4f9A92352e947c7e5AcFE47D68",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 331000,
+   "vol24h_usd": 78000,
+   "label": "UNIv3_USDT_USDC_100",
+   "notes": "token0=USDT token1=USDC.",
+   "swaps_14d": 16583,
+   "verified": true,
+   "observed_topic_family": "univ3"
+  },
+  {
+   "venue": "uniswap-v3",
+   "family": "univ3",
+   "address": "0xcCDFcd1aaC447D5B29980f64b831c532a6a33726",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 5,
+   "tvl_usd": 19500,
+   "vol24h_usd": 1900,
+   "label": "UNIv3_USDT_USDC_500",
+   "notes": "0.05% tier, thin.",
+   "swaps_14d": 440,
+   "verified": true,
+   "observed_topic_family": "univ3"
+  },
+  {
+   "venue": "uniswap-v3",
+   "family": "univ3",
+   "address": "0xf150d29d92e7460a1531cbc9d1abeab33d6998e4",
+   "tokens": [
+    "USDT",
+    "USD1"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 175000,
+   "vol24h_usd": 736000,
+   "label": "UNIv3_USD1_USDT_100",
+   "notes": "token0=USDT token1=USD1. High turnover on thin TVL.",
+   "swaps_14d": 17719,
+   "verified": true,
+   "observed_topic_family": "univ3"
+  },
+  {
+   "venue": "uniswap-v3",
+   "family": "univ3",
+   "address": "0x2431459f3d248ec340db22680c00f31c03ec0982",
+   "tokens": [
+    "DAI",
+    "USDC"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 45000,
+   "vol24h_usd": 107000,
+   "label": "UNIv3_DAI_USDC_100",
+   "notes": "token0=DAI token1=USDC.",
+   "swaps_14d": 3195,
+   "verified": true,
+   "observed_topic_family": "univ3"
+  },
+  {
+   "venue": "uniswap-v3",
+   "family": "univ3",
+   "address": "0x039df62583ddc1c5fda75db152b87113d863b6d6",
+   "tokens": [
+    "DAI",
+    "USDT"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 37000,
+   "vol24h_usd": 59000,
+   "label": "UNIv3_DAI_USDT_100",
+   "notes": "token0=DAI token1=USDT.",
+   "swaps_14d": 3931,
+   "verified": true,
+   "observed_topic_family": "univ3"
+  },
+  {
+   "venue": "uniswap-v4",
+   "family": "univ4",
+   "address": "0x28e2ea090877bf75740558f6bfb36a5ffee9e9df",
+   "pool_id": "0x628ea54a6450645d2bb7b2911c8c6f3d7f3944c2f4703c259a1b85bf5569870b",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 0.02,
+   "tvl_usd": 411000,
+   "vol24h_usd": 10100000,
+   "label": "UNIv4_USDT_USDC_A",
+   "notes": "Top BSC stable pool by 24h volume. GT/llama show ~0.003%/dynamic fee. fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 160260,
+   "verified": true
+  },
+  {
+   "venue": "uniswap-v4",
+   "family": "univ4",
+   "address": "0x28e2ea090877bf75740558f6bfb36a5ffee9e9df",
+   "pool_id": "0x8321c1f53959b14ece4b5400e60aeac59e7b6b8bac446f2f0a89b9e84e68a08a",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 0.01,
+   "tvl_usd": 81000,
+   "vol24h_usd": 2900000,
+   "label": "UNIv4_USDT_USDC_B",
+   "notes": "fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 96326,
+   "verified": true
+  },
+  {
+   "venue": "uniswap-v4",
+   "family": "univ4",
+   "address": "0x28e2ea090877bf75740558f6bfb36a5ffee9e9df",
+   "pool_id": "0xf8c7b3c122f31aec155c6beb0c1c78a5e74208358a840cadfbc6129b59391850",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 0.06,
+   "tvl_usd": 124000,
+   "vol24h_usd": 850000,
+   "label": "UNIv4_USDT_USDC_C",
+   "notes": "fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 22734,
+   "verified": true
+  },
+  {
+   "venue": "uniswap-v4",
+   "family": "univ4",
+   "address": "0x28e2ea090877bf75740558f6bfb36a5ffee9e9df",
+   "pool_id": "0x0a8c2677aaeee35a687d4debbef10e549a3d5f999ba296c141b0db464c6df290",
+   "tokens": [
+    "USDT",
+    "USD1"
+   ],
+   "fee_bps": 0.25,
+   "tvl_usd": 506000,
+   "vol24h_usd": 744000,
+   "label": "UNIv4_USD1_USDT_003",
+   "notes": "0.003% per GT name. fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 6410,
+   "verified": true
+  },
+  {
+   "venue": "uniswap-v4",
+   "family": "univ4",
+   "address": "0x28e2ea090877bf75740558f6bfb36a5ffee9e9df",
+   "pool_id": "0xf4f7ed9c8a53c453d6d065a5657b739318a8e97c939420b5bd9ca8edc030ee85",
+   "tokens": [
+    "USDT",
+    "USD1"
+   ],
+   "fee_bps": 0.12,
+   "tvl_usd": 15000,
+   "vol24h_usd": 342000,
+   "label": "UNIv4_USD1_USDT_001",
+   "notes": "0.001% per GT name. fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 21952,
+   "verified": true
+  },
+  {
+   "venue": "uniswap-v4",
+   "family": "univ4",
+   "address": "0x28e2ea090877bf75740558f6bfb36a5ffee9e9df",
+   "pool_id": "0x4b2e6e491226c5013dd803cf451b1c6fae5eef918fd5558f7d8aa66cfe3536dd",
+   "tokens": [
+    "USDC",
+    "USD1"
+   ],
+   "fee_bps": 0.1,
+   "tvl_usd": 26000,
+   "vol24h_usd": 559000,
+   "label": "UNIv4_USD1_USDC_001",
+   "notes": "0.001% per GT name. fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 22854,
+   "verified": true
+  },
+  {
+   "venue": "pancakeswap-infinity",
+   "family": "pcs-infinity-cl",
+   "address": "0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b",
+   "pool_id": "0x32a805e65a3219a79707ab3e75443d75160d798de46613fc960d39cd4a96bb22",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 0.01,
+   "tvl_usd": 123000,
+   "vol24h_usd": 8760000,
+   "label": "PCSInf_USDT_USDC_A",
+   "notes": "#2 BSC stable pool by 24h vol; CLMM singleton. fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 172573,
+   "verified": true
+  },
+  {
+   "venue": "pancakeswap-infinity",
+   "family": "pcs-infinity-cl",
+   "address": "0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b",
+   "pool_id": "0x258907d03806aad208f23147bf05d4e5f69eaba5c6ded94f02d98445add62c31",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 0.02,
+   "tvl_usd": 29000,
+   "vol24h_usd": 1540000,
+   "label": "PCSInf_USDT_USDC_B",
+   "notes": "fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 60459,
+   "verified": true
+  },
+  {
+   "venue": "pancakeswap-infinity",
+   "family": "pcs-infinity-cl",
+   "address": "0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b",
+   "pool_id": "0x8749eb67c0de8c788fb736139c2363e0b57e7c29e107b470895df2146acf4b56",
+   "tokens": [
+    "USDT",
+    "USD1"
+   ],
+   "fee_bps": 0.02,
+   "tvl_usd": 24000,
+   "vol24h_usd": 2390000,
+   "label": "PCSInf_USD1_USDT_A",
+   "notes": "fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 76874,
+   "verified": true
+  },
+  {
+   "venue": "pancakeswap-infinity",
+   "family": "pcs-infinity-cl",
+   "address": "0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b",
+   "pool_id": "0x502f1ac84586b80033c988f28838722e233720445b3eb029e512b5d0d79eabf5",
+   "tokens": [
+    "USDT",
+    "USD1"
+   ],
+   "fee_bps": 0.04,
+   "tvl_usd": 34000,
+   "vol24h_usd": 1100000,
+   "label": "PCSInf_USD1_USDT_B",
+   "notes": "fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 35627,
+   "verified": true
+  },
+  {
+   "venue": "pancakeswap-infinity",
+   "family": "pcs-infinity-cl",
+   "address": "0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b",
+   "pool_id": "0xf126c8e4f74ace95628ec14a496e3a8bbb5f16ef9ee908359e0c4b9018d0356f",
+   "tokens": [
+    "USDC",
+    "USD1"
+   ],
+   "fee_bps": 0.04,
+   "tvl_usd": 28000,
+   "vol24h_usd": 1870000,
+   "label": "PCSInf_USD1_USDC_A",
+   "notes": "fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 60377,
+   "verified": true
+  },
+  {
+   "venue": "pancakeswap-infinity",
+   "family": "pcs-infinity-cl",
+   "address": "0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b",
+   "pool_id": "0x8d00c4ecc5743bfd1076a21b1e7a2d684775372d109931f2734d9c3728df63fd",
+   "tokens": [
+    "USDC",
+    "USD1"
+   ],
+   "fee_bps": 0.04,
+   "tvl_usd": 23000,
+   "vol24h_usd": 1450000,
+   "label": "PCSInf_USD1_USDC_B",
+   "notes": "fee_bps = exact on-chain poolKey fee (fee/100), no hooks, 2026-07-07.",
+   "swaps_3d": 54897,
+   "verified": true
+  },
+  {
+   "venue": "pancakeswap-stableswap",
+   "family": "pcs-stable",
+   "address": "0x169F653A54ACD441aB34B73dA9946e2C451787EF",
+   "tokens": [
+    "USDT",
+    "BUSD"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 1960000,
+   "vol24h_usd": 114000,
+   "label": "PCSSS_USDT_BUSD",
+   "notes": "coins=[USDT,BUSD] verified. Legacy-BUSD but most active StableSwap (~3.3K swaps/day). fee=1bp, admin_fee=50% (LP nets 0.5bp), A=1000.",
+   "swaps_14d": 45926,
+   "verified": true,
+   "observed_topic_family": "curve_u256"
+  },
+  {
+   "venue": "pancakeswap-stableswap",
+   "family": "pcs-stable",
+   "address": "0x3EFebC418efB585248A0D2140cfb87aFcC2C63DD",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 254000,
+   "vol24h_usd": 19000,
+   "label": "PCSSS_USDT_USDC",
+   "notes": "coins=[USDT,USDC] verified. fee=1bp, admin 50%, A=1000.",
+   "swaps_14d": 2233,
+   "verified": true,
+   "observed_topic_family": "curve_u256"
+  },
+  {
+   "venue": "pancakeswap-stableswap",
+   "family": "pcs-stable",
+   "address": "0xc2F5B9a3d9138ab2B74d581fC11346219eBf43Fe",
+   "tokens": [
+    "USDC",
+    "BUSD"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 157000,
+   "vol24h_usd": 23000,
+   "label": "PCSSS_USDC_BUSD",
+   "notes": "coins=[USDC,BUSD] verified. fee=1bp, admin 50%, A=1000.",
+   "swaps_14d": 8600,
+   "verified": true,
+   "observed_topic_family": "curve_u256"
+  },
+  {
+   "venue": "pancakeswap-stableswap",
+   "family": "pcs-stable",
+   "address": "0x7c762fa6393dF0A43730F004C868b93AF696Ae1e",
+   "tokens": [
+    "USDT",
+    "USD1"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 2700,
+   "vol24h_usd": 500,
+   "label": "PCSSS_USD1_USDT",
+   "notes": "coins=[USDT,USD1] verified. dust TVL, ~83 swaps/day arb pings. fee=1bp, admin 50%, A=3500.",
+   "swaps_14d": 1163,
+   "verified": true,
+   "observed_topic_family": "curve_u256"
+  },
+  {
+   "venue": "pancakeswap-stableswap",
+   "family": "pcs-stable",
+   "address": "0x7A47B084Fa37b88d4dDa182f8bA4449963DD34bC",
+   "tokens": [
+    "USDC",
+    "USD1"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 220,
+   "vol24h_usd": 12,
+   "label": "PCSSS_USD1_USDC",
+   "notes": "coins=[USDC,USD1] verified. dust.",
+   "swaps_14d": 291,
+   "verified": true,
+   "observed_topic_family": "curve_u256"
+  },
+  {
+   "venue": "pancakeswap-v2",
+   "family": "solidly",
+   "address": "0xEc6557348085Aa57C72514D67070dC863C0a5A8c",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 25,
+   "tvl_usd": 1230000,
+   "vol24h_usd": 166000,
+   "label": "PCSv2_USDT_USDC",
+   "notes": "v2 xy=k 0.25% \u2014 same event layout as solidly family. Real retail flow despite fee.",
+   "swaps_14d": 15843,
+   "verified": true,
+   "observed_topic_family": "solidly_v2"
+  },
+  {
+   "venue": "pancakeswap-v2",
+   "family": "solidly",
+   "address": "0x7EFaEf62fDdCCa950418312c6C91Aef321375A00",
+   "tokens": [
+    "USDT",
+    "BUSD"
+   ],
+   "fee_bps": 25,
+   "tvl_usd": 265000,
+   "vol24h_usd": 20000,
+   "label": "PCSv2_USDT_BUSD",
+   "notes": "legacy BUSD v2 pair.",
+   "swaps_14d": 6353,
+   "verified": true,
+   "observed_topic_family": "solidly_v2"
+  },
+  {
+   "venue": "thena",
+   "family": "solidly",
+   "address": "0x618f9Eb0E1a698409621f4F487B563529f003643",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 13500,
+   "vol24h_usd": 100,
+   "label": "THENA_sAMM_USDT_USDC",
+   "notes": "solidly stable pair (stable=true, 0.01% stable fee). Effectively dead now \u2014 quantify 6mo decay from tape.",
+   "swaps_14d": 665,
+   "verified": true,
+   "observed_topic_family": "solidly_v2"
+  },
+  {
+   "venue": "thena-fusion",
+   "family": "univ3",
+   "address": "0x1b9a1120a17617D8eC4dC80B921A9A1C50Caef7d",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 12600,
+   "vol24h_usd": 11000,
+   "label": "THENA_fusion_USDT_USDC",
+   "notes": "Algebra CL pool (dynamic fee, univ3 topic0 probe-confirmed). 10.1K swaps/14d \u2014 small $ but alive.",
+   "swaps_14d": 10126,
+   "verified": true,
+   "observed_topic_family": "univ3"
+  },
+  {
+   "venue": "wombat",
+   "family": "wombat",
+   "address": "0x312Bc7eAAF93f1C60Dc5AfC115FcCDE161055fb0",
+   "tokens": [
+    "DAI",
+    "USDC",
+    "USDT"
+   ],
+   "fee_bps": 2,
+   "tvl_usd": 2100000,
+   "vol24h_usd": 15000,
+   "label": "WOMBAT_main",
+   "notes": "Multi-asset main pool, getTokens()=[DAI,USDC,USDT] (BUSD asset removed). TVL from llama asset-level (incl legacy stranded BUSD asset ~$2M \u2014 verify). 556 swaps/14d (~40/day): marginal but the only live wombat stable venue. Volume leg from Swap data fromToken/fromAmount.",
+   "swaps_14d": 556,
+   "verified": true,
+   "observed_topic_family": "wombat"
+  },
+  {
+   "venue": "dodo",
+   "family": "dodo",
+   "address": "0xd5f05644Ef5D0A36cA8C8B5177FFbd09ec63F92F",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 1330,
+   "vol24h_usd": 5000,
+   "label": "DODO_DSP_USDT_USDC",
+   "notes": "Only live DODO stable pool (base=USDT quote=USDC, DSP). Dust TVL, ~590 swaps/day of arb pings \u2014 venue effectively dead in $ terms.",
+   "swaps_14d": 11697,
+   "verified": true,
+   "observed_topic_family": "dodo"
+  },
+  {
+   "venue": "curve-bsc",
+   "family": "curve",
+   "address": "0xA5E0E46462970C9Ee8C2ECadCde254c483748eC4",
+   "tokens": [
+    "USDT",
+    "USDC",
+    "FDUSD"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 2100,
+   "vol24h_usd": 1500,
+   "label": "CURVE_3pool_FDUSD",
+   "notes": "coins=[USDT,USDC,FDUSD]. Curve-BSC is abandoned: $2K TVL, arb dust only.",
+   "swaps_14d": 3555,
+   "verified": true,
+   "observed_topic_family": "curve_i128"
+  },
+  {
+   "venue": "ellipsis",
+   "family": "curve",
+   "address": "0x160CAed03795365F3A589f10C379FfA7d75d4E76",
+   "tokens": [
+    "BUSD",
+    "USDC",
+    "USDT"
+   ],
+   "fee_bps": 4,
+   "tvl_usd": 681000,
+   "vol24h_usd": 5000,
+   "label": "ELLIPSIS_3EPS",
+   "notes": "coins=[BUSD,USDC,USDT]. Legacy Curve-fork; $681K parked, ~15 swaps/day.",
+   "swaps_14d": 311,
+   "verified": true,
+   "observed_topic_family": "curve_i128"
+  },
+  {
+   "venue": "curve-bsc",
+   "family": "curve",
+   "address": "0x860822cac26fb7e74e2cfad2642bc8a14d512270",
+   "tokens": [
+    "USDC",
+    "USDT",
+    "BUSD"
+   ],
+   "fee_bps": 0.4,
+   "tvl_usd": 517,
+   "vol24h_usd": 1000,
+   "label": "CURVE_3pool_BUSD",
+   "notes": "SWEEP-DISCOVERED (1,301 TokenExchange/8.4d). coins=[USDC,USDT,BUSD], fee()=400000 (0.4bp), A=2000. Dust TVL ($517 on-chain 2026-07-07) \u2014 pure arb-ping venue; kept for pick-off-flow tape.",
+   "swaps_14d": 2302,
+   "verified": true,
+   "observed_topic_family": "curve_i128"
+  },
+  {
+   "venue": "curve-bsc",
+   "family": "curve",
+   "address": "0xb3f0c9ea1f05e312093fdb031e789a756659b0ac",
+   "tokens": [
+    "BUSD",
+    "USDT",
+    "DAI"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 10200,
+   "vol24h_usd": 800,
+   "label": "CURVE_busd_usdt_dai",
+   "notes": "SWEEP-DISCOVERED (664 TokenExchange/8.4d). coins=[BUSD,USDT,DAI], fee()=1000000 (1bp), A=2000. ~$10.2K TVL on-chain 2026-07-07; arb dust, kept for tape.",
+   "swaps_14d": 1131,
+   "verified": true,
+   "observed_topic_family": "curve_i128"
+  },
+  {
+   "venue": "topaz",
+   "family": "univ3",
+   "address": "0xaB5eC7b18d3B184ED85BeF7f4277F59C673Da1F5",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 0.05,
+   "tvl_usd": 111000,
+   "vol24h_usd": 4200000,
+   "label": "TOPAZ_USDT_USDC",
+   "notes": "Topaz = new univ3-fork, fee()=5 i.e. 0.05bp. #3 by 24h stable volume. token0=USDT token1=USDC. Verify topic0 from probe (univ3 vs pcsv3 layout).",
+   "swaps_14d": 116954,
+   "verified": true,
+   "observed_topic_family": "univ3"
+  },
+  {
+   "venue": "topaz",
+   "family": "univ3",
+   "address": "0xdEa9f0B37b12BE0A7820F9B3aa75Dc46126D4a8B",
+   "tokens": [
+    "USDT",
+    "USD1"
+   ],
+   "fee_bps": 0.1,
+   "tvl_usd": 106000,
+   "vol24h_usd": 2900000,
+   "label": "TOPAZ_USD1_USDT",
+   "notes": "fee()=10 = 0.1bp. token0=USDT token1=USD1.",
+   "swaps_14d": 66864,
+   "verified": true,
+   "observed_topic_family": "univ3"
+  },
+  {
+   "venue": "nomiswap-stable",
+   "family": "solidly",
+   "address": "0x1e40450F8E21BB68490D7D91Ab422888Fb3D60f1",
+   "tokens": [
+    "USDT",
+    "USDC"
+   ],
+   "fee_bps": 1,
+   "tvl_usd": 800000,
+   "vol24h_usd": 1670000,
+   "label": "NOMI_STABLE_USDT_USDC",
+   "notes": "Nomiswap stable pair; PROBE-CONFIRMED it emits the v2-layout Swap topic0 (solidly family), 129K swaps/14d. token0=USDT token1=USDC (balances 633K/168K on-chain). swapFee()=6 (denominator TBD \u2014 likely 0.06%%). GT $1.67M/day.",
+   "swaps_14d": 129195,
+   "verified": true,
+   "observed_topic_family": "solidly_v2"
+  }
+ ],
+ "excluded": {
+  "USDe": "No liquid BSC venue beyond the two PCS v3 pools above; Ethena flow is CEX/mint-redeem.",
+  "TUSD": "Only PCS v3 TUSD/USDT ($1M TVL, $3.4K/day) + dust Ellipsis 4-pool ($400). Dead.",
+  "USDS": "No BSC pool found with meaningful TVL/volume (wombat LP-USDS $20K, no flow).",
+  "sUSD1+/USDF/lisUSD/HAY/axlUSDC/USD+/frxUSD": "outside the 8-token mandate; noted for awareness (USDF/USDT PCSSS $356K TVL, sUSD1+/USD1 PCSv3 $4.6M TVL are yield-wrapper pools, not stable-stable flow).",
+  "mdex/biswap/goose/babyswap v2 forks": "sub-$50K/day retail dust on 25-30bp fees; excluded from tape.",
+  "USDV": "sweep found wombat side-pool 0x0520451b (USDC/USDV/USDT, 116 swaps/8.4d) + PCSSS 0xb1da7d2c (USDV/USDT, 271/8.4d) \u2014 USDV outside 8-token mandate, both dust.",
+  "dodo-other": "sweep: all other active DODO pools (0xcc7c3771, 0x330c74d5, 0xfd2ca32d, ...) are memecoin/WBNB vs USDT \u2014 not stable-stable.",
+  "curve-other": "sweep: 0x8aadab3a (USDT/0x8EE943..), 0x32cbfbeb (lisUSD-family) \u2014 non-mandate tokens, dust.",
+  "kyberswap-fairflow": "univ4-hook USDT/USDC ($62K TVL, llama); poolId not in top v4 sweep \u2014 include later if sweep shows it.",
+  "univ4-unresolved-top": "3d sweep top-40 non-registry poolIds all resolved non-stable (CTM/BNB, BNB/BTCB, BNB/USDT, memecoins); 3 unresolved ids (0x4e5943..,0x956fbc..,0xc19735..) show zero swaps last 25h = burst pools, dropped."
+ },
+ "_probe_window": {
+  "pool_probe_days": 14,
+  "pool_probe_blocks": 2688000,
+  "singleton_sweep_days": 3
+ }
+}

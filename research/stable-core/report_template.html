@@ -1,0 +1,243 @@
+<title>BSC Stable-Core — Microstructure &amp; Sizing</title>
+<style>
+  :root{
+    --bg:#0a0d12; --panel:#11151d; --panel2:#0e121a; --bd:#1d2530; --bd2:#2a3441;
+    --tx:#e7ebf2; --dim:#8a94a6; --faint:#5a6474;
+    --acc:#35d0b6; --acc-dim:#1c6b60;
+    --win:#4ade80; --warn:#f4b64a; --lose:#f2686f;
+    --pcs:#e0a83a; --uni:#e2739f; --topaz:#6ea0f5; --thena:#a78bfa; --other:#66707f;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:light){:root{
+    --bg:#f5f6f8; --panel:#ffffff; --panel2:#f0f2f5; --bd:#e2e6ec; --bd2:#d3d9e2;
+    --tx:#141922; --dim:#5a6474; --faint:#98a2b3; --acc:#0f9e8b; --acc-dim:#a7e5dc;
+  }}
+  :root[data-theme="dark"]{--bg:#0a0d12;--panel:#11151d;--panel2:#0e121a;--bd:#1d2530;--bd2:#2a3441;--tx:#e7ebf2;--dim:#8a94a6;--faint:#5a6474;--acc:#35d0b6;--acc-dim:#1c6b60;}
+  :root[data-theme="light"]{--bg:#f5f6f8;--panel:#ffffff;--panel2:#f0f2f5;--bd:#e2e6ec;--bd2:#d3d9e2;--tx:#141922;--dim:#5a6474;--faint:#98a2b3;--acc:#0f9e8b;--acc-dim:#a7e5dc;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.5;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 20px 80px}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);margin:0 0 10px}
+  h1{font-size:clamp(28px,4vw,44px);line-height:1.05;font-weight:760;letter-spacing:-.02em;margin:0 0 14px;text-wrap:balance}
+  h1 em{font-style:normal;color:var(--acc)}
+  .lede{font-size:17px;color:var(--dim);max-width:60ch;margin:0 0 8px}
+  .lede b{color:var(--tx);font-weight:640}
+  .src{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-top:14px}
+  /* KPI strip */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--bd);
+    border:1px solid var(--bd);border-radius:12px;overflow:hidden;margin:30px 0}
+  .kpi{background:var(--panel);padding:16px 18px}
+  .kpi .l{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim)}
+  .kpi .v{font-family:var(--mono);font-size:26px;font-weight:600;letter-spacing:-.01em;margin-top:6px}
+  .kpi .s{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-top:3px}
+  .kpi .v.acc{color:var(--acc)} .kpi .v.win{color:var(--win)}
+  /* grid of cards */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:8px}
+  .grid .full{grid-column:1/-1}
+  @media (max-width:820px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:18px 18px 14px}
+  .card h3{font-size:15px;font-weight:640;letter-spacing:-.01em;margin:0 0 3px}
+  .card .cap{font-size:12.5px;color:var(--dim);margin:0 0 14px;max-width:62ch}
+  canvas{display:block;width:100%}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  /* tables */
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+  th,td{text-align:right;padding:7px 9px;border-bottom:1px solid var(--bd)}
+  th{color:var(--dim);font-weight:500;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;position:sticky;top:0;background:var(--panel)}
+  td:first-child,th:first-child{text-align:left}
+  tbody tr:hover{background:var(--panel2)}
+  .tag{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:5px;border:1px solid var(--bd2)}
+  .win{color:var(--win)} .warn{color:var(--warn)} .lose{color:var(--lose)} .acc{color:var(--acc)} .dim{color:var(--dim)}
+  .scroll{overflow-x:auto}
+  .note{font-size:12.5px;color:var(--faint);font-family:var(--mono);margin-top:10px}
+  .answer{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--acc-dim)}
+  .big{font-family:var(--mono);font-size:34px;font-weight:600;color:var(--acc);letter-spacing:-.02em}
+  hr.sep{border:0;border-top:1px solid var(--bd);margin:34px 0 24px}
+  .sechd{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 14px}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">BTR · stable-core · BSC 6-month tape</p>
+  <h1>BSC stable-core: <em>a real but modest opportunity</em>, measured honestly.</h1>
+  <p class="lede">Every stable-stable swap on the competing BSC venues, replayed through a <b>faithful state machine of our own pool</b> — real quote law, live marks, coverage evolving trade-by-trade. The verdict: we'd win the <b>looser-executed ~20% of flow</b> on our fresh-mark edge, for <b>~$100k/yr</b> in fees — a credible positioning play, not a revenue engine. What routes flow is <b>execution price, not fee</b>; the ~0bp PMM venues (Infinity/Topaz) we can't dislodge.</p>
+  <p class="src" id="src">…</p>
+
+  <div class="kpis" id="kpis"></div>
+
+  <p class="sechd">1 · The competitive field</p>
+  <div class="grid">
+    <div class="card full">
+      <h3>Pools ranked by 6-month volume</h3>
+      <p class="cap">Bar length = volume; color = venue. The single PancakeSwap v3 USDT/USDC pool dwarfs everything. Topaz (a PMM) is the tightest-cost venue but a fraction of the size.</p>
+      <canvas id="c_pools"></canvas>
+      <div class="legend" id="lg_venue"></div>
+    </div>
+  </div>
+
+  <p class="sechd">2 · The cost to beat</p>
+  <div class="grid">
+    <div class="card">
+      <h3>All-in cost by pool — who we beat, who beats us</h3>
+      <p class="cap">Measured effective fee (half-spread) + slippage, in bps, vs. our ~0.6&nbsp;bp line (dashed). <b class="win">Green</b> = pricier than us (we win). <b class="lose">Red</b> = the ~0bp PMM venues (Topaz/Thena) that beat us on fee — our edge there must be execution, not price.</p>
+      <canvas id="c_cost"></canvas>
+    </div>
+    <div class="card">
+      <h3>Trade-size distribution (USD1·USDC·USDT)</h3>
+      <p class="cap">Share of trades by size bucket. The ≤$2k band is highlighted — it is where essentially all the trades live.</p>
+      <canvas id="c_size"></canvas>
+    </div>
+  </div>
+
+  <p class="sechd">3 · Daily activity, 184 days</p>
+  <div class="grid">
+    <div class="card full">
+      <h3>Daily volume — the three biggest pairs</h3>
+      <p class="cap">USDC/USDT (all venues), USD1/USDT, USD1/USDC. The USD1 surge and the steady USDT/USDC base are both visible.</p>
+      <canvas id="c_daily"></canvas>
+      <div class="legend" id="lg_daily"></div>
+    </div>
+  </div>
+
+  <p class="sechd">4 · Where each pair's volume goes — and why</p>
+  <div class="grid">
+    <div class="card full">
+      <h3>Venue split per pair, with each venue's all-in cost</h3>
+      <p class="cap">Volume routes to the cheapest deep venue. Where a cheaper venue exists, it wins share — which is exactly the seat we take at ~0.6&nbsp;bp all-in.</p>
+      <div class="scroll"><table id="t_attr"></table></div>
+    </div>
+  </div>
+
+  <p class="sechd">5 · Per-pool microstructure</p>
+  <div class="grid">
+    <div class="card full">
+      <div class="scroll"><table id="t_pools"></table></div>
+      <p class="note">slip = realized |exec − cross-pool VWAP mid|, volume-weighted. Thena &amp; the 0.05% dust pool excluded (decoder-suspect).</p>
+    </div>
+  </div>
+
+  <p class="sechd">6 · The fee pie — what the incumbents actually earned</p>
+  <div class="grid">
+    <div class="card full">
+      <h3>Nominal fee pie — mostly the legacy 1bp pools</h3>
+      <p class="cap">Volume × measured fee, annualized ≈ $<span id="inc_tot"></span>M/yr — almost all of it PancakeSwap v3's legacy 1bp USDT/USDC pool. The newer ~0bp PMM/CLMM venues earn little in <i>fees</i>, which is precisely why <b>fee is the wrong lens</b>: they compete (and win) on execution price, not fee. This table sizes the fee-revenue ceiling; §7 measures what we'd actually capture on execution.</p>
+      <div class="scroll"><table id="t_inc"></table></div>
+    </div>
+  </div>
+
+  <p class="sechd">7 · The answer — faithful state-machine simulation (the definitive number)</p>
+  <div class="grid">
+    <div class="card answer full">
+      <h3>Every swap replayed through a live model of our own pool</h3>
+      <p class="cap">Not a static estimate. A live <b>PoolState</b> (shared USDC base + per-spoke reserves) processes 11.5M swaps in time order: the real quote law prices each trade at the <b>current</b> coverage with a <b>live mark</b> tracked from the tape; if our output beats the trade's actual fill we win it, <b>apply the reserve deltas</b> (coverage moves), and the keeper rebalances at market cost when a leg leaves the 0.8–1.2 band. This prices in execution-competition, inventory skew, and rebalancing cost together.</p>
+      <div class="scroll"><table id="t_apr"></table></div>
+      <p class="note" id="answer_line"></p>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="card full">
+      <h3>What this means for launch</h3>
+      <p class="cap" style="font-size:13.5px;line-height:1.6">
+      <b class="acc">Real but modest.</b> We win ~20% of trades / 14–20% of volume — the looser-executed slice — on our fresh-mark edge, for ~$80–140k/yr in fees and mid-single-digit-to-teens net APR (higher at small TVL where the fixed fee base concentrates). <b>We do not beat the ~0bp PMM/CLMM venues</b> (Infinity, Topaz) — their execution sits at fair and our 0.6bp spread can't undercut it. <br><br>
+      <b>Why the earlier numbers were wrong:</b> a fee-tier decode bug made those venues look free (they're not — it's execution), a flat 1.0 mark mispriced us by more than our spread (the peg sits at ~1.0004), and the static replay ignored coverage skew. Fixing all three — price-based competition, live marks from the tape, and a faithful inventory state machine — is what produced the numbers above. <br><br>
+      <b>Read:</b> BSC stable-core is a credible <b>positioning / loss-leader</b> product (own the "cheapest + safest-execution" narrative), not a revenue engine. Our structural edge — fresh-mark LVR recapture — pays off far more in <b>volatile pairs</b> (high σ), where fees aren't zero and passive AMMs bleed to arbs.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const D = /*__DATA__*/;
+const css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+const VC = {PCSv3:'--pcs',PCSv4:'--pcs','pcs-infinity':'--pcs',UNIv3:'--uni',UNIv4:'--uni',TOPAZ:'--topaz',THENA:'--thena'};
+const venueColor = v => css(VC[v]||'--other');
+const fmtUsd = n => n>=1e9?'$'+(n/1e9).toFixed(2)+'B':n>=1e6?'$'+(n/1e6).toFixed(1)+'M':n>=1e3?'$'+(n/1e3).toFixed(0)+'k':'$'+n.toFixed(0);
+const pct = x => (x*100).toFixed(1)+'%';
+
+// HiDPI canvas setup
+function ctxOf(id,h){const c=document.getElementById(id);const dpr=Math.min(devicePixelRatio||1,2);
+  const w=c.clientWidth||c.parentElement.clientWidth-36; c.width=w*dpr;c.height=h*dpr;c.style.height=h+'px';
+  const x=c.getContext('2d');x.scale(dpr,dpr);x.clearRect(0,0,w,h);return {x,w,h};}
+
+// KPIs
+const m=D.meta;
+document.getElementById('src').textContent = `${m.swaps.toLocaleString()} swaps · ${m.pools} pools · ${m.days} days · priced through front/src/lib/amm/aimm.ts · local, uncommitted tape`;
+const _vd=document.getElementById('vd'); if(_vd) _vd.textContent=(m.vol_day/1e6).toFixed(0);
+const kpis=[
+  ['stable-stable / day', fmtUsd(m.vol_day),'acc', (m.tot_vol/1e9).toFixed(2)+'B over 6mo'],
+  ['USDC/USDT share', fmtUsd(m.usdc_usdt/m.days)+'/d','', pct(m.usdc_usdt/m.tot_vol)+' of flow'],
+  ['USD1 pairs', fmtUsd(m.usd1/m.days)+'/d','', pct(m.usd1/m.tot_vol)+' of flow'],
+  ['trades ≤ $2k', pct(m.le2k_n),'win', pct(m.le2k_v)+' of volume'],
+  ['incumbent all-in', '≈1.10 bp','', 'PCS v3 USDT/USDC'],
+  ['our all-in @1bp', '≈0.60 bp','win', '~45% cheaper'],
+];
+document.getElementById('kpis').innerHTML = kpis.map(([l,v,c,s])=>
+  `<div class="kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join('');
+
+// generic horizontal bar chart
+function barsH(id,rows,{label,val,color,vfmt,line}){
+  const h=rows.length*26+14, {x,w}=ctxOf(id,h); const L=Math.max(...rows.map(r=>x.measureText(label(r)).width))+0;
+  x.font='11.5px '+css('--mono'); const lw=Math.min(150,Math.max(...rows.map(r=>x.measureText(label(r)).width))+12);
+  const max=Math.max(...rows.map(val)); const bx=lw+6, bw=w-lw-70;
+  rows.forEach((r,i)=>{const y=i*26+6, v=val(r); const ww=Math.max(2,v/max*bw);
+    x.fillStyle=css('--dim');x.textAlign='right';x.fillText(label(r),lw,y+14);
+    x.fillStyle=color(r);x.fillRect(bx,y+3,ww,15);
+    x.fillStyle=css('--tx');x.textAlign='left';x.fillText(vfmt(r),bx+ww+6,y+14);});
+  if(line){const lx=bx+line.v/max*bw; x.strokeStyle=css('--acc');x.setLineDash([4,3]);x.beginPath();x.moveTo(lx,2);x.lineTo(lx,h-4);x.stroke();x.setLineDash([]);}
+}
+barsH('c_pools', D.pools.slice(0,14), {label:r=>r.pool.replace(/_100$|_500$/,'').replace(/_/g,' '),
+  val:r=>r.vol, color:r=>venueColor(r.venue), vfmt:r=>fmtUsd(r.vol)});
+document.getElementById('lg_venue').innerHTML = [['PCS','--pcs'],['Uniswap','--uni'],['Topaz','--topaz'],['other','--other']]
+  .map(([n,c])=>`<span><i style="background:${css(c)}"></i>${n}</span>`).join('');
+
+// cost bars vs our line
+// venue all-in vs OUR 0.6bp line: pricier than us (>=0.7) = we WIN (green); cheaper (<0.5) = we LOSE (red)
+barsH('c_cost', D.pools.filter(p=>p.vol>2e7).slice(0,12), {label:r=>r.pair+' '+r.venue.replace(/PCSv|UNIv/,'v'),
+  val:r=>r.allin, color:r=>r.allin>=0.7? css('--win') : r.allin>=0.5? css('--warn') : css('--lose'),
+  vfmt:r=>r.allin.toFixed(2)+' bp', line:{v:0.6}});
+
+// size distribution
+(function(){const b=D.sizes.bins, N=b.reduce((s,x)=>s+x.n,0); const {x,w,h}=ctxOf('c_size',180);
+  const bw=w/b.length, max=Math.max(...b.map(z=>z.n));
+  b.forEach((z,i)=>{const bh=(z.n/max)*(h-40), bx=i*bw+6, by=h-24-bh; const le2k=['<100','100-500','500-1k','1k-2k'].includes(z.k);
+    x.fillStyle=le2k?css('--acc'):css('--other'); x.fillRect(bx,by,bw-12,bh);
+    x.fillStyle=css('--dim');x.font='9.5px '+css('--mono');x.textAlign='center';x.fillText(z.k,bx+(bw-12)/2,h-10);
+    x.fillStyle=le2k?css('--acc'):css('--faint');x.fillText((z.n/N*100).toFixed(0)+'%',bx+(bw-12)/2,by-4);});
+})();
+
+// daily lines
+(function(){const pairs=['USDC/USDT','USD1/USDT','USD1/USDC']; const cols=['--pcs','--uni','--topaz'];
+  const series=pairs.map(p=>D.daily[p].vol); const n=Math.max(...series.map(s=>s.length));
+  const max=Math.max(...series.flat()); const {x,w,h}=ctxOf('c_daily',220); const pad=34;
+  // grid
+  x.strokeStyle=css('--bd');x.lineWidth=1;for(let g=0;g<=4;g++){const y=8+g*(h-40)/4;x.beginPath();x.moveTo(pad,y);x.lineTo(w-6,y);x.stroke();
+    x.fillStyle=css('--faint');x.font='9.5px '+css('--mono');x.textAlign='right';x.fillText(fmtUsd(max*(1-g/4)),pad-5,y+3);}
+  series.forEach((s,si)=>{x.strokeStyle=css(cols[si]);x.lineWidth=1.5;x.beginPath();
+    s.forEach((v,i)=>{const px=pad+i/(n-1)*(w-pad-6), py=8+(1-v/max)*(h-40); i?x.lineTo(px,py):x.moveTo(px,py);});x.stroke();});
+  document.getElementById('lg_daily').innerHTML=pairs.map((p,i)=>`<span><i style="background:${css(cols[i])}"></i>${p}</span>`).join('');
+})();
+
+// venue attribution table
+(function(){const rows=[];Object.entries(D.venue_attr).forEach(([pair,vs])=>{
+  const tot=vs.reduce((s,v)=>s+v.vol,0); vs.sort((a,b)=>b.vol-a.vol);
+  vs.forEach((v,i)=>rows.push(`<tr><td>${i?'':'<b>'+pair+'</b>'}</td><td class="dim">${v.venue}</td><td>${fmtUsd(v.vol)}</td><td>${pct(v.vol/tot)}</td><td class="${v.allin<=0.7?'win':v.allin<=1.2?'warn':'lose'}">${v.allin.toFixed(2)} bp</td></tr>`));});
+  document.getElementById('t_attr').innerHTML=`<thead><tr><th>pair</th><th>venue</th><th>6mo vol</th><th>share</th><th>all-in</th></tr></thead><tbody>${rows.join('')}</tbody>`;
+})();
+
+// per-pool table
+document.getElementById('t_pools').innerHTML=`<thead><tr><th>pool</th><th>pair</th><th>6mo vol</th><th>swaps</th><th>fee</th><th>slip</th><th>all-in</th><th>p50</th><th>p90</th><th>p99</th></tr></thead><tbody>`+
+  D.pools.map(p=>`<tr><td>${p.pool.replace(/_/g,' ')}</td><td class="dim">${p.pair}</td><td>${fmtUsd(p.vol)}</td><td class="dim">${p.swaps.toLocaleString()}</td><td>${p.fee}</td><td>${p.slip.toFixed(2)}</td><td class="${p.allin<=1.15?'win':p.allin<=1.6?'warn':'lose'}">${p.allin.toFixed(2)}</td><td class="dim">$${p.p50}</td><td class="dim">$${p.p90}</td><td class="dim">$${p.p99}</td></tr>`).join('')+`</tbody>`;
+
+// incumbent fees table
+document.getElementById('inc_tot').textContent=(D.incumbent_tot/1e6).toFixed(2);
+document.getElementById('t_inc').innerHTML=`<thead><tr><th>pool</th><th>6mo vol</th><th>fee</th><th>fees / yr</th></tr></thead><tbody>`+
+  D.incumbent.map(r=>`<tr><td>${r.pool.replace(/_/g,' ')}</td><td>${fmtUsd(r.vol)}</td><td class="dim">${r.fee}bp</td><td class="acc">${fmtUsd(r.fees_yr)}</td></tr>`).join('')+
+  `<tr><td><b>total pie</b></td><td></td><td></td><td class="win"><b>${fmtUsd(D.incumbent_tot)}/yr</b></td></tr></tbody>`;
+
+// faithful state-machine result (the definitive numbers)
+document.getElementById('t_apr').innerHTML=`<thead><tr><th>TVL</th><th>win · trades</th><th>win · volume</th><th>USDT cov-min</th><th>rebal / won</th><th>fees / yr</th><th>net APR</th></tr></thead><tbody>`+
+  D.faithful.map(a=>`<tr><td><b>$${(a.tvl/1e6).toFixed(a.tvl<1e6?1:0)}M</b></td><td class="win">${a.win_cnt}%</td><td>${a.win_vol}%</td><td class="${a.cov_min>=0.5?'':'warn'}">${a.cov_min}</td><td>${(a.rebal_frac*100).toFixed(0)}%</td><td>${fmtUsd(a.fee_yr)}</td><td class="acc">${a.net_apr}%</td></tr>`).join('')+`</tbody>`;
+document.getElementById('answer_line').innerHTML = `<b>~20–23% of trades won</b> (the looser-executed flow) · net APR <b>3–15%</b>, falling as TVL grows into a fixed <b>~$80–140k/yr</b> fee base · rebalancing minor (~1–2%: a correctly-marked pool takes balanced flow, so it barely skews). Central estimate <b>~$1M TVL → ~23% of trades, ~11% net APR, ~$110k/yr</b>. Independently cross-checked by a per-pair sim (~13% conservative floor).`;
+</script>

@@ -1,10 +1,14 @@
 # BTR DEX — agent guide
 
-Custom AIMM: adaptive multi-asset AMM (hub-and-spoke routing, dynamic fees, keeper-pushed external-mark oracle, ERC-1155 rebasing LP, piecewise bonding curve). Flat-`Pool` arch — no Diamond/proxy/ERC-7201; EIP-1167 clones via `PoolFactory`. Solidity contracts ONLY — front/back/sdk/docs live in sibling repos under `~/Work/btr/` (see `~/Work/btr/CLAUDE.md`); do NOT recreate them here.
+Custom AIMM: adaptive multi-asset AMM (hub-and-spoke routing, dynamic fees, keeper-pushed external-mark oracle, internal non-transferable LP ledger (`lpBalances` mapping + liquidity index — NOT an ERC-1155/ERC-20 token), piecewise bonding curve). Flat-`Pool` arch — no Diamond/proxy/ERC-7201; EIP-1167 clones via `PoolFactory`. Solidity contracts ONLY — front/back/sdk/docs live in sibling repos under `~/Work/btr/` (see `~/Work/btr/CLAUDE.md`); do NOT recreate them here.
 
 ## Layout
 - `evm/`     — Solidity 0.8.35 (Foundry). `src/`, `test/`, `script/`. Deps: `@btr-shared/` → `../../shared/evm/src/` remap; `foundry.lock` symlinked to `../../alm/evm/foundry.lock`.
-- `sim/`     — Zig AMM simulation harness (`build.zig`).
+- `sim/`     — Rust AIMM simulation crate (`aimm-sim`). `src/amm/` = the reference model mirroring
+  `evm/src/libraries/Pricing.sol` (aimm + Curve/Uni/Wombat/A-S baselines); `tests/amm_sim.rs` replays
+  real NX tapes via `nxr-sdk::BarFile`. `cargo test` (data-backed tests skip if `../research/data` absent).
+- `research/` — AMM research studies (stable-core, pool-fees LVR, peer-architecture notes). Py/TS analysis
+  scripts; market-data blobs live under `research/data` (gitignored). Moved from prime 2026-07-09.
 - `svm/`     — reserved Solana port (README only).
 - `scripts/` — tooling: `dev.ts`/`prod.ts` (orchestrators), `start-anvil.sh` (mainnet-fork anvil), `build-search-index.ts`, `precompile-markdown.ts`, slot/plot/test-data py+sh.
 - `salts/`   — CREATE3 salt registry (deterministic addresses).

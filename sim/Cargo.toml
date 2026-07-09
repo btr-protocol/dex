@@ -1,0 +1,19 @@
+[package]
+name = "aimm-sim"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Rust reference model / simulation harness for the BTR DEX AIMM (evm/src/libraries/Pricing.sol)."
+
+[lib]
+name = "aimm_sim"
+path = "src/lib.rs"
+
+# The library is pure std (deterministic xorshift RNG, no external deps) so it stays a faithful,
+# dependency-light mirror of the Solidity pricer. Only the integration tests read market data.
+[dependencies]
+
+# Tests replay real NX bar tapes via nxr-sdk::BarFile (path dep into the NX Rates repo). Data files
+# live under ../research/data (gitignored); tests skip gracefully when absent.
+[dev-dependencies]
+nxr-sdk = { path = "../../../nx/nx-rates/sdk/rust", default-features = false }

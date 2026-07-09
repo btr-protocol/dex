@@ -1,0 +1,16 @@
+{
+  "name": "btr-pool-fees",
+  "private": true,
+  "type": "module",
+  "description": "Keyless local Ponder indexer: 2yr v3 Swap/Mint/Burn for BTR ALM real-fee reconstruction (RPC mode, no HyperSync/token/cloud).",
+  "scripts": {
+    "dev": "ponder dev",
+    "start": "ponder start",
+    "codegen": "ponder codegen",
+    "db": "ponder db"
+  },
+  "dependencies": {
+    "ponder": "^0.11.0",
+    "viem": "^2.21.0"
+  }
+}

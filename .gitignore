@@ -162,3 +162,17 @@ back/services/*/data/
 *.node
 
 .claude/
+
+# ── AIMM sim (Rust) ──
+sim/target/
+sim/Cargo.lock
+
+# ── Research + sim data (local, regenerable market tapes — never committed) ──
+research/data/
+research/cache/
+research/**/data_raw/
+research/**/out/
+research/**/output_v2/
+research/**/__pycache__/
+research/**/.venv/
+research/**/node_modules/
