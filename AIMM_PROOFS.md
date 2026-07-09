@@ -261,12 +261,16 @@ regime 1.
   code-backed. (Skew-neutral base still holds by the base being the numeraire priced via
   `_readBasePriceOrHalt`, not the spline.)
 - **P4 — single oracle key, now BOUNDED.** All economic theorems condition on an honest mark
-  within θ of truth. A stolen pusher key can no longer drain in one tx: the per-push deviation
+  within θ of truth. A stolen pusher key can no longer drain in one tx: (a) the per-push deviation
   clamp is **mandatory non-zero** and its band grows only linearly with staleness
-  (`maxDev·(1+dt/ttl)`, capped) — see ExternalOracle.sol `_pushInternal` — so a compromised key
-  is confined to a monitorable, time-proportional walk, and the confidence/TTL halts still fire.
-  Full defeat still needs multisig compromise; **2-of-N pusher quorum remains recommended
-  mainnet hardening** (defense-in-depth), no longer a single-point drain.
+  (`maxDev·(1+dt/ttl)`, capped); (b) **at most one mark update per feed per block** — a same-block
+  re-push reverts (`dt==0` guard in `_pushInternal`), and a duplicate feedId in a `batchPush`
+  fail-closes the batch. Without (b), N same-block pushes each pass the band (dt=0 ⇒ band never
+  grows) yet compound geometrically to an unbounded one-tx move — the cumulative bypass all three
+  audit cohorts independently found (cycle 1). With (a)+(b) a compromised key is confined to a
+  monitorable, one-band-per-block walk, and the confidence/TTL halts still fire. Full defeat still
+  needs multisig compromise; **2-of-N pusher quorum remains recommended mainnet hardening**
+  (defense-in-depth), no longer a single-point drain.
 - **P5 — discrete decomposition gap** in Theorem 2 step 3 is fuzz-anchored, not closed-form.
 - **P6 — sim numeric transfer.** Sim charges the full spread where the chain charges half
   (aimm.rs:371 vs Pricing.sol:363) and composes the fee floor differently — sim-tuned fee/vega

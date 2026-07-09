@@ -265,6 +265,17 @@ contract CoverageProofsTest is CoverageProofsBase {
         admin.setAssetParams(address(pool), address(tok), 0, 1000, 10_000, 10_000, 10_000, 20_000, 0, 0);
     }
 
+    /// Audit fix: donate's liquidityIndex cast is checked — a donation large enough to overflow the
+    /// uint64 index (which would silently corrupt every LP's share↔value mapping) reverts instead.
+    function test_donate_liquidityIndex_overflow_reverts() public {
+        // tok liability = SEED (1e24); first donate uses INIT index 1e12. newIndex = 1e12·(SEED+amt)/SEED;
+        // exceeding 2^64 (~1.845e19) needs (SEED+amt)/SEED > ~1.845e7 ⇒ amt > ~1.845e31.
+        uint256 huge = 2e31;
+        tok.mint(address(this), huge);
+        vm.expectRevert(); // Err.ExcessiveAmount(newIndex, type(uint64).max)
+        pool.donate(address(tok), huge);
+    }
+
     /// Lemma B: with haircutSuppressor = 0, same-asset withdrawal leaves coverage unchanged
     /// (the withdrawer takes exactly its pro-rata share of any deficit).
     function test_withdraw_coverage_neutral_when_suppressor_zero() public {

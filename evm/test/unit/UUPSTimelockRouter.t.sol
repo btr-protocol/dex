@@ -15,6 +15,7 @@ contract UUPSTimelockRouterTest is UUPSTimelockHarness {
         ac = new MockAC(OWNER);
         Router impl = new Router(address(ac));
         address p = LibClone.deployERC1967(address(impl));
+        vm.prank(OWNER);
         Router(payable(p)).initialize(address(0xF1));
         Router fresh = new Router(address(ac));
         return (p, address(fresh));
