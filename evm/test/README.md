@@ -32,7 +32,7 @@ test/
 ├── PoolBaseDepeg.t.sol           R44-2 base-token depeg halt (legacy / in-band / out-of-band)
 ├── PoolFlash.t.sol               ERC-3156 singleton flash loans (repay by raising pool balance)
 ├── PoolFlashExploit.t.sol        flash-in-flight guard (repay-via-deposit double-count)
-├── PoolHooksAccounting.t.sol     swap-hook extraFee clamp (5% output, LP-credited) + feeOverride cap
+├── PoolSwapAccounting.t.sol      swap token-conservation (R8): balance == reserves + protocolFees
 ├── PoolStorageLayout.t.sol       PoolStorage slot pins (append-only layout)
 ├── DistributorBridgeIntegration.t.sol  campaign propose→24h→finalize + bridge flows
 └── fixtures/                     shared setup + mock tokens

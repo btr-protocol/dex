@@ -36,30 +36,9 @@ library Constants {
     ///         Past this the mark is too uncertain to price against; fail-closed like the depeg band.
     uint16 internal constant MAX_CONFIDENCE_HALT_BPS = 1000; // 10%
 
-    // --- Hook flags ---
-    uint32 internal constant HOOK_PRE_INIT = 1 << 0;
-    uint32 internal constant HOOK_POST_INIT = 1 << 1;
-    uint32 internal constant HOOK_PRE_DEPOSIT = 1 << 2;
-    uint32 internal constant HOOK_POST_DEPOSIT = 1 << 3;
-    uint32 internal constant HOOK_PRE_WITHDRAW = 1 << 4;
-    uint32 internal constant HOOK_POST_WITHDRAW = 1 << 5;
-    uint32 internal constant HOOK_PRE_SWAP = 1 << 6;
-    uint32 internal constant HOOK_POST_SWAP = 1 << 7;
-    uint32 internal constant HOOK_PRE_DONATE = 1 << 8;
-    uint32 internal constant HOOK_POST_DONATE = 1 << 9;
-    uint32 internal constant HOOK_PRE_FLASH_LOAN = 1 << 10;
-    uint32 internal constant HOOK_POST_FLASH_LOAN = 1 << 11;
-
     // --- Flow guard ---
     /// @notice JIT cooldown (seconds) -chain-agnostic safe default.
     uint16 internal constant DEFAULT_FLOW_COOLDOWN = 15;
-
-    // --- R44-1 (T3-HIGH1): hook-fee inflation cap (admin-trusted hook hardening) ---
-    /// @notice Max extra fee a hook may charge as a fraction of swap output. 500 = 5% in BPS (10000=100%).
-    /// @dev    Defense-in-depth vs malicious/compromised admin-registered hook returning huge `extraFee`
-    ///         that would drain output-token reserves under prior accounting. Clamp applied at
-    ///         `PoolHookExec.applyHookFee` entry.
-    uint16 internal constant MAX_HOOK_EXTRA_FEE_BPS = 500;
 
     // --- R44-2 (T3-HIGH2): base-token depeg halt threshold ---
     /// @notice Max allowed deviation of base-token oracle price from 1e18 (unit-of-account parity).

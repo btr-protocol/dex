@@ -10,7 +10,7 @@ import {PoolSwapQuote} from "./PoolSwapQuote.sol";
 import {PoolIO} from "./PoolIO.sol";
 
 /// @title PoolSwap -single-leg swap orchestration (entry + I/O wrap/pull/push).
-/// @notice Phase 42K.10D.B2: post-quote pipeline (hook fees, _exec, oracle push) moved to
+/// @notice Phase 42K.10D.B2: post-quote pipeline (_exec, oracle push) moved to
 ///         PoolSwapQuote (external library, DELEGATECALL'd) so PoolSwap's standalone bytecode
 ///         fits under EIP-170. Behavior preserved; adds ~700 gas/swap for the extra delegate hop
 ///         on the cold path through PoolSwapQuote.

@@ -11,13 +11,13 @@ import {IPool} from "../src/interfaces/IPool.sol";
 ///         with the documented packing. Any reorder/insertion that mutates existing
 ///         offsets will trip these tests, surfacing storage-collision risk for live
 ///         clones BEFORE deploy.
-/// @dev Layout (per IPool.sol:120):
+/// @dev Layout (per IPool.sol PoolStorage):
 ///        slot 0  = baseToken (address, 20 bytes)         -packed offset 0
 ///        slot 1  = wnative   (address, 20 bytes)         -packed offset 0
 ///        slot 2  = bridge    (address, 20 bytes)         -packed offset 0
 ///        slot 3  = treasury  (address, 20 bytes)         + initialized (bool, byte 20)
-///      Mappings @ slots 4..12 inclusive (8 mapping fields → keccak-derived).
-///      `IPool.FeeParams feeParams` is a struct → uses its own slot range starting @ 13.
+///      Mappings @ slots 4..9 inclusive (6 mapping fields → keccak-derived).
+///      `IPool.FeeParams feeParams` is a struct → uses its own slot range starting @ 10.
 contract PoolStorageLayoutTest is Test {
     Pool pool;
     address constant SENTINEL_BASE     = address(0x1111111111111111111111111111111111111111);

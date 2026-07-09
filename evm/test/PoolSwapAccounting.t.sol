@@ -9,58 +9,14 @@ import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
-import {IPoolHooks} from "../src/interfaces/IPoolHooks.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
-import {PoolHookExec} from "../src/libraries/PoolHookExec.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
-import {Err} from "@btr-shared/Errors.sol";
 
-/// @notice MockHooks: records inbound calls + returns configurable fee/delta.
-contract MockHooks is IPoolHooks {
-    uint256 public hookFeePost;
-    int256  public hookDeltaPost;
-
-    function setPostSwapFee(uint256 fee) external { hookFeePost = fee; }
-    function setPostSwapDelta(int256 d) external  { hookDeltaPost = d; }
-
-    function hookFlags() external pure returns (uint32) { return C.HOOK_PRE_SWAP | C.HOOK_POST_SWAP; }
-
-    // unused
-    function preInitialize(address,address,address,address) external {}
-    function postInitialize(address,address,address,address) external {}
-    function preDeposit(address,address,address,uint256) external {}
-    function postDeposit(address,address,address,uint256,uint256) external returns (uint256, uint256) {}
-    function preWithdraw(address,address,address,uint256) external {}
-    function postWithdraw(address,address,address,uint256,uint256) external returns (uint256, uint256) {}
-    function preSwap(address,address,address,address,uint256,uint256) external returns (uint256, uint16) { return (0,0); }
-    function postSwap(address,address,address,address,uint256,uint256) external view returns (int256) { return hookDeltaPost; }
-    function preDonate(address,address,address,uint256) external {}
-    function postDonate(address,address,address,uint256) external {}
-    function preFlashLoan(address,address,address,uint256,uint256,bytes calldata) external {}
-    function postFlashLoan(address,address,address,uint256,uint256,bytes calldata) external {}
-}
-
-/// @notice R44-1 exposed harness: invokes the linked `PoolHookExec.applyHookFee` external library
-///         against a test-owned `PoolStorage` so we get the REAL post-Pass-44A clamp + LP-routing
-///         path (not a duplicated mirror). Storage layout matches `Pool.sol` ($-at-slot-0) so the
-///         library's storage ref resolves correctly inside this contract.
-contract HookFeeExposed {
-    IPool.PoolStorage internal $;
-
-    /// @dev Mirrors `Pool.sol`'s storage slot binding so PoolHookExec.applyHookFee works.
-    function applyHookFee(uint256 fee, IPool.SwapQuote memory q, uint256 out)
-        external view returns (uint256, IPool.SwapQuote memory)
-    {
-        uint256 newOut = PoolHookExec.applyHookFee($, fee, q, out);
-        return (newOut, q);
-    }
-}
-
-/// @title PoolHooksAccountingTest
-/// @notice Quote-time protoFee accounting + post-swap hook protoDelta accounting.
+/// @title PoolSwapAccountingTest
+/// @notice Quote-time protoFee + token-conservation (R8) accounting.
 ///         Target invariant: pool ERC20 balance == reserves[token] + protocolFees[token] post-swap.
-contract PoolHooksAccountingTest is Test {
+contract PoolSwapAccountingTest is Test {
     PoolFactory factory;
     Pool poolImpl;
     Admin admin;
@@ -217,48 +173,5 @@ contract PoolHooksAccountingTest is Test {
         vm.prank(USER);
         uint256 out = pool.swap(address(base), address(quote), amt, 0, USER);
         assertEq(quote.balanceOf(USER) - before, out, "user received exactly out");
-    }
-
-    /// @notice R6 / R44-1 (T3-HIGH1): exercises `PoolHookExec.applyHookFee` via Pool's library-
-    ///         linked DELEGATECALL surface. Verifies post-Pass-44A semantics:
-    ///           (a) extra fee is clamped to `out * MAX_HOOK_EXTRA_FEE_BPS / 10_000` (5%).
-    ///           (b) clamped fee is added EXCLUSIVELY to `q.lpFee` — `q.protoFee` is untouched
-    ///               (the prior drain vector via output-side protocolFees credit is closed).
-    /// @dev    The library `applyHookFee` reads `$.feeParams.protoShare` only nominally —
-    ///         post-R44-1 it ignores `$` entirely (LP-only routing). We invoke it via a
-    ///         deployed helper that DELEGATECALLs into the linked library address.
-    function test_R6_R44_1_applyHookFee_clamp_and_lp_only() public {
-        HookFeeExposed harness = new HookFeeExposed();
-        IPool.SwapQuote memory q;
-        q.amountOut = 100e18;
-        q.protoFee  = 1e18;
-        q.lpFee     = 2e18;
-
-        // Malicious hook attempts a 50e18 (50% of out) extraFee. Library must clamp to 5e18.
-        (uint256 newOut,) = harness.applyHookFee(50e18, q, 100e18);
-        // R44-1 clamp engaged: out reduced by cap (5e18), NOT 50e18.
-        assertEq(newOut, 95e18, "R44-1: clamp engaged (out -= 5e18 cap, not 50e18)");
-
-        // Boundary: requested fee BELOW cap → passes through unchanged.
-        IPool.SwapQuote memory q2;
-        q2.amountOut = 100e18;
-        (uint256 newOut2,) = harness.applyHookFee(1e18, q2, 100e18);
-        assertEq(newOut2, 99e18, "R44-1: below-cap passthrough");
-
-        // Zero fee: no-op.
-        (uint256 newOut3,) = harness.applyHookFee(0, q2, 100e18);
-        assertEq(newOut3, 100e18, "R44-1: zero-fee no-op");
-
-        // Exact-cap fee: passes through (NOT zeroed by off-by-one).
-        (uint256 newOut4,) = harness.applyHookFee(5e18, q2, 100e18);
-        assertEq(newOut4, 95e18, "R44-1: exact-cap fee preserved");
-    }
-
-    /// @notice R44-1 (T3-HIGH1): MAX_HOOK_EXTRA_FEE_BPS = 5% (BPS=10_000). Verify the constant
-    ///         is the documented value and matches the spec ceiling. Behavioral coverage of the
-    ///         clamp engagement is in `test_R6_R44_1_post_swap_hook_clamped_and_lp_routed`
-    ///         (huge requested delta → small actual protoFee shift).
-    function test_R44_1_max_hook_extra_fee_bps_constant() public pure {
-        assertEq(uint256(C.MAX_HOOK_EXTRA_FEE_BPS), 500, "R44-1: 5% cap");
     }
 }

@@ -12,8 +12,7 @@ import {PoolIO} from "./PoolIO.sol";
 
 /// @title PoolBatch -batchSwap implementation extracted from Pool.sol
 /// @notice Wave-2 bytecode reduction. batchSwap routes through `PoolIO.exec`
-///         (reserve accounting) but does **not** invoke `PoolHookExec` pre/post hooks;
-///         single-leg `swap` uses `PoolSwapQuote.processSwap` with full hook dispatch.
+///         (reserve accounting); single-leg `swap` uses `PoolSwapQuote.processSwap`.
 ///         External lib fn DELEGATECALL'd from Pool's `batchSwap` trampoline,
 ///         so msg.sender, msg.value, and storage context all match the
 ///         original inline path. Reentrancy is enforced by the trampoline.
