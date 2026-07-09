@@ -114,8 +114,9 @@ library Spline {
                 m1 = ((s + sn) >> 1) & ~mask2;
             }
         }
-        // Fritsch-Carlson α²+β²≤9 clamp. Skip if s==0 (flat segment → m0=m1=0 already by sign-mask).
-        if (s == 0) return (m0, m1);
+        // Fritsch-Carlson α²+β²≤9 clamp. On a flat segment (s==0) endpoint tangents are NONZERO when the
+        // neighbours rise (m0=sp/2, m1=sn/2; sign-mask only zeroes opposite-sign slopes), so the clamp
+        // MUST run — num=3·sa=0 then zeroes them, killing the over-integration in area() (no-overshoot).
         uint256 m0a = m0 >= 0 ? uint256(m0) : uint256(-m0);
         uint256 m1a = m1 >= 0 ? uint256(m1) : uint256(-m1);
         uint256 sa = s >= 0 ? uint256(s) : uint256(-s);

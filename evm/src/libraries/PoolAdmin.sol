@@ -131,5 +131,8 @@ library PoolAdmin {
         $.oracleConfigs[t] = oracleCfg;
         $.riskConfigs[t] = riskCfg;
         $.profiles[t] = profile;
+        // Coverage-wall invariant (AIMM_PROOFS Lemma B): initAsset defaults haircutSuppressor to BPS, so a
+        // walled asset (κ>0) added here would violate κ>0 ⇒ haircutSuppressor==0 by default — zero it.
+        if (riskCfg.kappaCovBps > 0) $.assets[t].haircutSuppressor = 0;
     }
 }

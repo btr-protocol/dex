@@ -281,6 +281,22 @@ contract AimmInvariantsTest is Test {
         pool.withdrawTo(address(base), address(tok), lp / 10, 0);
     }
 
+    /// Audit fix: cross-withdraw guards the INPUT (fromTk) band too, not just the output. The
+    /// conversion is priced off fromTk's mark, so a fromTk whose mark sits above its own band must
+    /// halt the withdrawal — else it over-delivers the healthy output and drains those LPs. Here
+    /// tok (the LP-in asset) has reservationPriceMax=PX/2 violated by its live mark; base (out) is
+    /// unbanded. Pre-fix only base was guarded → drain; post-fix tok's band reverts.
+    function test_reservation_band_halts_cross_withdraw_input_asset() public {
+        vm.prank(OWNER);
+        admin.setAssetParams(
+            address(pool), address(tok), 1000, 100, 10_000, 10_000, 10_000, 10_000, 0, uint64(M.encodeB64(PX / 2, 18))
+        );
+        uint256 lp = pool.getLPBalance(address(this), address(tok)); // tok deposited in setUp
+        skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1); // clear JIT cooldown so only the band can revert
+        vm.expectRevert(); // Err.PriceBelowReservation — tok is the INPUT and fails its own band
+        pool.withdrawTo(address(tok), address(base), lp / 10, 0);
+    }
+
     /// Feed-relative band on cross-withdraw: stale refFeedId must fail-closed exactly like swap.
     function test_refBand_stale_reference_feed_halts_cross_withdraw() public {
         bytes32 refId = bytes32(uint256(0xB7D));

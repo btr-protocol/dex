@@ -101,6 +101,9 @@ library PoolIO {
         // The full amtIn is credited to reserves; the swap fee is charged ONCE on the output side
         // (q.protoFee is the protocol's share of feeOut, q.lpFee stays in reserves). Skimming a
         // separate input-side half-spread here double-counts the fee and drains LP into the treasury.
+        // Bound the input-leg credit like deposit/donate — a >2^128 pull would silently truncate and
+        // under-credit reserves (not reachable with any real token supply; parity/defense-in-depth).
+        if (amtIn > type(uint128).max) revert Err.ExcessiveAmount(amtIn, type(uint128).max);
         aIn.reserves += uint128(amtIn);
         aOut.reserves -= uint128(q.amountOut + q.protoFee);
         $.protocolFees[tkOut] += q.protoFee;
