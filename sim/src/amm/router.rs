@@ -170,7 +170,7 @@ pub fn run_competitive_vol(amms: &mut [Box<dyn Amm>], prices: &[f64], bar_vol: O
     let push_every = cfg.push_every.max(1);
 
     // record an executed fill's trader cost (all-in, vs the true price p_ext).
-    let mut record = |i: usize, size_base: f64, out: f64, buy_token: bool, p_ext: f64,
+    let record = |i: usize, size_base: f64, out: f64, buy_token: bool, p_ext: f64,
                       vol_won: &mut [f64], n_won: &mut [u64], cost_wsum: &mut [f64], cost_w: &mut [f64]| {
         // cost = fraction of fair value the trader loses to fee+slippage+spread.
         let cost = if buy_token {
