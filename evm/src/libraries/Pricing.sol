@@ -655,20 +655,31 @@ library Pricing {
     ///      Charge-only (dQ clamped ≥0): a coverage-RESTORING trade drains the healthy leg (c≈1, Q≈0 ⇒
     ///      ~0 toll), so no rebate ledger is needed and a round trip strictly loses (LP-safe). κ=0 ⇒ 0 gas.
     ///      Own frame keeps `getAnchorPathQuote` off the via_ir stack-too-deep edge.
-    function _covToll(EndpointCache memory cOut, uint256 grossOut) private pure returns (uint256) {
+    ///      Internal (not private) so the CoverageProofs fuzz suite can exercise the pure math directly.
+    function _covToll(EndpointCache memory cOut, uint256 grossOut) internal pure returns (uint256) {
         if (cOut.kappaCovBps == 0 || cOut.liabilities == 0 || grossOut == 0) return 0;
         uint256 r0 = uint256(cOut.reserves);
         uint256 l = uint256(cOut.liabilities);
         if (grossOut >= r0) return grossOut; // fully drains the leg → wall blocks the whole fill
-        int256 dQ = _covQ((r0 * SC.WAD) / l) - _covQ(((r0 - grossOut) * SC.WAD) / l);
-        if (dQ <= 0) return 0; // over-covered leg draining toward peg: no charge (charge-only)
+        // Clamp both coverages to the peg before differencing: Q(c)=ln c−c+1 is non-monotonic (max at
+        // c=1, decreasing on BOTH sides), so a raw endpoint diff lets a drain that STARTS over-covered
+        // (c₀>1) cross the peg to below the floor with dQ≤0 ⇒ zero toll — the wall would be bypassable
+        // from an over-covered start. min(c,1) restricts Q to its increasing branch so the toll prices
+        // exactly the below-peg deficit; the over-peg portion stays free (charge-only) and a
+        // drain-toward-peg from above still gives dQ=0.
+        uint256 c0 = (r0 * SC.WAD) / l;
+        uint256 c1 = ((r0 - grossOut) * SC.WAD) / l;
+        if (c0 > SC.WAD) c0 = SC.WAD;
+        if (c1 > SC.WAD) c1 = SC.WAD;
+        int256 dQ = _covQ(c0) - _covQ(c1);
+        if (dQ <= 0) return 0; // draining toward/at peg: no charge (charge-only)
         uint256 toll = (uint256(dQ) * uint256(cOut.kappaCovBps) * l) / (SC.BPS * SC.WAD);
         return toll > grossOut ? grossOut : toll;
     }
 
     /// @dev Coverage potential Q(c) = ln c − c + 1 (WAD): ≤0, max 0 at c=1, convex wall diverging as c→0.
     ///      Finite differences of Q telescope to 0 over any closed reserve loop ⇒ round-trip-neutral.
-    function _covQ(uint256 cWad) private pure returns (int256) {
+    function _covQ(uint256 cWad) internal pure returns (int256) {
         return FixedPointMathLib.lnWad(int256(cWad)) - int256(cWad) + int256(SC.WAD);
     }
 
