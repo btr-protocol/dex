@@ -207,12 +207,6 @@ contract Pool is ReentrancyGuardTransient {
         return $.riskConfigs[_wrap(tk)].flags;
     }
     function getFeeParams() external view returns (IPool.FeeParams memory) { return $.feeParams; }
-    function getHookForFlag(address tk, uint32 flag) external view returns (address h) {
-        address t = _wrap(tk);
-        h = $.hooks[t];
-        if (h == address(0)) return address(0);
-        return ($.hookFlags[t] & flag) != 0 ? h : address(0);
-    }
     function getCoverageRatio(address tk) external view returns (uint256) {
         return PoolView.getCoverageRatio($, tk);
     }

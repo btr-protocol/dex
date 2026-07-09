@@ -3,7 +3,6 @@ pragma solidity =0.8.35;
 
 import {IFlash} from "./interfaces/IFlash.sol";
 import {IPool} from "./interfaces/IPool.sol";
-import {IPoolHooks} from "./interfaces/IPoolHooks.sol";
 import {IERC3156FlashBorrower} from "./interfaces/external/IERC3156FlashBorrower.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
@@ -43,9 +42,6 @@ contract Flash is IFlash, ReentrancyGuardTransient {
         uint256 fee = (amount * uint256(fp.flashFeeBps)) / 1_000_000;
         (uint256 protoFee, ) = Pricing.splitFee(fee, fp.protoShare);
 
-        address hook = IPool(pool).getHookForFlag(token, C.HOOK_PRE_FLASH_LOAN);
-        if (hook != address(0)) IPoolHooks(hook).preFlashLoan(pool, msg.sender, token, amount, fee, data);
-
         // Capture pool's token balance pre-debit; Pool.flashSend will push `amount` to receiver.
         uint256 balanceBefore = SafeTransferLib.balanceOf(token, pool);
         IPool(pool).flashSend(token, amount, address(receiver));
@@ -61,9 +57,6 @@ contract Flash is IFlash, ReentrancyGuardTransient {
 
         // Credit reserves with LP-portion of fee + protocolFees with proto-portion (R13 fix).
         IPool(pool).flashAccount(token, fee, protoFee);
-
-        hook = IPool(pool).getHookForFlag(token, C.HOOK_POST_FLASH_LOAN);
-        if (hook != address(0)) IPoolHooks(hook).postFlashLoan(pool, msg.sender, token, amount, fee, data);
 
         emit FlashLoanExecuted(pool, msg.sender, address(receiver), token, amount, fee);
         return true;

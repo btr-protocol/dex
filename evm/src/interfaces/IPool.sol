@@ -110,8 +110,6 @@ interface IPool is IOracle {
         mapping(address => IPool.OracleConfig) oracleConfigs;
         mapping(address => IPool.RiskConfig) riskConfigs;
         mapping(address => IPool.LiquidityProfile) profiles;
-        mapping(address => address) hooks;
-        mapping(address => uint32) hookFlags;
         mapping(address => mapping(address => uint256)) lpBalances;
         mapping(address => uint256) protocolFees;
         IPool.FeeParams feeParams;
@@ -192,7 +190,6 @@ interface IPool is IOracle {
     function getLPBalance(address user, address token) external view returns (uint256);
     function getRiskFlags(address token) external view returns (uint16);
     function getFeeParams() external view returns (FeeParams memory);
-    function getHookForFlag(address token, uint32 flag) external view returns (address);
 
     // ─── Exchange types & events (canonical -was IPoolModule) ────────────────
     struct SwapQuote {
