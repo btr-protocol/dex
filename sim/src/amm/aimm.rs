@@ -402,7 +402,7 @@ impl Amm for Aimm {
             OracleMode::Internal => {} // mark evolves from fills in push_mark()
             OracleMode::External { interval } => {
                 self.update_vol_from_ext(ext_px); // vol always fresh off the feed
-                if interval == 0 || step % interval == 0 {
+                if interval == 0 || step.is_multiple_of(interval) {
                     // keeper push: snap the quoted mark to truth; slow EMA lags for a trend signal
                     self.slow_ema += 0.2 * (ext_px - self.slow_ema);
                     self.fast_ema = ext_px;
@@ -466,9 +466,9 @@ impl Amm for Aimm {
             // Clamp coverage to the peg (min(c,1)) before differencing the potential: Q peaks at c=1
             // and falls on both sides, so an unclamped diff lets a drain that STARTS over-covered cross
             // the peg toll-free (dQ≤0) — the wall would be bypassable from c>1. Mirrors Pricing.sol.
-            let c_before = (self.tok_res / l).max(1e-9).min(1.0);
+            let c_before = (self.tok_res / l).clamp(1e-9, 1.0);
             let tok_after = if tin == 1 { self.tok_res + amount_in } else { self.tok_res - gross };
-            let c_after = (tok_after.max(0.0) / l).max(1e-9).min(1.0);
+            let c_after = (tok_after.max(0.0) / l).clamp(1e-9, 1.0);
             let toll_base = twap * l * self.p.kappa_cov * (self.cov_q(c_before) - self.cov_q(c_after));
             let toll_out = if tout == 0 { toll_base } else { toll_base / twap };
             if toll_out >= 0.0 {

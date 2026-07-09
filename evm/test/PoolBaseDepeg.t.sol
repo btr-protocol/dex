@@ -159,7 +159,7 @@ contract PoolBaseDepegTest is Test {
 
     /// @notice R44-2b: `_executeLeg` base-token branch is defensive-only.
     /// @dev By anchor-tree invariant, baseToken is always the ROOT (anchor==0).
-    ///      `setAnchor(base, X)` reverts (Err.InvalidAnchor / CycleDetected) — base
+    ///      `setAnchor(base, X)` reverts (Err.InvalidAnchor) — base
     ///      cannot become an intermediate hop. The patch (`twap = _readBasePriceOrHalt($)`)
     ///      in `_executeLeg` is belt-and-suspenders against future tree-topology changes.
     ///      No runtime regression test possible; correctness verified by Pass-45 V1 review.
