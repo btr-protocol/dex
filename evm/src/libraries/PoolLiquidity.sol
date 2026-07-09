@@ -185,12 +185,18 @@ library PoolLiquidity {
     function _withdrawCross(IPool.PoolStorage storage $, WithdrawCtx memory ctx) private {
         IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
         IPool.Asset storage assetTo = $.assets[ctx.toTk];
-        IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, ctx.fromTk, ctx.toTk, ctx.withdrawValue);
         // Depeg breaker on BOTH legs: the conversion is priced off fromTk's mark, so a wrong-but-fresh
         // fromTk mark (above its refBand / reservationPriceMax) over-delivers the healthy output asset —
         // the same drain the exec/swapLiability input-leg guard closes. Cover all mark-priced value-out paths.
         PoolIO.priceBandGuard($, ctx.fromTk, assetFrom);
         PoolIO.priceBandGuard($, ctx.toTk, assetTo);
+        // From-asset coverage haircut BEFORE the mark conversion, mirroring _withdrawSame: an LP exiting an
+        // under-covered asset converts only face·c_from and leaves its deficit socialized (liabilities still
+        // drop by the FULL face below, so the index invariant holds). Without this the cross path pays full
+        // face out of the healthy output asset — an under-covered LP escapes the haircut (Lemma B) and dumps
+        // its deficit onto the output asset's LPs (bank-run bypass).
+        (uint256 fairValue,) = applyHaircut(ctx.withdrawValue, assetFrom.reserves, assetFrom.liabilities, assetFrom.haircutSuppressor);
+        IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, ctx.fromTk, ctx.toTk, fairValue);
         (ctx.amt, ctx.haircut) = applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
         if (assetTo.reserves < ctx.amt + q.protoFee) revert Err.InsufficientAmount(assetTo.reserves, ctx.amt + q.protoFee);
 
@@ -235,7 +241,12 @@ library PoolLiquidity {
         uint256 liabIn = (lpAmountIn * (assetIn.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetIn.liquidityIndex)) / SC.WAD;
         if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
 
-        IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, inTk, outTk, liabIn);
+        // In-asset coverage haircut BEFORE the mark conversion, mirroring _withdrawSame: re-denominate only
+        // face·c_in of an under-covered position (liabIn is still burned in FULL below). Else a swapLiability
+        // out of an under-covered asset escapes the haircut (Lemma B) and dumps its deficit onto the
+        // destination asset's LPs — the same bank-run bypass the cross-withdraw path guards.
+        (uint256 fairIn,) = applyHaircut(liabIn, assetIn.reserves, assetIn.liabilities, assetIn.haircutSuppressor);
+        IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, inTk, outTk, fairIn);
         // Depeg breaker on both legs — liability re-denomination is priced off both marks, so a
         // wrong-but-fresh mark must halt it exactly like swap/withdrawTo (which gate the output leg).
         PoolIO.priceBandGuard($, outTk, assetOut);
