@@ -286,6 +286,61 @@ contract CoverageProofsTest is CoverageProofsBase {
         pool.withdrawTo(address(tok), address(tok), lp / 5, 0);
         assertApproxEqAbs(_cov(address(tok)), cBefore, 1e6, "s=0 withdrawal must be coverage-neutral");
     }
+
+    /// SECURITY (Lemma B, cross paths): the same-asset coverage haircut must NOT be escapable by
+    /// exiting into a healthy asset. A cross withdrawal out of an under-covered asset may credit no
+    /// more value than the fair same-asset exit — else the exiting LP dumps its (1−c) deficit onto the
+    /// healthy output asset's LPs (bank run). Both marks are 1.0 here, so value compares 1:1.
+    function test_cross_withdraw_cannot_escape_coverage_haircut() public {
+        tok.mint(ATK, SEED);
+        vm.startPrank(ATK);
+        tok.approve(address(pool), type(uint256).max);
+        pool.deposit(address(tok), SEED);
+        vm.stopPrank();
+        // Drive tok under-covered (base→tok buy drains tok reserves).
+        pool.swap(address(base), address(tok), SEED / 2, 0, address(this));
+        assertLt(_cov(address(tok)), WAD, "tok must be under-covered for the test");
+
+        uint256 lp = pool.getLPBalance(ATK, address(tok));
+        skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1);
+
+        uint256 snap = vm.snapshotState();
+        vm.prank(ATK); // fair same-asset exit (haircut on tok)
+        IPool.WithdrawResult memory a = pool.withdrawTo(address(tok), address(tok), lp / 4, 0);
+        vm.revertToState(snap);
+        vm.prank(ATK); // cross exit into healthy base — must not beat the fair exit
+        IPool.WithdrawResult memory b = pool.withdrawTo(address(tok), address(base), lp / 4, 0);
+
+        assertLe(b.amountOut, a.amountOut + 1e6, "cross exit escaped the coverage haircut (bank-run bypass)");
+    }
+
+    /// SECURITY (Lemma B, swapLiability): re-denominating an under-covered position into a healthy
+    /// asset must not mint more destination LP value than a fair same-asset exit could realize. The
+    /// swapped-in position (valued at the out-asset index) may not exceed the fair same-asset withdraw.
+    function test_swapLiability_cannot_escape_coverage_haircut() public {
+        tok.mint(ATK, SEED);
+        vm.startPrank(ATK);
+        tok.approve(address(pool), type(uint256).max);
+        pool.deposit(address(tok), SEED);
+        vm.stopPrank();
+        pool.swap(address(base), address(tok), SEED / 2, 0, address(this));
+        assertLt(_cov(address(tok)), WAD, "tok must be under-covered for the test");
+
+        uint256 lp = pool.getLPBalance(ATK, address(tok));
+        skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1);
+
+        uint256 snap = vm.snapshotState();
+        vm.prank(ATK); // fair same-asset exit value (tok out, marks 1.0)
+        IPool.WithdrawResult memory a = pool.withdrawTo(address(tok), address(tok), lp / 4, 0);
+        vm.revertToState(snap);
+        vm.prank(ATK); // liability-swap into healthy base, then measure the base value it commands
+        uint256 outLp = pool.swapLiability(address(tok), address(base), lp / 4, 0);
+        // Reconstruct the base liability the swapped-in LP position commands (index 0 ⇒ INIT convention,
+        // since deposit never writes liquidityIndex — only donate does).
+        uint64 bIdx = pool.getAsset(address(base)).liquidityIndex;
+        uint256 baseVal = (outLp * (bIdx == 0 ? uint256(1e12) : uint256(bIdx))) / WAD;
+        assertLe(baseVal, a.amountOut + 1e6, "swapLiability escaped the coverage haircut (bank-run bypass)");
+    }
 }
 
 /// @notice Random-op driver for the Theorem-1 invariant campaign. Reverts are swallowed —

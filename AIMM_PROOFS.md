@@ -70,6 +70,13 @@ change; it is asserted in the deploy checklist. Note the leak is not value-extra
 withdrawer receives strictly less than face value (`amt < w` whenever `c < 1`) — it only
 weakens the *floor*, not LP solvency ordering.
 
+**Cross-path symmetry (code-enforced).** The same `face·min(1,c_from)` haircut is applied on the
+*input* leg of the cross exits (`_withdrawCross`, `swapLiability`: PoolLiquidity.sol) BEFORE the
+mark conversion, while the from/in liability still drops by the full face. Without it an
+under-covered LP exits into a healthy asset at par, escaping its `(1−c)` deficit onto the output
+asset's LPs (a bank run onto the base/stable reserves) — the precise mechanism the haircut exists
+to prevent. A cross exit therefore never credits more value than the fair same-asset exit.
+
 ## 3. Lemma C — toll well-formedness
 
 For all inputs: `0 ≤ T(g) ≤ g`; `T = 0` when `κ = 0`; `T = 0` when `dQ ≤ 0` (draining an
@@ -291,6 +298,7 @@ regime 1.
 | Thm 1 floor, op sequences (handler invariant) | `invariant_coverage_floor` (CoverageFloorHandler) |
 | Thm 2 round trip loses, sweep size × c × κ | `test_fuzz_roundtrip_never_profits` |
 | Lemma B: s=0 withdraw coverage-neutral | `test_withdraw_coverage_neutral_when_suppressor_zero` |
+| Lemma B cross-path: haircut not escapable via cross exit | `test_cross_withdraw_cannot_escape_coverage_haircut`, `test_swapLiability_cannot_escape_coverage_haircut` |
 | Lemma A: deposit restores toward 1 | `test_deposit_restores_coverage` |
 | §6(c) minLiquidity backstop | existing `PoolSwap` threshold revert + `test_fuzz_coverage_floor_single_swap` bound |
 
