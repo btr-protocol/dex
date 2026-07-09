@@ -251,6 +251,11 @@ library PoolLiquidity {
         // wrong-but-fresh mark must halt it exactly like swap/withdrawTo (which gate the output leg).
         PoolIO.priceBandGuard($, outTk, assetOut);
         PoolIO.priceBandGuard($, inTk, assetIn);
+        // Liability re-denomination is deliberately protocol-fee-EXEMPT (unlike swap/withdrawTo-cross):
+        // it moves no reserves, so there is no physical outflow to skim q.protoFee from — capturing it
+        // would debit the output reserve with no matching inflow and degrade coverage. The swapper is
+        // still charged the full spread (q.amountOut is net); the proto share stays as reduced net
+        // liability = coverage to LPs (conservative, LP-safe). Audit-confirmed design choice, not a gap.
         uint256 liabOut = q.amountOut;
         uint256 haircut;
 
