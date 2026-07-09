@@ -7,10 +7,11 @@
 // were found to have real, unresolved defects on the production knot config during this investigation
 // (Hyman: exact-zero tangent at the flat center ⇒ density=0 AT the peak; quintic: 1579 genuine offset-
 // monotonicity violations) and need real hardening before being shown as credible alternatives.
-type Pt = [number, number]; // [depth-coord x ∈ [0,BPS], offset y ∈ PBPS]
-const BPS = 10_000, WEIGHT_SUM = 200;
+export type Pt = [number, number]; // [depth-coord x ∈ [0,BPS], offset y ∈ PBPS]
+export const BPS = 10_000;
+const WEIGHT_SUM = 200;
 
-function splinePoints(knots: number[], weights: number[], disp: number): Pt[] {
+export function splinePoints(knots: number[], weights: number[], disp: number): Pt[] {
   const pts: Pt[] = [[0, (knots[0] * disp) / 100]];
   let cum = 0;
   for (let i = 0; i < weights.length; i++) { cum += weights[i]; pts.push([(cum * BPS) / WEIGHT_SUM, (knots[i + 1] * disp) / 100]); }
@@ -53,7 +54,7 @@ function tangents(pts: Pt[], i: number, n: number): [number, number] {
 }
 
 // Spline.sol:eval — cubic Hermite basis (c2,c3 from tangents k0,k1 and Δy), Horner-evaluated.
-function hermiteEval(pts: Pt[], x: number): number {
+export function hermiteEval(pts: Pt[], x: number): number {
   const n = pts.length;
   if (n === 0) return 0;
   if (n === 1 || x <= pts[0][0]) return pts[0][1];
@@ -74,7 +75,7 @@ function hermiteEval(pts: Pt[], x: number): number {
 // unstable exactly where the curve is flattest (this profile puts 71% of its weight in the two innermost
 // segments — the near-center region is SO flat that consecutive-sample offset differences are dominated
 // by floating-point noise). The analytic derivative of the cubic has no such instability.
-function hermiteDeriv(pts: Pt[], x: number): number {
+export function hermiteDeriv(pts: Pt[], x: number): number {
   const n = pts.length;
   // n<2 guard added 2026-07-09 (audit finding): hermiteEval short-circuits on n===0/n===1 before ever
   // touching pts[1]; this function didn't, so it would throw on the same inputs instead of returning the
@@ -103,7 +104,7 @@ function hermiteDeriv(pts: Pt[], x: number): number {
 // the true (highly nonlinear) curve in between. The correct fix: for each target offset, bisect for the
 // exact x that produces it (offset(x) is monotonic — guaranteed by Fritsch-Carlson — so bisection is
 // safe), then evaluate the ANALYTIC derivative exactly there. No sampling gap, no interpolation error.
-function densityAtUniformOffsets(
+export function densityAtUniformOffsets(
   evalFn: (x: number) => number, derivFn: (x: number) => number,
   nOut: number, offMinBp: number, offMaxBp: number
 ): [number, number][] {
@@ -178,8 +179,8 @@ function densityAtUniformOffsets(
 // bisection bug using a half-domain search range for negative-offset targets — fixed, re-verified $10.0000M
 // exactly across every profile; this file's own densityAtUniformOffsets was never affected, it always used
 // the full [0,BPS] range).
-const L = 10_000_000; // $10M/side reserve, same convention as compute_shapes.ts
-const PROFILES: Record<string, { knots: number[]; weights: number[]; label: string; sub: string }> = {
+export const L = 10_000_000; // $10M/side reserve, same convention as compute_shapes.ts
+export const PROFILES: Record<string, { knots: number[]; weights: number[]; label: string; sub: string }> = {
   default: { knots: [-50, -25, 0, 25, 50], weights: [50, 50, 50, 50], label: 'Default (flat)', sub: 'collinear ⇒ linear, 0 dip, no concentration — deployed baseline' },
   // REVISED 2026-07-09 (owner: "I feel like we don't need so many knots... could already have similar
   // liquidity profile"). Parallel-searched nSegs∈{1..8} (4 independently-verified sweeps, 1536 combos
@@ -217,7 +218,7 @@ const PROFILES: Record<string, { knots: number[]; weights: number[]; label: stri
 // 1) exact tangent-continuity check at every interior knot. tangents(seg_i-1).m1 and tangents(seg_i).m0
 //    reference the SAME shared boundary and MUST match — the α²+β²≤9 clamp (see note above) can break this
 //    per-segment, and no amount of dense sampling reliably catches a jump this narrow.
-function maxContinuityBreakPct(pts: Pt[]): number {
+export function maxContinuityBreakPct(pts: Pt[]): number {
   const n = pts.length;
   let worst = 0;
   for (let i = 1; i < n - 1; i++) {
@@ -231,9 +232,11 @@ function maxContinuityBreakPct(pts: Pt[]): number {
 // 2) NOT just continuity — a continuous derivative can still be locally non-monotonic (the "7 bumps" bug
 //    above proved continuity alone is insufficient). Walk outward from center on a fine grid and flag any
 //    genuine local INCREASE in density — the direct, visual definition of "jumps back and forth".
-function maxBumpPct(pts: Pt[], edgeBp: number, nOut = 2000): number {
-  const xFor = (targetBp: number) => { let lo = 0, hi = BPS; const target = targetBp * 100; for (let it = 0; it < 60; it++) { const mid = (lo + hi) / 2; if (hermiteEval(pts, mid) < target) lo = mid; else hi = mid; } return (lo + hi) / 2; };
-  const densAt = (x: number) => { const d = hermiteDeriv(pts, x); const ddv = (d / 100) / 1000; return ddv > 1e-15 ? 1 / ddv : Infinity; };
+// (2026-07-09, B-spline study) generalized from `pts: Pt[]` to evalFn/derivFn so spline_bspline.ts
+// gates through the SAME code path — Hermite callers pass (x)=>hermiteEval(pts,x) closures.
+export function maxBumpPct(evalFn: (x: number) => number, derivFn: (x: number) => number, edgeBp: number, nOut = 2000): number {
+  const xFor = (targetBp: number) => { let lo = 0, hi = BPS; const target = targetBp * 100; for (let it = 0; it < 60; it++) { const mid = (lo + hi) / 2; if (evalFn(mid) < target) lo = mid; else hi = mid; } return (lo + hi) / 2; };
+  const densAt = (x: number) => { const d = derivFn(x); const ddv = (d / 100) / 1000; return ddv > 1e-15 ? 1 / ddv : Infinity; };
   let worst = 0, prev = densAt(xFor(0));
   for (let i = 1; i <= nOut; i++) {
     const bp = (i / nOut) * edgeBp;
@@ -249,7 +252,7 @@ for (const [key, p] of Object.entries(PROFILES)) {
   const brk = maxContinuityBreakPct(pts);
   if (brk > 0.01) throw new Error(`profile ${key} FAILED tangent-continuity gate: ${brk.toFixed(4)}% break — do not ship`);
   const edgeBp = Math.abs((p.knots[p.knots.length - 1] * 1000) / 100 / 100);
-  const bump = maxBumpPct(pts, edgeBp);
+  const bump = maxBumpPct((x) => hermiteEval(pts, x), (x) => hermiteDeriv(pts, x), edgeBp);
   if (bump > 1) throw new Error(`profile ${key} FAILED bump gate: ${bump.toFixed(3)}% local density increase — do not ship`);
 }
 
@@ -309,7 +312,7 @@ function sampleProfile(knots: number[], weights: number[], disp: number) {
 // range, a mathematical identity independent of shape. Computed on the SAME shipped density array (already
 // on a uniform, full-domain offset grid — no separate bisection needed, avoiding the half-domain bisection
 // bug an earlier ad-hoc debug script had for negative-offset targets).
-function trapezoidIntegral(density: [number, number][]): number {
+export function trapezoidIntegral(density: [number, number][]): number {
   let total = 0;
   for (let i = 1; i < density.length; i++) {
     const [o0, d0] = density[i - 1], [o1, d1] = density[i];
@@ -321,8 +324,8 @@ function trapezoidIntegral(density: [number, number][]): number {
 // Curve stableswap — REAL Ethereum L1 A-values (verified live on-chain, not the BSC A=1000 this study
 // started with — 3pool ramped 2000→4000 via governance since its 2020 launch; Curve carries negligible
 // TVL on BSC, so mainnet deployments are the honest benchmark per owner direction).
-function curveY(x: number, D: number, A: number) { const Ann = A * 4; const c = (D * D * D) / (4 * x * Ann); const b = x + D / Ann; const bd = b - D; return (-bd + Math.sqrt(bd * bd + 4 * c)) / 2; }
-function curveOffsetBps(volUsd: number, A: number) {
+export function curveY(x: number, D: number, A: number) { const Ann = A * 4; const c = (D * D * D) / (4 * x * Ann); const b = x + D / Ann; const bd = b - D; return (-bd + Math.sqrt(bd * bd + 4 * c)) / 2; }
+export function curveOffsetBps(volUsd: number, A: number) {
   const D = 2 * L;
   // BUG FIX 2026-07-09: volUsd=0 used to fall into the dy>0 branch below with dy computing to EXACTLY 0
   // (balanced pool ⇒ y1===L), so the strict `>0` check failed and returned null AT v=0 — an interior
@@ -339,7 +342,7 @@ function curveOffsetBps(volUsd: number, A: number) {
   // side point positive, so the reference line only ever rendered on the positive side of the chart.)
   const y1 = curveY(x1, D, A); const dy = y1 - L; const recv = -volUsd; return recv >= 0 ? (1 - dy / recv) * 1e4 : null;
 }
-const CURVE_BENCHMARKS: Record<string, number> = {
+export const CURVE_BENCHMARKS: Record<string, number> = {
   A4000: 4000, // Curve 3pool (DAI/USDC/USDT), 0xbEbC4478... — flagship, highest-TVL mainnet stable pool
   A1500: 1500, // FRAX/USDC, 0xDCEF968d... — comparable risk profile to a newer/less-established stable
   A256: 256,   // sUSD pool, 0xA5407eAE... — a real, much looser deployment for range context
@@ -349,7 +352,7 @@ const CURVE_BENCHMARKS: Record<string, number> = {
 // BTR spline's x∈[0,BPS]), so bisect on volUsd instead. Derivative via a tiny central finite-difference
 // AT the resolved point — safe here (unlike the BTR profile) since Curve's invariant is smooth everywhere
 // and never pathologically flat, so no cross-gap interpolation artifact can arise.
-function curveDensityAtUniformOffsets(A: number, volMax: number, nOut: number, offMin: number, offMax: number): [number, number][] {
+export function curveDensityAtUniformOffsets(A: number, volMax: number, nOut: number, offMin: number, offMax: number): [number, number][] {
   const out: [number, number][] = [];
   const volToOff = (v: number) => curveOffsetBps(v, A);
   for (let i = 0; i <= nOut; i++) {
