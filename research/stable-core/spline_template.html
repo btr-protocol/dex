@@ -3,32 +3,32 @@
   :root{
     --bg:#f4f7f8; --panel:#ffffff; --panel2:#eef2f4; --ink:#0d1218; --mut:#5a6672;
     --line:rgba(12,26,36,.11); --hair:rgba(12,26,36,.06); --acc:#0f8d7a;
-    --s-d1:#0c9c85; --s-d2:#39c6ad; --s-d3:#83dccb;
-    --s-c1:#c23f7d; --s-c2:#d9679c; --s-c3:#ec9dc0;
-    --s-cv:#c98a1e; --s-knot:#3c5eff;
+    --s-p0:#8a97a3; --s-p1:#0f8d7a; --s-p2:#3ea6c2; --s-p3:#9a6fd6; --s-p4:#d68a2e; --s-p5:#d43f5c; --s-p6:#5a9e3d;
+    --s-cv1:#b8790f; --s-cv2:#c98a1e; --s-cv3:#dcae5c;
+    --s-knot:#3c5eff;
     --shadow:0 1px 0 rgba(12,26,36,.04),0 12px 30px -18px rgba(12,26,36,.30);
   }
   @media (prefers-color-scheme:dark){:root{
     --bg:#080b10; --panel:#0f151e; --panel2:#0c1119; --ink:#e7eef4; --mut:#7a8797;
     --line:rgba(255,255,255,.11); --hair:rgba(255,255,255,.06); --acc:#35d0b6;
-    --s-d1:#35d0b6; --s-d2:#5ee0cf; --s-d3:#93ede0;
-    --s-c1:#ec6ba3; --s-c2:#f38bb8; --s-c3:#f8b6d3;
-    --s-cv:#e2ab3d; --s-knot:#6f8cff;
+    --s-p0:#8a97a3; --s-p1:#35d0b6; --s-p2:#6cc9e6; --s-p3:#bb9af0; --s-p4:#eba851; --s-p5:#ee6a83; --s-p6:#8ed16f;
+    --s-cv1:#d99a2b; --s-cv2:#e2ab3d; --s-cv3:#edc470;
+    --s-knot:#6f8cff;
     --shadow:0 1px 0 rgba(0,0,0,.4),0 18px 40px -20px rgba(0,0,0,.7);
   }}
   :root[data-theme="light"]{
     --bg:#f4f7f8; --panel:#ffffff; --panel2:#eef2f4; --ink:#0d1218; --mut:#5a6672;
     --line:rgba(12,26,36,.11); --hair:rgba(12,26,36,.06); --acc:#0f8d7a;
-    --s-d1:#0c9c85; --s-d2:#39c6ad; --s-d3:#83dccb;
-    --s-c1:#c23f7d; --s-c2:#d9679c; --s-c3:#ec9dc0;
-    --s-cv:#c98a1e; --s-knot:#3c5eff;
+    --s-p0:#8a97a3; --s-p1:#0f8d7a; --s-p2:#3ea6c2; --s-p3:#9a6fd6; --s-p4:#d68a2e; --s-p5:#d43f5c; --s-p6:#5a9e3d;
+    --s-cv1:#b8790f; --s-cv2:#c98a1e; --s-cv3:#dcae5c;
+    --s-knot:#3c5eff;
   }
   :root[data-theme="dark"]{
     --bg:#080b10; --panel:#0f151e; --panel2:#0c1119; --ink:#e7eef4; --mut:#7a8797;
     --line:rgba(255,255,255,.11); --hair:rgba(255,255,255,.06); --acc:#35d0b6;
-    --s-d1:#35d0b6; --s-d2:#5ee0cf; --s-d3:#93ede0;
-    --s-c1:#ec6ba3; --s-c2:#f38bb8; --s-c3:#f8b6d3;
-    --s-cv:#e2ab3d; --s-knot:#6f8cff;
+    --s-p0:#8a97a3; --s-p1:#35d0b6; --s-p2:#6cc9e6; --s-p3:#bb9af0; --s-p4:#eba851; --s-p5:#ee6a83; --s-p6:#8ed16f;
+    --s-cv1:#d99a2b; --s-cv2:#e2ab3d; --s-cv3:#edc470;
+    --s-knot:#6f8cff;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
@@ -58,11 +58,11 @@
   canvas{position:absolute;inset:0;width:100%;height:100%;}
   .tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .09s;background:var(--panel);
     border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-family:ui-monospace,monospace;
-    font-size:11.5px;box-shadow:var(--shadow);z-index:5;min-width:158px;}
+    font-size:11.5px;box-shadow:var(--shadow);z-index:5;min-width:158px;max-width:240px;}
   .tip .th{color:var(--mut);font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px;}
   .tip .row{display:flex;justify-content:space-between;gap:14px;padding:1px 0;}
   .tip .row .v{font-weight:600;}
-  .legend{display:flex;flex-direction:column;gap:1px;}
+  .legend{display:flex;flex-direction:column;gap:1px;max-height:560px;overflow-y:auto;}
   .lg-group{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;
     color:var(--mut);margin:11px 0 3px;}
   .lg-group:first-child{margin-top:0;}
@@ -92,10 +92,11 @@
   <header>
     <div class="eyebrow">BTR AIMM · Spline.sol · real cubic Hermite math</div>
     <h1>The bell curve: where liquidity actually sits</h1>
-    <p class="lede">This is the <b>density</b> view — $ of liquidity per basis point at each price offset —
-      the derivative of the raw spline, and the thing that actually looks like a bell or a spike. Same real
-      <span class="k">Spline.sol</span> cubic Hermite math (Fritsch-Carlson tangents, ported exactly) behind
-      every line. Deployed default vs. an example concentrated profile, both at three dispersion settings.</p>
+    <p class="lede">$ of liquidity per basis point at each price offset — the derivative of the raw spline.
+      Same real <span class="k">Spline.sol</span> cubic Hermite math (Fritsch-Carlson, ported exactly) behind
+      every line. <b>Seven knot/weight regimes</b> shown side-by-side, including a genuinely few-knot (5)
+      family, spanning the real dip↔concentration trade-off (see notes below), benchmarked against real Curve
+      <b>Ethereum mainnet</b> pools (not BSC, which carries negligible Curve TVL).</p>
     <div class="chips" id="chips"></div>
   </header>
 
@@ -130,22 +131,41 @@ const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim
 const fmtUsd=v=>v==null?'—':Math.abs(v)>=1e6?(v<0?'-':'')+'$'+(Math.abs(v)/1e6).toFixed(Math.abs(v)>=1e7?0:2)+'M':(v<0?'-':'')+'$'+Math.round(Math.abs(v)/1e3)+'k';
 const fmtBp=v=>v==null?'—':v.toFixed(Math.abs(v)<1?3:2);
 let TAB='density', hover=null, geom=null;
-const DCOL={1000:'--s-d1',2000:'--s-d2',3000:'--s-d3'}, CCOL={1000:'--s-c1',2000:'--s-c2',3000:'--s-c3'};
-const DW={1000:2.4,2000:1.8,3000:1.4};
-// visible-by-default: disp1000 of each family + curve; 2000/3000 available via legend
-let off={ d1000:false,d2000:true,d3000:true, c1000:false,c2000:true,c3000:true, curve:false };
+const PROFILE_COL={default:'--s-p0',smooth_concentrated:'--s-p1',smooth_flattop:'--s-p2',flattop_gentle:'--s-p3',cubic_5knot_low_bump:'--s-p4',cubic_5knot_concentrated:'--s-p6',prior_wide_flagged:'--s-p5'};
+const CURVE_COL={A4000:'--s-cv1',A1500:'--s-cv2',A256:'--s-cv3'};
+// all 7 profile regimes visible by default (the whole point — judge shapes side-by-side); disp fixed at
+// 1000 for the comparison (the density SHAPE is scale-invariant across disp, only offset/volUsd units
+// rescale — see notes). Curve benchmarks off by default to keep the initial regime comparison uncluttered.
+let off={ p_default:false,p_smooth_concentrated:false,p_smooth_flattop:false,p_flattop_gentle:false,
+  p_cubic_5knot_low_bump:false,p_cubic_5knot_concentrated:false,p_prior_wide_flagged:true,
+  curveA4000:true, curveA1500:false, curveA256:false };
 
-function seriesList(key){ // key: 'rows' or 'density'
-  const list=[];
-  for(const s of D.default) list.push({id:'d'+s.disp, disp:s.disp, cvar:DCOL[s.disp], label:'Default · disp '+s.disp, sub:'linear (box)', data:s[key], w:DW[s.disp]});
-  for(const s of D.conc)    list.push({id:'c'+s.disp, disp:s.disp, cvar:CCOL[s.disp], label:'Concentrated · disp '+s.disp, sub:'curved (spike)', data:s[key], w:DW[s.disp]});
-  return list;
+function profileList(key){ // key: 'rows' or 'density'
+  return D.profileKeys.map(k=>{
+    const p=D.profiles[k][0]; // disp=1000
+    // Two hard gates every shipped profile passes (spline_shape.ts, throws at generation time if either
+    // fails): exact tangent continuity (0.0000% jump) AND max local density bump (≤1%, verified independently
+    // on shipped output ≤2.1% including chart-sampling effects). Continuity alone was NOT enough — see notes.
+    return {id:'p_'+k, cvar:PROFILE_COL[k], label:p.label, sub:p.sub+' · integral $'+(p.capitalIntegral/1e6).toFixed(2)+'M', data:p[key], w:k==='prior_wide_flagged'?1.7:2.3, disp:1000, dash:k==='prior_wide_flagged'?[5,3]:(k==='default'?[2,3]:null)};
+  });
 }
+function curveList(key){
+  return Object.entries(D.curves).map(([k,c])=>({id:'curve'+k, cvar:CURVE_COL[k], label:c.label, sub:c.sub, data:c[key], w:1.6, dash:[6,4]}));
+}
+function allSeries(key){ return [...profileList(key), ...curveList(key)]; }
 function interp(rows,x){ if(!rows.length) return null; if(x<=rows[0][0])return rows[0][1]; if(x>=rows[rows.length-1][0])return rows[rows.length-1][1];
   let i=1; while(rows[i][0]<x)i++; const a=rows[i-1],b=rows[i]; const t=(x-a[0])/(b[0]-a[0]); return a[1]+(b[1]-a[1])*t; }
 
 // ================= DENSITY (log-y, symmetric offset x) =================
-const YLO=1e4, YHI=3e8; // $/bp, log domain — spans tail (~1e4-1e5) to spike peak (~2.3e8)
+// BUG FIX 2026-07-09: YLO was $10,000 and any point below it was SKIPPED entirely (`if(d<YLO) return`) —
+// not clamped, just omitted, so the line visually stopped mid-chart even though the underlying density was
+// still real and nonzero (verified: smooth_concentrated bottoms out at $9,231/bp near the wall — ABOVE
+// true zero, just below the old floor). Owner read this as "no depth at -5bp", a real design gap — it
+// wasn't; it was this chart clipping a thin-but-present tail out of existence. Lowered YLO to $1,000 (every
+// shipped profile's true minimum near the wall is $9.2k+, comfortable margin) and switched from
+// skip-below-floor to CLAMP-to-floor, so a series never silently vanishes — it flattens along the visible
+// floor instead, which is honest (still very thin liquidity, just not literally invisible).
+const YLO=1e3, YHI=1e8; // $/bp, log domain
 const XM_D=7; // ±bps — zoomed to the disp1000 wall (±5bp) with a little margin, per owner request
 function ly(v){ return Math.log10(Math.max(v,YLO)); }
 function drawDensity(){
@@ -156,11 +176,11 @@ function drawDensity(){
   geom={mode:'d',X,Y,padL,padR,padT,padB,pw,ph,W,H,XM:XM_D};
   const mut=css('--mut'),hair=css('--hair'),line=css('--line');
   ctx.font='10px ui-monospace,monospace'; ctx.textBaseline='middle';
-  for(let e=4;e<=8;e++){ const y=Y(Math.pow(10,e)); ctx.strokeStyle=hair; ctx.lineWidth=1;
+  for(let e=3;e<=8;e++){ const y=Y(Math.pow(10,e)); ctx.strokeStyle=hair; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
     ctx.fillStyle=mut; ctx.textAlign='right'; ctx.fillText(fmtUsd(Math.pow(10,e)), padL-6, y); }
   ctx.save(); ctx.translate(12,padT+ph/2); ctx.rotate(-Math.PI/2); ctx.textAlign='center';
-  ctx.fillStyle=mut; ctx.fillText('liquidity density ($ per bp) — log scale',0,0); ctx.restore();
+  ctx.fillStyle=mut; ctx.fillText('liquidity density ($ per bp) — log scale, shaded = area under curve',0,0); ctx.restore();
   ctx.textBaseline='top';
   const dstep=XM_D>10?5:2;
   for(let v=-Math.floor(XM_D/dstep)*dstep; v<=XM_D+1e-9; v+=dstep){ const x=X(v); ctx.strokeStyle=v===0?line:hair; ctx.lineWidth=v===0?1.3:1;
@@ -168,16 +188,21 @@ function drawDensity(){
     ctx.fillStyle=mut; ctx.textAlign='center'; ctx.fillText((v>0?'+':'')+v, x, padT+ph+7); }
   ctx.fillStyle=mut; ctx.textAlign='center'; ctx.fillText('price offset from mid (bps)', padL+pw/2, padT+ph+18);
   ctx.save(); ctx.beginPath(); ctx.rect(padL,padT,pw,ph); ctx.clip();
-  // density arrays are ALREADY two-sided + continuous (computed from the full-domain offset(volume)
-  // curve, which spans negative→positive) — do NOT re-mirror, that retraces the same curve backwards
-  // and creates a spurious jump/seam artifact right at the peak (the bug that caused the choppy plot).
-  if(!off.curve){ ctx.strokeStyle=css('--s-cv'); ctx.lineWidth=1.7; ctx.setLineDash([6,4]); ctx.lineJoin='round';
-    ctx.beginPath(); let st=false;
-    D.curveDensity.forEach(([o,d])=>{ if(d<YLO) return; const px=X(o),py=Y(d); st?ctx.lineTo(px,py):(ctx.moveTo(px,py),st=true); }); ctx.stroke(); ctx.setLineDash([]); }
-  for(const s of seriesList('density')){ if(off[s.id]) continue;
-    ctx.strokeStyle=css(s.cvar); ctx.lineWidth=s.w; ctx.lineJoin='round';
-    ctx.beginPath(); let st=false;
-    s.data.forEach(([o,d])=>{ if(d<YLO) return; const px=X(o),py=Y(d); st?ctx.lineTo(px,py):(ctx.moveTo(px,py),st=true); }); ctx.stroke(); }
+  // density arrays are ALREADY two-sided + continuous — do NOT re-mirror (that caused the earlier choppy-plot bug).
+  // AREA-FILL, not just stroked lines (owner: "I want the curves to look like integrals with colored area
+  // charts, not curves with randomly stopping"): fill from the curve down to the chart's visible floor
+  // (Y(YLO) — true 0 doesn't exist on a log axis, so the floor line IS the honest "bottom" of this view),
+  // clamping every value to >=YLO first so the fill/stroke never breaks or vanishes mid-series.
+  const floorY = Y(YLO);
+  for(const s of allSeries('density')){ if(off[s.id]) continue;
+    const pts = s.data.map(([o,d])=>[X(o), Y(Math.max(d,YLO))]);
+    if(!pts.length) continue;
+    ctx.beginPath(); ctx.moveTo(pts[0][0], floorY);
+    pts.forEach(([px,py])=>ctx.lineTo(px,py));
+    ctx.lineTo(pts[pts.length-1][0], floorY); ctx.closePath();
+    ctx.fillStyle=css(s.cvar); ctx.globalAlpha=s.dash?0.10:0.18; ctx.fill(); ctx.globalAlpha=1;
+    ctx.strokeStyle=css(s.cvar); ctx.lineWidth=s.w; ctx.lineJoin='round'; ctx.setLineDash(s.dash||[]);
+    ctx.beginPath(); pts.forEach(([px,py],i)=>i?ctx.lineTo(px,py):ctx.moveTo(px,py)); ctx.stroke(); ctx.setLineDash([]); }
   ctx.restore();
   if(hover) hoverDensity();
 }
@@ -186,8 +211,7 @@ function hoverDensity(){ const {X,padL,padT,ph,W,padR,XM}=geom; const x=hover.x;
   ctx.strokeStyle=css('--mut'); ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.globalAlpha=.55;
   ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+ph); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
   let h=`<div class="th">offset ${o>=0?'+':''}${o.toFixed(2)} bps</div>`;
-  if(!off.curve){ const v=interp(D.curveDensity,o); if(v!=null) h+=`<div class="row"><span style="color:${css('--s-cv')}">Curve A=1000</span><span class="v">${fmtUsd(v)}/bp</span></div>`; }
-  for(const s of seriesList('density')){ if(off[s.id]) continue; const v=interp(s.data,o); if(v==null) continue;
+  for(const s of allSeries('density')){ if(off[s.id]) continue; const v=interp(s.data,o); if(v==null) continue;
     h+=`<div class="row"><span style="color:${css(s.cvar)}">${s.label}</span><span class="v">${fmtUsd(v)}/bp</span></div>`; }
   tip.innerHTML=h; tip.style.opacity=1; const tw=tip.offsetWidth;
   tip.style.left=Math.min(x+14,geom.W-tw-4)+'px'; tip.style.top=(geom.padT+8)+'px';
@@ -214,11 +238,10 @@ function drawImpact(){
     ctx.fillStyle=mut; ctx.textAlign='center'; ctx.fillText(fmtUsd(v), x, padT+ph+7); }
   ctx.fillStyle=mut; ctx.textAlign='center'; ctx.fillText('cumulative volume from mid, $ (sell ← 0 → buy)', padL+pw/2, padT+ph+18);
   ctx.save(); ctx.beginPath(); ctx.rect(padL,padT,pw,ph); ctx.clip();
-  if(!off.curve){ ctx.strokeStyle=css('--s-cv'); ctx.lineWidth=1.7; ctx.setLineDash([6,4]); ctx.beginPath();
-    D.curve.forEach(([v,o],i)=>{const px=X(v),py=Y(o); i?ctx.lineTo(px,py):ctx.moveTo(px,py);}); ctx.stroke(); ctx.setLineDash([]); }
-  for(const s of seriesList('rows')){ if(off[s.id]) continue;
-    ctx.strokeStyle=css(s.cvar); ctx.lineWidth=s.w; ctx.lineJoin='round';
-    ctx.beginPath(); s.data.forEach(([v,o],i)=>{const px=X(v),py=Y(o); i?ctx.lineTo(px,py):ctx.moveTo(px,py);}); ctx.stroke(); }
+  for(const s of allSeries('rows')){ if(off[s.id]) continue;
+    ctx.strokeStyle=css(s.cvar); ctx.lineWidth=s.w; ctx.lineJoin='round'; ctx.setLineDash(s.dash||[]);
+    ctx.beginPath(); let st=false;
+    s.data.forEach(([v,o])=>{ if(o==null)return; const px=X(v),py=Y(o); st?ctx.lineTo(px,py):(ctx.moveTo(px,py),st=true); }); ctx.stroke(); ctx.setLineDash([]); }
   ctx.restore();
   if(hover) hoverImpact();
 }
@@ -227,113 +250,158 @@ function hoverImpact(){ const {X,padL,padT,ph,W,padR,XM}=geom; const x=hover.x; 
   ctx.strokeStyle=css('--mut'); ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.globalAlpha=.55;
   ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+ph); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
   let h=`<div class="th">vol ${fmtUsd(v)}</div>`;
-  if(!off.curve) h+=`<div class="row"><span style="color:${css('--s-cv')}">Curve A=1000</span><span class="v">${fmtBp(interp(D.curve,v))} bp</span></div>`;
-  for(const s of seriesList('rows')){ if(off[s.id]) continue; h+=`<div class="row"><span style="color:${css(s.cvar)}">${s.label}</span><span class="v">${fmtBp(interp(s.data,v))} bp</span></div>`; }
+  for(const s of allSeries('rows')){ if(off[s.id]) continue; h+=`<div class="row"><span style="color:${css(s.cvar)}">${s.label}</span><span class="v">${fmtBp(interp(s.data,v))} bp</span></div>`; }
   tip.innerHTML=h; tip.style.opacity=1; const tw=tip.offsetWidth;
   tip.style.left=Math.min(x+14,geom.W-tw-4)+'px'; tip.style.top=(geom.padT+8)+'px';
 }
 
 function draw(){ TAB==='density'?drawDensity():drawImpact(); }
+function mkRow(el,it,group){ const row=document.createElement('div'); row.className='lg'+(off[it.id]?' off':'');
+  const dashStyle = it.dash ? (it.dash[0]===1?'dotted':'dashed') : 'solid';
+  row.innerHTML=`<span class="sw" style="border-top-color:${css(it.cvar)};border-top-style:${dashStyle}"></span>`+
+    `<span class="txt"><span class="nm">${it.label}</span><span class="sub">${it.sub||''}</span></span>`;
+  row.onclick=()=>{ off[it.id]=!off[it.id]; draw(); renderLegend(); renderTable(); }; el.appendChild(row); }
 function renderLegend(){
   const el=document.getElementById('legend'); el.innerHTML='';
-  const h1=document.createElement('div'); h1.className='lg-group'; h1.textContent='Default (deployed) — box'; el.appendChild(h1);
-  for(const disp of [1000,2000,3000]){ const row=document.createElement('div'); row.className='lg'+(off['d'+disp]?' off':'');
-    row.innerHTML=`<span class="sw" style="border-top-color:${css(DCOL[disp])}"></span>`+
-      `<span class="txt"><span class="nm">disp ${disp}</span><span class="sub">flat, wall ±${disp/200}bp</span></span>`;
-    row.onclick=()=>{ off['d'+disp]=!off['d'+disp]; draw(); renderLegend(); renderTable(); }; el.appendChild(row); }
-  const h2=document.createElement('div'); h2.className='lg-group'; h2.textContent='Concentrated (example) — spike'; el.appendChild(h2);
-  for(const disp of [1000,2000,3000]){ const row=document.createElement('div'); row.className='lg'+(off['c'+disp]?' off':'');
-    row.innerHTML=`<span class="sw" style="border-top-color:${css(CCOL[disp])}"></span>`+
-      `<span class="txt"><span class="nm">disp ${disp}</span><span class="sub">curved, wall ±${disp/200}bp</span></span>`;
-    row.onclick=()=>{ off['c'+disp]=!off['c'+disp]; draw(); renderLegend(); renderTable(); }; el.appendChild(row); }
-  const h3=document.createElement('div'); h3.className='lg-group'; h3.textContent='Reference'; el.appendChild(h3);
-  const rc=document.createElement('div'); rc.className='lg'+(off.curve?' off':'');
-  rc.innerHTML=`<span class="sw" style="border-top-color:${css('--s-cv')};border-top-style:dashed"></span>`+
-    `<span class="txt"><span class="nm">Curve A=1000</span><span class="sub">real BSC A, unbounded</span></span>`;
-  rc.onclick=()=>{ off.curve=!off.curve; draw(); renderLegend(); renderTable(); }; el.appendChild(rc);
+  const h1=document.createElement('div'); h1.className='lg-group'; h1.textContent='BTR profiles — 6 regimes, real wiggle labeled'; el.appendChild(h1);
+  for(const s of profileList('rows')) mkRow(el,s);
+  const h2=document.createElement('div'); h2.className='lg-group'; h2.textContent='Curve · Ethereum mainnet (real)'; el.appendChild(h2);
+  for(const s of curveList('rows')) mkRow(el,s);
 }
 function renderTable(){
   const t=document.getElementById('rtable');
   if(TAB==='density'){
     const bands=[0,0.5,1,2,5];
     let h=`<thead><tr><th>series</th>${bands.map(b=>`<th>density @ ${b}bp</th>`).join('')}</tr></thead><tbody>`;
-    for(const s of seriesList('density')){ if(off[s.id]) continue; let cells='';
+    for(const s of allSeries('density')){ if(off[s.id]) continue; let cells='';
       for(const b of bands){ const v=interp(s.data,b); cells+=`<td class="val">${v==null?'—':fmtUsd(v)+'/bp'}</td>`; }
       h+=`<tr><td><span style="color:${css(s.cvar)}">${s.label}</span></td>${cells}</tr>`; }
-    if(!off.curve){ let cells=''; for(const b of bands){ const v=interp(D.curveDensity,b); cells+=`<td class="val">${v==null?'—':fmtUsd(v)+'/bp'}</td>`; }
-      h+=`<tr><td><span style="color:${css('--s-cv')}">Curve A=1000</span></td>${cells}</tr>`; }
     t.innerHTML=h+'</tbody>';
   } else {
     const bands=[0.5,1,2,5]; let h=`<thead><tr><th>series</th>${bands.map(b=>`<th>within ±${b}bp</th>`).join('')}<th>hard wall</th></tr></thead><tbody>`;
-    for(const s of seriesList('rows')){ if(off[s.id]) continue; let cells='';
-      for(const b of bands){ let lo=0; for(const [v,o] of s.data) if(Math.abs(o)<=b) lo=Math.abs(v); cells+=`<td class="val">${fmtUsd(lo)}</td>`; }
-      h+=`<tr><td><span style="color:${css(s.cvar)}">${s.label}</span></td>${cells}<td class="val">±${s.disp/200}bp</td></tr>`; }
-    if(!off.curve){ let cells=''; for(const b of bands){ let lo=0; for(const [v,o] of D.curve) if(o!=null&&Math.abs(o)<=b) lo=Math.abs(v); cells+=`<td class="val">${fmtUsd(lo)}</td>`; }
-      h+=`<tr><td><span style="color:${css('--s-cv')}">Curve A=1000</span></td>${cells}<td class="val">unbounded</td></tr>`; }
+    for(const s of allSeries('rows')){ if(off[s.id]) continue; let cells='';
+      for(const b of bands){ let lo=0; for(const [v,o] of s.data) if(o!=null&&Math.abs(o)<=b) lo=Math.abs(v); cells+=`<td class="val">${fmtUsd(lo)}</td>`; }
+      const wall = s.disp ? '±'+(s.disp/200)+'bp' : (s.id.startsWith('curve')?'unbounded':'—');
+      h+=`<tr><td><span style="color:${css(s.cvar)}">${s.label}</span></td>${cells}<td class="val">${wall}</td></tr>`; }
     t.innerHTML=h+'</tbody>';
   }
 }
 function renderChips(){
   document.getElementById('chips').innerHTML =
     `<span class="chip">math = <b>Spline.sol eval/_tangents</b>, 1:1 port</span>`+
-    `<span class="chip">same knot ceiling <b class="teal">±50</b> both profiles</span>`+
-    `<span class="chip">same weight budget <b class="teal">Σ=200</b></span>`+
-    `<span class="chip">$10M/side = <b class="teal">reference scale</b>, not locked TVL — see notes</span>`;
+    `<span class="chip"><b class="teal">2 hard gates</b>: continuity 0.0000% + bump ≤1%</span>`+
+    `<span class="chip"><b class="teal">area-filled</b>, floor lowered — no more phantom "no depth"</span>`+
+    `<span class="chip">capital integral = <b class="teal">$10.00M exact</b>, every regime</span>`+
+    `<span class="chip">Curve benchmarks = <b class="teal">real Ethereum L1</b>, not BSC</span>`;
 }
 const NOTES_DENSITY =
- `<p><b>This is the actual bell/spike shape.</b> $ of liquidity available right at a given price offset — the `+
- `derivative of the offset-vs-size curve (Δvolume/Δoffset). <b>Default</b> (teal) is a flat-topped <b>box</b>: `+
- `constant density out to its wall, then the line ends — a direct consequence of the deployed profile's control `+
- `points being collinear, which forces the cubic Hermite to degenerate into a straight ramp (constant slope ⇒ `+
- `constant derivative). <b>Concentrated</b> (pink) is a genuine <b>spike</b>: 12 segments / 13 knots (the on-chain `+
- `validator allows up to 16), weighted geometrically — 60% of the $5M capacity packed into the innermost ±2 `+
- `segments — peak density ≈229M $/bp at mid (disp 1000), ~6000× the density at its own edge (~37k $/bp). Verified `+
- `strictly monotone across the full domain at 4000-point resolution — no overshoot, no kinks, the Fritsch-Carlson `+
- `tangent clamp holds even at this much sharper taper.</p>`+
- `<p><b>The competitive case, at disp 1000:</b> within ±1 bp Concentrated holds <span class='k'>$4.75M</span> vs `+
- `Curve A=1000's <span class='k'>$1.96M</span> (2.4×) and Default's <span class='k'>$1.0M</span> (4.75×) — same `+
- `$5M total capacity, same ±5bp worst-case wall as Default. Add the ~1bp minFee already set for USDC/USDT and the `+
- `all-in cost for a typical trade lands near ~1–1.5bp, against PCS Infinity's measured ~4.1bp and PCS v3's ~4.9–`+
- `5.7bp effective spread (HyperSync tape, see the depth-comparison artifact) — genuinely PancakeSwap-beating for `+
- `the realistic trade sizes (≤$2k is 97% of flow per the earlier TVL_SIZING study) this pool actually sees.</p>`+
- `<p><b>A honest nuance, visible in the table above:</b> Concentrated's raw density actually falls <i>below</i> `+
- `Curve's past ~0.5bp (a narrow spike vs. Curve's wider bell) — but it still wins the <i>cumulative</i> ±1bp `+
- `comparison because the spike is tall enough right at mid to dominate the integral. Both are true at once: a `+
- `narrower, taller peak beats a wider, shorter one on total volume-within-a-band even though it loses point-for-`+
- `point once you're past its own crossover — exactly the shape you'd design for a market that's overwhelmingly `+
- `small, near-mid trades (this pool's actual flow), rather than one that needs uniform depth across a wide band.</p>`+
- `<p><b>On the $10M/side scale — this is NOT a claim about locked TVL.</b> $10M/side matches Curve and PCS's `+
- `real deployed size, so the shapes compare on equal footing; it isn't what BTR will actually hold at launch. `+
- `The deposit-cap schedule tops out the $1M testnet tier at <span class='k'>USDT $260k</span> / `+
- `<span class='k'>USDC $350k</span> per leg — roughly <b>2.6%</b> of this chart's scale. Since the profile is a `+
- `pure percentage distribution, the $ figures scale down linearly with it: at that real tier, Concentrated's `+
- `$4.75M-within-±1bp becomes <span class='k'>≈$124k</span>, Curve's becomes ≈$51k, Default's becomes ≈$26k — `+
- `same 4.75×/2.4× ratios, genuinely testnet-sized numbers. The $10M chart is for comparing shape against `+
- `competitors who really do have that much capital; your own numbers today are two orders of magnitude smaller.</p>`+
- `<p><b>Why hyper-concentrating the static curve is safe: the coverage toll is a second, independent brake.</b> `+
- `<span class='k'>computeSkew</span> (aimm.ts:134) shifts the book's effective center by up to ±50 depth-units as `+
- `a leg's coverage drifts from 1 — a trade that keeps draining the same side gets mechanically more expensive `+
- `regardless of how the static spline is shaped, because it's now walking the spline around a moved center, not `+
- `because the spline itself got wider. The wall (±5/10/15bp) is the STATIC worst case; the coverage toll is the `+
- `DYNAMIC one, and it's what actually protects LPs under sustained one-sided flow (confirmed in the faithful `+
- `state-machine sim — tightening the coverage band changed win-share/APR negligibly, freshness did the real work). `+
- `So concentrating the spline harder doesn't trade away safety — it's a genuinely different risk dimension.</p>`+
- `<p><b>Curve A=1000</b> (dashed gold) sits in between: smooth, never hard-caps, degrades forever instead of `+
- `walling — the classic tradeoff a bounded design like ours is built to beat for real, in-range flow.</p>`;
+ `<p><b>The "no depth near ±5bp" reading was a chart bug, not a real design gap.</b> Every shipped profile `+
+ `has genuinely nonzero density all the way to the wall — <span class='k'>smooth_concentrated</span> bottoms `+
+ `out at <b class='teal'>$9,231/bp</b> near ±4.75bp, never zero. The OLD chart's log-scale floor was `+
+ `$10,000/bp, and any point below it was <span class='k'>skipped</span> (not clamped — omitted), so the line `+
+ `visually vanished mid-chart even though real liquidity was still there, just thin. Fixed two ways: floor `+
+ `lowered to $1,000 (comfortable margin under every profile's true minimum), and the chart now `+
+ `<b>fills the area under each curve</b> down to that floor instead of just stroking a line — a series can't `+
+ `silently stop anymore, its shading always reaches the domain edge, showing exactly how thin (not how `+
+ `absent) the tail gets.</p>`+
+ `<p><b>Two real bugs shipped in the last two rounds — both found by the owner looking directly at the `+
+ `chart, not by any check run here first.</b> Round 1 ("compact cut-tail"): a genuine `+
+ `<b>~98-99% tangent discontinuity</b> at the transition knot — the α²+β²≤9 overshoot clamp `+
+ `(Spline.sol:_tangents, ported exactly here) applies PER-SEGMENT against that segment's own secant, so an `+
+ `extreme secant ratio between a near-zero-weight "cut" segment and its neighbor scales their nominally-`+
+ `shared tangent to two different values. Fixed with a bounded geometric secant-growth recipe (≤4x/step) and `+
+ `a new hard gate, <span class='k'>maxContinuityBreakPct</span>, comparing `+
+ `<span class='k'>tangents(seg_i-1).m1</span> against <span class='k'>tangents(seg_i).m0</span> exactly at `+
+ `every knot (0.0000% required, throws otherwise).</p>`+
+ `<p><b>Round 2: continuity ≠ smooth.</b> The "fixed" ≤4x/step recipe passed that gate perfectly — and still `+
+ `had <b>SEVEN separate ~15-27% local density bumps</b>, one at every segment boundary, a visible sawtooth `+
+ `the owner spotted immediately in a screenshot. A continuous derivative can still be locally `+
+ `non-monotonic — a single cubic segment's derivative is a quadratic in its own parameter, and can have an `+
+ `interior extremum outside the range of its two endpoint tangents (textbook cubic-Hermite property, `+
+ `independently confirmed by the Fable audit). Continuity alone never catches this. Added a SECOND hard gate, `+
+ `<span class='k'>maxBumpPct</span> — walks outward from center and flags any genuine local density INCREASE, `+
+ `the literal definition of a visible bump — and re-tuned every profile (gentler per-step growth, 2-2.5x `+
+ `instead of 4-4.5x) to pass BOTH gates. <b>Max bump on the actual shipped output is now ≤2.1%</b>, down `+
+ `from 15-27%, independently re-verified — not just claimed by the generator.</p>`+
+ `<p><b>Cost of the real fix: less concentration than either broken version claimed.</b> `+
+ `<span class='k'>Smooth · concentrated</span> holds <b class='teal'>$3.71M</b> within ±1bp (67% of Curve `+
+ `3pool's $5.54M) with a genuinely smooth, rounded (not flat) top. <span class='k'>Smooth · flat-top</span> `+
+ `trades some of that for a real ~30%-width plateau (flatness ratio 1.2-3.7 depending on variant): `+
+ `<b class='teal'>$3.20M</b>. <span class='k'>Smooth · widest plateau</span> pushes flatness/smoothness `+
+ `furthest (true bump ~0.1%, essentially none) at <b class='teal'>$2.18M</b>. None of these numbers are as `+
+ `good as the $4.2-4.9M claimed in the two broken prior rounds — those numbers were never real.</p>`+
+ `<p><b>"Do we even need this many knots?" — tested directly, not guessed.</b> Owner's hunch: fewer knots `+
+ `might give a similar profile with less overshoot. Ran 4 parallel searches across 1-8 outer segments per `+
+ `side (1536 configs total, every top candidate independently re-derived from scratch — 12/12 confirmed). `+
+ `Verdict is a real trade-off, not a free lunch: <b>10 knots or fewer forces a choice</b> — either meaningfully `+
+ `less concentration (down to ~79% of the 16-knot baseline) or meaningfully MORE bump (up to 2.5x), never `+
+ `both improved. But <b>14 knots (6 outer segments/side, 2 fewer than before) genuinely wins on both axes`+
+ `</b> — that's what <span class='k'>Smooth · concentrated</span> now uses: fewer knots AND lower bump `+
+ `(0.19% vs the old 16-knot recipe's 0.22%) at a modest 6% concentration cost. Below 14 knots the hunch `+
+ `stops holding; at 14 it does.</p>`+
+ `<p><b>Capital conservation — verified numerically, not assumed.</b> Owner: "make sure the integral... is `+
+ `the same as Curve, since every bonding curve starts with the same capital." `+
+ `<span class='k'>∫density(offset)·d(offset)</span> over the full ±5bp range is `+
+ `<b class='teal'>exactly $10.00M</b> for every profile below, Default included — a mathematical identity `+
+ `(change of variables: the integral of dVolume/dOffset over offset is just ΔVolume, fixed by the `+
+ `x-domain→$ mapping, independent of knot/weight shape). Concentrating liquidity only REDISTRIBUTES the same `+
+ `fixed capital across price, never creates more of it. Shown in each legend entry.</p>`+
+ `<p><b>The old wide-taper design (dashed, shown by default for contrast)</b> — the long-tail approach this `+
+ `session's design pivot replaced. Real ~200% wiggle at its interior knots (a third, earlier-diagnosed issue: `+
+ `genuine local density reversals from abrupt weight tapering across many knots — a different mechanism from `+
+ `both bugs above, all three now understood and distinguished).</p>`+
+ `<p><b>Real Curve mainnet benchmarks (dashed)</b> — verified live on-chain: <b>3pool</b> (flagship, `+
+ `highest-TVL) runs <b class='teal'>A=4000</b> today; FRAX/USDC runs A=1500; the sUSD pool runs a much `+
+ `looser A=256. Curve's tail is long and gentle by construction — it CAN'T cut, because a stableswap `+
+ `invariant has no concept of a hard wall. That structural edge is what this design exploits.</p>`+
+ `<p><b>Few-knot family (owner: "as little knots as possible, preferably 3-5"): true C2 quintic Hermite `+
+ `tested first and rejected — on bump, not on gas.</b> A quintic is the only way to get genuinely ZERO bump `+
+ `(C2 by construction, unlike Fritsch-Carlson cubic's C1-only guarantee). Swept 1655 configs across 3-knot `+
+ `and 5-knot symmetric layouts, independently re-derived and re-run end to end (not trusted from a single `+
+ `pass): EVERY zero-bump solution collapses to the exact degenerate linear case (0% concentration, identical `+
+ `to Default) — one unit off that knife-edge and bump jumps <b>discontinuously to 37-47%</b>, with no `+
+ `small-bump neighborhood at any real concentration. That's the actual disqualifier.</p>`+
+ `<p><b>Correction, found by the adversarial pass on this exact question:</b> quintic's gas cost is NOT the `+
+ `problem — the opposite. Real forge-measured gas (not estimated): current <span class='k'>Spline.eval()</span> `+
+ `costs <b>17,993 gas</b> at 3 knots / <b>27,280 gas</b> at 5 knots (binary search + struct copies + a `+
+ `conditional <span class='k'>sqrt</span> clamp dominate, not the cubic math itself). A FIXED small-knot `+
+ `quintic (closed-form solve, no iterative fixup — since we're accepting whatever bump the natural solve `+
+ `gives, not fighting it) measured <b>~5,200 gas — a genuine ~5.2× cheaper</b>, real number after an `+
+ `adversarial pass caught the first estimate's own proof returning a dead-code-eliminated `+
+ `<span class='k'>gas:2</span> and forced a real re-measurement (the initial "24-50× cheaper" claim did not `+
+ `survive re-verification — corrected here, not repeated). So: quintic loses on bump (37-47%, unacceptable), `+
+ `not on cost. If that bump tolerance ever changes, quintic is cheap enough to revisit.</p>`+
+ `<p><b>5-knot cubic</b> (already-fixed Fritsch-Carlson, zero new on-chain cost, and still ~5x more gas than `+
+ `a fixed quintic would be) handles few knots gracefully instead — bump scales continuously and small, no `+
+ `cliff: <span class='k'>5-knot · lowest bump</span> ($2.04M within ±1bp, 0.23% bump) and `+
+ `<span class='k'>5-knot · more concentrated</span> ($2.80M, 0.69% bump), both passing the same two hard `+
+ `gates as every profile here.</p>`+
+ `<p><b>TS/Solidity alignment:</b> every BTR line comes from a TypeScript port of `+
+ `<span class='k'>Spline.sol</span>'s <span class='k'>eval()</span>/<span class='k'>_tangents()</span>, `+
+ `checked line-by-line against the deployed contract (dex/evm/src/libraries/Spline.sol:96-135) — same `+
+ `tangent formula (including the α²+β²≤9 clamp responsible for round 1's bug), same Hermite coefficients, `+
+ `same final cubic. <b>Separately, now fixed:</b> an independent audit found the on-chain contract's `+
+ `<span class='k'>_tangents()</span> secant was NOT P-scaled like <span class='k'>eval()</span>'s <span class='k'>dyP</span>, `+
+ `making Fritsch-Carlson tangents numerically dead at real production units — confirmed empirically (up to `+
+ `300%+ divergence from intended), root-caused via an actual on-chain patch-and-retest, then fixed across `+
+ `<span class='k'>_tangents()</span>/<span class='k'>area()</span>/<span class='k'>_primitive()</span> `+
+ `consistently. Post-fix divergence: 1 pbps (pure rounding), 297/297 tests pass. Not yet committed — pending `+
+ `review.</p>`;
 const NOTES_IMPACT =
  `<p><b>This is the OTHER view — not a bell, a depth chart.</b> X-axis = cumulative $ traded from mid; Y-axis = `+
  `the price offset that volume produces — the raw curve the density tab differentiates. Like a Binance-style `+
  `order-book depth chart: negative volume = <b>selling</b> (price moves down, offset negative); positive = `+
- `<b>buying</b> (price moves up, offset positive). The line crosses the origin at mid price with zero offset by `+
- `construction. A steep segment here = a shallow (low-density) segment on the density chart, and vice versa — `+
- `flat here near mid is exactly what produces Concentrated's spike there.</p>`+
- `<p><b>Default is a straight ramp</b> because its knots are collinear. <b>Concentrated</b> is now a 12-segment, `+
- `13-knot curve — flat for most of its span, curving smoothly (Fritsch-Carlson-tapered, no kink) only in the `+
- `final approach to the wall — visibly closer to a continuous, logarithmic-feeling taper than a blocky 2-segment `+
- `approximation, while still hard-capping at the same ±5/10/15bp ceiling as Default.</p>`;
+ `<b>buying</b> (price moves up, offset positive). A steep segment here = a shallow (low-density) segment on `+
+ `the density chart, and vice versa — the flat-top profiles' offset curve should look like a gentle S through `+
+ `the plateau, curving smoothly (no visible corner — that's the whole point of fixing the continuity bug) `+
+ `into a near-flat ramp for the rest of the domain.</p>`+
+ `<p><b>All regimes hard-cap at the same ±5bp ceiling</b> (identical knot span, disp=1000 fixed for this `+
+ `comparison). That's the protocol's WALL parameter, unchanged — what's new is that liquidity concentrates `+
+ `within a flat plateau near the center and is near-negligible for the rest of the way to that wall, not a `+
+ `change to the wall itself. See the density tab for the continuity-bug story and the verified scorecard.</p>`;
 function renderChrome(){
   document.getElementById('chart-title').textContent = TAB==='density' ? 'Liquidity density vs price offset (log $/bp)' : 'Cumulative price offset vs traded volume';
-  document.getElementById('axis-note').textContent = TAB==='density' ? 'linear x · log y · mirrored ±offset' : 'linear · linear · $10M/side pool';
+  document.getElementById('axis-note').textContent = TAB==='density' ? 'linear x · log y · ±7bp zoom' : 'linear · linear · $10M/side pool';
   document.getElementById('notes').innerHTML = TAB==='density' ? NOTES_DENSITY : NOTES_IMPACT;
 }
 
