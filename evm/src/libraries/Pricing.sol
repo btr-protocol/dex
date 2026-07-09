@@ -287,7 +287,7 @@ library Pricing {
 
     /// @notice Swap-exec entry: pre-warm the tx oracle cache, then quote. Non-view — the cache write
     ///         is a hot-path dedup (leg walk + priceBandGuard tload instead of a second getFeed).
-    /// @dev Quote-ONLY callers (Pool.getSwapQuote → Router route-discovery STATICCALL) MUST use the
+    /// @dev Quote-ONLY callers (Pool.getSwapQuote via off-chain route-discovery STATICCALL) MUST use the
     ///      `view` variant below, which never writes the transient cache, so the STATICCALL succeeds.
     function getAnchorPathQuote(
         IPool.PoolStorage storage $,
@@ -595,7 +595,7 @@ library Pricing {
 
     /// @dev Read the token's external feed, tx-cache hit first. VIEW: never writes the transient cache
     ///      — the swap-exec path pre-warms it via `_primeOracleCache`, so a quote-only call
-    ///      (Pool.getSwapQuote → Router route-discovery STATICCALL) stays a pure `view`.
+    ///      (Pool.getSwapQuote via off-chain route-discovery STATICCALL) stays a pure `view`.
     function _readOracle(IPool.PoolStorage storage $, address token)
         private view returns (IOracle.FeedData memory data)
     {

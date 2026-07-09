@@ -279,7 +279,6 @@ contract TestnetDeploy is Deploy {
         vm.serializeAddress(k, "stablePool", a.stablePool);
         vm.serializeAddress(k, "volatilePool", a.volatilePool);
         vm.serializeBytes32(k, "usdcFeedId", a.usdcFeedId);
-        vm.serializeAddress(k, "routerProxy", a.core.routerProxy);
         vm.serializeAddress(k, "poolFactory", a.core.poolFactory);
         vm.serializeAddress(k, "admin", a.core.admin);
         vm.serializeAddress(k, "ac", a.core.ac);

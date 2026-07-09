@@ -3,7 +3,7 @@
 Foundry tests for the AIMM contracts. Solidity `=0.8.35`, `via_ir`, feed-rework oracle model
 (external keeper mark on `ExternalOracle`; no internal TWAP, no modules).
 
-## Layout (28 `.t.sol` files, ~300 tests)
+## Layout (26 `.t.sol` files, ~300 tests)
 
 ```
 test/
@@ -25,8 +25,6 @@ test/
 │   ├── PoolAdmin.t.sol           Admin singleton timelocks + pause/freeze/batchRiskOp
 │   ├── PoolDecay.t.sol           coverage-gated liability decay
 │   ├── PoolRepegExploit.t.sol    re-peg attack regressions
-│   ├── RouterRouteDiscovery.t.sol Router STATICCALL quote discovery (pure-view path)
-│   ├── UUPSTimelockRouter.t.sol  Router UUPS 7-day upgrade timelock
 │   └── DeployScript.t.sol        deploy script wiring
 ├── PoolLifecycle.t.sol           end-to-end init → add assets → swap/deposit/withdraw
 ├── PoolBaseDepeg.t.sol           R44-2 base-token depeg halt (legacy / in-band / out-of-band)
