@@ -23,10 +23,12 @@ contract ExternalOracle is IOracle {
     mapping(address => bool) public oracles;
     mapping(bytes32 => FeedData) private feeds;
     bytes32[] public feedIds;
-    /// @notice Opt-in per-feed max mark move per in-band push (bps). 0 = disabled (fast/light default).
+    /// @notice Mandatory per-feed max mark move per push (bps), at zero staleness. The allowed band
+    ///         grows with staleness in `_pushInternal` (see there). Required non-zero at addFeed/updateFeed.
     /// @dev Stored here, not in the packed `FeedData` slot (which is full — 256 bits), so the single
     ///      SLOAD/SSTORE push encoding is untouched and the shared IOracle.FeedData ABI does not grow.
-    ///      Enforced in `_pushInternal`: bounds a compromised key to maxDeviation/push (see there).
+    ///      Bounds a compromised pusher key to a monitorable, time-proportional walk — never an
+    ///      unbounded one-tx mark-to-arbitrary + self-swap drain (the pool quotes off the raw mark).
     mapping(bytes32 => uint16) public maxDeviations;
 
     event FeedAdded(
@@ -84,7 +86,9 @@ contract ExternalOracle is IOracle {
     ) external onlyAdmin {
         if (base == address(0) || quote == address(0)) revert Err.ZeroValue();
         _validate(price, sigmaSample);
-        if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
+        // maxDeviation is MANDATORY non-zero: the pool quotes off the raw pushed mark, so an unbounded
+        // push is a single-tx drain — every feed must declare a per-push bound (H-1).
+        if (maxDeviation == 0 || maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
         if (tauSigma == 0) tauSigma = tau;
 
         bytes32 feedId = keccak256(abi.encodePacked(base, quote));
@@ -101,13 +105,13 @@ contract ExternalOracle is IOracle {
             tauSigma: tauSigma
         });
         feedIds.push(feedId);
-        maxDeviations[feedId] = maxDeviation; // 0 = clamp disabled (opt-in)
+        maxDeviations[feedId] = maxDeviation;
         emit FeedAdded(feedId, base, quote, price, sigmaSample, confidence, tau, tauSigma, maxDeviation);
     }
 
     function updateFeed(bytes32 feedId, uint16 maxDeviation, uint16 ttl) external onlyAdmin {
         if (feeds[feedId].updatedAt == 0) revert Err.FeedNotFound(feedId);
-        if (maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
+        if (maxDeviation == 0 || maxDeviation > MAX_DEV_THRESHOLD || ttl == 0) revert Err.InvalidInput();
         feeds[feedId].ttl = ttl;
         maxDeviations[feedId] = maxDeviation; // persist (was previously dropped — only emitted)
         emit FeedUpdated(feedId, maxDeviation, ttl);
@@ -193,19 +197,21 @@ contract ExternalOracle is IOracle {
         unchecked { dt = block.timestamp - prevAt; }
 
         uint16 ttl = uint16((word >> 192) & 0xFFFF);
-        // D1 (BUG#1) opt-in per-feed push clamp. The pool QUOTES off the raw mark (lastPriceB64), not
-        // the rate-clamped EMA, so an unbounded push = mark-to-arbitrary + self-swap-drain. maxDev==0 →
-        // disabled (fast/light opt-out: no bound). Within a heartbeat (dt < ttl = a normal in-band push)
-        // a push may move the mark at most maxDeviation bps vs the last on-chain mark, so a COMPROMISED
-        // key is bounded to maxDeviation/push (a gradual, monitorable walk — not an instant one-tx
-        // drain). dt >= ttl ⇒ the feed already went stale and the pool HALTS swaps on it, so a scheduled
-        // re-sync is allowed to jump (post-downtime truth-discovery). Fail-closed: REJECT the out-of-band
-        // push (last good mark survives) rather than silently clamping to a partial move.
-        uint16 maxDev = maxDeviations[feedId];
-        if (maxDev != 0 && dt < ttl) {
+        // Per-feed push clamp (D1). The pool QUOTES off the raw mark (lastPriceB64), not the rate-clamped
+        // EMA, so an unbounded push = mark-to-arbitrary + self-swap-drain. The allowed band grows LINEARLY
+        // with staleness — maxDeviation·(1 + dt/ttl), hard-capped at MAX_DEV_THRESHOLD — so a legitimate
+        // post-downtime re-sync (larger move accumulated while quiet) passes, but a compromised key can no
+        // longer buy an UNBOUNDED jump by inducing staleness (H-2): the band is time-proportional and
+        // monitorable, never infinite. In normal operation the keeper heartbeats < ttl so dt ≈ 0 and the
+        // band ≈ maxDeviation. maxDeviation is mandatory-nonzero (addFeed/updateFeed); a 0 would fail
+        // CLOSED here (band 0 rejects any move) — the safe direction. Fail-closed: REJECT out-of-band.
+        {
             uint256 diff = mark1e18 > prevMark1e18 ? mark1e18 - prevMark1e18 : prevMark1e18 - mark1e18;
             uint256 devBps = (diff * SC.BPS) / prevMark1e18;
-            if (devBps > maxDev) revert Err.ThresholdViolation(devBps, maxDev);
+            uint256 allowed = uint256(maxDeviations[feedId]);
+            allowed += (allowed * dt) / ttl;
+            if (allowed > MAX_DEV_THRESHOLD) allowed = MAX_DEV_THRESHOLD;
+            if (devBps > allowed) revert Err.ThresholdViolation(devBps, allowed);
         }
 
         uint16 tau = uint16((word >> 224) & 0xFFFF);

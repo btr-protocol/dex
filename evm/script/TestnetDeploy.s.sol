@@ -25,6 +25,10 @@ contract TestnetDeploy is Deploy {
     uint16 internal constant VOLATILE_TTL = 600;
     uint32 internal constant SIGMA_SEED = 10_000; // 1% PBPS
     uint16 internal constant CONF_SEED = 25; // bps interim
+    // Per-push mark-move clamp (bps at zero staleness); grows linearly with staleness on re-sync.
+    // Bounds a compromised pusher key. Stables barely move ⇒ tight; volatiles need headroom per push.
+    uint16 internal constant STABLE_MAXDEV = 100; // 1%
+    uint16 internal constant VOLATILE_MAXDEV = 500; // 5%
 
     struct Tokens {
         TestnetERC20 usdc;
@@ -94,18 +98,18 @@ contract TestnetDeploy is Deploy {
     function _seedFeeds(ExternalOracle oracle, Tokens memory t) internal returns (bytes32 usdcFeed) {
         address usdc = address(t.usdc);
         usdcFeed = keccak256(abi.encodePacked(usdc, usdc));
-        oracle.addFeed(usdc, usdc, M.encodeB64(1e18, 18), SIGMA_SEED, CONF_SEED, TAU, TAU, 0, STABLE_TTL);
+        oracle.addFeed(usdc, usdc, M.encodeB64(1e18, 18), SIGMA_SEED, CONF_SEED, TAU, TAU, STABLE_MAXDEV, STABLE_TTL);
 
-        _addPairFeed(oracle, address(t.usdt), usdc, M.encodeB64(1e18, 18), STABLE_TTL);
-        _addPairFeed(oracle, address(t.usd1), usdc, M.encodeB64(1e18, 18), STABLE_TTL);
-        _addPairFeed(oracle, address(t.usde), usdc, M.encodeB64(1e18, 18), STABLE_TTL);
-        _addPairFeed(oracle, address(t.fdusd), usdc, M.encodeB64(1e18, 18), STABLE_TTL);
+        _addPairFeed(oracle, address(t.usdt), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
+        _addPairFeed(oracle, address(t.usd1), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
+        _addPairFeed(oracle, address(t.usde), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
+        _addPairFeed(oracle, address(t.fdusd), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
 
-        _addPairFeed(oracle, address(t.btcb), usdc, M.encodeB64(62_000e18, 18), VOLATILE_TTL);
-        _addPairFeed(oracle, address(t.eth), usdc, M.encodeB64(3_100e18, 18), VOLATILE_TTL);
-        _addPairFeed(oracle, address(t.wbnb), usdc, M.encodeB64(610e18, 18), VOLATILE_TTL);
-        _addPairFeed(oracle, address(t.cake), usdc, M.encodeB64(2.4e18, 18), VOLATILE_TTL);
-        _addPairFeed(oracle, address(t.xaut), usdc, M.encodeB64(2_380e18, 18), VOLATILE_TTL);
+        _addPairFeed(oracle, address(t.btcb), usdc, M.encodeB64(62_000e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
+        _addPairFeed(oracle, address(t.eth), usdc, M.encodeB64(3_100e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
+        _addPairFeed(oracle, address(t.wbnb), usdc, M.encodeB64(610e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
+        _addPairFeed(oracle, address(t.cake), usdc, M.encodeB64(2.4e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
+        _addPairFeed(oracle, address(t.xaut), usdc, M.encodeB64(2_380e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
     }
 
     function _addPairFeed(
@@ -113,9 +117,10 @@ contract TestnetDeploy is Deploy {
         address asset,
         address usdc,
         uint64 priceB64,
+        uint16 maxDev,
         uint16 ttl
     ) internal {
-        oracle.addFeed(asset, usdc, priceB64, SIGMA_SEED, CONF_SEED, TAU, TAU, 0, ttl);
+        oracle.addFeed(asset, usdc, priceB64, SIGMA_SEED, CONF_SEED, TAU, TAU, maxDev, ttl);
     }
 
     function _stableList(Tokens memory t) internal pure returns (address[] memory list) {

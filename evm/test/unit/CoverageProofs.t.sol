@@ -12,6 +12,7 @@ import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
 import {Pricing} from "../../src/libraries/Pricing.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @notice Machine-checked layer for AIMM_PROOFS.md (repo root): shared walled-pool fixture.
@@ -242,6 +243,26 @@ contract CoverageProofsTest is CoverageProofsBase {
         uint256 cAfter = _cov(address(tok));
         assertGt(cAfter, cBefore, "deposit must raise coverage");
         assertLe(cAfter, WAD + 1, "deposit must not overshoot the peg");
+    }
+
+    /// Thm 2 assumption enforced in code (P3): the base numeraire can never carry the coverage wall.
+    function test_base_kappa_rejected_at_addAsset() public {
+        address[] memory toks = new address[](1);
+        toks[0] = address(base);
+        uint8[29] memory pad;
+        IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeeBps: 100, _pad: pad});
+        bytes memory initd = abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
+        Pool p2 = Pool(payable(factory.createPool(address(base), toks, initd)));
+        vm.prank(OWNER);
+        vm.expectRevert(Err.BadConfig.selector); // base numeraire never walled
+        admin.addAsset(address(p2), address(base), _oc(address(base)), _risk(KAPPA), _profile(), 1000, 18, 1000, 100000, 10000, 10000);
+    }
+
+    /// L-2: haircutSuppressor ≥ 20000 (zeroes the haircut → bank-run) is rejected at config.
+    function test_haircutSuppressor_cap_rejected() public {
+        vm.prank(OWNER);
+        vm.expectRevert(Err.InvalidInput.selector);
+        admin.setAssetParams(address(pool), address(tok), 0, 1000, 10_000, 10_000, 10_000, 20_000, 0, 0);
     }
 
     /// Lemma B: with haircutSuppressor = 0, same-asset withdrawal leaves coverage unchanged
