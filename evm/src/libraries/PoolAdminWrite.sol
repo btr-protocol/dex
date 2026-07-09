@@ -171,6 +171,10 @@ library PoolAdminWrite {
     }
 
     function setBaseToken(IPool.PoolStorage storage $, address newBase) external {
+        // Base-numeraire invariant (AIMM_PROOFS P3 / Thm 2): the coverage wall must never apply to the
+        // base. initAsset + setRiskConfig already enforce base kappaCovBps==0; enforce it across the
+        // migration path too so a base cannot be migrated onto a spoke that carries a nonzero wall.
+        if ($.riskConfigs[newBase].kappaCovBps != 0) revert Err.BadConfig();
         $.baseToken = newBase;
     }
 

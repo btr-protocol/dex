@@ -105,7 +105,12 @@ library PoolIO {
         aOut.reserves -= uint128(q.amountOut + q.protoFee);
         $.protocolFees[tkOut] += q.protoFee;
 
+        // Depeg breaker on BOTH endpoints: a wrong-but-fresh mark on the INPUT asset (its refBand /
+        // reservation band) lets a depegged token be dumped into the pool at a stale-high price and
+        // drain the output reserve, so the input leg must clear its own band too (not just the output).
+        // Both feeds were primed into the tx cache during quoting, so each guard is a cache hit.
         priceBandGuard($, tkOut, aOut);
+        priceBandGuard($, tkIn, aIn);
     }
 
     /// @dev Depeg guard on the OUTPUT asset's fresh mark: an absolute floor/ceiling (reservationPrice /

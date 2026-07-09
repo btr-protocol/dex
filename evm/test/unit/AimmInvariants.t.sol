@@ -178,6 +178,33 @@ contract AimmInvariantsTest is Test {
         vm.stopPrank();
     }
 
+    /// Audit fix: the depeg breaker guards the INPUT leg too, not just the output. A depegged asset
+    /// (its mark outside its own band) can no longer be dumped INTO the pool to drain a healthy output.
+    function test_reservation_band_halts_input_asset_swap() public {
+        vm.prank(OWNER);
+        // tok's own band (reservationPriceMax = PX/2) is violated by its live mark (PX).
+        admin.setAssetParams(address(pool), address(tok), 1000, 100, 10_000, 10_000, 10_000, 10_000, 0, uint64(M.encodeB64(PX / 2, 18)));
+        tok.mint(USER, 10e18);
+        vm.startPrank(USER);
+        tok.approve(address(pool), type(uint256).max);
+        vm.expectRevert(); // Err.PriceBelowReservation — tok is the INPUT and fails its own band
+        pool.swap(address(tok), address(base), 10e18, 0, USER);
+        vm.stopPrank();
+    }
+
+    /// Audit fix: swapLiability is subject to the JIT flow cooldown, so deposit→swapLiability→withdraw
+    /// cannot exit before the anti-JIT window. Fresh deposit + immediate liability swap reverts.
+    function test_swapLiability_respects_flow_cooldown() public {
+        // this contract deposited tok in setUp THIS block → lastDepositTime is now → cooldown active.
+        uint256 lp = pool.getLPBalance(address(this), address(tok));
+        vm.expectRevert(); // Err.CooldownActive
+        pool.swapLiability(address(tok), address(base), lp / 10, 0);
+        // after the cooldown it succeeds.
+        skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1);
+        uint256 out = pool.swapLiability(address(tok), address(base), lp / 10, 0);
+        assertGt(out, 0, "liability swap succeeds past the cooldown");
+    }
+
     /// Feed-relative depeg band must fail-closed on a STALE reference feed: the quoting path
     /// freshness-gates only the asset's own feedId, so a dead refFeedId keeper would otherwise
     /// anchor the band to a corpse price (pass/halt against dead data).
