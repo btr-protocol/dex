@@ -1,0 +1,19 @@
+{
+  "_comment": "Pool registry for the HyperSync real-fee pipeline (hs_pull.py). ARCHITECTURE: HyperSync pool data = FEES + LIQUIDITY + VOLUME only (f0(t), V_active(t)); the MODEL's price/returns/σ come from NXR klines (price_pair below). usd_token = index (0|1) of the USD-stable leg, or -1 if non-USD. f0 (a ratio) is unit-invariant; for non-USD pools the USD anchor (V_active $, dilution) uses NXR price, NOT pool sqrtPrice. d0/d1 = token0/token1 decimals.",
+  "endpoints": {"bsc": "https://bsc.hypersync.xyz", "base": "https://base.hypersync.xyz", "eth": "https://eth.hypersync.xyz"},
+  "pools": [
+    {"chain": "bsc", "label": "BTCBUSDT", "address": "0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4", "fee_bps": 5, "usd_token": 0, "d0": 18, "d1": 18, "price_pair": "BTCBUSDT", "status": "done"},
+    {"chain": "bsc", "label": "BNBUSDT", "address": "0x6fe9E9de56356F7eDBfcBB29FAB7cd69471a4869", "fee_bps": 5, "usd_token": 0, "d0": 18, "d1": 18, "price_pair": "BNBUSDT", "status": "done"},
+
+    {"chain": "base", "label": "USDTUSDC_AERO", "address": "0xa41bc0affba7fd420d186b84899d7ab2ac57fcd1", "fee_bps": 1, "usd_token": 0, "d0": 6, "d1": 6, "price_pair": "USDC-USDT", "status": "done", "note": "STABLE vault candidate (Aerodrome Slipstream). Verified 706d: gross fee APR 7.6% (2yr) → 13.2% (180d) → 13.9% (30d); stable LVR negligible → net≈gross. BORDERLINE-10% GATED: clears in high-vol regimes. ⚠ MODEL GAP: hs_pull v_active uses ±5% band (invalid for tight stables → $1.8B artifact); needs narrow-band (±0.1-0.3%) v_active OR real-TVL basis to score in alm.rs. Empirical APR computed vs actual $1.9M TVL."},
+    {"chain": "base", "label": "WETHUSDC", "address": "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59", "fee_bps": 5, "usd_token": 1, "d0": 18, "d1": 6, "price_pair": "ETHUSDC", "status": "pulling"},
+    {"chain": "base", "label": "cbBTCUSDC", "address": "0x4e962bb3889bf030368f56810a9c96b83cb3e778", "fee_bps": 5, "usd_token": 0, "d0": 6, "d1": 8, "price_pair": "BTCUSDC", "status": "pulling"},
+
+    {"chain": "eth", "label": "ETHUSDC_005", "address": "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640", "fee_bps": 5, "usd_token": 0, "d0": 6, "d1": 18, "price_pair": "ETHUSDC", "status": "queued", "note": "deepest Uni v3 pool; scale target"},
+    {"chain": "eth", "label": "ETHUSDT_03", "address": "0x4e68Ccd3E89f51C3074ca5072bbAC773960dFa36", "fee_bps": 30, "usd_token": 1, "d0": 18, "d1": 6, "price_pair": "ETHUSDC", "status": "queued"},
+    {"chain": "eth", "label": "WBTCETH_005", "address": "0x4585FE77225b41b697C938B018E2Ac67Ac5a20c0", "fee_bps": 5, "usd_token": -1, "d0": 8, "d1": 18, "price_pair": "ETHBTC", "status": "queued", "note": "non-USD pair: σ/path from NXR ETHBTC (clean synth); USD anchor for V_active/dilution via NXR ETH price"},
+    {"chain": "eth", "label": "WBTCUSDC_03", "address": "0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35", "fee_bps": 30, "usd_token": 1, "d0": 8, "d1": 6, "price_pair": "BTCUSDC", "status": "queued"},
+    {"chain": "eth", "label": "ETHUSDC_03", "address": "0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8", "fee_bps": 30, "usd_token": 0, "d0": 6, "d1": 18, "price_pair": "ETHUSDC", "status": "queued"},
+    {"chain": "eth", "label": "WBTCUSDT_03", "address": "0x9Db9e0e53058C89e5B94e29621a205198648425B", "fee_bps": 30, "usd_token": 1, "d0": 8, "d1": 6, "price_pair": "BTCUSDC", "status": "queued"}
+  ]
+}

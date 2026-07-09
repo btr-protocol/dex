@@ -1,0 +1,9 @@
+node_modules/
+.ponder/
+.env.local
+generated/
+.env*
+*.env
+hypersync.env
+data_raw/
+__pycache__/

@@ -1,0 +1,325 @@
+<title>BTR AIMM — Liquidity Shape vs Curve &amp; PancakeSwap (reconstructed)</title>
+<style>
+  :root{
+    --bg:#f4f7f8; --panel:#ffffff; --panel2:#eef2f4; --ink:#0d1218; --mut:#5a6672;
+    --line:rgba(12,26,36,.11); --hair:rgba(12,26,36,.06); --acc:#0f8d7a;
+    --s-our1:#0c9c85; --s-our2:#39c6ad; --s-our3:#83dccb;
+    --s-cv1:#c26a12; --s-cv2:#cf8b1f; --s-cv3:#d9a94a;
+    --s-xyk:#dd4b52; --s-v3:#4f77cc; --s-inf:#8a5fd0; --s-e1:#5878c0; --s-e2:#7d6bc4; --s-e3:#4a94b8;
+    --shadow:0 1px 0 rgba(12,26,36,.04),0 12px 30px -18px rgba(12,26,36,.30);
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#080b10; --panel:#0f151e; --panel2:#0c1119; --ink:#e7eef4; --mut:#7a8797;
+    --line:rgba(255,255,255,.11); --hair:rgba(255,255,255,.06); --acc:#35d0b6;
+    --s-our1:#35d0b6; --s-our2:#5ee0cf; --s-our3:#93ede0;
+    --s-cv1:#e2ab3d; --s-cv2:#e5bd5e; --s-cv3:#efd291;
+    --s-xyk:#f2686f; --s-v3:#7f9ce6; --s-inf:#b18ff0; --s-e1:#7f9ce6; --s-e2:#a591ea; --s-e3:#63b6dc;
+    --shadow:0 1px 0 rgba(0,0,0,.4),0 18px 40px -20px rgba(0,0,0,.7);
+  }}
+  :root[data-theme="light"]{
+    --bg:#f4f7f8; --panel:#ffffff; --panel2:#eef2f4; --ink:#0d1218; --mut:#5a6672;
+    --line:rgba(12,26,36,.11); --hair:rgba(12,26,36,.06); --acc:#0f8d7a;
+    --s-our1:#0c9c85; --s-our2:#39c6ad; --s-our3:#83dccb;
+    --s-cv1:#c26a12; --s-cv2:#cf8b1f; --s-cv3:#d9a94a;
+    --s-xyk:#dd4b52; --s-v3:#4f77cc; --s-inf:#8a5fd0; --s-e1:#5878c0; --s-e2:#7d6bc4; --s-e3:#4a94b8;
+    --shadow:0 1px 0 rgba(12,26,36,.04),0 12px 30px -18px rgba(12,26,36,.30);
+  }
+  :root[data-theme="dark"]{
+    --bg:#080b10; --panel:#0f151e; --panel2:#0c1119; --ink:#e7eef4; --mut:#7a8797;
+    --line:rgba(255,255,255,.11); --hair:rgba(255,255,255,.06); --acc:#35d0b6;
+    --s-our1:#35d0b6; --s-our2:#5ee0cf; --s-our3:#93ede0;
+    --s-cv1:#e2ab3d; --s-cv2:#e5bd5e; --s-cv3:#efd291;
+    --s-xyk:#f2686f; --s-v3:#7f9ce6; --s-inf:#b18ff0; --s-e1:#7f9ce6; --s-e2:#a591ea; --s-e3:#63b6dc;
+    --shadow:0 1px 0 rgba(0,0,0,.4),0 18px 40px -20px rgba(0,0,0,.7);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;
+    padding:clamp(14px,3vw,40px);}
+  .wrap{max-width:1140px;margin:0 auto;display:flex;flex-direction:column;gap:18px;}
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}
+  .eyebrow{font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);}
+  h1{font-size:clamp(21px,3.3vw,31px);line-height:1.12;margin:.24em 0 0;font-weight:650;letter-spacing:-.01em;text-wrap:balance;}
+  .lede{color:var(--mut);max-width:70ch;margin:6px 0 0;font-size:15px;}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+  .chip{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--mut);background:var(--panel2);
+    border:1px solid var(--hair);border-radius:999px;padding:4px 10px;}
+  .chip b{color:var(--ink);font-weight:600;} .chip .teal{color:var(--acc);}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);}
+  .tabs{display:flex;gap:6px;padding:5px;background:var(--panel2);border-radius:11px;width:fit-content;}
+  .tab{font-family:ui-monospace,monospace;font-size:12.5px;color:var(--mut);padding:7px 15px;border-radius:8px;
+    cursor:pointer;border:1px solid transparent;user-select:none;transition:.14s;white-space:nowrap;}
+  .tab.on{background:var(--panel);color:var(--ink);border-color:var(--line);font-weight:650;box-shadow:0 1px 6px -3px rgba(0,0,0,.3);}
+  .chart-card{padding:16px clamp(10px,2vw,18px) 14px;}
+  .chart-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin:2px 4px 8px;}
+  .chart-head h2{font-size:14px;margin:0;font-weight:600;}
+  .chart-head .axis-note{font-family:ui-monospace,monospace;font-size:11px;color:var(--mut);}
+  .grid{display:grid;grid-template-columns:1fr 272px;gap:18px;align-items:start;}
+  @media (max-width:840px){.grid{grid-template-columns:1fr;}}
+  .canvas-box{position:relative;width:100%;aspect-ratio:16/10;min-height:290px;}
+  canvas{position:absolute;inset:0;width:100%;height:100%;}
+  .tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .09s;background:var(--panel);
+    border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-family:ui-monospace,monospace;
+    font-size:11.5px;box-shadow:var(--shadow);z-index:5;min-width:158px;}
+  .tip .th{color:var(--mut);font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px;}
+  .tip .row{display:flex;justify-content:space-between;gap:14px;padding:1px 0;}
+  .tip .row .v{font-weight:600;}
+  .legend{display:flex;flex-direction:column;gap:1px;}
+  .lg-group{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--mut);margin:11px 0 3px;}
+  .lg-group:first-child{margin-top:0;}
+  .lg{display:flex;align-items:center;gap:9px;padding:5px 7px;border-radius:8px;cursor:pointer;
+    border:1px solid transparent;user-select:none;transition:background .12s;}
+  .lg:hover{background:var(--panel2);} .lg.off{opacity:.32;}
+  .sw{width:20px;height:0;border-top-width:3px;border-top-style:solid;border-radius:2px;flex:none;}
+  .lg .nm{font-size:12.5px;font-weight:550;line-height:1.15;}
+  .lg .sub{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--mut);line-height:1.12;}
+  .lg .txt{display:flex;flex-direction:column;gap:1px;min-width:0;}
+  .readout{padding:14px 2px 4px;}
+  .sizebar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 4px 12px;}
+  .sizebar .lbl{font-family:ui-monospace,monospace;font-size:11px;color:var(--mut);margin-right:2px;letter-spacing:.04em;}
+  .sz{font-family:ui-monospace,monospace;font-size:12px;color:var(--mut);background:var(--panel2);
+    border:1px solid var(--hair);border-radius:8px;padding:5px 11px;cursor:pointer;transition:.12s;}
+  .sz:hover{color:var(--ink);} .sz.on{background:var(--acc);color:#04120e;border-color:var(--acc);font-weight:650;}
+  table{width:100%;border-collapse:collapse;font-family:ui-monospace,monospace;font-size:12.5px;}
+  th,td{text-align:right;padding:7px 6px;border-bottom:1px solid var(--hair);white-space:nowrap;}
+  th{color:var(--mut);font-weight:500;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;}
+  td:first-child,th:first-child{text-align:left;}
+  .nmcell{display:flex;align-items:center;gap:8px;}
+  .dot{width:9px;height:9px;border-radius:2px;flex:none;} .val{font-weight:600;}
+  .notes{color:var(--mut);font-size:13px;line-height:1.62;padding:16px 18px;}
+  .notes p{margin:0 0 10px;max-width:76ch;} .notes p:last-child{margin-bottom:0;}
+  .notes b{color:var(--ink);font-weight:600;}
+  .k{font-family:ui-monospace,monospace;color:var(--ink);background:var(--panel2);border:1px solid var(--hair);
+    border-radius:5px;padding:.5px 5px;font-size:.92em;}
+  .foot{color:var(--mut);font-family:ui-monospace,monospace;font-size:11px;text-align:center;padding:2px 0 6px;}
+  .teal{color:var(--acc);}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">BTR AIMM · stable-core · liquidity microstructure</div>
+    <h1>Our liquidity shape, reconstructed against the real thing</h1>
+    <p class="lede">The incumbents' actual liquidity — every LP tick around the peg, rebuilt from full on-chain
+      history — next to the BTR Hermite spline and Curve's stableswap invariant at the <b>A-factors those pools
+      really run</b>. Two views: the bell curve (where depth actually sits) and the price impact it produces.</p>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <div class="tab on" data-t="density">Bell curve · liquidity density</div>
+    <div class="tab" data-t="impact">Price impact vs size</div>
+  </div>
+
+  <section class="card chart-card">
+    <div class="chart-head">
+      <h2 id="chart-title">Liquidity density around peg</h2>
+      <span class="axis-note" id="axis-note"></span>
+    </div>
+    <div class="grid">
+      <div class="canvas-box"><canvas id="cv"></canvas><div class="tip" id="tip"></div></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </section>
+
+  <section class="card readout">
+    <div class="sizebar" id="sizebar"></div>
+    <div style="overflow-x:auto"><table id="rtable"></table></div>
+  </section>
+
+  <section class="card notes" id="notes"></section>
+  <div class="foot mono">BTR internal · spline = front/src/lib/amm/aimm.ts · incumbent ticks = HyperSync full-history reconstruction (TVL cross-checked)</div>
+</div>
+
+<script>
+const D = /*__DATA__*/;
+const cv=document.getElementById('cv'), tip=document.getElementById('tip'), ctx=cv.getContext('2d');
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmtUsd=v=>v==null?'—':v>=1e6?'$'+(v/1e6).toFixed(v>=1e7?0:2)+'M':v>=1e3?'$'+(v/1e3).toFixed(v>=1e5?0:0)+'k':'$'+Math.round(v);
+const fmtBp=v=>v==null?'—':v>=100?v.toFixed(0):v>=10?v.toFixed(1):v>=1?v.toFixed(2):v>=0.01?v.toFixed(3):v.toFixed(4);
+let TAB='density', off={}, hover=null, geom=null;
+
+// ---- interpolation helpers ----
+function interpXY(xs,ys,x){ if(x<=xs[0])return ys[0]; if(x>=xs[xs.length-1])return ys[ys.length-1];
+  let i=1; while(xs[i]<x)i++; const t=(x-xs[i-1])/(xs[i]-xs[i-1]); return ys[i-1]*(1-t)+ys[i]*t; }
+function interpLog(xs,ys,x){ if(x<=xs[0])return ys[0]; if(x>=xs[xs.length-1])return ys[ys.length-1];
+  let i=1; while(xs[i]<x)i++; let a=ys[i-1],b=ys[i]; if(a==null||b==null)return a??b;
+  const t=(Math.log(x)-Math.log(xs[i-1]))/(Math.log(xs[i])-Math.log(xs[i-1]));
+  return Math.exp(Math.log(Math.max(a,1e-4))*(1-t)+Math.log(Math.max(b,1e-4))*t); }
+
+// ================= DENSITY (bell curve) =================
+// theoretical: one-sided pts [[off,$/bp]] mirrored to ±. real: two-sided pts already.
+function densSeries(){ return [...D.density.theo, ...D.density.real]; }
+function densCurvePoints(s){                       // → array of [off,val] across ±xmax
+  if(s.real) return s.pts;                          // already two-sided
+  const m=[]; for(let i=s.pts.length-1;i>=0;i--) m.push([-s.pts[i][0], s.pts[i][1]]);
+  for(const p of s.pts) m.push([p[0],p[1]]); return m;
+}
+function drawDensity(){
+  const dpr=Math.min(window.devicePixelRatio||1,2.5), r=cv.getBoundingClientRect(), W=r.width,H=r.height;
+  cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  const padL=54,padR=12,padT=12,padB=30, pw=W-padL-padR, ph=H-padT-padB;
+  const XM=D.density.xmax;                          // ±bps
+  // y max from visible series
+  let ymax=0; for(const s of densSeries()){ if(off['d:'+s.k])continue; for(const[,v]of s.pts) if(v>ymax)ymax=v; }
+  ymax=ymax*1.06||1;
+  const X=o=>padL+(o+XM)/(2*XM)*pw, Y=v=>padT+(1-v/ymax)*ph;
+  geom={mode:'d',X,Y,padL,padR,padT,padB,pw,ph,W,H,XM,ymax};
+  const mut=css('--mut'),hair=css('--hair'),line=css('--line'),acc=css('--acc');
+  ctx.font='10px ui-monospace,monospace';
+  // y grid ($ per bp)
+  ctx.textBaseline='middle'; const yst=niceStep(ymax,5);
+  for(let v=0;v<=ymax;v+=yst){ const y=Y(v); ctx.strokeStyle=v===0?line:hair; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.fillStyle=mut; ctx.textAlign='right'; ctx.fillText(fmtUsd(v), padL-6, y); }
+  ctx.save(); ctx.translate(13,padT+ph/2); ctx.rotate(-Math.PI/2); ctx.textAlign='center';
+  ctx.fillStyle=mut; ctx.fillText('liquidity depth  ($ per bp, on a $20M pool)',0,0); ctx.restore();
+  // x grid (bps offset)
+  ctx.textBaseline='top';
+  for(let o=-XM;o<=XM;o+=(XM<=10?2:5)){ const x=X(o); ctx.strokeStyle=o===0?line:hair; ctx.lineWidth=o===0?1.4:1;
+    ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+ph); ctx.stroke();
+    ctx.fillStyle=mut; ctx.textAlign='center'; ctx.fillText((o>0?'+':'')+o, x, padT+ph+7); }
+  ctx.fillStyle=mut; ctx.textAlign='center'; ctx.fillText('price offset from peg (bps)', padL+pw/2, padT+ph+18);
+  // curves
+  ctx.save(); ctx.beginPath(); ctx.rect(padL,padT,pw,ph); ctx.clip();
+  for(const s of densSeries()){ if(off['d:'+s.k])continue; const pts=densCurvePoints(s);
+    ctx.strokeStyle=css(s.cvar); ctx.lineWidth=s.w||2; ctx.setLineDash(s.dash||[]); ctx.lineJoin='round';
+    if(s.real){ ctx.globalAlpha=.16; ctx.beginPath(); ctx.moveTo(X(pts[0][0]),Y(0));
+      for(const[o,v]of pts)ctx.lineTo(X(o),Y(v)); ctx.lineTo(X(pts[pts.length-1][0]),Y(0)); ctx.closePath();
+      ctx.fillStyle=css(s.cvar); ctx.fill(); ctx.globalAlpha=1; }
+    ctx.beginPath(); pts.forEach(([o,v],i)=>{const px=X(o),py=Y(v); i?ctx.lineTo(px,py):ctx.moveTo(px,py);}); ctx.stroke();
+    ctx.setLineDash([]); }
+  ctx.restore();
+  if(hover) hoverDensity();
+}
+function hoverDensity(){ const {X,padL,padT,ph,W,padR,XM}=geom; const x=hover.x; if(x<padL||x>W-padR)return;
+  const o=(x-padL)/(W-padR-padL)*2*XM-XM;
+  ctx.strokeStyle=css('--mut'); ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.globalAlpha=.55;
+  ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+ph); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
+  let h=`<div class="th">offset ${o>=0?'+':''}${o.toFixed(1)} bps</div>`;
+  for(const s of densSeries()){ if(off['d:'+s.k])continue; const pts=densCurvePoints(s);
+    const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]); const v=interpXY(xs,ys,o);
+    h+=`<div class="row"><span style="color:${css(s.cvar)}">${s.short||s.label}</span><span class="v">${fmtUsd(v)}/bp</span></div>`; }
+  tip.innerHTML=h; tip.style.opacity=1; const tw=tip.offsetWidth,th=tip.offsetHeight;
+  tip.style.left=Math.min(x+14,W-tw-4)+'px'; tip.style.top=(padT+8)+'px';
+}
+function niceStep(max,n){ const raw=max/n, p=Math.pow(10,Math.floor(Math.log10(raw))), f=raw/p;
+  return (f<1.5?1:f<3?2:f<7?5:10)*p; }
+
+// ================= IMPACT =================
+const XMIN=400,XMAX=6.3e6,YMIN=1e-3,YMAX=1e4, lx=v=>Math.log10(v), ly=v=>Math.log10(Math.max(v,YMIN));
+function impSeries(){ return [...D.impact.series]; }
+function drawImpact(){
+  const dpr=Math.min(window.devicePixelRatio||1,2.5), r=cv.getBoundingClientRect(), W=r.width,H=r.height;
+  cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  const padL=46,padR=12,padT=10,padB=30, pw=W-padL-padR, ph=H-padT-padB;
+  const X=v=>padL+(lx(v)-lx(XMIN))/(lx(XMAX)-lx(XMIN))*pw, Y=v=>padT+(ly(YMAX)-ly(v))/(ly(YMAX)-ly(YMIN))*ph;
+  geom={mode:'i',X,Y,padL,padR,padT,padB,pw,ph,W,H};
+  const mut=css('--mut'),line=css('--line'),hair=css('--hair'),acc=css('--acc');
+  ctx.font='10px ui-monospace,monospace'; ctx.textBaseline='middle';
+  for(let e=-3;e<=4;e++){ const y=Y(Math.pow(10,e)); ctx.strokeStyle=e===0?line:hair; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.fillStyle=mut; ctx.textAlign='right'; ctx.fillText(e>=0?Math.pow(10,e).toLocaleString():Math.pow(10,e).toFixed(-e),padL-6,y); }
+  ctx.save(); ctx.translate(11,padT+ph/2); ctx.rotate(-Math.PI/2); ctx.textAlign='center';
+  ctx.fillStyle=mut; ctx.fillText('price impact (bps)',0,0); ctx.restore();
+  ctx.textBaseline='top';
+  for(let e=3;e<=6;e++)for(const m of[1,2,5]){ const xv=m*Math.pow(10,e); if(xv<XMIN||xv>XMAX)continue; const x=X(xv);
+    ctx.strokeStyle=hair; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+ph); ctx.stroke();
+    ctx.fillStyle=mut; ctx.textAlign='center'; ctx.fillText(fmtUsd(xv),x,padT+ph+7); }
+  ctx.save(); ctx.beginPath(); ctx.rect(padL,padT,pw,ph); ctx.clip();
+  for(const e of D.impact.emp){ if(off['i:'+e.k])continue; ctx.strokeStyle=css(e.cvar); ctx.lineWidth=1.6;
+    ctx.setLineDash([2,4]); ctx.globalAlpha=.9; ctx.beginPath();
+    e.x.forEach((xv,i)=>{const X2=X(xv),Y2=Y(e.y[i]); i?ctx.lineTo(X2,Y2):ctx.moveTo(X2,Y2);}); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha=1; }
+  for(const s of impSeries()){ if(off['i:'+s.k])continue; ctx.strokeStyle=css(s.cvar); ctx.lineWidth=s.w||2;
+    ctx.setLineDash(s.dash||[]); ctx.lineJoin='round'; ctx.beginPath(); let st=false;
+    D.impact.sizes.forEach((xv,i)=>{const yv=s.d[i]; if(yv==null)return; const X2=X(xv),Y2=Y(yv);
+      st?ctx.lineTo(X2,Y2):(ctx.moveTo(X2,Y2),st=true);}); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.restore();
+  if(hover) hoverImpact();
+}
+function hoverImpact(){ const {X,padL,padT,ph,W,padR}=geom; const x=hover.x; if(x<padL||x>W-padR)return;
+  ctx.strokeStyle=css('--mut'); ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.globalAlpha=.55;
+  ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+ph); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
+  const sv=Math.pow(10,lx(XMIN)+(x-padL)/(W-padR-padL)*(lx(XMAX)-lx(XMIN)));
+  let h=`<div class="th">trade ${fmtUsd(sv)}</div>`;
+  for(const s of impSeries()){ if(off['i:'+s.k])continue; h+=`<div class="row"><span style="color:${css(s.cvar)}">${s.short||s.label}</span><span class="v">${fmtBp(interpLog(D.impact.sizes,s.d,sv))} bp</span></div>`; }
+  for(const e of D.impact.emp){ if(off['i:'+e.k])continue; h+=`<div class="row"><span style="color:${css(e.cvar)}">${e.label}</span><span class="v">${fmtBp(interpLog(e.x,e.y,sv))} bp</span></div>`; }
+  tip.innerHTML=h; tip.style.opacity=1; const tw=tip.offsetWidth;
+  tip.style.left=Math.min(x+14,W-tw-4)+'px'; tip.style.top=(padT+8)+'px';
+}
+
+// ================= chrome =================
+function draw(){ TAB==='density'?drawDensity():drawImpact(); }
+function seriesForTab(){ return TAB==='density'?densSeries():[...impSeries(),...D.impact.emp]; }
+function prefix(){ return TAB==='density'?'d:':'i:'; }
+
+function renderLegend(){
+  const el=document.getElementById('legend'); el.innerHTML='';
+  const groups = TAB==='density'
+    ? [['ours','BTR — Hermite spline'],['curve','Curve stableswap · real BSC A'],['xyk','Constant product'],['real','Live pools · reconstructed']]
+    : [['ours','BTR — Hermite spline'],['curve','Curve stableswap · real BSC A'],['xyk','Constant product'],['emp','Live pools · measured cost']];
+  for(const [g,title] of groups){
+    let items;
+    if(TAB==='density') items = g==='real'? D.density.real.map(s=>({...s,id:'d:'+s.k})) : D.density.theo.filter(s=>s.group===g).map(s=>({...s,id:'d:'+s.k}));
+    else items = g==='emp'? D.impact.emp.map(s=>({...s,id:'i:'+s.k})) : D.impact.series.filter(s=>s.group===g).map(s=>({...s,id:'i:'+s.k}));
+    if(!items.length)continue;
+    const h=document.createElement('div'); h.className='lg-group'; h.textContent=title; el.appendChild(h);
+    for(const it of items){ const row=document.createElement('div'); row.className='lg'+(off[it.id]?' off':'');
+      const dash = it.group==='xyk'?'dotted':(it.group==='curve'||it.group==='emp')?'dashed':'solid';
+      row.innerHTML=`<span class="sw" style="border-top-color:${css(it.cvar)};border-top-style:${dash}"></span>`+
+        `<span class="txt"><span class="nm">${it.label}</span><span class="sub">${it.sub||''}</span></span>`;
+      row.onclick=()=>{ off[it.id]=!off[it.id]; draw(); renderLegend(); renderTable(); }; el.appendChild(row); }
+  }
+}
+
+let refBand=[1,2,5,10], refBandSel=5, refSizes=[1e3,1e4,1e5,1e6,2e6], refSize=1e5;
+function renderSizebar(){ const b=document.getElementById('sizebar'); b.innerHTML='';
+  const lbl=document.createElement('span'); lbl.className='lbl';
+  lbl.textContent = TAB==='density'?'DEPTH WITHIN ±':'IMPACT @ TRADE'; b.appendChild(lbl);
+  const opts = TAB==='density'?refBand:refSizes, sel = TAB==='density'?refBandSel:refSize;
+  for(const s of opts){ const el=document.createElement('span'); el.className='sz'+(s===sel?' on':'');
+    el.textContent = TAB==='density'? s+' bps' : fmtUsd(s);
+    el.onclick=()=>{ if(TAB==='density')refBandSel=s; else refSize=s; renderSizebar(); renderTable(); draw(); }; b.appendChild(el); }
+}
+function cumDepthWithin(s,bps){                 // both-sides $ within ±bps, on a $20M-normalized pool
+  if(TAB!=='density')return null;
+  if(s.real){ const up=s.cum_up,dn=s.cum_dn;
+    const u=interpXY(up.map(p=>p[0]),up.map(p=>p[1]),bps), d=interpXY(dn.map(p=>p[0]),dn.map(p=>p[1]),bps);
+    return (u+d)*s.scale; }
+  const c=s.cum; const one=interpXY(c.map(p=>p[0]),c.map(p=>p[1]),bps); return one*2; // symmetric
+}
+function renderTable(){ const t=document.getElementById('rtable'); let rows=[];
+  if(TAB==='density'){
+    for(const s of densSeries()){ if(off['d:'+s.k])continue; rows.push({c:css(s.cvar),nm:s.label,v:cumDepthWithin(s,refBandSel),kind:s.real?('real '+fmtUsd(s.tvl)+' · '+(s.pct30??'?')+'% ≤30bp'):'concentrated model'}); }
+    let h=`<thead><tr><th>curve</th><th>source</th><th>depth within ±${refBandSel} bps<br><span style="font-weight:400">($20M-normalized pool)</span></th></tr></thead><tbody>`;
+    for(const r of rows)h+=`<tr><td><span class="nmcell"><span class="dot" style="background:${r.c}"></span>${r.nm}</span></td><td style="color:var(--mut)">${r.kind}</td><td class="val">${fmtUsd(r.v)}</td></tr>`;
+    t.innerHTML=h+'</tbody>';
+  } else {
+    for(const s of impSeries()){ if(off['i:'+s.k])continue; rows.push({c:css(s.cvar),nm:s.label,sub:'shape',v:interpLog(D.impact.sizes,s.d,refSize),kind:'shape (fee 0)'}); }
+    for(const e of D.impact.emp){ if(off['i:'+e.k])continue; rows.push({c:css(e.cvar),nm:e.label,v:interpLog(e.x,e.y,refSize),kind:'all-in'}); }
+    let h=`<thead><tr><th>curve</th><th>type</th><th>impact @ ${fmtUsd(refSize)}</th></tr></thead><tbody>`;
+    for(const r of rows)h+=`<tr><td><span class="nmcell"><span class="dot" style="background:${r.c}"></span>${r.nm}</span></td><td style="color:var(--mut)">${r.kind}</td><td class="val">${fmtBp(r.v)} bp</td></tr>`;
+    t.innerHTML=h+'</tbody>';
+  }
+}
+function renderChrome(){
+  document.getElementById('chips').innerHTML = D.chips.map(c=>`<span class="chip">${c}</span>`).join('');
+  document.getElementById('chart-title').textContent = TAB==='density'?'Liquidity density around peg — the bell curve':'Price impact vs trade size';
+  document.getElementById('axis-note').textContent = TAB==='density'?'linear · ±'+D.density.xmax+' bps · normalized to $20M TVL':'log · log · $10M/side pool · fee stripped';
+  document.getElementById('notes').innerHTML = (TAB==='density'?D.notes_density:D.notes_impact);
+}
+
+cv.addEventListener('mousemove',ev=>{ if(!geom)return; const r=cv.getBoundingClientRect();
+  hover={x:ev.clientX-r.left,y:ev.clientY-r.top}; draw(); });
+cv.addEventListener('mouseleave',()=>{ hover=null; tip.style.opacity=0; draw(); });
+document.getElementById('tabs').querySelectorAll('.tab').forEach(tb=>tb.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on')); tb.classList.add('on');
+  TAB=tb.dataset.t; hover=null; tip.style.opacity=0; renderChrome(); renderLegend(); renderSizebar(); renderTable(); draw(); });
+
+function boot(){ renderChrome(); renderLegend(); renderSizebar(); renderTable(); draw(); }
+boot();
+new ResizeObserver(()=>draw()).observe(cv);
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{renderLegend();draw();});
+new MutationObserver(()=>{renderLegend();draw();}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+</script>
