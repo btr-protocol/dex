@@ -30,7 +30,8 @@ DATA = {
     'curve': stride([[round(r['volUsd']), r['offsetBps']] for r in S['curveA1000'] if r['offsetBps'] is not None]),
     'curveDensity': stride([[round(o, 4), round(d, 1)] for o, d in S['curveA1000Density']]),
     'defaultMeta': {'weights': [50, 50, 50, 50], 'knots': [-50, -25, 0, 25, 50]},
-    'concMeta': {'weights': [10, 90, 90, 10], 'knots': [-50, -5, 0, 5, 50]},
+    'concMeta': {'weights': [2, 3, 5, 10, 20, 60, 60, 20, 10, 5, 3, 2],
+                 'knots': [-50, -25, -10, -4, -1.5, -0.4, 0, 0.4, 1.5, 4, 10, 25, 50]},
 }
 html = open(os.path.join(HERE, 'spline_template.html')).read().replace('/*__DATA__*/', json.dumps(DATA))
 open(os.path.join(HERE, 'out', 'spline_ui.html'), 'w').write(html)
