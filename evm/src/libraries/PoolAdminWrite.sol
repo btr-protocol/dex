@@ -62,6 +62,10 @@ library PoolAdminWrite {
         PoolAdmin.validateProfileMemory(profile);
         PoolAdmin.validateOracleConfig(oracleCfg, self);
         PoolAdmin.validateRiskConfig(riskCfg);
+        // Base = the pool numeraire (price ≡ 1, priced via its own depeg breaker). The coverage wall
+        // must never apply to it — a walled base breaks the cross-leg round-trip-neutrality argument
+        // (AIMM_PROOFS Thm 2) and collides with _readBasePriceOrHalt. Enforce κ_base == 0.
+        if (t == $.baseToken && riskCfg.kappaCovBps != 0) revert Err.BadConfig();
         if (minFeeBps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
         PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega);
         PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
@@ -98,6 +102,10 @@ library PoolAdminWrite {
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
         if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
         if (minFeeBps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
+        // haircutSuppressor ≥ 20000 zeroes the haircut (applyHaircut) → an under-covered leg pays face
+        // value → first-mover bank-run drains coverage. Cap below the disabling threshold so the deficit
+        // is always at least partially socialized (walled/stable assets should run 0 = full haircut).
+        if (haircutSuppressor >= 20000) revert Err.InvalidInput();
         if (reservationPriceMax != 0 && reservationPriceMax < reservationPrice) revert Err.InvalidInput();
 
         asset.minLiquidity = minLiquidity;
@@ -114,6 +122,7 @@ library PoolAdminWrite {
         address t = PoolIO.wrap($, token);
         _requireAsset($, t);
         PoolAdmin.validateRiskConfig(cfg); // κ>0 ⇒ depthAmplifier==0
+        if (t == $.baseToken && cfg.kappaCovBps != 0) revert Err.BadConfig(); // base numeraire never walled (Thm 2)
         // Halt bits survive config writes: a freeze/pause raised during the timelock window must not
         // be cleared (nor sneaked in) by executing a queued RiskConfig — only the explicit
         // unfreeze/unpause ops touch HALT_MASK.

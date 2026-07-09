@@ -59,7 +59,13 @@ library PoolSwapQuote {
             if (delta > 0) {
                 out = PoolHookExec.applyHookFee($, uint256(delta), q, out);
             } else if (delta < 0) {
-                out += uint256(-delta);
+                // Symmetric to the positive-fee 5% cap (R44-1): a hook-supplied output BONUS drains the
+                // output reserve, so bound it to 5% of `out` — a compromised hook cannot return an
+                // arbitrary negative delta to empty the leg down to minLiquidity.
+                uint256 bonus = uint256(-delta);
+                uint256 cap = out / 20;
+                if (bonus > cap) bonus = cap;
+                out += bonus;
             }
         }
 

@@ -24,7 +24,9 @@ contract ExternalOracleTest is Test {
         ac = new MockAC(address(this));
         ext = new ExternalOracle(address(ac), address(this));
         vm.warp(1_700_000_000);
-        ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, 0, 3600);
+        // Seed with the max (permissive) band so the EMA/σ unit tests below can push large moves; the
+        // clamp-semantics tests use their own tightly-banded feeds. maxDeviation is mandatory non-zero.
+        ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600);
         feedId = keccak256(abi.encodePacked(BASE, QUOTE));
     }
 
@@ -150,28 +152,41 @@ contract ExternalOracleTest is Test {
     }
 
     /// A push beyond the band WITHIN the heartbeat is rejected (fail-closed): last good mark survives.
+    /// At dt=10, ttl=3600 the band is essentially maxDeviation (500 + 500·10/3600 = 501 by floor).
     function test_maxDeviation_outOfBand_withinHeartbeat_reverts() public {
         bytes32 id = _addBandedFeed(DEV_BAND);
-        skip(10); // dt=10 < ttl → clamp active
-        vm.expectRevert(abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(DEV_BAND)));
-        ext.pushFeed(id, M.encodeB64(110e18, 18), 1e4, 5); // +10% > 5%
+        skip(10); // dt=10 ≪ ttl → band ≈ maxDeviation
+        vm.expectRevert(abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(501)));
+        ext.pushFeed(id, M.encodeB64(110e18, 18), 1e4, 5); // +10% ≫ ~5% band
         assertApproxEqRel(Oracle.mark(ext.getFeed(id)), 100e18, 0.001e18, "mark unchanged after reject");
     }
 
-    /// After the heartbeat elapses (feed stale ⇒ pool halts) a scheduled re-sync may jump the mark.
-    function test_maxDeviation_resyncAfterHeartbeat_succeeds() public {
+    /// H-2: the clamp is NOT exempted once the feed goes stale — the allowed band grows LINEARLY with
+    /// staleness (maxDev·(1+dt/ttl)) so a legit post-gap re-sync passes, but an arbitrary jump bought by
+    /// inducing staleness is still bounded. At dt=ttl the band doubles to ~10%.
+    function test_maxDeviation_resyncBandScalesWithStaleness() public {
         bytes32 id = _addBandedFeed(DEV_BAND);
-        skip(uint256(DEV_TTL) + 1); // dt > ttl → re-sync exempt from the clamp
-        ext.pushFeed(id, M.encodeB64(300e18, 18), 1e4, 5); // +200% jump allowed on re-sync
-        assertApproxEqRel(Oracle.mark(ext.getFeed(id)), 300e18, 0.001e18, "re-sync jump committed");
+        skip(uint256(DEV_TTL)); // dt = ttl → band = 500·(1+1) = 1000 bps (10%)
+        // A +200% jump is now REJECTED (was allowed under the old dt>=ttl exemption).
+        vm.expectRevert(abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(20000), uint256(1000)));
+        ext.pushFeed(id, M.encodeB64(300e18, 18), 1e4, 5);
+        assertApproxEqRel(Oracle.mark(ext.getFeed(id)), 100e18, 0.001e18, "arbitrary re-sync jump rejected");
+        // A move within the doubled band commits (legit post-downtime drift).
+        ext.pushFeed(id, M.encodeB64(108e18, 18), 1e4, 5); // +8% < 10%
+        assertApproxEqRel(Oracle.mark(ext.getFeed(id)), 108e18, 0.001e18, "in-band re-sync committed");
     }
 
-    /// maxDeviation==0 keeps the compromise-resistant clamp OFF (owner's fast/light opt-out).
-    function test_maxDeviation_zero_disablesClamp() public {
-        bytes32 id = _addBandedFeed(0);
-        skip(10);
-        ext.pushFeed(id, M.encodeB64(500e18, 18), 1e4, 5); // +400% instant, no clamp
-        assertApproxEqRel(Oracle.mark(ext.getFeed(id)), 500e18, 0.001e18, "unclamped push committed");
+    /// maxDeviation == 0 is FORBIDDEN at addFeed (H-1): the pool quotes off the raw mark, so every feed
+    /// must declare a per-push bound. An unbounded feed can never be created.
+    function test_maxDeviation_zero_rejectedAtAddFeed() public {
+        vm.expectRevert(Err.InvalidInput.selector);
+        ext.addFeed(DA, DB, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 0, DEV_TTL);
+    }
+
+    /// updateFeed likewise rejects a zero band.
+    function test_maxDeviation_zero_rejectedAtUpdateFeed() public {
+        vm.expectRevert(Err.InvalidInput.selector);
+        ext.updateFeed(feedId, 0, DEV_TTL);
     }
 
     /// updateFeed now persists maxDeviation (previously dropped — only emitted).
