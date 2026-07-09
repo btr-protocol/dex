@@ -33,12 +33,13 @@
       },
       "_paramNote": "SIM-TUNED (faithful 3mo state-machine replay of 11.5M BSC swaps; prime/research/stable-core/RISK_PARAMS_TESTNET.md + stable_report.html). minFeeBps=100 (1bp spread) is the LP<->trader EQUILIBRIUM: wins ~23% of trades / ~12% of volume (sane, non-toxic flow) at ~11-15% LP net APR. Lower starves LPs (0.5bp->8% APR, 0.3bp->5%), higher sheds trader share (1.5bp->18% win). Floor is 1 PBPS (0.01bp) — reserved for a price war via setAssetParams, NOT the launch value; on stables σ is too small to lift a 1-PBPS floor off the floor. θ=0.3bp = the CRITICAL LP-protection knob: fresh marks keep the pool at true peg so it takes balanced flow (rebalancing stays ~2-4% of won volume, LVR ~0). ~800 pushes/day, ~$60/mo. Coverage band is NOT load-bearing (covMin 0.5..0.8 all equivalent in sim) — freshness is. All 5 priced off Pyth (see priceFeeds).",
       "assets": {
-        "USDC": { "minFeeBps": 100, "refBandBps": 50 },
-        "USDT": { "minFeeBps": 100, "refBandBps": 100, "refFeedId": "USDC" },
-        "USD1": { "minFeeBps": 100, "refBandBps": 150 },
-        "USDE": { "minFeeBps": 100, "refBandBps": 200 },
-        "FDUSD": { "minFeeBps": 100, "refBandBps": 200 }
+        "USDC":  { "minFeeBps": 100, "minDispersion": 1000, "refBandBps": 50 },
+        "USDT":  { "minFeeBps": 100, "minDispersion": 1000, "refBandBps": 100, "refFeedId": "USDC" },
+        "USD1":  { "minFeeBps": 75,  "minDispersion": 2000, "refBandBps": 150 },
+        "USDE":  { "minFeeBps": 150, "minDispersion": 3000, "refBandBps": 200 },
+        "FDUSD": { "minFeeBps": 150, "minDispersion": 3000, "refBandBps": 200 }
       },
+      "_perAssetNote": "Owner-set per-asset differentiation (2026-07-09). minFee: USDC/USDT 1bp (safe deep pegs), USD1 0.75bp (win more of the biggest pair — young but liquid), USDe/FDUSD 1.5bp (modest depeg risk premium). minDispersion (spline width): 1000 concentrated for USDC/USDT (deep near-peg, low slippage), 2000 for USD1, 3000 for USDe/FDUSD (wider = less picked-off if they jump). refBandBps = depeg circuit-breaker halt (±0.5%/1%/1.5%/2%): pool stops swapping an asset if its mark leaves that band vs the Pyth reference. θ (fresh mark, shared 0.3bp) is the primary depeg shield; dispersion+refBand are the backstop.",
       "depositCapScheduleUsd": {
         "_comment": "Testnet growth schedule $50K->$1M. Per-asset split = observed 3mo stable-stable volume weights (base USDC 35%, USDT 26%, USD1 27%, FDUSD 8.5%, USDe 3.5%). USDe kept tiny (near-0 BSC flow + depeg risk). Raise the active tier via setAssetParams as TVL fills; win-share by count (~23%) is TVL-invariant, volume-share and abs fees scale up ($8k/yr@50K -> $111k/yr@1M).",
         "50000":   { "USDC": 17500, "USDT": 13000, "USD1": 13500, "FDUSD": 4300, "USDE": 1750 },
