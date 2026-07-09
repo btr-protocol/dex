@@ -1,10 +1,10 @@
 # BTR DEX
 
-Adaptive multi-asset AMM with hub-and-spoke routing, dynamic fees, a keeper-pushed external-mark oracle, ERC-1155 rebasing LP, and a piecewise bonding curve. Flat-`Pool` architecture: no Diamond, no proxy indirection, no ERC-7201 storage namespacing. EIP-1167 minimal-proxy clones via `PoolFactory`.
+Adaptive multi-asset AMM with hub-and-spoke routing, dynamic fees, a keeper-pushed external-mark oracle, an internal non-transferable LP ledger (per-user `lpBalances` mapping + liquidity index — not an ERC-1155/ERC-20 token), and a piecewise bonding curve. Flat-`Pool` architecture: no Diamond, no proxy indirection, no ERC-7201 storage namespacing. EIP-1167 minimal-proxy clones via `PoolFactory`.
 
 ## Repo scope
 
-This repo = Solidity contracts (`evm/`) + Bun keepers + simulation harness. Other concerns live in sibling repos under `~/Work/btr/`:
+This repo = Solidity contracts (`evm/`) + simulation harness. Keepers (oracle pusher + executor) are Rust, in the sibling `~/Work/btr/keepers` repo. Other concerns live in sibling repos under `~/Work/btr/`:
 
 | Concern | Repo |
 |---|---|
@@ -18,7 +18,8 @@ This repo = Solidity contracts (`evm/`) + Bun keepers + simulation harness. Othe
 
 Local layout:
 - `evm/` - Solidity (Foundry). Contracts + tests.
-- `sim/` - off-chain simulation harness (Zig).
+- `sim/` - Rust AIMM simulation crate (`aimm-sim`): `src/amm/` mirrors `evm/src/libraries/Pricing.sol` (aimm + Curve/Uni/Wombat/A-S baselines); tests replay real NX tapes (moved from `prime` 2026-07-09).
+- `research/` - AMM research studies (stable-core, pool-fees LVR, peer architectures); data blobs gitignored.
 - `scripts/` - tooling (search index, slot computation, plotting, local dev orchestrator).
 - `salts/` - CREATE3 salt registry for deterministic addresses.
 
@@ -27,16 +28,14 @@ Local layout:
 | Contract | Role |
 |---|---|
 | `Pool.sol` | Flat AMM pool. Hot-path entries (swap, deposit, withdraw, fast views); cold paths dispatched via `fallback` -> `PoolAux`. |
-| `PoolAux.sol` | Singleton cold-path dispatcher (admin / staking / flash / oracle pokes / feed updates). DELEGATECALL'd by every Pool clone. |
-| `PoolFactory.sol` | EIP-1167 minimal-proxy pool deployer. CREATE3-deterministic. |
+| `PoolAux.sol` | Singleton cold-path dispatcher (admin setters + flash send/account). DELEGATECALL'd by every Pool clone via `fallback`. |
+| `PoolFactory.sol` | EIP-1167 minimal-proxy pool deployer via CREATE2 `cloneDeterministic` (CREATE3 is used for the singletons, not the clones). |
 | `Admin.sol` | Per-chain singleton: protocol-fee collection, risk-flag/fee curation, pool-side admin setters. |
-| `Flash.sol` | Flash-loan singleton (cross-pool flash mints). |
+| `Flash.sol` | ERC-3156 flash-loan singleton — loans a pool's reserves (no minting); repay by raising the pool's token balance. |
 | `Router.sol` | Hub-and-spoke swap router (batch + multi-leg). |
 | `oracles/ExternalOracle.sol` | Keeper-push external oracle (`onlyOracle`); the fresh pushed mark (`lastPriceB64`) is the quote source. Quoting off the fresh mark — not a lagging internal EMA — is what kills LVR. Also folds an on-chain σ-EMA + a servable price EMA (reference only, never the quote). No Chainlink in the quote path. |
 
 Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`, `GovToken`, `StakedAsset`, `Bridge`, `tokens/BridgeableERC20`) live in `~/Work/btr/shared` and are consumed via `@btr-shared/` remap. `Bridge.sol` = LayerZero OFT bridge; `BridgeableERC20` = ERC-7802 bridgeable token mixin.
-
-> Kill-revert symmetry (Pass-5 W2-L2 + Pass-7): `assetValue` / `vaultAssets` revert `Err.Killed_` on both `Dex.sol` and the sibling `BtrPoolAdapter.sol` so ALM vaults observe identical fail-loud semantics on kill. Pass-7 C1 adds timelocked `queueUnkill` / `executeUnkill` to `BtrPoolAdapter` for recovery.
 
 ## Libraries (`evm/src/libraries/`)
 

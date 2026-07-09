@@ -1,6 +1,6 @@
 # BTR DEX — EVM Contracts
 
-Solidity (Foundry) implementation of the BTR adaptive multi-asset AMM: hub-and-spoke routing, dynamic fees, keeper-pushed external-mark oracle, ERC-1155 rebasing LP, piecewise bonding curve. Flat-`Pool` architecture: **no Diamond, no proxy indirection, no ERC-7201 storage namespacing**. EIP-1167 minimal-proxy clones via `PoolFactory`.
+Solidity (Foundry) implementation of the BTR adaptive multi-asset AMM: hub-and-spoke routing, dynamic fees, keeper-pushed external-mark oracle, internal non-transferable LP ledger (`lpBalances` mapping + liquidity index — not an ERC-1155/ERC-20 token), piecewise bonding curve. Flat-`Pool` architecture: **no Diamond, no proxy indirection, no ERC-7201 storage namespacing**. EIP-1167 minimal-proxy clones via `PoolFactory`.
 
 Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under `.deps/solady/`.
 
@@ -9,7 +9,7 @@ Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under
 - **Multi-asset hub-and-spoke** — All swaps route through a base token.
 - **Dynamic fees** — Multi-factor adaptive fees driven by volatility, inventory, divergence.
 - **Keeper-pushed external-mark oracle** — A keeper (`onlyOracle`, Safe multisig in prod) pushes a fresh mark per feed on a deviation-θ + heartbeat schedule. Swaps quote off that fresh mark (`lastPriceB64`), not a lagging internal EMA — this is what kills LVR. The contract folds an on-chain σ-EMA (pricing vol) + a servable price EMA (reference only). Between pushes the mark is fixed but the quoted price drifts with order flow via the inventory skew. No Chainlink in the quote path.
-- **Rebasing LP tokens** — Auto-compounding ERC-1155 LP shares with a liquidity index.
+- **Rebasing LP accounting** — Auto-compounding internal LP shares (per-user `lpBalances` mapping, non-transferable) scaled by a per-asset liquidity index.
 - **Piecewise bonding curve** — Adaptive liquidity distribution with volatility-based breadth.
 - **Protocol fees** — Configurable split between LPs and treasury.
 - **Risk + admin controls** — Per-pool freezes, circuit breakers, fee curation via the per-chain `Admin` singleton.
@@ -19,11 +19,11 @@ Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under
 ```
 src/
 ├── Pool.sol              # Flat AMM pool. Hot paths: swap, deposit, withdraw, fast views.
-├── PoolAux.sol           # Singleton cold-path dispatcher (admin, staking, flash, oracle pokes).
+├── PoolAux.sol           # Singleton cold-path dispatcher (admin setters + flash send/account).
 │                         #   Pool fallback DELEGATECALLs PoolAux.
-├── PoolFactory.sol       # EIP-1167 minimal-proxy pool deployer. CREATE3-deterministic.
+├── PoolFactory.sol       # EIP-1167 minimal-proxy pool deployer (CREATE2 cloneDeterministic).
 ├── Admin.sol             # Per-chain singleton: protocol-fee collection, risk/fee curation.
-├── Flash.sol             # Flash-loan singleton (cross-pool flash mints).
+├── Flash.sol             # ERC-3156 flash-loan singleton (loans pool reserves; no minting).
 ├── Router.sol            # Hub-and-spoke swap router (batch + multi-leg).
 ├── interfaces/           # IPool, IPoolFactory, IPoolHooks, IAdmin, IFlash, IRouter, IOracle, …
 ├── oracles/
@@ -49,7 +49,7 @@ Shared cross-cutting singletons live in `~/Work/btr/shared/evm/src/` and are con
 Authority is centralized in the shared `AccessControl` singleton (one per chain).
 
 - **Owner** — adds/removes assets, configures fee curves and circuit breakers, queues timelocked upgrades on the shared `Treasury` / `Bridge` / `AccessControl` (UUPS), updates pool-side admin parameters via `Admin` and `PoolAux`.
-- **Keeper** — operational role for oracle pokes, fee-curve updates, defensive ratchets, circuit-breaker triggers.
+- **Keeper (oracle pusher)** — `grantOracle`'d addresses on `ExternalOracle` push mark + σ sample + confidence. That is the keeper's ONLY on-chain authority; fee curves, freezes, and risk flags are owner-only via `Admin`.
 - **Treasury** — collects protocol fees; address resolved through `AccessControl`.
 
 Pools themselves are not UUPS — they are EIP-1167 clones deployed by `PoolFactory`. UUPS upgradeability is reserved for the shared singletons.
@@ -74,9 +74,9 @@ slither . --filter-paths 'test|.deps'
 
 - Reentrancy: Solady `ReentrancyGuardTransient`.
 - Safe transfers: Solady `SafeTransferLib`.
-- Overflow protection: Solady `SafeCastLib` with revert.
+- Overflow protection: Solidity 0.8 checked arithmetic + explicit range checks/casts.
 - Access control: role-based via shared `AccessControl`.
-- Circuit breakers: asset freeze on excessive deviation (per-pool, owner/keeper-gated through `Admin`).
+- Circuit breakers: manual owner-only freeze/pause via `Admin` (`freezeAsset`/`pauseAsset`/`batchRiskOp`); automatic gates = feed TTL staleness halt, confidence halt, depeg bands, opt-in per-feed push deviation clamp on `ExternalOracle`.
 - All compiled artifacts ≪ 24 576-byte EIP-170 cap.
 
 ## License
