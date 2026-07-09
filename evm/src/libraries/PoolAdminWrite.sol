@@ -106,6 +106,9 @@ library PoolAdminWrite {
         // value → first-mover bank-run drains coverage. Cap below the disabling threshold so the deficit
         // is always at least partially socialized (walled/stable assets should run 0 = full haircut).
         if (haircutSuppressor >= 20000) revert Err.InvalidInput();
+        // Coverage-wall invariant (AIMM_PROOFS Lemma B): a walled asset (κ>0) MUST run haircutSuppressor==0,
+        // else same-asset withdrawal is a toll-exempt coverage-declining path that bypasses the wall.
+        if ($.riskConfigs[t].kappaCovBps > 0 && haircutSuppressor != 0) revert Err.InvalidInput();
         if (reservationPriceMax != 0 && reservationPriceMax < reservationPrice) revert Err.InvalidInput();
 
         asset.minLiquidity = minLiquidity;
@@ -123,6 +126,9 @@ library PoolAdminWrite {
         _requireAsset($, t);
         PoolAdmin.validateRiskConfig(cfg); // κ>0 ⇒ depthAmplifier==0
         if (t == $.baseToken && cfg.kappaCovBps != 0) revert Err.BadConfig(); // base numeraire never walled (Thm 2)
+        // Coverage-wall invariant (Lemma B): raising the wall on an asset that still socializes deficit
+        // via a haircut would leave the toll-exempt withdrawal bypass open — require haircutSuppressor==0.
+        if (cfg.kappaCovBps > 0 && $.assets[t].haircutSuppressor != 0) revert Err.BadConfig();
         // Halt bits survive config writes: a freeze/pause raised during the timelock window must not
         // be cleared (nor sneaked in) by executing a queued RiskConfig — only the explicit
         // unfreeze/unpause ops touch HALT_MASK.

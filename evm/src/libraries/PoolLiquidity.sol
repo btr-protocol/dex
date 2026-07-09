@@ -186,6 +186,10 @@ library PoolLiquidity {
         IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
         IPool.Asset storage assetTo = $.assets[ctx.toTk];
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, ctx.fromTk, ctx.toTk, ctx.withdrawValue);
+        // Depeg breaker on BOTH legs: the conversion is priced off fromTk's mark, so a wrong-but-fresh
+        // fromTk mark (above its refBand / reservationPriceMax) over-delivers the healthy output asset —
+        // the same drain the exec/swapLiability input-leg guard closes. Cover all mark-priced value-out paths.
+        PoolIO.priceBandGuard($, ctx.fromTk, assetFrom);
         PoolIO.priceBandGuard($, ctx.toTk, assetTo);
         (ctx.amt, ctx.haircut) = applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
         if (assetTo.reserves < ctx.amt + q.protoFee) revert Err.InsufficientAmount(assetTo.reserves, ctx.amt + q.protoFee);

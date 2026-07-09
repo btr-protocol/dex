@@ -762,6 +762,22 @@ contract LibSplineTest is BaseTestSetup {
         assertEq(S.eval(7500, pts), 5e18);
     }
 
+    /// @notice Audit fix: a FLAT interior segment (equal consecutive knots, s=0) flanked by RISING
+    ///         segments must integrate to ZERO — no premium overshoot. The old `if (s==0) return`
+    ///         skipped the FC clamp, leaving nonzero endpoint tangents (m0=sp/2, m1=sn/2) that made
+    ///         area() overshoot where the LP author specified a constant (TWAP) offset. With the clamp
+    ///         running, num=3·sa=0 zeroes those tangents and the flat segment integrates to exactly 0.
+    function test_flat_interior_segment_no_overshoot() public pure {
+        S.Point[] memory pts = new S.Point[](4);
+        pts[0] = S.Point(0,    -50e18);
+        pts[1] = S.Point(2500,  0);      // flat interior segment [2500,5000], y0=y1=0
+        pts[2] = S.Point(5000,  0);
+        pts[3] = S.Point(10000, 50e18);
+        // Constant-offset region must have zero integral (was positive premium pre-fix).
+        assertEq(S.area(pts, 2500, 5000), 0, "flat segment overshoots");
+        assertEq(S.area(pts, 2500, 3750), 0, "flat left-half overshoots");
+    }
+
     /// @notice Negative slopes also clamped (sign preserved). Monotone-decreasing extreme jump.
     function test_R44_6_negative_slope_clamp() public pure {
         S.Point[] memory pts = new S.Point[](4);
