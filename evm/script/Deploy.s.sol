@@ -16,12 +16,11 @@ import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {Treasury} from "@btr-shared/Treasury.sol";
 import {Bridge} from "@btr-shared/Bridge.sol";
-import {Router} from "../src/Router.sol";
 import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 
 /// @title Deploy -minimal e2e BTR DEX deploy.
 /// @notice Singletons (Admin/Staking/Distributor/Flash) + Pool reference impl + PoolFactory +
-///         UUPS peripherals (Treasury, Bridge, Router) behind ERC1967 proxies. GovToken is
+///         UUPS peripherals (Treasury, Bridge) behind ERC1967 proxies. GovToken is
 ///         pre-wired to Treasury (mint/burn gateway). Treasury.distributor + Treasury.bridge
 ///         are wired post-deploy. PoolFactory ownership is transferred to AC.owner() so all
 ///         protocol governance funnels through one multisig. All addresses persisted to JSON.
@@ -44,8 +43,6 @@ contract Deploy is DeployBase {
         address treasuryProxy;
         address bridgeImpl;
         address bridgeProxy;
-        address routerImpl;
-        address routerProxy;
     }
 
     function run() external returns (Addrs memory a) {
@@ -94,11 +91,6 @@ contract Deploy is DeployBase {
         a.bridgeProxy = LibClone.deployERC1967(a.bridgeImpl);
         Bridge(payable(a.bridgeProxy)).initialize();
 
-        // 8. Router (UUPS).
-        a.routerImpl = address(new Router(a.ac));
-        a.routerProxy = LibClone.deployERC1967(a.routerImpl);
-        Router(payable(a.routerProxy)).initialize(a.poolFactory);
-
         // 8. Post-deploy wiring (G13).
         //    - Treasury.distributor + Treasury.bridge MUST be set; GovToken cross-chain
         //      mint/burn gates on Treasury.getBridge() and emissions claim flows through
@@ -130,7 +122,6 @@ contract Deploy is DeployBase {
         console2.log("GovToken:         ", a.govToken);
         console2.log("Treasury (proxy): ", a.treasuryProxy);
         console2.log("Bridge (proxy):   ", a.bridgeProxy);
-        console2.log("Router (proxy):   ", a.routerProxy);
 
         string memory k = "btr_deploy";
         vm.serializeUint(k, "chainId", block.chainid);
@@ -147,9 +138,7 @@ contract Deploy is DeployBase {
         vm.serializeAddress(k, "treasuryImpl", a.treasuryImpl);
         vm.serializeAddress(k, "treasuryProxy", a.treasuryProxy);
         vm.serializeAddress(k, "bridgeImpl", a.bridgeImpl);
-        vm.serializeAddress(k, "bridgeProxy", a.bridgeProxy);
-        vm.serializeAddress(k, "routerImpl", a.routerImpl);
-        string memory json = vm.serializeAddress(k, "routerProxy", a.routerProxy);
+        string memory json = vm.serializeAddress(k, "bridgeProxy", a.bridgeProxy);
 
         string memory outPath = vm.envOr(
             "DEPLOY_OUT",

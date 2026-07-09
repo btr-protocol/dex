@@ -8,7 +8,6 @@ import {PoolFactory} from "../../src/PoolFactory.sol";
 import {Pool} from "../../src/Pool.sol";
 import {Treasury} from "@btr-shared/Treasury.sol";
 import {Bridge} from "@btr-shared/Bridge.sol";
-import {Router} from "../../src/Router.sol";
 import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
@@ -38,7 +37,6 @@ contract DeployScriptTest is Test {
         assertTrue(a.govToken != address(0), "govToken");
         assertTrue(a.treasuryProxy != address(0), "treasuryProxy");
         assertTrue(a.bridgeProxy != address(0), "bridgeProxy");
-        assertTrue(a.routerProxy != address(0), "routerProxy");
 
         // ── core wiring ──
         assertEq(PoolFactory(payable(a.poolFactory)).referencePool(), a.poolImpl, "factory.refPool");
@@ -60,12 +58,10 @@ contract DeployScriptTest is Test {
         // (Track-B Phase-1: PoolFactory dropped Solady Ownable; auth resolves via AC.owner()).
         assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC != ac");
 
-        // Treasury / Bridge / Router proxies initialized → second initialize reverts.
+        // Treasury / Bridge proxies initialized → second initialize reverts.
         vm.expectRevert();
         Treasury(payable(a.treasuryProxy)).initialize(a.govToken);
         vm.expectRevert();
         Bridge(payable(a.bridgeProxy)).initialize();
-        vm.expectRevert();
-        Router(payable(a.routerProxy)).initialize(a.poolFactory);
     }
 }

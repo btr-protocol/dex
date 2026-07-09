@@ -13,8 +13,8 @@ import {PoolLiquidity} from "./libraries/PoolLiquidity.sol";
 import {PoolSwap} from "./libraries/PoolSwap.sol";
 import {PoolView} from "./libraries/PoolView.sol";
 
-/// @dev Wave-3 deferral: Solady `Ownable` retained on 10 dex contracts pre-deploy
-///      (Bridge, Distributor, PoolFactory, Router, Treasury, Admin, Staking,
+/// @dev Wave-3 deferral: Solady `Ownable` retained on 9 dex contracts pre-deploy
+///      (Bridge, Distributor, PoolFactory, Treasury, Admin, Staking,
 ///      ExternalOracle, StakedToken, GovToken). Full migration to Err.NotOwner
 ///      planned post-deployment. See Phase 42K.10D-Wave3 carve-out.
 /// @title Pool -standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
