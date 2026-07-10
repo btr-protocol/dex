@@ -1,0 +1,22 @@
+{
+  "chainId": 97,
+  "curveUsdtBnbBtcb": "0xF64E188DA36e86afC151fd98DEb93A82f06B54E3",
+  "curveUsdcEthBtcb": "0x6166F0020EFb6A8896dDc8A5e352F958962957F4",
+  "rangeBtcbUsdc": "0xF66C933FEeb93a0E2AEb0558361524603197eD05",
+  "rangeFeeBtcb": 3010,
+  "uniV2Factory": "0xD2F5488f1930Df661eceCbD4B122Ef767B6C92D4",
+  "uniBtcbUsdc": "0x064cAbd8BC743C3273Df7e6081908251c1e258E2",
+  "uniEthUsdc": "0x7a932487e3078Ca8a2518c3f4D33F1C373756C68",
+  "uniWbnbUsdc": "0x590f62D9EAe71eA939c1E2800A54988d19254b3e",
+  "uniXautUsdc": "0x583018ab5413eb4C91d07374c12f99F8B2bA3976",
+  "uniBtcbUsdt": "0xeCfA4a54Cfe56EBd8402531c109c545D89880312",
+  "uniEthUsdt": "0x125C7BB75F382A1c0DbFAE0D704e1707220C8825",
+  "uniWbnbUsdt": "0x83dBDc791391a3959c4A145068D3990723e2F592",
+  "uniXautUsdt": "0x9aD64Ac3c1B5A37a946F5e239030c1b97Cf9952f",
+  "notes": [
+    "Curve tricrypto-style = CurveStableSwap NG math, A=100, fee=30bp, admin_fee=0, 10k/side",
+    "UniV2 volatiles = 8 pairs vs USDC/USDT @ 10k/side; stables already 10 pairs",
+    "RangeCL BTCB fee=3010 reseed; ERC20 balances ≥10k (CL reserves ratio-priced)",
+    "Legacy RangeCL fee=3000 pools remain for ETH/WBNB/XAUT piggyback oracle"
+  ]
+}
