@@ -1,0 +1,155 @@
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.35;
+
+import {Script} from "forge-std/Script.sol";
+import {console2} from "forge-std/Script.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+
+import {Admin} from "../src/Admin.sol";
+import {Pool} from "../src/Pool.sol";
+import {PoolFactory} from "../src/PoolFactory.sol";
+import {IPool} from "../src/interfaces/IPool.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+
+/// @notice Seed Chapel pools on an already-deployed Admin+Factory (SWAP flags at listing).
+/// @dev Env: DEPLOYER_PK, ADMIN, FACTORY. Optional SEED_USDC (default 50_000e18).
+contract ChapelSeedPools is Script {
+    address constant ORACLE = 0xD91712c9F4037D0010041691Df191AB45994F2bF;
+    address constant FAUCET = 0x6a901982CE6cD2561F677217e012A33b8a88EF27;
+    address constant AC = 0x626eb915d4a4136F7c00352A54378d3A322488da;
+    address constant WNATIVE = address(0xCAFE);
+    bytes32 constant USDC_FEED = 0xdacab87341ef44905f4cfdb16cbfbd61ad65accd449f2df15ae6fb26f53ba17d;
+
+    address constant USDC = 0x6dF80a290E0585dad752c25f2808E83b5624290d;
+    address constant USDT = 0xB7b7722369Ab72cb044DE6bb511A4586F3a7dD64;
+    address constant USD1 = 0xC28bE4D407096E771F932c202F13D866B4d6BA07;
+    address constant USDE = 0xebF751546832ec77a039083E9FDd8158B21c0172;
+    address constant FDUSD = 0x4Aa480f3dc3a1f08c24472E083fBDBE919b8BdFc;
+    address constant BTCB = 0xd719319e853670ac938e426fbdB70CFdb34c11Fa;
+    address constant ETH = 0x24Ff1aCD4e8fdBFEBee2e7e63ad36B1E72821189;
+    address constant WBNB = 0x31B7DCA9e901F7D34fb4a3Ee07eD2994de16685D;
+    address constant CAKE = 0xa7E62dd82789346bEb48a80227B5d926c6403400;
+    address constant XAUT = 0xd384aC4696FA230c9049F6534Fc35aC3af586073;
+
+    function run() external {
+        uint256 pk = vm.envUint("DEPLOYER_PK");
+        Admin admin = Admin(vm.envAddress("ADMIN"));
+        PoolFactory factory = PoolFactory(payable(vm.envAddress("FACTORY")));
+        uint256 seedUsdc = vm.envOr("SEED_USDC", uint256(50_000 ether));
+
+        vm.startBroadcast(pk);
+        address stable = _createPool(admin, factory, _stableList(), seedUsdc, true);
+        address vol = _createPool(admin, factory, _volatileList(), seedUsdc, false);
+        vm.stopBroadcast();
+
+        console2.log("stablePool", stable);
+        console2.log("volatilePool", vol);
+        console2.log("admin", address(admin));
+        console2.log("factory", address(factory));
+
+        string memory k = "chapel";
+        vm.serializeUint(k, "chainId", uint256(97));
+        vm.serializeAddress(k, "ac", AC);
+        vm.serializeAddress(k, "admin", address(admin));
+        vm.serializeAddress(k, "poolFactory", address(factory));
+        vm.serializeAddress(k, "oracle", ORACLE);
+        vm.serializeAddress(k, "faucet", FAUCET);
+        vm.serializeAddress(k, "stablePool", stable);
+        vm.serializeAddress(k, "volatilePool", vol);
+        vm.serializeBytes32(k, "usdcFeedId", USDC_FEED);
+        vm.serializeAddress(k, "usdc", USDC);
+        vm.serializeAddress(k, "usdt", USDT);
+        vm.serializeAddress(k, "usd1", USD1);
+        vm.serializeAddress(k, "usde", USDE);
+        vm.serializeAddress(k, "fdusd", FDUSD);
+        vm.serializeAddress(k, "btcb", BTCB);
+        vm.serializeAddress(k, "eth", ETH);
+        vm.serializeAddress(k, "wbnb", WBNB);
+        vm.serializeAddress(k, "cake", CAKE);
+        string memory json = vm.serializeAddress(k, "xaut", XAUT);
+        try vm.writeJson(json, "deployments/97.deploy.json") {} catch {}
+    }
+
+    function _stableList() internal pure returns (address[] memory list) {
+        list = new address[](5);
+        list[0] = USDC; list[1] = USDT; list[2] = USD1; list[3] = USDE; list[4] = FDUSD;
+    }
+
+    function _volatileList() internal pure returns (address[] memory list) {
+        list = new address[](7);
+        list[0] = USDC; list[1] = USDT; list[2] = BTCB; list[3] = ETH;
+        list[4] = WBNB; list[5] = CAKE; list[6] = XAUT;
+    }
+
+    function _createPool(
+        Admin admin,
+        PoolFactory factory,
+        address[] memory tokens,
+        uint256 seedUsdc,
+        bool stable
+    ) internal returns (address poolAddr) {
+        uint8[29] memory pad;
+        IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100, _pad: pad});
+        bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], WNATIVE, fp);
+        poolAddr = factory.createPool(tokens[0], tokens, initdata);
+
+        IPool.RiskConfig memory rc = _risk();
+        IPool.LiquidityProfile memory pf = _profile();
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address tok = tokens[i];
+            (uint16 minFee, uint16 refBand) = _assetParams(tok, stable);
+            admin.addAsset(poolAddr, tok, _oracleCfg(tok, tokens[0], refBand), rc, pf, minFee, 18, 1000, 100_000, 10_000, 10_000);
+        }
+        admin.setBaseTokenOracle(poolAddr, ORACLE, USDC_FEED);
+        admin.sealBootstrap(poolAddr);
+        _seedPool(Pool(payable(poolAddr)), tokens, seedUsdc);
+    }
+
+    function _risk() internal pure returns (IPool.RiskConfig memory r) {
+        r.decayStartRatioBps = 5000;
+        r.coverageMin = 5000;
+        r.coverageMax = 20_000;
+        r.depthAmplifier = 10_000;
+        r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
+    }
+
+    function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
+        p.weights[0] = 50; p.weights[1] = 50; p.weights[2] = 50; p.weights[3] = 50;
+        p.knots[0] = -50; p.knots[1] = -25; p.knots[2] = 0; p.knots[3] = 25; p.knots[4] = 50;
+    }
+
+    function _assetParams(address tok, bool stable) internal pure returns (uint16 minFee, uint16 refBand) {
+        minFee = 1;
+        if (tok == USDT) refBand = 100;
+        else if (stable && tok != USDC) refBand = 150;
+        else if (!stable && tok == XAUT) refBand = 200;
+    }
+
+    function _oracleCfg(address asset, address base, uint16 refBandBps)
+        internal pure returns (IPool.OracleConfig memory o)
+    {
+        o.primary = ORACLE;
+        o.feedId = keccak256(abi.encodePacked(asset, base));
+        o.refFeedId = refBandBps > 0 ? USDC_FEED : bytes32(0);
+        o.refBandBps = refBandBps;
+    }
+
+    function _seedAmount(address tok, uint256 seedUsdc) internal pure returns (uint256) {
+        if (tok == USDC || tok == USDT || tok == USD1 || tok == USDE || tok == FDUSD) return seedUsdc;
+        if (tok == BTCB) return seedUsdc * 1e18 / 64_300e18;
+        if (tok == ETH) return seedUsdc * 1e18 / 1_795e18;
+        if (tok == WBNB) return seedUsdc * 1e18 / 574e18;
+        if (tok == CAKE) return seedUsdc * 1e18 / 1.39e18;
+        if (tok == XAUT) return seedUsdc * 1e18 / 4_090e18;
+        return seedUsdc;
+    }
+
+    function _seedPool(Pool pool, address[] memory tokens, uint256 seedUsdc) internal {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address tok = tokens[i];
+            uint256 amt = _seedAmount(tok, seedUsdc);
+            IERC20(tok).approve(address(pool), type(uint256).max);
+            pool.deposit(tok, amt);
+        }
+    }
+}
