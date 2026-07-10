@@ -40,7 +40,7 @@ We do **not** vendor BunniHub, LDF curves, or their withdraw accounting (exploit
 3. Trade / quote on BTR volatile pool and on the Uni-range pool — both marks come from the Uni spot.
 4. Measure inventory / depth / slippage for the same notional.
 
-### Manual Admin wiring (Chapel — queued 2026-07-10)
+### Manual Admin wiring (Chapel — re-queued 2026-07-10 after piggyback redeploy)
 
 **Live Admin** (`0x35c625…`) was compiled with prod `BASE_TIMELOCK = 2 days` — ETA is baked
 into `pendingOps` and cannot be shortened without redeploying Admin **and** every Pool
@@ -50,12 +50,24 @@ untimelocked `setOracleConfig` for listed assets.
 **Source (next Chapel Admin deploy):** `Constants.govDelay` shortens tiers on chainid 97
 only — CRITICAL 1h / HIGH 30m / BASE 15m / LOW 5m (docs §7.2). Anvil + mainnet unchanged.
 
+**Redeploy note:** first queue targeted old `UniPoolOracle` `0xdC6E…803F` (obsolete). Fresh
+`requestOracleUpdate` ops overwrite `pendingOps` → new primary below.
+
 Queued on volatile pool `0xEaB818235028bE378c92115099fF206EBb11B621` → primary `UniPoolOracle`
-`0xdC6E370299476a66a03B06dFf4da2d537626803F`, feedIds from `97.uni-piggyback.json`.
+`0x93D3760b533283Fb471d735C9cA8438860f627bC`, feedIds + RangeCL pools from
+`97.uni-piggyback.json` (oracle `getPool(feedId)` already wired at deploy — no `setPool`).
+
+| Asset | RangeCL pool | feedId |
+|-------|--------------|--------|
+| BTCB | `0xf5Dd80e903158153D4d32E6C66518730251D694F` | `0xec5caa…822` |
+| ETH | `0x444a77748082031a1E05750E7ee46206292aA063` | `0xe51c61…029` |
+| WBNB | `0xf76993bdFD2d8F4a5257eE6b02B5752DfC232d9a` | `0x4b303e…7ab` |
+| XAUT | `0xB779B6fB35A3b1053f8ac4F2067BC1929Ed6F382` | `0x00683c…dfc` |
+
 USDC/USDT stay on `ExternalOracle`. XAUT `refFeedId`/`refBandBps` cleared (USDC ref
 feed is not registered on UniPoolOracle).
 
-ETA ≈ **2026-07-12 13:20–13:22 UTC**. After ETA (within 7d grace):
+ETA ≈ **2026-07-12 14:10 UTC** (± few seconds). After ETA (within 7d grace):
 
 ```bash
 cd dex/evm && set -a && source .env.chapel && set +a
@@ -75,13 +87,13 @@ do
   sleep 2
 done
 
-# Verify primary flipped (oracleConfigs map slot 5; primary in slot+2 low 160 bits)
-UNI=0xdC6E370299476a66a03B06dFf4da2d537626803F
+# Verify UniPoolOracle still reads RangeCL spot
+UNI=0x93D3760b533283Fb471d735C9cA8438860f627bC
 cast call $UNI "getFeed(bytes32)((uint64,uint64,uint32,uint32,uint16,uint16,uint16,uint16))" \
   0xec5caa54d94920f87579a1524cd9b1528084d8fdc2b7652944a4fbad1bd78222 --rpc-url $RPC
 ```
 
-Request txs: BTCB `0x19ac9ded…`, WBNB `0xd6e394a9…`, ETH `0x856be9c4…`, XAUT `0xc15a584e…`.
+Request txs (new oracle): BTCB `0x480636f6…`, ETH `0x57c9fa1a…`, WBNB `0x5f9e9ed4…`, XAUT `0x62e1e24a…`.
 
 Leave the keeper `ExternalOracle` intact for assets you still want NXR-pushed. Do **not** kill `btr-keeper oracle-daemon` while testing — just stop using its feeds for the piggybacked assets.
 
