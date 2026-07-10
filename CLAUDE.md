@@ -8,7 +8,7 @@ Custom AIMM: adaptive multi-asset AMM (hub-and-spoke routing, dynamic fees, keep
   `evm/src/libraries/Pricing.sol` (aimm + Curve/Uni/Wombat/A-S baselines); `tests/amm_sim.rs` replays
   real NX tapes via `nxr-sdk::BarFile`. `cargo test` (data-backed tests skip if `../research/data` absent).
 - `research/` — AMM research studies (stable-core, pool-fees LVR, peer-architecture notes). Py/TS analysis
-  scripts; market-data blobs live under `research/data` (gitignored). Moved from prime 2026-07-09.
+  scripts; market-data blobs live under `research/data` (gitignored).
 - `svm/`     — reserved Solana port (README only).
 - `scripts/` — tooling: `dev.ts`/`prod.ts` (orchestrators), `start-anvil.sh` (mainnet-fork anvil), `build-search-index.ts`, `precompile-markdown.ts`, slot/plot/test-data py+sh.
 - `salts/`   — CREATE3 salt registry (deterministic addresses).

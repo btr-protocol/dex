@@ -74,14 +74,15 @@ library PoolIO {
     }
 
     function checkRisk(IPool.PoolStorage storage $, address token, uint16 requiredFlag) internal view {
-        IPool.RiskConfig storage risk = $.riskConfigs[token];
-        // FROZEN (per-asset risk) OR PROTOCOL_PAUSED (guardian emergency halt) both block the asset.
-        // Compile-time const mask ⇒ same single AND+ISZERO as before ⇒ +0 runtime gas, no new SLOAD.
+        checkRiskFlags($.riskConfigs[token], requiredFlag);
+    }
+
+    /// @notice Halt/flag gate on a caller-loaded RiskConfig (shared SLOAD with decay).
+    function checkRiskFlags(IPool.RiskConfig storage risk, uint16 requiredFlag) internal view {
         if ((risk.flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
         if (requiredFlag != 0 && (risk.flags & requiredFlag) == 0) {
             if (requiredFlag == C.SWAP_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.SWAP);
             if (requiredFlag == C.LIABILITY_SWAP_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.LIABILITY_SWAP);
-            if (requiredFlag == C.FLASH_ENABLED_BIT) revert Err.FeatureDisabled(Err.Resource.FLASH);
         }
     }
 
@@ -106,7 +107,7 @@ library PoolIO {
         if (amtIn > type(uint128).max) revert Err.ExcessiveAmount(amtIn, type(uint128).max);
         aIn.reserves += uint128(amtIn);
         aOut.reserves -= uint128(q.amountOut + q.protoFee);
-        $.protocolFees[tkOut] += q.protoFee;
+        if (q.protoFee != 0) $.protocolFees[tkOut] += q.protoFee;
 
         // Depeg breaker on BOTH endpoints: a wrong-but-fresh mark on the INPUT asset (its refBand /
         // reservation band) lets a depegged token be dumped into the pool at a stale-high price and
@@ -138,14 +139,11 @@ library PoolIO {
         bool cached;
         if (oc.mode != C.ORACLE_MODE_INTERNAL) (cached, gf) = TCache.tryLoadOracleFeed(token);
         if (!cached) gf = IOracle(oc.primary).getFeed(oc.feedId);
-        // INTERNAL mode quotes off the constant peg and NEVER freshness-gates the external feed on the
-        // swap path (Pricing._readOracle returns a synthetic peg feed). Here that external feed is the
-        // depeg breaker, so a STALE gate must FAIL-CLOSED (revert) — not silently anchor the band to a
-        // corpse price. EXTERNAL mode already TTL-gated feedId while quoting, so this is internal-only.
-        if (oc.mode == C.ORACLE_MODE_INTERNAL) {
-            uint256 gAge = block.timestamp >= gf.updatedAt ? block.timestamp - gf.updatedAt : type(uint32).max;
-            if (gAge > gf.ttl) revert Err.StaleData(gAge > type(uint32).max ? type(uint32).max : uint32(gAge), gf.ttl);
-        }
+        // INTERNAL mode quotes off the constant peg and NEVER gates the external feed on the swap path
+        // (Pricing._readOracle returns a synthetic peg feed). Here that external feed is the depeg breaker,
+        // so it must FAIL-CLOSED on stale/dead/over-uncertain (ORC-10) — not silently anchor the band to a
+        // corpse or an uncertain price. EXTERNAL mode already gated feedId while quoting (cache hit above).
+        if (oc.mode == C.ORACLE_MODE_INTERNAL) Oracle.gate(gf);
         uint64 price = gf.lastPriceB64;
         // Compare in numeric (1e18) space, NOT raw uint64: B64 packs mantissa in the high bits, so
         // raw </> orders by mantissa first and is non-monotonic across a decimal-decade boundary — a
@@ -155,12 +153,10 @@ library PoolIO {
         if (hi != 0 && p > M.b64To1e18(hi)) revert Err.PriceBelowReservation(price, hi);
         if (refBand) {
             IOracle.FeedData memory ref = IOracle(oc.primary).getFeed(oc.refFeedId);
-            // Fail-closed on a stale reference (same per-feed TTL convention as Pricing._readOracle):
-            // the quoting path freshness-gates only feedId — a dead refFeedId keeper would otherwise
-            // anchor the band to a corpse price and pass/halt against dead data.
-            uint256 refAge = block.timestamp >= ref.updatedAt ? block.timestamp - ref.updatedAt : type(uint32).max;
-            if (refAge > ref.ttl) revert Err.StaleData(refAge > type(uint32).max ? type(uint32).max : uint32(refAge), ref.ttl);
-            uint256 refP = Oracle.mark(ref);
+            // ORC-10: fail-closed on a stale/dead/over-uncertain reference. The quoting path gates only
+            // feedId — a dead/uncertain refFeed keeper would otherwise anchor the band to a corpse price.
+            // Oracle.gate returns the reference mark (1e18).
+            uint256 refP = Oracle.gate(ref);
             uint256 dev = p > refP ? p - refP : refP - p;
             if (dev * SC.BPS > refP * uint256(oc.refBandBps)) revert Err.PriceBelowReservation(price, uint64(refP));
         }

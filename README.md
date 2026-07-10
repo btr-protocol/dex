@@ -9,16 +9,15 @@ This repo = Solidity contracts (`evm/`) + simulation harness. Keepers (oracle pu
 | Concern | Repo |
 |---|---|
 | dApp UI | `front` (`@btr-protocol/front`) |
-| Off-chain services (swap, collector, agents) | `back` (`@btr-protocol/back`) |
+| Off-chain services (collector, agents, docs, envio) | `back` (`@btr-protocol/back`) |
 | Shared TS types + ABIs + RPC client | `sdk` (`@btr-protocol/sdk`) |
-| Cross-chain swap aggregator | `swap` (`@btr-supply/swap`) |
 | Product + protocol docs | `docs` |
 | ALM vaults (consume DEX via `BtrPoolAdapter`) | `alm` |
 | Shared Solidity primitives (AccessControl, Treasury, Staking, GovToken, StakedAsset, PriceProvider, Errors, Constants) | `shared` (`@btr-shared/` remap) |
 
 Local layout:
 - `evm/` - Solidity (Foundry). Contracts + tests.
-- `sim/` - Rust AIMM simulation crate (`aimm-sim`): `src/amm/` mirrors `evm/src/libraries/Pricing.sol` (aimm + Curve/Uni/Wombat/A-S baselines); tests replay real NX tapes (moved from `prime` 2026-07-09).
+- `sim/` - Rust AIMM simulation crate (`aimm-sim`): `src/amm/` mirrors `evm/src/libraries/Pricing.sol` (aimm + Curve/Uni/Wombat/A-S baselines); tests replay real NX tapes.
 - `research/` - AMM research studies (stable-core, pool-fees LVR, peer architectures); data blobs gitignored.
 - `scripts/` - tooling (search index, slot computation, plotting, local dev orchestrator).
 - `salts/` - CREATE3 salt registry for deterministic addresses.
@@ -31,17 +30,18 @@ Local layout:
 | `PoolAux.sol` | Singleton cold-path dispatcher (admin setters + flash send/account). DELEGATECALL'd by every Pool clone via `fallback`. |
 | `PoolFactory.sol` | EIP-1167 minimal-proxy pool deployer via CREATE2 `cloneDeterministic` (CREATE3 is used for the singletons, not the clones). |
 | `Admin.sol` | Per-chain singleton: protocol-fee collection, risk-flag/fee curation, pool-side admin setters. |
-| `Flash.sol` | ERC-3156 flash-loan singleton — loans a pool's reserves (no minting); repay by raising the pool's token balance. |
-| `Router.sol` | Hub-and-spoke swap router (batch + multi-leg). |
+| `Flash.sol` | ERC-3156-style (postFlashLoan variant) flash-loan singleton — loans a pool's reserves (no minting); repay by raising the pool's token balance. |
 | `oracles/ExternalOracle.sol` | Keeper-push external oracle (`onlyOracle`); the fresh pushed mark (`lastPriceB64`) is the quote source. Quoting off the fresh mark — not a lagging internal EMA — is what kills LVR. Also folds an on-chain σ-EMA + a servable price EMA (reference only, never the quote). No Chainlink in the quote path. |
+
+On-chain `Router` was retired (see `AUDIT_REPORT.md` cycle 4) — routing is off-chain by design: route-finding in `sdk/src/amm` (`rankSwap`, direct + 2-hop routes across BTR's own pools) + execution calldata in `sdk/src/router` (`planToLegs` + `buildSwapCalls`).
 
 Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`, `GovToken`, `StakedAsset`, `Bridge`, `tokens/BridgeableERC20`) live in `~/Work/btr/shared` and are consumed via `@btr-shared/` remap. `Bridge.sol` = LayerZero OFT bridge; `BridgeableERC20` = ERC-7802 bridgeable token mixin.
 
 ## Libraries (`evm/src/libraries/`)
 
-`AdminTimelock`, `AnchorTree`, `Constants`, `Maths`, `Oracle`, `PoolAdmin`, `PoolAdminWrite`, `PoolBatch`, `PoolDecay`, `PoolEdge`, `PoolHookExec`, `PoolIO`, `PoolLiquidity`, `PoolSwap`, `PoolSwapQuote`, `PoolView`, `Pricing`, `Spline`, `TransientCache`.
+`AdminTimelock`, `AnchorTree`, `Constants`, `Maths`, `Oracle`, `PoolAdmin`, `PoolAdminWrite`, `PoolBatch`, `PoolDecay`, `PoolEdge`, `PoolIO`, `PoolLiquidity`, `PoolSwap`, `PoolSwapQuote`, `PoolView`, `Pricing`, `Spline`, `TransientCache`.
 
-`PoolSwap` (entry + I/O) DELEGATECALLs into `PoolSwapQuote` (post-quote pipeline) so both fit under EIP-170 (Phase 42K.10D.B2 split).
+`PoolSwap` (entry + I/O) DELEGATECALLs into `PoolSwapQuote` (post-quote pipeline) so both fit under EIP-170.
 
 ## Build & test
 
@@ -78,4 +78,4 @@ Salt files: `salts/b712_b712.txt` (Pool Zero / Stable / Treasury / Bridge); `sal
 
 ## Documentation
 
-Canonical docs in `~/Work/btr/docs/` (Phase 40C consolidation): `dex/`, `supply/`, `swap/`, `legal/`, `shared/`. ADRs under `docs/shared/`.
+Canonical docs in `~/Work/btr/docs/`: `dex/`, `protocol/`, `legal/`, `security/`, `concepts/`, `reference/`.

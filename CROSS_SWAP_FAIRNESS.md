@@ -92,7 +92,7 @@ invariant across the cross; there is no transient wall or skew to double-count, 
    (`:344, :358`). It is the **max** (not sum) of the two spokes' minFee/σ/confidence
    (`:379-385`) — a cross keys to the *worse* spoke, never the sum.
 2. **ONE convex coverage toll** `_covToll` on the **output spoke only** (`:350, :653`); base
-   `kappaCovBps = 0` ⇒ "numeraire never walled" (`:422`).
+   `kappaCovBps = 0` ⇒ "numeraire never walled" (`:427`).
 3. **Inventory skew on the two endpoint spokes only** (`cacheIn`/`cacheOut`, `:362-363`); the interior
    base hub is only halt/depeg-checked, never skewed or tolled.
 
@@ -127,7 +127,7 @@ compounding joint curve, never an over-charge.
 
 ## 3. Peer comparison — BTR vs DoDo / Lifinity / Hashflow
 
-Full write-up (cited, code-verified) in `prime/research/PEER_ARCHITECTURES.md`.
+Full write-up (cited, code-verified) in `dex/research/PEER_ARCHITECTURES.md`.
 
 | Axis | DoDo (PMM) | Lifinity | Hashflow | **BTR AIMM** | Verdict |
 |---|---|---|---|---|---|

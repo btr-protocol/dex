@@ -36,6 +36,11 @@ contract TestnetDeploy is Deploy {
         TestnetERC20 usd1;
         TestnetERC20 usde;
         TestnetERC20 fdusd;
+        // Faucet-only stables (not in launch stable-core pool).
+        TestnetERC20 u;
+        TestnetERC20 tusd;
+        TestnetERC20 usdf;
+        TestnetERC20 usdd;
         TestnetERC20 btcb;
         TestnetERC20 eth;
         TestnetERC20 wbnb;
@@ -59,11 +64,13 @@ contract TestnetDeploy is Deploy {
         address oraclePusher = vm.envOr("ORACLE_PUSHER", deployer);
         address wnative = vm.envOr("WNATIVE", address(0xCAFE));
         uint256 seedUsdc = vm.envOr("SEED_USDC", uint256(2_000_000 ether));
+        uint256 pk = vm.envUint("DEPLOYER_PK");
 
-        vm.startBroadcast(deployer);
+        vm.startBroadcast(pk);
 
         out.tok = _deployTokens();
-        out.faucet = new TestnetFaucet();
+        out.faucet = new TestnetFaucet(deployer);
+        _configureFaucet(out);
         out.oracle = new ExternalOracle(out.core.ac, deployer);
         if (oraclePusher != deployer) {
             out.oracle.grantOracle(oraclePusher);
@@ -88,11 +95,50 @@ contract TestnetDeploy is Deploy {
         t.usd1 = new TestnetERC20("World Liberty USD", "USD1", 18);
         t.usde = new TestnetERC20("Ethena USDe", "USDE", 18);
         t.fdusd = new TestnetERC20("First Digital USD", "FDUSD", 18);
+        t.u = new TestnetERC20("United Stable", "U", 18);
+        t.tusd = new TestnetERC20("TrueUSD", "TUSD", 18);
+        t.usdf = new TestnetERC20("Astherus USDF", "USDF", 18);
+        t.usdd = new TestnetERC20("USDD", "USDD", 18);
         t.btcb = new TestnetERC20("Bitcoin BEP20", "BTCB", 18);
         t.eth = new TestnetERC20("Ethereum Peg", "ETH", 18);
         t.wbnb = new TestnetERC20("Wrapped BNB", "WBNB", 18);
         t.cake = new TestnetERC20("PancakeSwap", "CAKE", 18);
         t.xaut = new TestnetERC20("Tether Gold", "XAUT", 18);
+    }
+
+    function _configureFaucet(TestnetAddrs memory ctx) internal {
+        Tokens memory t = ctx.tok;
+        address[] memory tokens = new address[](13);
+        uint256[] memory caps = new uint256[](13);
+        // Stables: $10k/day each
+        tokens[0] = address(t.usdc);
+        caps[0] = 10_000 ether;
+        tokens[1] = address(t.usdt);
+        caps[1] = 10_000 ether;
+        tokens[2] = address(t.usd1);
+        caps[2] = 10_000 ether;
+        tokens[3] = address(t.usde);
+        caps[3] = 10_000 ether;
+        tokens[4] = address(t.fdusd);
+        caps[4] = 10_000 ether;
+        tokens[5] = address(t.u);
+        caps[5] = 10_000 ether;
+        tokens[6] = address(t.tusd);
+        caps[6] = 10_000 ether;
+        tokens[7] = address(t.usdf);
+        caps[7] = 10_000 ether;
+        tokens[8] = address(t.usdd);
+        caps[8] = 10_000 ether;
+        // Volatiles
+        tokens[9] = address(t.btcb);
+        caps[9] = 0.1 ether;
+        tokens[10] = address(t.eth);
+        caps[10] = 5 ether;
+        tokens[11] = address(t.wbnb);
+        caps[11] = 10 ether;
+        tokens[12] = address(t.cake);
+        caps[12] = 4_000 ether;
+        ctx.faucet.setCaps(tokens, caps);
     }
 
     function _seedFeeds(ExternalOracle oracle, Tokens memory t) internal returns (bytes32 usdcFeed) {
@@ -105,11 +151,12 @@ contract TestnetDeploy is Deploy {
         _addPairFeed(oracle, address(t.usde), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
         _addPairFeed(oracle, address(t.fdusd), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
 
-        _addPairFeed(oracle, address(t.btcb), usdc, M.encodeB64(62_000e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
-        _addPairFeed(oracle, address(t.eth), usdc, M.encodeB64(3_100e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
-        _addPairFeed(oracle, address(t.wbnb), usdc, M.encodeB64(610e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
-        _addPairFeed(oracle, address(t.cake), usdc, M.encodeB64(2.4e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
-        _addPairFeed(oracle, address(t.xaut), usdc, M.encodeB64(2_380e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
+        // Seed marks ≈ mid-2026 Chapel NXR levels — keep within maxDeviation of live keeper catch-up.
+        _addPairFeed(oracle, address(t.btcb), usdc, M.encodeB64(64_300e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
+        _addPairFeed(oracle, address(t.eth), usdc, M.encodeB64(1_795e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
+        _addPairFeed(oracle, address(t.wbnb), usdc, M.encodeB64(574e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
+        _addPairFeed(oracle, address(t.cake), usdc, M.encodeB64(1.39e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
+        _addPairFeed(oracle, address(t.xaut), usdc, M.encodeB64(4_090e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL);
     }
 
     function _addPairFeed(
@@ -167,6 +214,10 @@ contract TestnetDeploy is Deploy {
             admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, 1000, 100_000, 10_000, 10_000);
         }
 
+        // Pin base oracle for depeg halt; seal bootstrap so later listings require timelock.
+        admin.setBaseTokenOracle(poolAddr, address(ctx.oracle), ctx.usdcFeedId);
+        admin.sealBootstrap(poolAddr);
+
         _seedPool(pool, ctx.tok, tokens, seedUsdc);
     }
 
@@ -219,7 +270,7 @@ contract TestnetDeploy is Deploy {
         for (uint256 i = 0; i < tokens.length; i++) {
             address tok = tokens[i];
             uint256 amt = _seedAmount(tok, t, seedUsdc);
-            TestnetERC20(tok).mint(address(this), amt);
+            TestnetERC20(tok).mint(msg.sender, amt);
             IERC20(tok).approve(address(pool), type(uint256).max);
             pool.deposit(tok, amt);
         }
@@ -230,35 +281,39 @@ contract TestnetDeploy is Deploy {
             || tok == address(t.fdusd)) {
             return seedUsdc;
         }
-        if (tok == address(t.btcb)) return seedUsdc * 1e18 / 62_000e18;
-        if (tok == address(t.eth)) return seedUsdc * 1e18 / 3_100e18;
-        if (tok == address(t.wbnb)) return seedUsdc * 1e18 / 610e18;
-        if (tok == address(t.cake)) return seedUsdc * 1e18 / 2.4e18;
-        if (tok == address(t.xaut)) return seedUsdc * 1e18 / 2_380e18;
+        if (tok == address(t.btcb)) return seedUsdc * 1e18 / 64_300e18;
+        if (tok == address(t.eth)) return seedUsdc * 1e18 / 1_795e18;
+        if (tok == address(t.wbnb)) return seedUsdc * 1e18 / 574e18;
+        if (tok == address(t.cake)) return seedUsdc * 1e18 / 1.39e18;
+        if (tok == address(t.xaut)) return seedUsdc * 1e18 / 4_090e18;
         return seedUsdc;
     }
 
     function _fundFaucet(TestnetAddrs memory ctx) internal {
-        address[] memory all = _allTokens(ctx.tok);
+        // Fund only claimable tokens (XAUT has no faucet cap).
+        address[] memory all = new address[](13);
+        Tokens memory t = ctx.tok;
+        all[0] = address(t.usdc);
+        all[1] = address(t.usdt);
+        all[2] = address(t.usd1);
+        all[3] = address(t.usde);
+        all[4] = address(t.fdusd);
+        all[5] = address(t.u);
+        all[6] = address(t.tusd);
+        all[7] = address(t.usdf);
+        all[8] = address(t.usdd);
+        all[9] = address(t.btcb);
+        all[10] = address(t.eth);
+        all[11] = address(t.wbnb);
+        all[12] = address(t.cake);
         for (uint256 i = 0; i < all.length; i++) {
-            TestnetERC20(all[i]).mint(address(this), 1_000_000 ether);
+            // Volatile caps are small — still prefund generously for many claimers.
+            uint256 amt = 1_000_000 ether;
+            if (all[i] == address(t.btcb)) amt = 100 ether;
+            TestnetERC20(all[i]).mint(msg.sender, amt);
             IERC20(all[i]).approve(address(ctx.faucet), type(uint256).max);
-            ctx.faucet.fund(all[i], 500_000 ether);
+            ctx.faucet.fund(all[i], amt);
         }
-    }
-
-    function _allTokens(Tokens memory t) internal pure returns (address[] memory list) {
-        list = new address[](10);
-        list[0] = address(t.usdc);
-        list[1] = address(t.usdt);
-        list[2] = address(t.usd1);
-        list[3] = address(t.usde);
-        list[4] = address(t.fdusd);
-        list[5] = address(t.btcb);
-        list[6] = address(t.eth);
-        list[7] = address(t.wbnb);
-        list[8] = address(t.cake);
-        list[9] = address(t.xaut);
     }
 
     function _logTestnet(TestnetAddrs memory a) internal view {
@@ -287,6 +342,10 @@ contract TestnetDeploy is Deploy {
         vm.serializeAddress(k, "usd1", address(a.tok.usd1));
         vm.serializeAddress(k, "usde", address(a.tok.usde));
         vm.serializeAddress(k, "fdusd", address(a.tok.fdusd));
+        vm.serializeAddress(k, "u", address(a.tok.u));
+        vm.serializeAddress(k, "tusd", address(a.tok.tusd));
+        vm.serializeAddress(k, "usdf", address(a.tok.usdf));
+        vm.serializeAddress(k, "usdd", address(a.tok.usdd));
         vm.serializeAddress(k, "btcb", address(a.tok.btcb));
         vm.serializeAddress(k, "eth", address(a.tok.eth));
         vm.serializeAddress(k, "wbnb", address(a.tok.wbnb));

@@ -44,6 +44,11 @@ library PoolAdmin {
     ///         the wall it is meant to erect — mutually exclusive by construction, enforced here.
     function validateRiskConfig(IPool.RiskConfig memory cfg) internal pure {
         if (cfg.kappaCovBps > 0 && cfg.depthAmplifier > 0) revert Err.BadConfig();
+        // PRC-02: the coverage band (0.01% units) MUST straddle parity (1.0 = BPS). coverageMax ≤ BPS
+        // makes a HEALTHY leg (c ≥ 1) fall into computeInventorySkew's max-DISCOUNT branch — a skew
+        // sign-reversal that quotes a premium-to-the-trader and drains a healthy pool; coverageMin ≥ BPS
+        // pins a permanent +100 premium. Enforce coverageMin < parity < coverageMax.
+        if (cfg.coverageMin >= SC.BPS || cfg.coverageMax <= SC.BPS) revert Err.BadConfig();
     }
 
     /// @notice Normalize dispersion bounds: 0 → protocol default (min 1000, max 100000). Enforces the
@@ -99,6 +104,10 @@ library PoolAdmin {
         uint16 gamma,
         uint16 vega
     ) internal {
+        // CFG-01: decimals==0 collides with the not-configured sentinel (the asset would read as absent
+        // everywhere `decimals==0` gates); decimals>18 underflows 10**(18-decimals) in _legExecPriceB64 /
+        // _legScaleOut → every quote reverts (asset accepted-but-unquotable). Bound at config time.
+        if (decimals == 0 || decimals > 18) revert Err.InvalidDecimals();
         IPool.Asset storage asset = $.assets[t];
         asset.decimals = decimals;
         asset.minFeeBps = minFeeBps;

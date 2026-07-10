@@ -28,6 +28,12 @@ contract Admin is IAdmin {
     ///      Wave-1: demoted public→internal (consumed only by `_consume`/`_cancel`).
     mapping(bytes32 => bytes) internal pendingData;
 
+    /// @notice GOV-03: per-pool bootstrap seal. The direct (untimelocked) `addAsset` is a listing
+    ///         convenience for the pre-liquidity bootstrap window ONLY; once `sealBootstrap` is called it
+    ///         is permanently closed and ALL later listings must go through the timelocked
+    ///         requestAddAsset/executeAddAsset path (LP exit notice). Sealing is a one-way latch.
+    mapping(address pool => bool) public bootstrapSealed;
+
     // ── op-id namespaces (per-pool) ──
     bytes32 private constant OP_ADD_ASSET            = keccak256("ADD_ASSET");
     bytes32 private constant OP_UPDATE_RISK          = keccak256("UPDATE_RISK");
@@ -147,11 +153,22 @@ contract Admin is IAdmin {
         uint16 gamma,
         uint16 vega
     ) external onlyAdmin {
+        // GOV-03: after the pool is sealed, the ONLY listing path is the timelocked one (no instant
+        // malicious oracle/risk listing against live LPs). Same sink as executeAddAsset, minus the delay,
+        // so it is bootstrap-only.
+        if (bootstrapSealed[pool]) revert Err.InvalidState();
         IPool(pool).adminInitAsset(
             token, oracleCfg, riskCfg, profile, minFeeBps, decimals,
             minDispersion, maxDispersion, gamma, vega
         );
         emit AssetAdded(pool, token, decimals, 0);
+    }
+
+    /// @notice GOV-03: permanently close the direct `addAsset` bootstrap path for a pool. Call once
+    ///         BEFORE opening the pool to public liquidity; afterwards every listing is timelocked.
+    function sealBootstrap(address pool) external onlyAdmin {
+        bootstrapSealed[pool] = true;
+        emit BootstrapSealed(pool);
     }
 
     function collectProtocolFees(address pool, address token, address recipient) external {
@@ -179,6 +196,7 @@ contract Admin is IAdmin {
     ///         legacy stable-base 1e18-hardcoded path.
     function setBaseTokenOracle(address pool, address oracle, bytes32 feedId) external onlyAdmin {
         IPool(pool).adminSetBaseTokenOracle(oracle, feedId);
+        emit BaseTokenOracleSet(pool, oracle, feedId); // OBS-03: safety-critical re-pin was invisible
     }
 
     function setAssetParams(

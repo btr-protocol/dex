@@ -26,6 +26,8 @@ interface IAdmin {
         uint16 vega
     ) external;
     function collectProtocolFees(address pool, address token, address recipient) external;
+    function sealBootstrap(address pool) external;
+    function bootstrapSealed(address pool) external view returns (bool);
     function setFlowCooldown(address pool, uint16 cooldownSeconds) external;
     function setAnchor(address pool, address token, address anchor) external;
     function setAssetParams(
@@ -113,4 +115,8 @@ interface IAdmin {
     event TreasuryUpdated(address indexed pool, address indexed oldTreasury, address indexed newTreasury);
     event BaseTokenMigrated(address indexed pool, address indexed oldBase, address indexed newBase);
     event OracleUpdated(address indexed pool, address indexed token);
+    /// @dev GOV-03: direct bootstrap listing path permanently sealed for `pool`.
+    event BootstrapSealed(address indexed pool);
+    /// @dev OBS-03: base-token depeg oracle (re-)pinned — untimelocked SAFETY config, now observable.
+    event BaseTokenOracleSet(address indexed pool, address indexed oracle, bytes32 feedId);
 }

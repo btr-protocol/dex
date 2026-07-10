@@ -9,6 +9,7 @@ import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.so
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Pricing} from "./libraries/Pricing.sol";
 import {Constants as C} from "./libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 
 /// @title Flash
 /// @notice Standalone singleton ERC-3156 flash-loan provider.
@@ -27,6 +28,12 @@ contract Flash is IFlash, ReentrancyGuardTransient {
         uint256 amount,
         bytes calldata data
     ) external override nonReentrant returns (bool) {
+        // FLS-01: reject the EIP-7528 native sentinel (0xEeee…). It has no code, so `balanceOf(sentinel,
+        // pool)` reads 0 both before AND after the loan — the repay check `balanceAfter < balanceBefore +
+        // fee` then passes at fee==0 (full principal drain) and fail-closes as DoS at fee>0, while the
+        // pool actually pushes/expects wnative. The pool holds wnative (ERC-20) as the asset, so a flash
+        // borrower MUST request wnative directly (correct ERC-20 balanceOf accounting).
+        if (token == SC.NATIVE) revert Err.FeatureDisabled(Err.Resource.FLASH);
         // Read pool state via views.
         IPool.Asset memory asset = IPool(pool).getAsset(token);
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, token);
@@ -63,6 +70,7 @@ contract Flash is IFlash, ReentrancyGuardTransient {
     }
 
     function maxFlashLoan(address pool, address token) external view override returns (uint256) {
+        if (token == SC.NATIVE) return 0; // FLS-01: native sentinel is not loanable (request wnative)
         IPool.Asset memory asset = IPool(pool).getAsset(token);
         uint16 flags = IPool(pool).getRiskFlags(token);
         if ((flags & C.FLASH_ENABLED_BIT) == 0) return 0;
@@ -71,7 +79,8 @@ contract Flash is IFlash, ReentrancyGuardTransient {
         return uint256(asset.reserves - asset.minLiquidity);
     }
 
-    function flashFee(address pool, address /*token*/, uint256 amount) external view override returns (uint256) {
+    function flashFee(address pool, address token, uint256 amount) external view override returns (uint256) {
+        if (token == SC.NATIVE) revert Err.FeatureDisabled(Err.Resource.FLASH); // FLS-01: unsupported token
         IPool.FeeParams memory fp = IPool(pool).getFeeParams();
         return (amount * uint256(fp.flashFeeBps)) / 1_000_000;
     }

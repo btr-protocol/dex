@@ -1,28 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-/// @title Constants -AIMM-specific constants (dex-local)
+/// @title Constants — AIMM-specific constants (dex-local)
 /// @dev Generic precision/timelock/sentinel constants live in @btr-shared/Constants.sol.
 library Constants {
-    // Phase 42H.B.3d -ERC-7201 storage locations removed (plain state vars on Pool).
-
     // --- Risk flags ---
     uint16 internal constant FROZEN_BIT = 1 << 0;
     uint16 internal constant SWAP_ENABLED_BIT = 1 << 1;
     uint16 internal constant LIABILITY_SWAP_ENABLED_BIT = 1 << 2;
     uint16 internal constant DECAY_ENABLED_BIT = 1 << 3;
     uint16 internal constant FLASH_ENABLED_BIT = 1 << 4;
-    uint16 internal constant FEE_ON_TRANSFER_BIT = 1 << 5;
-    // bit 6 (was RESERVED, ex-STAKEABLE): PROTOCOL_PAUSED. A guardian-set emergency halt, kept SEPARATE
-    // from FROZEN_BIT so unpausing never clobbers an independent per-asset risk freeze. Read on the swap
-    // hot path via the same const mask in checkRisk (+0 runtime gas). ABI/flag-audit note: bit reclaimed.
+    // bit 5 reserved (ex FEE_ON_TRANSFER — unused; pull always uses balance-delta)
+    /// @dev Guardian emergency halt, separate from FROZEN so unpause never clears a risk freeze.
     uint16 internal constant PROTOCOL_PAUSED_BIT = 1 << 6;
-    uint16 internal constant BRIDGEABLE_BIT = 1 << 7;
-    // Halt mask — an asset is halted for ALL value-moving ops (swap, flash, deposit, interior-hop
-    // transit) if EITHER a per-asset risk FREEZE or a guardian PROTOCOL_PAUSE is set. Use this single
-    // mask at every gate so the two halt bits can never silently diverge (a pause that stops swaps but
-    // leaves flash loans / interior-hop routing open is exactly the bypass this prevents).
+    // bit 7 reserved (ex BRIDGEABLE — bridgeability is Bridge token-config only)
+    /// @dev Halt = freeze | pause. Single mask at every value-moving gate.
     uint16 internal constant HALT_MASK = FROZEN_BIT | PROTOCOL_PAUSED_BIT;
+
+    /// @dev Share↔value index base. value = lp·index/WAD.
+    uint256 internal constant LIQUIDITY_INDEX_INIT = 1e12;
 
     // --- On-chain EMA (ExternalOracle reference price) ---
     /// @notice Rate-clamp gain: a single push may move the EMA at most K_BAND·confidence (bps) toward
@@ -74,9 +70,4 @@ library Constants {
     uint32 internal constant SIGMA_BAND_FLOOR_PBPS = 1_000; // 0.1%
     /// @notice Cap on σ-EMA and pushed samples (10_000% = 100× in PBPS units).
     uint32 internal constant MAX_SIGMA_PBPS = 100_000_000;
-
-    // --- Greek var legend (auditors) ---
-    // ψ inventorySkew [-100,+100] · π progress [0,1] · γ gamma BPS · ν vega BPS
-    // η haircutSuppressor BPS · σ volatility PBPS · Δ delta PBPS · κ dispersion PBPS
-    // Coverage: c = (R*WAD)/L · Spread S = 100 + (σ*ν)/100 · ψ = sign*γ*π/100 · Fee φ = (x*S)/(2*PBPS)
 }

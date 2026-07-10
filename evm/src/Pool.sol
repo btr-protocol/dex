@@ -7,28 +7,14 @@ import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.so
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Pricing} from "./libraries/Pricing.sol";
 import {Constants as C} from "./libraries/Constants.sol";
-import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolBatch} from "./libraries/PoolBatch.sol";
 import {PoolLiquidity} from "./libraries/PoolLiquidity.sol";
 import {PoolSwap} from "./libraries/PoolSwap.sol";
 import {PoolView} from "./libraries/PoolView.sol";
+import {PoolIO} from "./libraries/PoolIO.sol";
 
-/// @dev Wave-3 deferral: Solady `Ownable` retained on 9 dex contracts pre-deploy
-///      (Bridge, Distributor, PoolFactory, Treasury, Admin, Staking,
-///      ExternalOracle, StakedToken, GovToken). Full migration to Err.NotOwner
-///      planned post-deployment. See Phase 42K.10D-Wave3 carve-out.
-/// @title Pool -standalone AIMM (no proxy, no modules, no ERC-7201 indirection)
-/// @notice Phase 42H.B.3d -drops ERC-7201, deletes Base.sol, collapses PoolProxy.
-///         Each pool instance is a direct EIP-1167 minimal-proxy clone of this impl
-///         (deployment via PoolFactory). Per-clone state is initialized via initialize().
-/// @dev Wave-3a (EIP-170): cold-path selectors (all admin*/staking/flash) routed via
-///      `fallback()` DELEGATECALL to the PoolAux singleton.
-///      Hot-path entries (swap, deposit, withdraw, frequently-called views) remain
-///      explicit. ABI surface unchanged from callers' perspective — fallback forwards
-///      msg.data transparently.
-/// @dev STORAGE LAYOUT (Phase 42H.B.3d intentional decision):
-///      `IPool.PoolStorage $` lives at slot 0 of every clone. PoolAux mirrors the
-///      same layout so delegatecalls hit the right slots.
+/// @title Pool — standalone AIMM (EIP-1167 clone; cold paths → PoolAux).
+/// @dev `$` at slot 0; PoolAux mirrors the same layout for DELEGATECALL.
 contract Pool is ReentrancyGuardTransient {
     // ────────────────────────────────────────────────────────────────
     // STORAGE (slot 0; mirrored in PoolAux)
@@ -59,28 +45,10 @@ contract Pool is ReentrancyGuardTransient {
         poolAux = poolAux_;
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // CONSTANTS
-    // ────────────────────────────────────────────────────────────────
-
-    uint256 private constant INIT_LIQUIDITY_INDEX = 1e12;
-
-    // Cohort-3 Finding 1 -Deposited/Withdrawn/LiabilitySwapped/Donated event
-    // declarations dropped: emitted only from PoolLiquidity (declared there +
-    // in IPool canonical surface). ABI unchanged.
-
-    // ────────────────────────────────────────────────────────────────
-    // MODIFIERS
-    // ────────────────────────────────────────────────────────────────
-
     modifier whenInitialized() {
         if (!$.initialized) revert Err.InvalidState();
         _;
     }
-
-    // ────────────────────────────────────────────────────────────────
-    // INITIALIZE (per-clone)
-    // ────────────────────────────────────────────────────────────────
 
     function initialize(
         address baseToken_,
@@ -88,25 +56,19 @@ contract Pool is ReentrancyGuardTransient {
         IPool.FeeParams calldata feeParams
     ) external {
         if ($.initialized) revert Err.InvalidState();
+        if (wnative_ == address(0)) revert Err.ZeroAddr();
         if (feeParams.protoShare > 100) revert Err.InvalidInput();
         $.baseToken = baseToken_;
         $.wnative = wnative_;
         $.feeParams = feeParams;
         $.flowCooldownSeconds = C.DEFAULT_FLOW_COOLDOWN;
+        $.factory = msg.sender;
         $.initialized = true;
         emit IPool.PoolInitialized(_owner(), baseToken_, wnative_);
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // HELPERS
-    // ────────────────────────────────────────────────────────────────
-
     function _owner() internal view returns (address) {
         return AccessControl(AC).owner();
-    }
-
-    function _wrap(address token) internal view returns (address) {
-        return token == SC.NATIVE ? $.wnative : token;
     }
 
     /// @notice ERC7802 bridge auth -bridgeable tokens query this.
@@ -174,7 +136,7 @@ contract Pool is ReentrancyGuardTransient {
         address tokenOut,
         uint256 amountIn
     ) external view returns (IPool.SwapQuote memory) {
-        return Pricing.getAnchorPathQuoteView($, _wrap(tokenIn), _wrap(tokenOut), amountIn);
+        return Pricing.getAnchorPathQuoteView($, PoolIO.wrap($, tokenIn), PoolIO.wrap($, tokenOut), amountIn);
     }
 
     function batchSwap(
@@ -192,19 +154,19 @@ contract Pool is ReentrancyGuardTransient {
     function treasury() external view returns (address) { return $.treasury; }
 
     function getAsset(address tk) external view returns (IPool.Asset memory) {
-        return $.assets[_wrap(tk)];
+        return $.assets[PoolIO.wrap($, tk)];
     }
     function previewWithdraw(address tk, uint256 lp) external view returns (uint256, uint256) {
         return PoolView.previewWithdraw($, tk, lp);
     }
     function getLPBalance(address u, address tk) external view returns (uint256) {
-        return $.lpBalances[u][_wrap(tk)];
+        return $.lpBalances[u][PoolIO.wrap($, tk)];
     }
     function getProtocolFees(address tk) external view returns (uint256) {
-        return $.protocolFees[_wrap(tk)];
+        return $.protocolFees[PoolIO.wrap($, tk)];
     }
     function getRiskFlags(address tk) external view returns (uint16) {
-        return $.riskConfigs[_wrap(tk)].flags;
+        return $.riskConfigs[PoolIO.wrap($, tk)].flags;
     }
     function getFeeParams() external view returns (IPool.FeeParams memory) { return $.feeParams; }
     function getCoverageRatio(address tk) external view returns (uint256) {

@@ -4,37 +4,39 @@ pragma solidity =0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {Constants as C} from "./Constants.sol";
 
-/// @title PoolDecay -liability decay math + storage update for Pool.
-/// @notice Phase 42H.D · Round 2 · G1 LOC reduction -extracted from `Pool.sol`
-///         (was `_applyDecay` + `_calculateDecay`). Keeps Pool focused on user-flow
-///         orchestration and isolates the time-decay rule for audit clarity.
-/// @dev    Same delegatecall-free model as `Pricing`. Internal lib calls inline
-///         at the call-site → identical gas vs prior private helpers.
+/// @title PoolDecay — liability decay math + storage update for Pool.
 library PoolDecay {
-    /// @notice Apply liability decay to a single asset slot in-place.
-    /// @dev    Reads `riskConfigs[token]` for slope/threshold, writes `asset.lastUpdate`
-    ///         + decremented `asset.liabilities`. No-op when DECAY disabled or slope=0.
+    /// @notice Apply liability decay in-place. Full no-op when decay is disabled (no SSTORE).
     function applyDecay(IPool.PoolStorage storage $, address token, IPool.Asset storage asset) internal {
-        IPool.RiskConfig storage rc = $.riskConfigs[token];
-        if ((rc.flags & C.DECAY_ENABLED_BIT) == 0 || rc.decaySlope == 0) {
-            asset.lastUpdate = uint32(block.timestamp);
-            return;
-        }
+        applyDecay(asset, $.riskConfigs[token]);
+    }
+
+    /// @notice Same as applyDecay but reuses a caller-loaded RiskConfig (avoids re-SLOAD).
+    function applyDecay(IPool.Asset storage asset, IPool.RiskConfig storage rc) internal {
+        if ((rc.flags & C.DECAY_ENABLED_BIT) == 0 || rc.decaySlope == 0) return;
 
         uint32 dt = uint32(block.timestamp) - asset.lastUpdate;
         if (dt == 0) return;
 
+        uint128 oldLiab = asset.liabilities;
         uint128 decayAmount = calculateDecay(
-            asset.liabilities, asset.reserves, rc.decayStartRatioBps, rc.decaySlope, dt
+            oldLiab, asset.reserves, rc.decayStartRatioBps, rc.decaySlope, dt
         );
 
-        if (decayAmount > 0) asset.liabilities -= decayAmount;
+        if (decayAmount > 0) {
+            uint128 newLiab = oldLiab - decayAmount;
+            // Socialize write-down via liquidity index (value = lp·index/WAD). Floor index at 1.
+            if (newLiab > 0) {
+                uint256 idx = asset.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : asset.liquidityIndex;
+                uint256 scaled = (idx * uint256(newLiab)) / uint256(oldLiab);
+                asset.liquidityIndex = uint64(scaled == 0 ? 1 : scaled);
+            }
+            asset.liabilities = newLiab;
+        }
         asset.lastUpdate = uint32(block.timestamp);
     }
 
-    /// @notice Pure decay calculation -coverage-gated linear amortization.
-    /// @dev    Returns 0 when coverage (reserves/liabilities) ≥ threshold OR dt=0.
-    ///         Cap = `liabilities − reserves` (cannot decay below the deficit).
+    /// @notice Coverage-gated linear amortization. Cap = liabilities − reserves.
     function calculateDecay(
         uint128 liabilities,
         uint128 reserves,
@@ -43,8 +45,9 @@ library PoolDecay {
         uint32 dt
     ) internal pure returns (uint128) {
         if (dt == 0 || decaySlope == 0 || liabilities == 0) return 0;
-        uint256 coverage = liabilities == 0 ? type(uint256).max : (uint256(reserves) * 1e18) / uint256(liabilities);
-        uint256 threshold = (uint256(decayStartRatioBps) * 1e18) / 1_000_000;
+        uint256 coverage = (uint256(reserves) * 1e18) / uint256(liabilities);
+        // decayStartRatioBps is BPS (1e4 = 100%) → WAD threshold = bps·1e18/1e4.
+        uint256 threshold = (uint256(decayStartRatioBps) * 1e18) / 10_000;
         if (coverage >= threshold) return 0;
         uint256 rawDecay = (uint256(liabilities) * uint256(decaySlope) * uint256(dt)) / 1e18;
         uint256 maxDecay = liabilities > reserves ? liabilities - reserves : 0;
