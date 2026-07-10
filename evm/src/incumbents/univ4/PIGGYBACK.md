@@ -67,7 +67,7 @@ Queued on volatile pool `0xEaB818235028bE378c92115099fF206EBb11B621` → primary
 USDC/USDT stay on `ExternalOracle`. XAUT `refFeedId`/`refBandBps` cleared (USDC ref
 feed is not registered on UniPoolOracle).
 
-ETA ≈ **2026-07-12 14:10 UTC** (± few seconds). After ETA (within 7d grace):
+ETA ≈ **2026-07-12 14:27 UTC**. After ETA (within 7d grace):
 
 ```bash
 cd dex/evm && set -a && source .env.chapel && set +a
