@@ -108,9 +108,11 @@ INFO residuals (not defects):
 |---|---|---|---|
 | 1 | 10 (gas/lean) + A-07 | Low | −6.0k |
 | 2 | A2-1 + 3 gas/lean | Low | −6.3k cumulative |
-| 3 | **0** | — | converged |
+| 3 | **0** | — | interim converge |
+| 4 | 3 lean deletes | — | lean only |
+| 5 | **0** | — | **CONVERGED** |
 
-**3 cycles · Grok 4.5 only · 0 CRITICAL/HIGH · warm swap ≈ −10% · final batch zero-actionable.**
+**5 cycles · Grok 4.5 only · 0 CRITICAL/HIGH · warm swap ≈ −10% · cycles 4–5 zero Fix-now security/gas.**
 
 _Method: auditors/challengers read-only; engineer applied fixes; each cycle re-audited the fixed tree. `GasProbe.t.sol` is the gas SSoT._
 
@@ -129,3 +131,11 @@ Gas/Lean: G4-1/G4-2 overstated by challenger (≤350, deferred). Lean deletes co
 | L4-3 | LEAN | `AnchorTree.isRoot` | **FIXED** — deleted; harness/test trimmed |
 
 **Result:** actionable lean cleaned; no new gas Fix-now.
+
+---
+
+## Cycle 5 (convergence)
+
+Combined Security+Gas+Lean auditor + independent challenger → **CONVERGED** (0 Fix-now BUG/SECURITY/GAS≥200).
+
+INFO residuals unchanged: batch hub decay, stranded accidental ETH, unbounded `flashFeeBps`.
