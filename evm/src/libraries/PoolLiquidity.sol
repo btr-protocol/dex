@@ -14,8 +14,6 @@ import {PoolIO} from "./PoolIO.sol";
 ///         External lib fns DELEGATECALL'd from Pool trampolines; reentrancy
 ///         + whenInitialized enforced at the trampoline.
 library PoolLiquidity {
-    uint256 internal constant INIT_LIQUIDITY_INDEX = 1e12;
-
     // Events canonical @ IPool (Deposited / Withdrawn / LiabilitySwapped / Donated).
     function _checkCooldown(IPool.PoolStorage storage $, uint32 lastTs) private view {
         uint16 cooldown = $.flowCooldownSeconds;
@@ -38,7 +36,9 @@ library PoolLiquidity {
         uint256 factor = suppression >= 20000 ? 0 : 1e18 - (uint256(suppression) * 1e18 / 20000);
         uint256 haircutRatio = (deficit * factor) / 1e18;
         if (haircutRatio > 1e18) haircutRatio = 1e18;
-        haircutAmount = (amount * haircutRatio) / 1e18;
+        // ACC-04: round the haircut UP so `actualAmount` rounds DOWN — a floored haircut let the
+        // withdrawer over-draw ≤1 wei of an under-covered reserve. ceilDiv keeps the dust with the pool.
+        haircutAmount = (amount * haircutRatio + 1e18 - 1) / 1e18;
         actualAmount = amount - haircutAmount;
     }
 
@@ -59,7 +59,10 @@ library PoolLiquidity {
         uint256 amt = PoolIO.pull($, token, amount);
         if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
-        uint256 lpAmt = (amt * SC.WAD) / (asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex);
+        uint256 lpAmt = (amt * SC.WAD) / (asset.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : asset.liquidityIndex);
+        // ACC-03: a deposit too small to mint ≥1 LP share would still credit reserves+liabilities —
+        // free liquidity donated to existing LPs. Reject the zero-share dust deposit.
+        if (lpAmt == 0) revert Err.ZeroValue();
 
         asset.reserves += uint128(amt);
         asset.liabilities += uint128(amt);
@@ -91,7 +94,7 @@ library PoolLiquidity {
         asset.reserves += uint128(amt);
         asset.liabilities += uint128(amt);
 
-        uint256 idx = asset.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : asset.liquidityIndex;
+        uint256 idx = asset.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : asset.liquidityIndex;
         uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + amt)) / liabBefore;
         // Checked cast: liquidityIndex (uint64) is the sole share↔value converter for all LPs of this
         // asset; a raw cast would wrap on overflow and silently corrupt every holder's balance. Fail
@@ -117,6 +120,7 @@ library PoolLiquidity {
         uint256 lpAmount,
         uint256 minAmountOut
     ) external returns (IPool.WithdrawResult memory) {
+        PoolIO.requireNoFlash();
         if (lpAmount == 0) revert Err.ZeroValue();
 
         WithdrawCtx memory ctx;
@@ -143,7 +147,7 @@ library PoolLiquidity {
             PoolDecay.applyDecay($, ctx.fromTk, assetFrom);
             PoolDecay.applyDecay($, ctx.toTk, assetTo);
 
-            ctx.withdrawValue = (lpAmount * (assetFrom.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetFrom.liquidityIndex)) / SC.WAD;
+            ctx.withdrawValue = (lpAmount * (assetFrom.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : assetFrom.liquidityIndex)) / SC.WAD;
         }
 
         if (ctx.fromTk == ctx.toTk) {
@@ -214,6 +218,7 @@ library PoolLiquidity {
         uint256 lpAmountIn,
         uint256 minLpAmountOut
     ) external returns (uint256 lpAmountOut) {
+        PoolIO.requireNoFlash();
         if (lpAmountIn == 0) revert Err.ZeroValue();
 
         address inTk = PoolIO.wrap($, tokenIn);
@@ -238,7 +243,7 @@ library PoolLiquidity {
             revert Err.InsufficientAmount($.lpBalances[msg.sender][inTk], lpAmountIn);
         }
 
-        uint256 liabIn = (lpAmountIn * (assetIn.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetIn.liquidityIndex)) / SC.WAD;
+        uint256 liabIn = (lpAmountIn * (assetIn.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : assetIn.liquidityIndex)) / SC.WAD;
         if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
 
         // In-asset coverage haircut BEFORE the mark conversion, mirroring _withdrawSame: re-denominate only
@@ -263,7 +268,7 @@ library PoolLiquidity {
             (liabOut, haircut) = applyHaircut(liabOut, assetOut.reserves, assetOut.liabilities, assetOut.haircutSuppressor);
         }
 
-        lpAmountOut = (liabOut * SC.WAD) / (assetOut.liquidityIndex == 0 ? INIT_LIQUIDITY_INDEX : assetOut.liquidityIndex);
+        lpAmountOut = (liabOut * SC.WAD) / (assetOut.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : assetOut.liquidityIndex);
 
         assetIn.liabilities -= uint128(liabIn);
         assetOut.liabilities += uint128(liabOut);

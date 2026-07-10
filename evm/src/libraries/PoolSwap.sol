@@ -6,14 +6,9 @@ import {Err} from "@btr-shared/Errors.sol";
 import {Pricing} from "./Pricing.sol";
 import {Constants as C} from "./Constants.sol";
 import {PoolDecay} from "./PoolDecay.sol";
-import {PoolSwapQuote} from "./PoolSwapQuote.sol";
 import {PoolIO} from "./PoolIO.sol";
 
-/// @title PoolSwap -single-leg swap orchestration (entry + I/O wrap/pull/push).
-/// @notice Phase 42K.10D.B2: post-quote pipeline (_exec, oracle push) moved to
-///         PoolSwapQuote (external library, DELEGATECALL'd) so PoolSwap's standalone bytecode
-///         fits under EIP-170. Behavior preserved; adds ~700 gas/swap for the extra delegate hop
-///         on the cold path through PoolSwapQuote.
+/// @title PoolSwap — single-leg swap orchestration.
 library PoolSwap {
     function swap(
         IPool.PoolStorage storage $,
@@ -27,22 +22,23 @@ library PoolSwap {
         if (tk[0] == tk[1]) revert Err.InvalidInput();
         if (amountIn == 0) revert Err.ZeroValue();
 
-        IPool.Asset storage aIn  = $.assets[tk[0]];
+        IPool.Asset storage aIn = $.assets[tk[0]];
         IPool.Asset storage aOut = $.assets[tk[1]];
 
-        PoolIO.checkRisk($, tk[0], C.SWAP_ENABLED_BIT);
-        PoolIO.checkRisk($, tk[1], C.SWAP_ENABLED_BIT);
-        PoolDecay.applyDecay($, tk[0], aIn);
-        PoolDecay.applyDecay($, tk[1], aOut);
+        // One risk SLOAD per token: halt/swap gate + decay early-out (G-4).
+        IPool.RiskConfig storage rIn = $.riskConfigs[tk[0]];
+        IPool.RiskConfig storage rOut = $.riskConfigs[tk[1]];
+        PoolIO.checkRiskFlags(rIn, C.SWAP_ENABLED_BIT);
+        PoolIO.checkRiskFlags(rOut, C.SWAP_ENABLED_BIT);
+        PoolDecay.applyDecay(aIn, rIn);
+        PoolDecay.applyDecay(aOut, rOut);
 
         uint256 actualIn = PoolIO.pull($, tokenIn, amountIn);
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk[0], tk[1], actualIn);
 
-        out = PoolSwapQuote.processSwap($, tk, actualIn, q);
-
-        if (aOut.reserves < aOut.minLiquidity) {
-            revert Err.ThresholdViolation(aOut.reserves, aOut.minLiquidity);
-        }
+        // Inline former PoolSwapQuote trampoline (G-1/L-1) — exec already enforces minLiquidity (G-5).
+        out = q.amountOut;
+        PoolIO.exec($, tk[0], tk[1], actualIn, q);
 
         if (out < minAmountOut) revert Err.ThresholdViolation(out, minAmountOut);
 

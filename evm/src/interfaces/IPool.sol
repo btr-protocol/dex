@@ -125,6 +125,12 @@ interface IPool is IOracle {
         //   tests + storage-layout pins. Do not move.
         address baseTokenOracle;
         bytes32 baseTokenFeedId;
+        // REG-02: the PoolFactory that created this clone (captured from `msg.sender` in `initialize`,
+        //   which the factory calls via createPool). Lets the pool keep the factory's discovery index in
+        //   sync when NEW assets are listed (registerTokens) or the base migrates (setPoolBaseToken), so
+        //   SafetyOps enumeration finds them. 0 for a non-factory-initialized clone (sync skipped).
+        //   ⚠ Appended AT TAIL to preserve mapping slot indices + storage-layout pins. Do not move.
+        address factory;
     }
 
     event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);

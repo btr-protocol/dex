@@ -10,12 +10,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolDecay} from "./PoolDecay.sol";
 import {PoolIO} from "./PoolIO.sol";
 
-/// @title PoolBatch -batchSwap implementation extracted from Pool.sol
-/// @notice Wave-2 bytecode reduction. batchSwap routes through `PoolIO.exec`
-///         (reserve accounting); single-leg `swap` uses `PoolSwapQuote.processSwap`.
-///         External lib fn DELEGATECALL'd from Pool's `batchSwap` trampoline,
-///         so msg.sender, msg.value, and storage context all match the
-///         original inline path. Reentrancy is enforced by the trampoline.
+/// @title PoolBatch — batchSwap via PoolIO.exec (DELEGATECALL from Pool trampoline).
 library PoolBatch {
     function _processInput(
         IPool.PoolStorage storage $,
@@ -29,14 +24,18 @@ library PoolBatch {
             tk := shr(96, packed)
             amtB64 := and(shr(32, packed), 0xFFFFFFFFFFFFFFFF)
         }
-        tk = PoolIO.wrap($, tk);
+        // ACC-07: batch inputs are ERC-20 ONLY. Routing the native sentinel through pull(NATIVE) re-reads
+        // the FULL msg.value and refunds the excess PER LEG, draining the contract to stray ETH so a 2nd
+        // native leg steals stranded ETH or reverts; it also conflated wnative-as-ERC-20 input with native.
+        // Wrap ETH→WETH off-chain and pass wnative as a normal ERC-20 leg (pulled via safeTransferFrom).
+        if (tk == SC.NATIVE) revert Err.InvalidInput();
         IPool.Asset storage a = $.assets[tk];
         if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
 
         PoolIO.checkRisk($, tk, C.SWAP_ENABLED_BIT);
         PoolDecay.applyDecay($, tk, a);
 
-        uint256 amt = PoolIO.pull($, tk == $.wnative ? SC.NATIVE : tk, M.decodeB64(amtB64, a.decimals));
+        uint256 amt = PoolIO.pull($, tk, M.decodeB64(amtB64, a.decimals));
 
         if (tk == base) return amt;
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk, base, amt);
@@ -118,10 +117,12 @@ library PoolBatch {
         if (wSum != SC.BPS) revert Err.InvalidInput();
 
         for (uint256 j; j < outLen;) {
-            address tk;
-            assembly ("memory-safe") { tk := shr(96, calldataload(add(outputs.offset, mul(j, 32)))) }
-            tk = PoolIO.wrap($, tk);
-            PoolIO.push($, tk == $.wnative ? SC.NATIVE : tk, recipient, amountsOut[j]);
+            address rawTk;
+            assembly ("memory-safe") { rawTk := shr(96, calldataload(add(outputs.offset, mul(j, 32)))) }
+            // Unwrap only when caller packed the native sentinel — passing wnative as ERC-20
+            // must deliver WETH (parity with single-path swap).
+            address pushTk = rawTk == SC.NATIVE ? SC.NATIVE : PoolIO.wrap($, rawTk);
+            PoolIO.push($, pushTk, recipient, amountsOut[j]);
             unchecked { ++j; }
         }
 

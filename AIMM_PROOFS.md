@@ -22,8 +22,8 @@ State transitions (exact, from code):
 | swap, out-leg | `R −= (out + protoFee)`; `out = g − T − fee`, `lpFee` retained | — | PoolIO.sol:104–106 |
 | swap, in-leg | `R += amountIn` (full) | — | PoolIO.sol:104 |
 | deposit | `R += a` | `L += a` | PoolLiquidity.sol:64–65 |
-| same-asset withdraw | `R −= w·(1 − (1−c)·f)`, `f = 1 − s/20000` | `L −= w` | PoolLiquidity.sol:169–178 |
-| cross-withdraw | out-asset `R −= (amt + protoFee)` | from-asset `L −= w` | PoolLiquidity.sol:180–193 |
+| same-asset withdraw | `R −= w·(1 − (1−c)·f)`, `f = 1 − s/20000` | `L −= w` | PoolLiquidity.sol:174–183 |
+| cross-withdraw | out-asset `R −= (amt + protoFee)` | from-asset `L −= w` | PoolLiquidity.sol:185–208 |
 | swapLiability | — | `L_in −= liabIn`; `L_out += liabOut` | PoolLiquidity.sol:235–236 |
 
 All value-out paths (swap, batch swap, cross-withdraw, swapLiability) route through the single quote
@@ -163,7 +163,7 @@ of every asset; the attacker's loss is at least the fees paid, and the toll only
 2. *The κ=0 pricer integrates one monotone curve both ways.* Execution price is the exact
    Hermite-spline VWAP over the depth band the trade traverses (`_traverseSplineByVolume`,
    Pricing.sol:153–212), around the frozen mark. Knot monotonicity is enforced at config
-   (PoolAdmin.sol:34) and the Fritsch–Carlson tangent clamp (Spline.sol:92–123) makes the
+   (PoolAdmin.sol:34) and the Fritsch–Carlson tangent clamp (Spline.sol:128–151) makes the
    interpolant monotone — no overshoot. A sell traverses the band downward (discount side); the
    buy-back traverses the same monotone curve upward. In the continuous re-anchoring limit the
    two VWAPs are equal and the round trip loses exactly `2 × spread/2 + tolls ≥ minFee`.

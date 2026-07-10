@@ -17,6 +17,10 @@ interface IPoolFactory {
     function tokenInPool(address, address) external view returns (bool);
     function poolBaseTokens(address) external view returns (address);
 
+    function registerTokens(address[] calldata tokens) external;
+    function setPoolBaseToken(address newBase) external;
+    function deregisterPool(address pool) external;
+
     function getPoolTokens(address pool) external view returns (address[] memory);
     function getPoolsForToken(address token) external view returns (address[] memory);
     function getCommonPools(address tokenA, address tokenB) external view returns (address[] memory);
@@ -27,6 +31,8 @@ interface IPoolFactory {
 
     event PoolCreated(address indexed pool, address indexed creator, address baseToken, bool official);
     event TokensRegistered(address indexed pool, address[] tokens);
+    event PoolBaseTokenUpdated(address indexed pool, address indexed newBase);
+    event PoolDeregistered(address indexed pool);
     event ReferencePoolUpgradeRequested(address indexed oldImplementation, address indexed newImplementation, uint256 executeAt);
     event ReferencePoolUpgraded(address indexed oldImplementation, address indexed newImplementation);
     event ProtocolDeployerUpdated(address indexed oldDeployer, address indexed newDeployer);

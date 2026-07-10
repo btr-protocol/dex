@@ -2,9 +2,13 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
+import {IPoolFactory} from "../interfaces/IPoolFactory.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as C} from "./Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {AnchorTree} from "./AnchorTree.sol";
+import {Oracle} from "./Oracle.sol";
 import {PoolAdmin} from "./PoolAdmin.sol";
 import {PoolIO} from "./PoolIO.sol";
 
@@ -70,6 +74,15 @@ library PoolAdminWrite {
         PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega);
         PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
         PoolAdmin.validateInternalMode($, t, oracleCfg); // after asset init: reads reservation band
+        // REG-02: mirror the newly-listed asset into the factory discovery index so SafetyOps enumeration
+        // (pauseAsset/freezeAll over getPoolsForToken/getPoolTokens) finds assets added AFTER createPool.
+        // Runs in the pool's context (delegatecall), so msg.sender to the factory is this pool (isPool).
+        address f = $.factory;
+        if (f != address(0)) {
+            address[] memory one = new address[](1);
+            one[0] = t;
+            IPoolFactory(f).registerTokens(one);
+        }
     }
 
     function setFlowCooldown(IPool.PoolStorage storage $, uint16 cooldownSeconds) external {
@@ -119,6 +132,11 @@ library PoolAdminWrite {
         asset.haircutSuppressor = haircutSuppressor;
         asset.reservationPrice = reservationPrice;
         asset.reservationPriceMax = reservationPriceMax;
+        // ORC-01: setAssetParams can zero the absolute reservation band, which for an INTERNAL-mode asset
+        // IS the depeg breaker (it quotes off a frozen peg, gating only on this band / a refBand). Re-assert
+        // the INTERNAL eligibility so an operator cannot silently strip the breaker and leave a depegged
+        // stable draining at 1:1. No-op for EXTERNAL mode (validateInternalMode returns early).
+        PoolAdmin.validateInternalMode($, t, $.oracleConfigs[t]);
     }
 
     function setRiskConfig(IPool.PoolStorage storage $, address token, IPool.RiskConfig calldata cfg) external {
@@ -177,11 +195,36 @@ library PoolAdminWrite {
     }
 
     function setBaseToken(IPool.PoolStorage storage $, address newBase) external {
-        // Base-numeraire invariant (AIMM_PROOFS P3 / Thm 2): the coverage wall must never apply to the
-        // base. initAsset + setRiskConfig already enforce base kappaCovBps==0; enforce it across the
-        // migration path too so a base cannot be migrated onto a spoke that carries a nonzero wall.
+        address oldBase = $.baseToken;
+        if (newBase == oldBase || newBase == address(0)) revert Err.InvalidInput();
+        IPool.Asset storage newA = $.assets[newBase];
+        IPool.Asset storage oldA = $.assets[oldBase];
+        // The new base must be a LISTED asset — you cannot numeraire (price ≡ 1) an unconfigured token.
+        if (newA.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, newBase);
+        // Base-numeraire invariant (AIMM_PROOFS P3 / Thm 2): the coverage wall must never apply to the base.
         if ($.riskConfigs[newBase].kappaCovBps != 0) revert Err.BadConfig();
+        // PRC-01: setBaseToken re-numeraires the pool — after migration the base is priced ≡ 1
+        // unit-of-account. The prior naked pointer swap added ONLY the κ check, leaving the repricing hole
+        // wide open: pointing base at an asset that does NOT currently trade at ~1 (e.g. WETH at ~3000)
+        // means 1 unit of it instantly quotes as 1 unit-of-account ⇒ its reserve drains. Require the new
+        // base to already sit within the base-depeg band of parity (a $1-pegged asset), so the numeraire
+        // swap opens no repricing gap. The old base becomes a ~$1 spoke — its LP value (denominated in $1
+        // units) is unchanged, and live inventory on both hubs stays consistently priced.
+        IPool.OracleConfig storage noc = $.oracleConfigs[newBase];
+        uint256 nMark = Oracle.gate(IOracle(noc.primary).getFeed(noc.feedId)); // fresh + certain + nonzero
+        uint256 dev = nMark > SC.WAD ? nMark - SC.WAD : SC.WAD - nMark;
+        if (dev * SC.BPS > SC.WAD * uint256(C.BASE_DEPEG_HALT_BPS)) revert Err.BadConfig();
+        // Reroot the star: promote the new base to root (anchor 0); demote the old base to a direct spoke
+        // of it so the anchor graph stays a well-formed depth-1 star for AnchorTree. (Operators re-anchor
+        // the remaining spokes to the new base over the CRITICAL_TIMELOCK window.)
+        newA.anchor = address(0);
+        newA.anchorDepth = 0;
+        oldA.anchor = newBase;
+        oldA.anchorDepth = 1;
         $.baseToken = newBase;
+        // REG-02: keep the factory's cached base in sync (best-effort; skipped for a non-factory clone).
+        address f = $.factory;
+        if (f != address(0)) IPoolFactory(f).setPoolBaseToken(newBase);
     }
 
     /// @notice R44-2 (T3-HIGH2): set base-token oracle for depeg detection. `oracle == address(0)`
@@ -189,6 +232,11 @@ library PoolAdminWrite {
     ///         (no halt). When set, Pricing reads base price and reverts swaps if deviation from
     ///         1e18 exceeds `Constants.BASE_DEPEG_HALT_BPS`.
     function setBaseTokenOracle(IPool.PoolStorage storage $, address oracle, bytes32 feedId) external {
+        // GOV-04: this setter is UNTIMELOCKED because pinning/tightening the base depeg halt is
+        // "only stricter". But `oracle == address(0)` CLEARS it → reverts to the 1e18-blind legacy path =
+        // silently DISABLING the halt (a loosening the docstring wrongly claimed impossible). Once a base
+        // oracle is set, forbid clearing it; re-pinning to a different NON-zero oracle stays allowed.
+        if (oracle == address(0) && $.baseTokenOracle != address(0)) revert Err.InvalidState();
         $.baseTokenOracle = oracle;
         $.baseTokenFeedId = feedId;
     }

@@ -131,8 +131,8 @@ contract ExternalOracle is IOracle {
     function pushFeed(bytes32 feedId, uint64 newPriceB64, uint32 sigmaSample, uint16 newConfidence)
         external onlyOracle
     {
-        (uint64 ema, uint32 sigmaEma) = _pushInternal(feedId, newPriceB64, sigmaSample, newConfidence);
-        emit Pushed(feedId, newPriceB64, ema, sigmaSample, sigmaEma, newConfidence, msg.sender);
+        // OBS-01: `Pushed` is emitted inside `_pushInternal` now, so batchPush legs are observable too.
+        _pushInternal(feedId, newPriceB64, sigmaSample, newConfidence);
     }
 
     function batchPush(
@@ -233,6 +233,9 @@ contract ExternalOracle is IOracle {
             | (uint256(uint32(block.timestamp)) << 160) | (uint256(ttl) << 192) | (uint256(newConfidence) << 208)
             | (uint256(tau) << 224) | (uint256(tauSigma) << 240);
         assembly ("memory-safe") { sstore(slot, newWord) }
+        // OBS-01: per-feed event on EVERY push (single or batch leg) — indexers/keeper-drift monitors get
+        // a full per-feed mark history, not just an opaque BatchPushed(count).
+        emit Pushed(feedId, newPriceB64, ema, sigmaSample, sigmaEma, newConfidence, msg.sender);
     }
 
     function getFeed(bytes32 feedId) external view override returns (FeedData memory data) {

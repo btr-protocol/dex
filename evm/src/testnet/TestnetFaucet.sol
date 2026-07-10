@@ -3,27 +3,105 @@ pragma solidity =0.8.35;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @notice Rate-limited testnet token drip. Fund via mint+transfer or `fund()` from deployer.
+/// @notice Whitelisted testnet drip with on-chain per-token daily caps.
+/// @dev Front gates `register()` on mainnet ≥~$5 native; owner can revoke bots.
 contract TestnetFaucet {
     using SafeTransferLib for address;
 
-    uint256 public constant COOLDOWN = 1 hours;
-    uint256 public constant DRIP = 10_000 ether;
-
-    mapping(address user => mapping(address token => uint256)) public lastClaim;
+    address public owner;
+    mapping(address => bool) public whitelisted;
+    /// @dev 0 = token not claimable.
+    mapping(address => uint256) public dailyCap;
+    mapping(address => mapping(address => uint32)) public claimDay; // user => token => day
+    mapping(address => mapping(address => uint256)) public claimedToday; // user => token => amt
 
     event Claimed(address indexed user, address indexed token, uint256 amount);
+    event Whitelisted(address indexed user, bool ok);
+    event CapSet(address indexed token, uint256 cap);
 
-    function claim(address token) external {
-        uint256 last = lastClaim[msg.sender][token];
-        if (block.timestamp < last + COOLDOWN) revert("cooldown");
-        lastClaim[msg.sender][token] = block.timestamp;
-        token.safeTransfer(msg.sender, DRIP);
-        emit Claimed(msg.sender, token, DRIP);
+    error NotOwner();
+    error NotWhitelisted();
+    error NoCap();
+    error CapExhausted();
+
+    constructor(address owner_) {
+        owner = owner_;
+        whitelisted[owner_] = true;
+        emit Whitelisted(owner_, true);
     }
 
-    /// @dev Pull tokens from caller (deployer funds the faucet post-mint).
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner();
+        _;
+    }
+
+    function setOwner(address next) external onlyOwner {
+        owner = next;
+    }
+
+    function setWhitelisted(address user, bool ok) external onlyOwner {
+        whitelisted[user] = ok;
+        emit Whitelisted(user, ok);
+    }
+
+    function setWhitelistedBatch(address[] calldata users, bool ok) external onlyOwner {
+        for (uint256 i; i < users.length; ++i) {
+            whitelisted[users[i]] = ok;
+            emit Whitelisted(users[i], ok);
+        }
+    }
+
+    function setCap(address token, uint256 cap) external onlyOwner {
+        dailyCap[token] = cap;
+        emit CapSet(token, cap);
+    }
+
+    function setCaps(address[] calldata tokens, uint256[] calldata caps) external onlyOwner {
+        require(tokens.length == caps.length, "len");
+        for (uint256 i; i < tokens.length; ++i) {
+            dailyCap[tokens[i]] = caps[i];
+            emit CapSet(tokens[i], caps[i]);
+        }
+    }
+
+    /// @notice Self-register. Front must verify mainnet balances first; owner can revoke.
+    function register() external {
+        whitelisted[msg.sender] = true;
+        emit Whitelisted(msg.sender, true);
+    }
+
     function fund(address token, uint256 amount) external {
         token.safeTransferFrom(msg.sender, address(this), amount);
+    }
+
+    function remaining(address user, address token) public view returns (uint256) {
+        uint256 cap = dailyCap[token];
+        if (cap == 0) return 0;
+        if (claimDay[user][token] != _day()) return cap;
+        uint256 got = claimedToday[user][token];
+        return got >= cap ? 0 : cap - got;
+    }
+
+    function claim(address token) external {
+        if (!whitelisted[msg.sender]) revert NotWhitelisted();
+        uint256 cap = dailyCap[token];
+        if (cap == 0) revert NoCap();
+
+        uint32 day = _day();
+        if (claimDay[msg.sender][token] != day) {
+            claimDay[msg.sender][token] = day;
+            claimedToday[msg.sender][token] = 0;
+        }
+        uint256 got = claimedToday[msg.sender][token];
+        if (got >= cap) revert CapExhausted();
+
+        uint256 amt = cap - got;
+        claimedToday[msg.sender][token] = cap;
+        token.safeTransfer(msg.sender, amt);
+        emit Claimed(msg.sender, token, amt);
+    }
+
+    function _day() internal view returns (uint32) {
+        return uint32(block.timestamp / 1 days);
     }
 }

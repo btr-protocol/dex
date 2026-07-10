@@ -52,13 +52,18 @@ contract Deploy is DeployBase {
 
     /// @dev Core singleton + peripheral deploy inside one broadcast session.
     function _broadcastDeploy() internal returns (Addrs memory a) {
-        a.deployer = _resolveDeployer();
+        uint256 pk = vm.envUint("DEPLOYER_PK");
+        a.deployer = vm.addr(pk);
+        // If DEPLOYER is set it must match the PK-derived address.
+        try vm.envAddress("DEPLOYER") returns (address d) {
+            require(d == a.deployer, "DEPLOYER/DEPLOYER_PK mismatch");
+        } catch {}
         a.treasury_owner = _resolveTreasury(a.deployer);
         address lzEndpoint = vm.envOr("LZ_ENDPOINT", address(0xDEAD));
         string memory govName = vm.envOr("GOV_NAME", string("BTR Governance"));
         string memory govSymbol = vm.envOr("GOV_SYMBOL", string("BTR"));
 
-        vm.startBroadcast(a.deployer);
+        vm.startBroadcast(pk);
 
         // 1. AccessControl (shared singleton).
         a.ac = address(_deployAC(a.deployer, a.treasury_owner));

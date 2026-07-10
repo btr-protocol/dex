@@ -18,6 +18,13 @@ contract PoolFactory is IPoolFactory {
     uint256 public constant UPGRADE_TIMELOCK = 7 days;
     address internal constant ETH = address(0);
 
+    /// @notice REG-01: hard caps on the permissionless append-only discovery arrays. `createPool` (any
+    ///         caller) and `registerTokens` (any isPool) can otherwise inflate `poolToTokens` /
+    ///         `tokenToPools` without bound until `getCommonPools`/`checkRoute` run out of gas
+    ///         (route-view DoS) and per-token emergency sweeps bloat. Sized far above any real star pool.
+    uint256 public constant MAX_POOL_TOKENS = 32;
+    uint256 public constant MAX_TOKEN_POOLS = 128;
+
     address public override referencePool;
     address public pendingReferencePool;
     /// @notice Earliest block timestamp at which the pending impl swap may be executed.
@@ -54,6 +61,15 @@ contract PoolFactory is IPoolFactory {
     mapping(address token => mapping(address pool => bool)) public override tokenInPool;
     mapping(address pool => address) public override poolBaseTokens;
 
+    /// @notice REG-01: official-only discovery index. `getCommonPools`/`checkRoute` route off THIS
+    ///         (unpolluted by permissionless clones), while `tokenToPools` remains the full registry.
+    mapping(address token => address[]) public officialTokenToPools;
+    mapping(address token => mapping(address pool => bool)) private _officialTokenInPool;
+
+    function getOfficialPoolsForToken(address token) external view returns (address[] memory) {
+        return officialTokenToPools[token];
+    }
+
     constructor(address referencePool_, address protocolDeployer_, address ac_) {
         if (referencePool_ == address(0) || protocolDeployer_ == address(0) || ac_ == address(0)) revert Err.ZeroValue();
         referencePool = referencePool_;
@@ -84,15 +100,67 @@ contract PoolFactory is IPoolFactory {
         (bool success, ) = pool.call(initdata);
         if (!success) revert Err.OperationFailed();
 
+        // REG-03: the clone is registered as tradeable, so verify `initdata` actually ran `initialize`
+        // with the SAME base — arbitrary initdata could low-level-succeed on a different selector, arming
+        // an un/mis-initialized pool in the index. `baseToken()` is 0 (or mismatched) unless initialized.
+        if (IPool(pool).baseToken() != baseToken) revert Err.OperationFailed();
+
         _registerPool(pool, msg.sender, baseToken, tokens);
     }
 
     // ─── registry ───
 
-    function registerTokens(address[] calldata tokens) external {
+    function registerTokens(address[] calldata tokens) external override {
         if (!isPool[msg.sender]) revert Ownable.Unauthorized();
-        _addTokens(msg.sender, tokens);
+        _addTokens(msg.sender, tokens, _isOfficialPool[msg.sender]);
         emit TokensRegistered(msg.sender, tokens);
+    }
+
+    /// @notice REG-02: keep the factory's cached base in sync when a pool migrates its base numeraire.
+    ///         isPool-gated (only the pool itself, from `PoolAdminWrite.setBaseToken`).
+    function setPoolBaseToken(address newBase) external override {
+        if (!isPool[msg.sender]) revert Ownable.Unauthorized();
+        if (newBase == address(0)) revert Err.ZeroValue();
+        poolBaseTokens[msg.sender] = newBase;
+        emit PoolBaseTokenUpdated(msg.sender, newBase);
+    }
+
+    /// @notice REG-01: owner-only de-pollution — evict a pool (typically a permissionless/griefing clone)
+    ///         from every discovery index so it stops bloating route views + emergency sweeps.
+    function deregisterPool(address pool) external override onlyAdmin {
+        if (!isPool[pool]) revert Err.InvalidState();
+        address[] memory toks = poolToTokens[pool];
+        for (uint256 i; i < toks.length;) {
+            address t = toks[i];
+            _removeFromArray(tokenToPools[t], pool);
+            delete tokenInPool[t][pool];
+            if (_officialTokenInPool[t][pool]) {
+                _removeFromArray(officialTokenToPools[t], pool);
+                delete _officialTokenInPool[t][pool];
+            }
+            unchecked { ++i; }
+        }
+        delete poolToTokens[pool];
+        delete poolBaseTokens[pool];
+        delete isPool[pool];
+        if (_isOfficialPool[pool]) {
+            delete _isOfficialPool[pool];
+            _removeFromArray(officialPools, pool);
+        }
+        _removeFromArray(allPools, pool);
+        emit PoolDeregistered(pool);
+    }
+
+    function _removeFromArray(address[] storage arr, address val) private {
+        uint256 n = arr.length;
+        for (uint256 i; i < n;) {
+            if (arr[i] == val) {
+                arr[i] = arr[n - 1];
+                arr.pop();
+                return;
+            }
+            unchecked { ++i; }
+        }
     }
 
     function _registerPool(
@@ -110,19 +178,30 @@ contract PoolFactory is IPoolFactory {
             _isOfficialPool[pool] = true;
             officialPools.push(pool);
         }
-        _addTokens(pool, tokens);
+        _addTokens(pool, tokens, official);
         emit PoolCreated(pool, creator, baseToken, official);
     }
 
-    function _addTokens(address pool, address[] memory tokens) internal {
+    function _addTokens(address pool, address[] memory tokens, bool official) internal {
         uint256 n = tokens.length;
+        // REG-01: bound the per-pool token set (append-only, permissionless).
+        if (poolToTokens[pool].length + n > MAX_POOL_TOKENS) revert Err.ExcessiveAmount(n, MAX_POOL_TOKENS);
         for (uint256 i; i < n;) {
             address token = tokens[i];
             if (token == address(0)) revert Err.ZeroValue();
             if (!tokenInPool[token][pool]) {
+                // REG-01: bound the per-token pool list so a griefer cannot make a token's route views DoS.
+                if (tokenToPools[token].length >= MAX_TOKEN_POOLS) {
+                    revert Err.ExcessiveAmount(tokenToPools[token].length, MAX_TOKEN_POOLS);
+                }
                 tokenToPools[token].push(pool);
                 tokenInPool[token][pool] = true;
                 poolToTokens[pool].push(token);
+            }
+            // Official-only discovery index (unpolluted by permissionless clones).
+            if (official && !_officialTokenInPool[token][pool]) {
+                _officialTokenInPool[token][pool] = true;
+                officialTokenToPools[token].push(pool);
             }
             unchecked { ++i; }
         }
@@ -144,21 +223,23 @@ contract PoolFactory is IPoolFactory {
         override
         returns (address[] memory pools)
     {
-        address[] memory poolsA = tokenToPools[tokenA];
-        address[] memory poolsB = tokenToPools[tokenB];
+        // REG-01: route off the OFFICIAL index only — permissionless clones cannot pollute discovery
+        // nor grow this loop unbounded (the full registry stays queryable via getPoolsForToken).
+        address[] memory poolsA = officialTokenToPools[tokenA];
+        address[] memory poolsB = officialTokenToPools[tokenB];
         if (poolsA.length == 0 || poolsB.length == 0) return new address[](0);
         if (poolsA.length > poolsB.length) (poolsA, poolsB) = (poolsB, poolsA);
 
         uint256 nA = poolsA.length;
         uint256 count;
         for (uint256 i; i < nA;) {
-            if (tokenInPool[tokenB][poolsA[i]]) ++count;
+            if (_officialTokenInPool[tokenB][poolsA[i]]) ++count;
             unchecked { ++i; }
         }
         pools = new address[](count);
         uint256 idx;
         for (uint256 i; i < nA;) {
-            if (tokenInPool[tokenB][poolsA[i]]) { pools[idx] = poolsA[i]; unchecked { ++idx; } }
+            if (_officialTokenInPool[tokenB][poolsA[i]]) { pools[idx] = poolsA[i]; unchecked { ++idx; } }
             unchecked { ++i; }
         }
     }
@@ -185,6 +266,8 @@ contract PoolFactory is IPoolFactory {
 
     function requestReferenceUpgrade(address newImplementation) external onlyAdmin {
         if (newImplementation == address(0)) revert Err.ZeroValue();
+        // REG-04: a non-contract impl would brick every future clone (delegatecalls to empty code).
+        if (newImplementation.code.length == 0) revert Err.NotCode();
         if (pendingReferencePool != address(0)) revert Err.PendingTimelock(uint48(block.timestamp));
         pendingReferencePool = newImplementation;
         upgradeTimelock = block.timestamp + UPGRADE_TIMELOCK;
