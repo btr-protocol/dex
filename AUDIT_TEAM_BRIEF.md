@@ -240,8 +240,7 @@ rg -n 'PoolSwapQuote|IExchange' ~/Work/btr/dex ~/Work/btr/sdk ~/Work/btr/front
 
 ## 10. One-paragraph status for Slack / standup
 
-> From-scratch Grok 4.5 audit of AIMM DEX + keeper oracle path converged in 3 cycles: ~10% warm swap gas cut (inline `PoolSwapQuote`, skip exec hop arrays, shared risk SLOAD, storage refs), plus two Low fixes (batchSwap WETH unwrap parity; decay re-enable no longer catch-up-charges disabled windows). 332 forge tests green. No Crit/High/Med open. Review `dex/AUDIT_TEAM_BRIEF.md` + `GasProbe`; Chapel needs Pool redeploy to pick up bytecode. Unstaged cycle-2 leftovers still need commit.
-
+> From-scratch Grok 4.5 audit of AIMM DEX + keeper oracle path: 5 cycles on main, ~10% warm swap gas cut, Low bugs fixed (batchSwap WETH unwrap; decay re-enable clock), cycle-4 lean deletes, cycles 4–5 security/gas CONVERGED. Review `dex/AUDIT_TEAM_BRIEF.md` + `GasProbe`. Chapel needs Pool redeploy for bytecode.
 ---
 
 *Questions / pushback: treat [`AUDIT_REPORT.md`](AUDIT_REPORT.md) as the finding ledger; this brief is the human review packet.*
