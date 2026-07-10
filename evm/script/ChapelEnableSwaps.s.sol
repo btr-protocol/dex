@@ -185,9 +185,15 @@ contract ChapelEnableSwaps is Script {
         returns (IPool.OracleConfig memory o)
     {
         o.primary = ORACLE;
-        o.feedId = keccak256(abi.encodePacked(asset, base));
-        o.refFeedId = refBandBps > 0 ? USDC_FEED : bytes32(0);
-        o.refBandBps = refBandBps;
+        o.feedId = asset == USDC ? USDC_FEED : keccak256(abi.encodePacked(asset, base));
+        // Only USDT pins USDC as depeg ref (testnet-asset-params); others keep refBand without refFeed.
+        if (asset == USDT) {
+            o.refFeedId = USDC_FEED;
+            o.refBandBps = refBandBps;
+        } else {
+            o.refFeedId = bytes32(0);
+            o.refBandBps = refBandBps;
+        }
         o.mode = 0;
     }
 
