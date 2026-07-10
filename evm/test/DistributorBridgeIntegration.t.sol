@@ -181,8 +181,9 @@ contract DistributorBridgeIntegrationTest is Test {
         // Pre-wire: getBridge() returns 0.
         assertEq(tr.getBridge(), address(0), "no bridge wired");
 
-        // Wire a fake bridge address via setBridge.
-        address fakeBridge = address(0xB123);
+        // Wire a fake bridge via setBridge. GOV-02: setBridge now rejects a non-contract bridge, so use
+        // a deployed contract address (the placeholder token) rather than a bare EOA sentinel.
+        address fakeBridge = address(placeholder);
         tr.setBridge(fakeBridge);
 
         assertEq(tr.getBridge(), fakeBridge, "getBridge() returns wired bridge");
