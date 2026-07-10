@@ -2,63 +2,24 @@
   "chainId": 97,
   "targetPerSide": "10000000000000000000000",
   "targetNote": "10_000 ether of each token side PER POOL",
-  "summary": "75/75 sides ≥ 10k after BTR-volatile top-up",
-  "toppedUp": {
-    "venue": "BTR-volatile",
-    "pool": "0xEaB818235028bE378c92115099fF206EBb11B621",
-    "tokens": ["BTCB", "ETH", "WBNB", "CAKE", "XAUT"],
-    "reason": "lean deploy used USD-notional seed via _seedAmount; topped to literal 10k ether"
+  "updatedAt": "2026-07-10T14:55Z",
+  "poolCounts": {
+    "BTR": 2,
+    "Curve": 5,
+    "UniV2": 18,
+    "RangeCL": 4,
+    "Wombat": 1,
+    "Fluid": 6,
+    "LiteCL_legacy": 20,
+    "activeWired": 36
   },
-  "notes": [
-    "Fluid: initialize-only (AlreadyInit); all 6 pools already at 10k — no deposit path, no gap.",
-    "LiteCL / Curve / Wombat / BTR-stable / Fluid: already ≥10k from lean SEED=10k deploy."
-  ],
-  "venues": {
-    "BTR-stable": {
-      "pool": "0x029EdAb049776633A9A7B49F87C5c97De5164ccE",
-      "sides": { "USDC": "10000", "USDT": "10000", "USD1": "10000", "USDE": "10000", "FDUSD": "10000" }
-    },
-    "BTR-volatile": {
-      "pool": "0xEaB818235028bE378c92115099fF206EBb11B621",
-      "sides": { "USDC": "10000", "USDT": "10000", "BTCB": "10000", "ETH": "10000", "WBNB": "10000", "CAKE": "10000", "XAUT": "10000" }
-    },
-    "Curve-3pool": {
-      "pool": "0xB2aF84882627CD2D3EBc01f3f23C53e060303691",
-      "sides": { "USDT": "10000", "USDC": "10000", "USD1": "10000" }
-    },
-    "Curve-USDE/USDT": {
-      "pool": "0xfc44F8608F435Cb309E627921f94155739a19a23",
-      "sides": { "USDT": "10000", "USDE": "10000" }
-    },
-    "Curve-FDUSD/USDC": {
-      "pool": "0x0734E0E2e75A6e993115C400e02A6560B7F07Ed5",
-      "sides": { "USDC": "10000", "FDUSD": "10000" }
-    },
-    "Wombat": {
-      "pool": "0xB2DFA581FcF4d1Bd0033d0EDB94FB6EE7da1c0a2",
-      "sides": { "USDC": "10000", "USDT": "10000", "USD1": "10000", "USDE": "10000" }
-    },
-    "Fluid": {
-      "nPools": 6,
-      "pools": [
-        "0xA7eF50Af2B18887900bf81f5e1274b192C6640Eb",
-        "0xBf6D9C1293BE99EcDffFE584CC23c4e385d7466D",
-        "0x72ccA88371c6c78594Fb9579Bbe6bBf4b75C717B",
-        "0xa554f9AB008b5f4551e3b50468E2067d931cc996",
-        "0xf71d087f52c33C6cD7D6318202Bf30B21D4E8BF5",
-        "0xb06e199754Ce48001eA0Bdd18FBebaEf5B0c15B6"
-      ],
-      "perPool": "10k token0 + 10k token1"
-    },
-    "LiteCL": {
-      "factory": "0x608e8dc9d89a9Dd0B751daA3fad134c89eb62a20",
-      "nPools": 20,
-      "perPool": "10k token0 + 10k token1 (fees 5 + 100)"
-    }
+  "deployedThisRun": {
+    "curveUsdtBnbBtcb": "0xF64E188DA36e86afC151fd98DEb93A82f06B54E3",
+    "curveUsdcEthBtcb": "0x6166F0020EFb6A8896dDc8A5e352F958962957F4",
+    "uniV2VolatilePairs": 8,
+    "rangeBtcbUsdcFee3010": "0xF66C933FEeb93a0E2AEb0558361524603197eD05",
+    "xautFaucetCap": "1 ether",
+    "oracleQueue": "BTCB/ETH/WBNB/XAUT \u2192 UniPoolOracle (execute ~15:11Z)"
   },
-  "keeper": {
-    "onceTx": "0xca2399f1fb2ada21f85acec7e21de894d18f65b82ef347c184f424f1eb9c19a3",
-    "feeds": 10,
-    "daemonLog": "/tmp/keeper-chapel-daemon.log"
-  }
+  "faucet": "0x6a901982CE6cD2561F677217e012A33b8a88EF27"
 }

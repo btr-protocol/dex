@@ -33,6 +33,7 @@ contract RedeployFaucet is Script {
         address eth_ = json.readAddress(".eth");
         address wbnb = json.readAddress(".wbnb");
         address cake = json.readAddress(".cake");
+        address xaut = json.readAddress(".xaut");
         address oldFaucet = json.readAddress(".faucet");
 
         vm.startBroadcast(pk);
@@ -40,9 +41,8 @@ contract RedeployFaucet is Script {
         TestnetFaucet faucet = new TestnetFaucet(deployer);
 
         // Caps mirror TestnetDeploy._configureFaucet for tokens present in deploy JSON.
-        // Skip U/TUSD/USDF/USDD (not in 97.deploy.json).
-        address[] memory tokens = new address[](9);
-        uint256[] memory caps = new uint256[](9);
+        address[] memory tokens = new address[](10);
+        uint256[] memory caps = new uint256[](10);
         tokens[0] = usdc;
         caps[0] = 10_000 ether;
         tokens[1] = usdt;
@@ -61,12 +61,15 @@ contract RedeployFaucet is Script {
         caps[7] = 10 ether;
         tokens[8] = cake;
         caps[8] = 4_000 ether;
+        tokens[9] = xaut;
+        caps[9] = 1 ether;
         faucet.setCaps(tokens, caps);
         // constructor already whitelists owner/deployer
 
         for (uint256 i; i < tokens.length; ++i) {
             uint256 amt = 1_000_000 ether;
             if (tokens[i] == btcb) amt = 100 ether;
+            if (tokens[i] == xaut) amt = 1_000 ether;
             TestnetERC20(tokens[i]).mint(deployer, amt);
             IERC20(tokens[i]).approve(address(faucet), amt);
             faucet.fund(tokens[i], amt);
