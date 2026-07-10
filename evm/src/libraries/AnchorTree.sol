@@ -59,8 +59,4 @@ library AnchorTree {
         // In a depth-1 star every valid pair is direct or sibling; anything else is a malformed tree.
         revert Err.InvalidPath();
     }
-
-    function isRoot(IPool.PoolStorage storage $, address asset) internal view returns (bool) {
-        return asset == $.baseToken && $.assets[asset].anchor == address(0);
-    }
 }

@@ -113,3 +113,19 @@ INFO residuals (not defects):
 **3 cycles · Grok 4.5 only · 0 CRITICAL/HIGH · warm swap ≈ −10% · final batch zero-actionable.**
 
 _Method: auditors/challengers read-only; engineer applied fixes; each cycle re-audited the fixed tree. `GasProbe.t.sol` is the gas SSoT._
+
+---
+
+## Cycle 4 (post-push re-audit)
+
+Security cohort: **CONVERGED_SECURITY** (0 new BUG/SECURITY).
+
+Gas/Lean: G4-1/G4-2 overstated by challenger (≤350, deferred). Lean deletes confirmed:
+
+| # | Class | Location | Disposition |
+|---|---|---|---|
+| L4-1 | LEAN | `PoolIO.exec` 4-arg overload | **FIXED** — deleted (all callers pass Asset refs) |
+| L4-2 | LEAN | `Oracle.getBaseFeed` | **FIXED** — deleted; tests use `getPegFeed` |
+| L4-3 | LEAN | `AnchorTree.isRoot` | **FIXED** — deleted; harness/test trimmed |
+
+**Result:** actionable lean cleaned; no new gas Fix-now.

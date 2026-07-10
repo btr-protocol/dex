@@ -24,15 +24,15 @@ contract LibOracleTest is BaseTestSetup {
         assertEq(Oracle.getSigma(f), 300_000, "sigma is a single passthrough field");
     }
 
-    // ─── getBaseFeed ───
+    // ─── getPegFeed (unit peg / base-numeraire stand-in) ───
 
-    function test_getBaseFeed_isUnitAndNeverExpires() public view {
-        IOracle.FeedData memory f = Oracle.getBaseFeed();
-        assertApproxEqRel(Oracle.mark(f), SC.WAD, 0.0001e18, "base mark = 1.0");
-        assertEq(f.lastPriceB64, f.emaPriceB64, "base ema == mark");
-        assertEq(uint256(f.sigmaEma), SC.ONE_PCT_PBPS, "base sigmaEma = 1%");
-        assertEq(f.ttl, type(uint16).max, "base never expires");
-        assertEq(f.confidence, 0, "base has no CI");
+    function test_getPegFeed_isUnitAndNeverExpires() public view {
+        IOracle.FeedData memory f = Oracle.getPegFeed(M.encodeB64(SC.WAD, 18), uint32(SC.ONE_PCT_PBPS));
+        assertApproxEqRel(Oracle.mark(f), SC.WAD, 0.0001e18, "peg mark = 1.0");
+        assertEq(f.lastPriceB64, f.emaPriceB64, "peg ema == mark");
+        assertEq(uint256(f.sigmaEma), SC.ONE_PCT_PBPS, "peg sigmaEma = 1%");
+        assertEq(f.ttl, type(uint16).max, "peg never expires");
+        assertEq(f.confidence, 0, "peg has no CI");
     }
 
     // ─── updateEma: freeze / jump / clamp / decay ───
