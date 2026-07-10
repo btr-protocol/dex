@@ -234,10 +234,12 @@ library PoolLiquidity {
         // exits the position before the anti-JIT window elapses.
         _checkCooldown($, $.lastDepositTime[msg.sender][inTk]);
 
-        PoolDecay.applyDecay($, inTk, assetIn);
-        PoolDecay.applyDecay($, outTk, assetOut);
-        PoolIO.checkRisk($, inTk, C.LIABILITY_SWAP_ENABLED_BIT);
-        PoolIO.checkRisk($, outTk, C.LIABILITY_SWAP_ENABLED_BIT);
+        IPool.RiskConfig storage rIn = $.riskConfigs[inTk];
+        IPool.RiskConfig storage rOut = $.riskConfigs[outTk];
+        PoolDecay.applyDecay(assetIn, rIn);
+        PoolDecay.applyDecay(assetOut, rOut);
+        PoolIO.checkRiskFlags(rIn, C.LIABILITY_SWAP_ENABLED_BIT);
+        PoolIO.checkRiskFlags(rOut, C.LIABILITY_SWAP_ENABLED_BIT);
 
         if ($.lpBalances[msg.sender][inTk] < lpAmountIn) {
             revert Err.InsufficientAmount($.lpBalances[msg.sender][inTk], lpAmountIn);

@@ -38,7 +38,7 @@ library PoolSwap {
 
         // Inline former PoolSwapQuote trampoline (G-1/L-1) — exec already enforces minLiquidity (G-5).
         out = q.amountOut;
-        PoolIO.exec($, tk[0], tk[1], actualIn, q);
+        PoolIO.exec($, tk[0], tk[1], actualIn, q, aIn, aOut);
 
         if (out < minAmountOut) revert Err.ThresholdViolation(out, minAmountOut);
 

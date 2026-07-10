@@ -39,9 +39,9 @@ Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`,
 
 ## Libraries (`evm/src/libraries/`)
 
-`AdminTimelock`, `AnchorTree`, `Constants`, `Maths`, `Oracle`, `PoolAdmin`, `PoolAdminWrite`, `PoolBatch`, `PoolDecay`, `PoolEdge`, `PoolIO`, `PoolLiquidity`, `PoolSwap`, `PoolSwapQuote`, `PoolView`, `Pricing`, `Spline`, `TransientCache`.
+`AdminTimelock`, `AnchorTree`, `Constants`, `Maths`, `Oracle`, `PoolAdmin`, `PoolAdminWrite`, `PoolBatch`, `PoolDecay`, `PoolEdge`, `PoolIO`, `PoolLiquidity`, `PoolSwap`, `PoolView`, `Pricing`, `Spline`, `TransientCache`.
 
-`PoolSwap` (entry + I/O) DELEGATECALLs into `PoolSwapQuote` (post-quote pipeline) so both fit under EIP-170.
+`PoolSwap` inlines post-quote `PoolIO.exec` (former `PoolSwapQuote` trampoline removed — EIP-170 headroom remains on `PoolSwap`).
 
 ## Build & test
 

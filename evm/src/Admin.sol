@@ -246,7 +246,7 @@ contract Admin is IAdmin {
             gamma: gamma,
             vega: vega
         });
-        _emitQueued(key, SC.LOW_TIMELOCK, ATL.encodeAddAsset(p), pool, uint8(IPool.OpType.ADD_ASSET));
+        _emitQueued(key, SC.govDelay(SC.LOW_TIMELOCK), ATL.encodeAddAsset(p), pool, uint8(IPool.OpType.ADD_ASSET));
     }
 
     function executeAddAsset(address pool, address token) external onlyAdmin {
@@ -257,7 +257,7 @@ contract Admin is IAdmin {
 
     function requestUpdateRiskConfig(address pool, address token, IPool.RiskConfig calldata cfg) external onlyAdmin {
         bytes32 key = _keyToken(pool, OP_UPDATE_RISK, token);
-        _emitQueued(key, SC.LOW_TIMELOCK, abi.encode(token, cfg), pool, uint8(IPool.OpType.UPDATE_RISK));
+        _emitQueued(key, SC.govDelay(SC.LOW_TIMELOCK), abi.encode(token, cfg), pool, uint8(IPool.OpType.UPDATE_RISK));
     }
 
     function executeUpdateRiskConfig(address pool, address token) external onlyAdmin {
@@ -282,7 +282,7 @@ contract Admin is IAdmin {
         bytes32 key = _keyToken(pool, OP_UPDATE_PROFILE, token);
         _emitQueued(
             key,
-            SC.LOW_TIMELOCK,
+            SC.govDelay(SC.LOW_TIMELOCK),
             abi.encode(token, newProfile, minDispersion, maxDispersion),
             pool,
             uint8(IPool.OpType.UPDATE_PROFILE)
@@ -304,7 +304,7 @@ contract Admin is IAdmin {
 
     function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external onlyAdmin {
         bytes32 key = _key(pool, OP_UPDATE_FEES);
-        _emitQueued(key, SC.LOW_TIMELOCK, abi.encode(params), pool, uint8(IPool.OpType.UPDATE_FEES));
+        _emitQueued(key, SC.govDelay(SC.LOW_TIMELOCK), abi.encode(params), pool, uint8(IPool.OpType.UPDATE_FEES));
     }
 
     function executeUpdateFeeParams(address pool) external onlyAdmin {
@@ -316,7 +316,7 @@ contract Admin is IAdmin {
     }
 
     function requestBridgeUpdate(address pool, address newBridge) external onlyAdmin {
-        _emitQueued(_key(pool, OP_UPDATE_BRIDGE), SC.HIGH_TIMELOCK, abi.encode(newBridge), pool, uint8(IPool.OpType.UPDATE_BRIDGE));
+        _emitQueued(_key(pool, OP_UPDATE_BRIDGE), SC.govDelay(SC.HIGH_TIMELOCK), abi.encode(newBridge), pool, uint8(IPool.OpType.UPDATE_BRIDGE));
     }
 
     function executeBridgeUpdate(address pool) external onlyAdmin {
@@ -327,7 +327,7 @@ contract Admin is IAdmin {
 
     function requestTreasuryUpdate(address pool, address newTreasury) external onlyAdmin {
         if (newTreasury == address(0)) revert Err.ZeroValue();
-        _emitQueued(_key(pool, OP_UPDATE_TREASURY), SC.HIGH_TIMELOCK, abi.encode(newTreasury), pool, uint8(IPool.OpType.UPDATE_TREASURY));
+        _emitQueued(_key(pool, OP_UPDATE_TREASURY), SC.govDelay(SC.HIGH_TIMELOCK), abi.encode(newTreasury), pool, uint8(IPool.OpType.UPDATE_TREASURY));
     }
 
     function executeTreasuryUpdate(address pool) external onlyAdmin {
@@ -337,7 +337,7 @@ contract Admin is IAdmin {
     }
 
     function requestBaseMigration(address pool, address newBase) external onlyAdmin {
-        _emitQueued(_key(pool, OP_BASE_MIGRATION), SC.CRITICAL_TIMELOCK, abi.encode(newBase), pool, uint8(IPool.OpType.MIGRATE_BASE_TOKEN));
+        _emitQueued(_key(pool, OP_BASE_MIGRATION), SC.govDelay(SC.CRITICAL_TIMELOCK), abi.encode(newBase), pool, uint8(IPool.OpType.MIGRATE_BASE_TOKEN));
     }
 
     function executeBaseMigration(address pool) external onlyAdmin {
@@ -348,7 +348,7 @@ contract Admin is IAdmin {
 
     function requestOracleUpdate(address pool, address token, IPool.OracleConfig calldata cfg) external onlyAdmin {
         bytes32 key = _keyToken(pool, OP_UPDATE_ORACLE, token);
-        _emitQueued(key, SC.BASE_TIMELOCK, abi.encode(token, cfg), pool, uint8(IPool.OpType.UPDATE_ORACLE));
+        _emitQueued(key, SC.govDelay(SC.BASE_TIMELOCK), abi.encode(token, cfg), pool, uint8(IPool.OpType.UPDATE_ORACLE));
     }
 
     function executeOracleUpdate(address pool, address token) external onlyAdmin {

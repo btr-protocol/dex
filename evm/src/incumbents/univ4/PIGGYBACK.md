@@ -42,8 +42,15 @@ We do **not** vendor BunniHub, LDF curves, or their withdraw accounting (exploit
 
 ### Manual Admin wiring (Chapel — queued 2026-07-10)
 
-`requestOracleUpdate` is under **BASE_TIMELOCK = 2 days**. Queued on volatile pool
-`0xEaB818235028bE378c92115099fF206EBb11B621` → primary `UniPoolOracle`
+**Live Admin** (`0x35c625…`) was compiled with prod `BASE_TIMELOCK = 2 days` — ETA is baked
+into `pendingOps` and cannot be shortened without redeploying Admin **and** every Pool
+clone (`Pool.admin` is immutable). `sealBootstrap` is already latched; there is no
+untimelocked `setOracleConfig` for listed assets.
+
+**Source (next Chapel Admin deploy):** `Constants.govDelay` shortens tiers on chainid 97
+only — CRITICAL 1h / HIGH 30m / BASE 15m / LOW 5m (docs §7.2). Anvil + mainnet unchanged.
+
+Queued on volatile pool `0xEaB818235028bE378c92115099fF206EBb11B621` → primary `UniPoolOracle`
 `0xdC6E370299476a66a03B06dFf4da2d537626803F`, feedIds from `97.uni-piggyback.json`.
 USDC/USDT stay on `ExternalOracle`. XAUT `refFeedId`/`refBandBps` cleared (USDC ref
 feed is not registered on UniPoolOracle).

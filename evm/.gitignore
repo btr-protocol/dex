@@ -14,3 +14,7 @@ docs/
 .env
 .env.chapel
 deployments/local-anvil/
+
+# Accidental Uniswap vendor clones (not part of BTR build)
+.deps/v2-core/
+.deps/v4-core/

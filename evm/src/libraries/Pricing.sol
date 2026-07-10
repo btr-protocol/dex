@@ -494,14 +494,10 @@ library Pricing {
     function _legMarkAndFees(IPool.PoolStorage storage $, address profileAsset)
         private view returns (uint256 twap, uint32 sigma, uint16 minFee, uint16 maxFee)
     {
-        if (profileAsset == $.baseToken) {
-            twap = _readBasePriceOrHalt($);
-            sigma = Oracle.getSigma(Oracle.getBaseFeed());
-        } else {
-            IOracle.FeedData memory feed = _readOracle($, profileAsset);
-            twap = Oracle.mark(feed);
-            sigma = Oracle.getSigma(feed);
-        }
+        // Depth-1 star: profileAsset is always the spoke (edge), never base (L2-1).
+        IOracle.FeedData memory feed = _readOracle($, profileAsset);
+        twap = Oracle.mark(feed);
+        sigma = Oracle.getSigma(feed);
         IPool.Asset storage asset = $.assets[profileAsset];
         minFee = asset.minFeeBps;
         maxFee = asset.maxFeeBps;
