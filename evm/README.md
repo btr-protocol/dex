@@ -29,12 +29,12 @@ src/
 ├── oracles/
 │   └── ExternalOracle.sol  # Keeper-push external oracle (onlyOracle); fresh pushed mark = quote source.
 └── libraries/            # AdminTimelock, AnchorTree, Constants, Maths, Oracle, PoolAdmin, PoolAdminWrite,
-                          # PoolBatch, PoolIO, PoolDecay, PoolEdge, PoolHookExec,
-                          # PoolLiquidity, PoolSwap, PoolSwapQuote, PoolView,
+                          # PoolBatch, PoolIO, PoolDecay, PoolEdge,
+                          # PoolLiquidity, PoolSwap, PoolView,
                           # Pricing, Spline, TransientCache.
 ```
 
-`PoolSwap` (entry + I/O) DELEGATECALLs into `PoolSwapQuote` (post-quote pipeline) so both fit under the EIP-170 24 576-byte cap (Phase 42K.10D.B2 split).
+`PoolSwap` inlines `PoolIO.exec` after quoting (EIP-170 headroom on `PoolSwap` ~8 KB; `Pool` stays near the 24 576-byte cap so the Pool→PoolSwap DELEGATECALL remains).
 
 Shared cross-cutting singletons live in `~/Work/btr/shared/evm/src/` and are consumed via the `@btr-shared/` Foundry remapping (`evm/foundry.toml` / `remappings.txt` → `@btr-shared/=../../shared/src/`):
 

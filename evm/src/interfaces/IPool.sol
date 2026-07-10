@@ -3,15 +3,8 @@ pragma solidity =0.8.35;
 
 import {IOracle} from "./IOracle.sol";
 
-/// @title IPool -Adaptive Inventory Market Maker (aggregate, canonical surface)
-/// @dev Phase 42H.B.3c -IFlash + IDistributor removed from inheritance; both are now
-///      standalone singletons with pool-keyed APIs (see /interfaces/IFlash.sol +
-///      /interfaces/IDistributor.sol).
-/// @dev Cohort-3 Finding 3 -Pool module events + view sigs folded into this root
-///      `IPool` as the single canonical declaration. Wave-5 (Cohort-4 N6): dead
-///      module aliases (`interfaces/modules/{IPool,ILiquidity,ICore}.sol`) removed.
-///      `interfaces/modules/IExchange.sol` retained for off-chain ABI consumers
-///      (routing is off-chain; on-chain Router retired).
+/// @title IPool — Adaptive Inventory Market Maker (canonical surface)
+/// @dev Flash is a standalone singleton (IFlash). Routing is off-chain.
 interface IPool is IOracle {
     struct Asset {
         uint128 reserves;

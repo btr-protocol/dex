@@ -151,8 +151,13 @@ library PoolAdminWrite {
         // be cleared (nor sneaked in) by executing a queued RiskConfig — only the explicit
         // unfreeze/unpause ops touch HALT_MASK.
         uint16 halt = $.riskConfigs[t].flags & C.HALT_MASK;
+        IPool.RiskConfig storage prev = $.riskConfigs[t];
+        bool wasDecay = (prev.flags & C.DECAY_ENABLED_BIT) != 0 && prev.decaySlope != 0;
+        bool nowDecay = (cfg.flags & C.DECAY_ENABLED_BIT) != 0 && cfg.decaySlope != 0;
         $.riskConfigs[t] = cfg;
         $.riskConfigs[t].flags = (cfg.flags & ~C.HALT_MASK) | halt;
+        // A2-1: do not charge dt accrued while decay was off — reset the clock on (re)enable.
+        if (nowDecay && !wasDecay) $.assets[t].lastUpdate = uint32(block.timestamp);
     }
 
     /// @notice Perpetual profile recalibration: rewrite an asset's Hermite liquidity-profile SHAPE

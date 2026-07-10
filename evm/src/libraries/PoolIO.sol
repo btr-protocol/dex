@@ -93,36 +93,32 @@ library PoolIO {
         uint256 amtIn,
         IPool.SwapQuote memory q
     ) internal {
-        IPool.Asset storage aIn = $.assets[tkIn];
-        IPool.Asset storage aOut = $.assets[tkOut];
+        exec($, tkIn, tkOut, amtIn, q, $.assets[tkIn], $.assets[tkOut]);
+    }
 
+    /// @notice Same as exec but reuses caller-warmed Asset storage refs (G2-4).
+    function exec(
+        IPool.PoolStorage storage $,
+        address tkIn,
+        address tkOut,
+        uint256 amtIn,
+        IPool.SwapQuote memory q,
+        IPool.Asset storage aIn,
+        IPool.Asset storage aOut
+    ) internal {
         uint256 minReq = q.amountOut + q.protoFee + aOut.minLiquidity;
         if (aOut.reserves < minReq) revert Err.InsufficientAmount(aOut.reserves, minReq);
 
-        // The full amtIn is credited to reserves; the swap fee is charged ONCE on the output side
-        // (q.protoFee is the protocol's share of feeOut, q.lpFee stays in reserves). Skimming a
-        // separate input-side half-spread here double-counts the fee and drains LP into the treasury.
-        // Bound the input-leg credit like deposit/donate — a >2^128 pull would silently truncate and
-        // under-credit reserves (not reachable with any real token supply; parity/defense-in-depth).
         if (amtIn > type(uint128).max) revert Err.ExcessiveAmount(amtIn, type(uint128).max);
         aIn.reserves += uint128(amtIn);
         aOut.reserves -= uint128(q.amountOut + q.protoFee);
         if (q.protoFee != 0) $.protocolFees[tkOut] += q.protoFee;
 
-        // Depeg breaker on BOTH endpoints: a wrong-but-fresh mark on the INPUT asset (its refBand /
-        // reservation band) lets a depegged token be dumped into the pool at a stale-high price and
-        // drain the output reserve, so the input leg must clear its own band too (not just the output).
-        // Both feeds were primed into the tx cache during quoting, so each guard is a cache hit.
         priceBandGuard($, tkOut, aOut);
         priceBandGuard($, tkIn, aIn);
     }
 
-    /// @dev Depeg guard on the OUTPUT asset's fresh mark: an absolute floor/ceiling (reservationPrice /
-    ///      reservationPriceMax) AND an optional feed-relative band (mark within refBandBps of a
-    ///      reference feed — e.g. WBTC vs the BTC feed, XAUT vs a gold feed). 0 fields = disabled;
-    ///      when none is set we skip the oracle read entirely (the swap-path freshness/confidence gate
-    ///      already ran during quoting via Pricing._readOracle). Shared by swap (`exec`) and cross-
-    ///      asset `withdrawTo` — both deliver output-token reserves to the user.
+    /// @dev Depeg guard: absolute reservation band and/or refFeed band. 0 fields = skip.
     function priceBandGuard(IPool.PoolStorage storage $, address token, IPool.Asset storage a) internal view {
         uint64 lo = a.reservationPrice;
         uint64 hi = a.reservationPriceMax;

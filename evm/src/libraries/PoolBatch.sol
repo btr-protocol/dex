@@ -32,14 +32,15 @@ library PoolBatch {
         IPool.Asset storage a = $.assets[tk];
         if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
 
-        PoolIO.checkRisk($, tk, C.SWAP_ENABLED_BIT);
-        PoolDecay.applyDecay($, tk, a);
+        IPool.RiskConfig storage rc = $.riskConfigs[tk];
+        PoolIO.checkRiskFlags(rc, C.SWAP_ENABLED_BIT);
+        PoolDecay.applyDecay(a, rc);
 
         uint256 amt = PoolIO.pull($, tk, M.decodeB64(amtB64, a.decimals));
 
         if (tk == base) return amt;
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk, base, amt);
-        PoolIO.exec($, tk, base, amt, q);
+        PoolIO.exec($, tk, base, amt, q, a, $.assets[base]);
         return q.amountOut;
     }
 
@@ -63,14 +64,15 @@ library PoolBatch {
 
         uint256 baseIn = (baseTotal * w) / SC.BPS;
 
-        PoolIO.checkRisk($, tk, C.SWAP_ENABLED_BIT);
-        PoolDecay.applyDecay($, tk, a);
+        IPool.RiskConfig storage rc = $.riskConfigs[tk];
+        PoolIO.checkRiskFlags(rc, C.SWAP_ENABLED_BIT);
+        PoolDecay.applyDecay(a, rc);
 
         if (tk == base) {
             outAmt = baseIn;
         } else {
             IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, base, tk, baseIn);
-            PoolIO.exec($, base, tk, baseIn, q);
+            PoolIO.exec($, base, tk, baseIn, q, $.assets[base], a);
             outAmt = q.amountOut;
         }
 

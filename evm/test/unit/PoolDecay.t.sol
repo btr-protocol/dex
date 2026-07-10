@@ -117,6 +117,29 @@ contract PoolDecayTest is Test {
         assertEq(a.lastUpdate, prev, "lastUpdate untouched when decay off");
     }
 
+    /// @dev A2-1: after a long disabled window, (re)enabling must NOT catch up the off-period.
+    ///      Admin setRiskConfig resets lastUpdate on enable; simulate that here then applyDecay.
+    function test_applyDecay_noRetroactiveCatchUpAfterReenable() public {
+        uint32 ancient = uint32(block.timestamp - 365 days);
+        h.setAsset(TKA, 500e18, 1000e18, ancient);
+        h.setRiskConfig(TKA, 65535, uint32(1e6), 0); // decay off
+        h.callApplyDecay(TKA);
+        assertEq(h.getAsset(TKA).lastUpdate, ancient, "hot path still no-op when off");
+
+        // Simulate Admin setRiskConfig (re)enable clock reset (A2-1 fix).
+        h.setAsset(TKA, 500e18, 1000e18, uint32(block.timestamp));
+        h.setRiskConfig(TKA, 65535, uint32(1e6), C.DECAY_ENABLED_BIT);
+        h.callApplyDecay(TKA); // dt=0
+        assertEq(h.getAsset(TKA).liabilities, 1000e18, "no catch-up on enable block");
+
+        vm.warp(block.timestamp + 60);
+        h.callApplyDecay(TKA);
+        uint128 liab = h.getAsset(TKA).liabilities;
+        assertLt(liab, 1000e18, "decay only for post-enable window");
+        // 60s of slope 1e6 on 1000e18 is tiny vs full-year catch-up to deficit cap (500e18).
+        assertGt(liab, 999e18, "must not dump full deficit from ancient lastUpdate");
+    }
+
     function test_applyDecay_zeroSlopeIsFullNoOp() public {
         uint32 prev = uint32(block.timestamp - 1000);
         h.setAsset(TKA, 500e18, 1000e18, prev);
