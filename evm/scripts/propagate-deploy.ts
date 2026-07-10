@@ -17,19 +17,19 @@ if (!existsSync(deployPath)) {
 
 const d = JSON.parse(readFileSync(deployPath, 'utf8')) as Record<string, string>;
 
+// No routerProxy on current AIMM deploys — omit rather than emit `undefined`.
 const envLines = [
-  `BTR_ROUTER_ADDRESS=${d.routerProxy}`,
-  `BTR_POOL_FACTORY_ADDRESS=${d.poolFactory}`,
-  `BTR_ADMIN_ADDRESS=${d.admin}`,
-  `BTR_ACCESS_CONTROL_ADDRESS=${d.ac}`,
-  `BTR_ORACLE_ADDRESS=${d.oracle}`,
-  `BTR_FAUCET_ADDRESS=${d.faucet}`,
-  `VITE_ROUTER_ADDRESS=${d.routerProxy}`,
-  `VITE_POOL_FACTORY_ADDRESS=${d.poolFactory}`,
-  `VITE_ADMIN_ADDRESS=${d.admin}`,
-  `VITE_ACCESS_CONTROL_ADDRESS=${d.ac}`,
-  `VITE_ORACLE_ADDRESS=${d.oracle}`,
-  `VITE_FAUCET_ADDRESS=${d.faucet}`,
+  ...(d.routerProxy ? [`BTR_ROUTER_ADDRESS=${d.routerProxy}`, `VITE_ROUTER_ADDRESS=${d.routerProxy}`] : []),
+  `BTR_POOL_FACTORY_ADDRESS=${d.poolFactory ?? ''}`,
+  `BTR_ADMIN_ADDRESS=${d.admin ?? ''}`,
+  `BTR_ACCESS_CONTROL_ADDRESS=${d.ac ?? ''}`,
+  `BTR_ORACLE_ADDRESS=${d.oracle ?? ''}`,
+  `BTR_FAUCET_ADDRESS=${d.faucet ?? ''}`,
+  `VITE_POOL_FACTORY_ADDRESS=${d.poolFactory ?? ''}`,
+  `VITE_ADMIN_ADDRESS=${d.admin ?? ''}`,
+  `VITE_ACCESS_CONTROL_ADDRESS=${d.ac ?? ''}`,
+  `VITE_ORACLE_ADDRESS=${d.oracle ?? ''}`,
+  `VITE_FAUCET_ADDRESS=${d.faucet ?? ''}`,
 ];
 
 const outEnv = resolve(root, 'deployments', `${chainId}.env`);

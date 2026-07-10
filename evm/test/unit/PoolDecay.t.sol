@@ -72,8 +72,8 @@ contract PoolDecayTest is Test {
     }
 
     function test_calculateDecay_coverageAboveThresholdBypasses() public view {
-        // coverage = reserves/liabilities = 1.0 (1e18); threshold = 5000/1e6 = 0.005 (5e15).
-        // 1e18 >> 5e15 -> returns 0 (fresh feed bypass).
+        // coverage = reserves/liabilities = 1.0 (1e18); threshold = 5000/1e4 = 0.5 (5e17).
+        // 1e18 >= 5e17 -> returns 0 (fresh feed bypass).
         uint128 r = h.callCalculateDecay(1000e18, 1000e18, 5000, uint32(1e6), 3600);
         assertEq(r, 0, "coverage>=threshold must yield zero decay");
     }
@@ -92,7 +92,7 @@ contract PoolDecayTest is Test {
     }
 
     function test_calculateDecay_normalPathBelowCap() public view {
-        // liab=1000e18, reserves=0 → coverage=0 < threshold(=65535/1e6 * 1e18 ≈ 6.55e16).
+        // liab=1000e18, reserves=0 → coverage=0 < threshold(=65535/1e4 * 1e18 ≈ 6.55e18).
         // raw = 1000e18 * slope(1e6) * dt(60) / 1e18 = 6e10, far below 1000e18 cap.
         uint128 r = h.callCalculateDecay(uint128(1000e18), 0, 65535, uint32(1e6), uint32(60));
         assertEq(uint256(r), uint256(1000e18) * 1e6 * 60 / 1e18, "raw decay path");
@@ -106,23 +106,25 @@ contract PoolDecayTest is Test {
 
     // ─── applyDecay (storage) ───
 
-    function test_applyDecay_disabledFlagOnlyTouchesLastUpdate() public {
-        h.setAsset(TKA, 500e18, 1000e18, uint32(block.timestamp - 1000));
-        // flags=0 -> DECAY_ENABLED_BIT NOT set.
+    function test_applyDecay_disabledFlagIsFullNoOp() public {
+        uint32 prev = uint32(block.timestamp - 1000);
+        h.setAsset(TKA, 500e18, 1000e18, prev);
+        // flags=0 -> DECAY_ENABLED_BIT NOT set → no SSTORE.
         h.setRiskConfig(TKA, 5000, uint32(1e6), 0);
         h.callApplyDecay(TKA);
         IPool.Asset memory a = h.getAsset(TKA);
         assertEq(a.liabilities, 1000e18, "liabilities unchanged");
-        assertEq(a.lastUpdate, uint32(block.timestamp), "lastUpdate refreshed");
+        assertEq(a.lastUpdate, prev, "lastUpdate untouched when decay off");
     }
 
-    function test_applyDecay_zeroSlopeOnlyTouchesLastUpdate() public {
-        h.setAsset(TKA, 500e18, 1000e18, uint32(block.timestamp - 1000));
+    function test_applyDecay_zeroSlopeIsFullNoOp() public {
+        uint32 prev = uint32(block.timestamp - 1000);
+        h.setAsset(TKA, 500e18, 1000e18, prev);
         h.setRiskConfig(TKA, 5000, 0, C.DECAY_ENABLED_BIT);
         h.callApplyDecay(TKA);
         IPool.Asset memory a = h.getAsset(TKA);
         assertEq(a.liabilities, 1000e18);
-        assertEq(a.lastUpdate, uint32(block.timestamp));
+        assertEq(a.lastUpdate, prev, "lastUpdate untouched when slope=0");
     }
 
     function test_applyDecay_zeroDtIsNoOp() public {
@@ -165,7 +167,7 @@ contract PoolDecayTest is Test {
     }
 
     function test_applyDecay_freshFeedBypassByCoverage() public {
-        // reserves==liabilities -> coverage = 1e18, threshold = 5000/1e6 = 5e15 -> bypass.
+        // reserves==liabilities -> coverage = 1e18, threshold = 5000/1e4 = 5e17 -> bypass.
         h.setAsset(TKA, uint128(1000e18), uint128(1000e18), uint32(block.timestamp - 3600));
         h.setRiskConfig(TKA, 5000, uint32(1e6), C.DECAY_ENABLED_BIT);
         h.callApplyDecay(TKA);
