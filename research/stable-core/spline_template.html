@@ -5,6 +5,8 @@
     --line:rgba(12,26,36,.11); --hair:rgba(12,26,36,.06); --acc:#0f8d7a;
     --s-p0:#8a97a3; --s-p1:#0f8d7a; --s-p2:#3ea6c2; --s-p3:#9a6fd6; --s-p4:#d68a2e; --s-p5:#d43f5c; --s-p6:#5a9e3d;
     --s-cv1:#b8790f; --s-cv2:#c98a1e; --s-cv3:#dcae5c;
+    --s-b0:#3c5eff; --s-b1:#7b46e8; --s-b2:#1193b0; --s-b3:#c8399b; --s-b4:#e0563c;
+    --s-b5:#2ea88a; --s-b6:#0e8fc0; --s-b7:#c98a1e; --s-b8:#d13b6e; --s-b9:#7a52d0; --s-b10:#55636f; --s-b11:#1f9e5a; --s-b12:#b5531e; --s-b13:#5566b8;
     --s-knot:#3c5eff;
     --shadow:0 1px 0 rgba(12,26,36,.04),0 12px 30px -18px rgba(12,26,36,.30);
   }
@@ -13,6 +15,8 @@
     --line:rgba(255,255,255,.11); --hair:rgba(255,255,255,.06); --acc:#35d0b6;
     --s-p0:#8a97a3; --s-p1:#35d0b6; --s-p2:#6cc9e6; --s-p3:#bb9af0; --s-p4:#eba851; --s-p5:#ee6a83; --s-p6:#8ed16f;
     --s-cv1:#d99a2b; --s-cv2:#e2ab3d; --s-cv3:#edc470;
+    --s-b0:#7a93ff; --s-b1:#a684f7; --s-b2:#3fc4de; --s-b3:#ef7cc4; --s-b4:#f0836a;
+    --s-b5:#4fd0ad; --s-b6:#54b8e6; --s-b7:#e2ab3d; --s-b8:#f07a9e; --s-b9:#a98bf0; --s-b10:#9fb0bd; --s-b11:#5cd88f; --s-b12:#e0864f; --s-b13:#8a9be6;
     --s-knot:#6f8cff;
     --shadow:0 1px 0 rgba(0,0,0,.4),0 18px 40px -20px rgba(0,0,0,.7);
   }}
@@ -21,6 +25,8 @@
     --line:rgba(12,26,36,.11); --hair:rgba(12,26,36,.06); --acc:#0f8d7a;
     --s-p0:#8a97a3; --s-p1:#0f8d7a; --s-p2:#3ea6c2; --s-p3:#9a6fd6; --s-p4:#d68a2e; --s-p5:#d43f5c; --s-p6:#5a9e3d;
     --s-cv1:#b8790f; --s-cv2:#c98a1e; --s-cv3:#dcae5c;
+    --s-b0:#3c5eff; --s-b1:#7b46e8; --s-b2:#1193b0; --s-b3:#c8399b; --s-b4:#e0563c;
+    --s-b5:#2ea88a; --s-b6:#0e8fc0; --s-b7:#c98a1e; --s-b8:#d13b6e; --s-b9:#7a52d0; --s-b10:#55636f; --s-b11:#1f9e5a; --s-b12:#b5531e; --s-b13:#5566b8;
     --s-knot:#3c5eff;
   }
   :root[data-theme="dark"]{
@@ -28,6 +34,8 @@
     --line:rgba(255,255,255,.11); --hair:rgba(255,255,255,.06); --acc:#35d0b6;
     --s-p0:#8a97a3; --s-p1:#35d0b6; --s-p2:#6cc9e6; --s-p3:#bb9af0; --s-p4:#eba851; --s-p5:#ee6a83; --s-p6:#8ed16f;
     --s-cv1:#d99a2b; --s-cv2:#e2ab3d; --s-cv3:#edc470;
+    --s-b0:#7a93ff; --s-b1:#a684f7; --s-b2:#3fc4de; --s-b3:#ef7cc4; --s-b4:#f0836a;
+    --s-b5:#4fd0ad; --s-b6:#54b8e6; --s-b7:#e2ab3d; --s-b8:#f07a9e; --s-b9:#a98bf0; --s-b10:#9fb0bd; --s-b11:#5cd88f; --s-b12:#e0864f; --s-b13:#8a9be6;
     --s-knot:#6f8cff;
   }
   *{box-sizing:border-box}
@@ -93,10 +101,15 @@
     <div class="eyebrow">BTR AIMM · Spline.sol · real cubic Hermite math</div>
     <h1>The bell curve: where liquidity actually sits</h1>
     <p class="lede">$ of liquidity per basis point at each price offset — the derivative of the raw spline.
-      Same real <span class="k">Spline.sol</span> cubic Hermite math (Fritsch-Carlson, ported exactly) behind
-      every line. <b>Seven knot/weight regimes</b> shown side-by-side, including a genuinely few-knot (5)
-      family, spanning the real dip↔concentration trade-off (see notes below), benchmarked against real Curve
-      <b>Ethereum mainnet</b> pools (not BSC, which carries negligible Curve TVL).</p>
+      <b>NEW: clamped QUARTIC B-spline (penalized I-spline) candidate</b> — monotone via Δw≥0, density
+      <b>curvature-continuous (C2/G2)</b>, smoothed in the VIEWED metric (log-density vs offset) so it stays
+      glassy at FEW knots. A whole distribution zoo, every shape at <b>4–13 knots</b>: <b>bimodal</b> (two peaks,
+      7 knots), an inverted <b>V / barbell</b> (liquidity pulled off the peg to the wings), a <b>skew-t</b> (asymmetric
+      AND fat-tailed) and <b>skew-platy</b> (asymmetric flat-top), the full <b>platy / meso / lepto</b> kurtosis trio,
+      left/right skew, log-normal, the Gyro <b>E-CLP plateau</b>, and 1–2-knot fits of real Curve <b>Ethereum mainnet</b>
+      pools. Every line is plotted through the EXACT on-chain path (power-basis Horner) — and Solidity ≡ TypeScript
+      is proven on all of them (worst eval Δ ~5×10⁻⁹ pbps, forge). Next to the current <span class="k">Spline.sol</span>
+      Fritsch-Carlson Hermite regimes (C1) for contrast. Toggle anything in the legend.</p>
     <div class="chips" id="chips"></div>
   </header>
 
@@ -120,6 +133,37 @@
     <div style="overflow-x:auto"><table id="rtable"></table></div>
   </section>
 
+  <section class="card notes">
+    <p style="margin-bottom:12px"><b>Swap gas — honest benchmark vs the field.</b> A full BTR AIMM <span class="k">Pool.swap</span>
+    is <b>168k–202k gas</b> (forge gas-report, 264 calls; best-case direct swap 168k, cross-asset up to 202k). The
+    quartic spline is CHEAPER than the current FC-Hermite on the pricing math — area is O(1) via prefix integrals vs
+    O(covered-segments)+sqrt — saving <b>~15–30k</b> on the swap, and profile choice barely moves it (binary search is
+    log₂(4–13 knots) = 2–4 probes). So <b>the shape zoo above is gas-flat: every profile swaps at the same ~170–190k.</b></p>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>DEX (small swap)</th><th>typical gas</th><th>worst-case</th><th>why</th></tr></thead>
+      <tbody>
+        <tr><td><b style="color:var(--acc)">BTR AIMM (quartic, est)</b></td><td class="val">~170–190k</td><td class="val">~200k</td><td style="text-align:left">oracle read + EMA · σ-dynamic fee · coverage/LVR toll · confidence gates · internal LP ledger</td></tr>
+        <tr><td>Fluid DEX Lite (correlated only)</td><td class="val">~10k</td><td class="val">—</td><td style="text-align:left">near-peg assumption drops general curve math · shared Liquidity Layer · 2 transfers</td></tr>
+        <tr><td>Balancer v2</td><td class="val">~95k</td><td class="val">—</td><td style="text-align:left">singleton Vault nets internally, no per-pool transfer</td></tr>
+        <tr><td>Uniswap v3 (exactInputSingle)</td><td class="val">107k</td><td class="val">130–153k+ (per tick +15–23k)</td><td style="text-align:left">TickBitmap traversal + Tick.cross SSTORE per crossed tick</td></tr>
+        <tr><td>Curve 3pool (exchange)</td><td class="val">~90–115k</td><td class="val">164k (cold)</td><td style="text-align:left">get_y → 2 nested Newton loops (~85–90k just math)</td></tr>
+        <tr><td>Curve StableSwap-NG</td><td class="val">120–136k</td><td class="val">—</td><td style="text-align:left">classic + per-swap EMA-oracle SSTORE</td></tr>
+        <tr><td>Uniswap v4 (no hook)</td><td class="val">123k</td><td class="val">+9k/no-op hook</td><td style="text-align:left">singleton + EIP-1153 transient acct — overhead NOT amortized on 1 isolated swap</td></tr>
+        <tr><td>Fluid DEX (general)</td><td class="val">90–145k</td><td class="val">~156k (real)</td><td style="text-align:left">Liquidity Layer · direct user↔Liquidity transfer · bit-packed storage</td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:12px"><b>Verdict — we do NOT win on raw swap gas today, and shouldn't claim to.</b> The general-AMM floor is
+    ~95–110k, of which ~40–65k is unavoidable (21k base tx + 2× ERC-20 transfer). BTR sits ~2× that because every swap
+    also reads an external oracle, computes a volatility-scaled fee, and applies coverage/LVR protection — <b>active features
+    a passive CPMM doesn't have</b>, not waste. The quartic closes part of the gap (math now cheaper than Curve's Newton and
+    Uniswap's tick traversal) but not all of it. <b>Two structural facts:</b> (1) singleton + transient-storage flash-accounting
+    is now table-stakes (v4 / Balancer v3 / Fluid / Ekubo all do it); our flat-Pool + EIP-1167-clone arch does not, a standing
+    ~20–40k disadvantage. (2) For stable-stable specifically, <b>Fluid DEX Lite's ~10k is a real threat</b> — it wins by dropping
+    general curve math near peg. <b>Where BTR actually competes is LP net-APR after LVR</b> (oracle-priced, arb-resistant) and
+    <b>arbitrary liquidity shaping</b> (this zoo) — not gas. To contend on gas would need a near-peg fast-path (skip oracle/coverage
+    when |offset|&lt;ε) + a singleton refactor — both post-launch.</p>
+  </section>
+
   <section class="card notes" id="notes"></section>
   <div class="foot mono">BTR internal · math ported from dex/evm/src/libraries/Spline.sol · aimm.ts/aimm.rs are linear-only (documented ceiling), exact only for collinear knots</div>
 </div>
@@ -133,12 +177,18 @@ const fmtBp=v=>v==null?'—':v.toFixed(Math.abs(v)<1?3:2);
 let TAB='density', hover=null, geom=null;
 const PROFILE_COL={default:'--s-p0',smooth_concentrated:'--s-p1',smooth_flattop:'--s-p2',flattop_gentle:'--s-p3',cubic_5knot_low_bump:'--s-p4',cubic_5knot_concentrated:'--s-p6',prior_wide_flagged:'--s-p5'};
 const CURVE_COL={A4000:'--s-cv1',A1500:'--s-cv2',A256:'--s-cv3'};
-// all 7 profile regimes visible by default (the whole point — judge shapes side-by-side); disp fixed at
-// 1000 for the comparison (the density SHAPE is scale-invariant across disp, only offset/volUsd units
-// rescale — see notes). Curve benchmarks off by default to keep the initial regime comparison uncluttered.
-let off={ p_default:false,p_smooth_concentrated:false,p_smooth_flattop:false,p_flattop_gentle:false,
-  p_cubic_5knot_low_bump:false,p_cubic_5knot_concentrated:false,p_prior_wide_flagged:true,
-  curveA4000:true, curveA1500:false, curveA256:false };
+const BSPLINE_COL={curve_A4000:'--s-b0',curve_A1500:'--s-b1',curve_A256:'--s-b2',eclp:'--s-b3',bimodal:'--s-b4',
+  right_skew:'--s-b5',left_skew:'--s-b6',lognormal:'--s-b7',fat_tail:'--s-b8',thin_tail:'--s-b9',normal:'--s-b10',valley:'--s-b11',skew_fat:'--s-b12',skew_thin:'--s-b13'};
+// v7 default view = the DECISION view: new B-spline fits (solid, bold) vs their Curve targets (dashed gold)
+// vs the best shipped FC profile (smooth_concentrated) — everything else one click away. E-CLP/bimodal off
+// by default because their ±40bp support re-scales both axes (axes are dynamic, fitted to visible series).
+let off={ p_default:true,p_smooth_concentrated:true,p_smooth_flattop:true,p_flattop_gentle:true,
+  p_cubic_5knot_low_bump:true,p_cubic_5knot_concentrated:true,p_prior_wide_flagged:true,
+  curveA4000:true, curveA1500:true, curveA256:true,
+  b_curve_A4000:true, b_curve_A1500:true, b_curve_A256:true, b_eclp:true, b_bimodal:false,
+  b_right_skew:true, b_left_skew:true, b_lognormal:true,
+  b_normal:false, b_fat_tail:false, b_thin_tail:false,
+  b_valley:false, b_skew_fat:false, b_skew_thin:true }; // default = bimodal + kurtosis trio + valley + skews
 
 function profileList(key){ // key: 'rows' or 'density'
   return D.profileKeys.map(k=>{
@@ -152,8 +202,15 @@ function profileList(key){ // key: 'rows' or 'density'
 function curveList(key){
   return Object.entries(D.curves).map(([k,c])=>({id:'curve'+k, cvar:CURVE_COL[k], label:c.label, sub:c.sub, data:c[key], w:1.6, dash:[6,4]}));
 }
-function allSeries(key){ return [...profileList(key), ...curveList(key)]; }
-function interp(rows,x){ if(!rows.length) return null; if(x<=rows[0][0])return rows[0][1]; if(x>=rows[rows.length-1][0])return rows[rows.length-1][1];
+// B-spline (C2) candidate replacement — series precomputed through powEval/powDeriv (spline_bspline.ts),
+// i.e. the exact binary-search+Horner path the Solidity port runs on pushed power-basis segments.
+function bsplineList(key){
+  return Object.entries(D.bsplines).map(([k,b])=>({id:'b_'+k, cvar:BSPLINE_COL[k], label:b.label, sub:b.sub, data:b[key], w:2.6, dash:null, wall:'±'+b.edgeBp+'bp'}));
+}
+function allSeries(key){ return [...bsplineList(key), ...profileList(key), ...curveList(key)]; }
+// Outside a series' domain: null (renders as '—'), NOT endpoint-clamp — clamping fabricated a constant
+// tail in tooltips/tables for wall-bounded series (e.g. a ±0.83bp B-spline "showing" $3.6M/bp at +38bp).
+function interp(rows,x){ if(!rows.length||x<rows[0][0]||x>rows[rows.length-1][0]) return null;
   let i=1; while(rows[i][0]<x)i++; const a=rows[i-1],b=rows[i]; const t=(x-a[0])/(b[0]-a[0]); return a[1]+(b[1]-a[1])*t; }
 
 // ================= DENSITY (log-y, symmetric offset x) =================
@@ -166,12 +223,23 @@ function interp(rows,x){ if(!rows.length) return null; if(x<=rows[0][0])return r
 // skip-below-floor to CLAMP-to-floor, so a series never silently vanishes — it flattens along the visible
 // floor instead, which is honest (still very thin liquidity, just not literally invisible).
 const YLO=1e3, YHI=1e8; // $/bp, log domain
-const XM_D=7; // ±bps — zoomed to the disp1000 wall (±5bp) with a little margin, per owner request
+const XM_D_MIN=7; // ±bps floor — zoomed to the disp1000 wall (±5bp) when only tight series are visible
+// Axes are DYNAMIC: fitted to the widest visible series (E-CLP/bimodal B-splines span ±40bp; with them
+// hidden the chart stays at the tight ±7bp regime view). Fixed axes either clipped the new shapes to
+// invisibility or flattened the regime comparison — this keeps both honest.
+// Curve benchmarks are UNBOUNDED (stableswap has no wall) — their long tails must not stretch the axis
+// (that squashed the ±5bp regime region into the middle 15% of the chart), so they're excluded here and
+// simply clip at the edge, exactly as the old fixed-±7bp view did.
+function visXmD(){ let m=XM_D_MIN;
+  for(const s of allSeries('density')){ if(off[s.id]||!s.data.length||s.id.startsWith('curve')) continue;
+    m=Math.max(m, Math.abs(s.data[0][0]), Math.abs(s.data[s.data.length-1][0])); }
+  return Math.ceil(m*1.04); }
 function ly(v){ return Math.log10(Math.max(v,YLO)); }
 function drawDensity(){
   const dpr=Math.min(window.devicePixelRatio||1,2.5), r=cv.getBoundingClientRect(), W=r.width,H=r.height;
   cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
   const padL=54,padR=14,padT=12,padB=30, pw=W-padL-padR, ph=H-padT-padB;
+  const XM_D=visXmD();
   const X=v=>padL+(v+XM_D)/(2*XM_D)*pw, Y=v=>padT+(ly(YHI)-ly(v))/(ly(YHI)-ly(YLO))*ph;
   geom={mode:'d',X,Y,padL,padR,padT,padB,pw,ph,W,H,XM:XM_D};
   const mut=css('--mut'),hair=css('--hair'),line=css('--line');
@@ -182,7 +250,7 @@ function drawDensity(){
   ctx.save(); ctx.translate(12,padT+ph/2); ctx.rotate(-Math.PI/2); ctx.textAlign='center';
   ctx.fillStyle=mut; ctx.fillText('liquidity density ($ per bp) — log scale, shaded = area under curve',0,0); ctx.restore();
   ctx.textBaseline='top';
-  const dstep=XM_D>10?5:2;
+  const dstep=XM_D>25?10:XM_D>10?5:2;
   for(let v=-Math.floor(XM_D/dstep)*dstep; v<=XM_D+1e-9; v+=dstep){ const x=X(v); ctx.strokeStyle=v===0?line:hair; ctx.lineWidth=v===0?1.3:1;
     ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+ph); ctx.stroke();
     ctx.fillStyle=mut; ctx.textAlign='center'; ctx.fillText((v>0?'+':'')+v, x, padT+ph+7); }
@@ -222,12 +290,17 @@ function drawImpact(){
   const dpr=Math.min(window.devicePixelRatio||1,2.5), r=cv.getBoundingClientRect(), W=r.width,H=r.height;
   cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
   const padL=44,padR=14,padT=12,padB=30, pw=W-padL-padR, ph=H-padT-padB;
-  const XM=5_000_000, YM=16;
+  const XM=5_000_000;
+  let YM=16; // ±bps floor; stretches to the widest visible series (see visXmD note)
+  for(const s of allSeries('rows')){ if(off[s.id]||!s.data.length||s.id.startsWith('curve')) continue;
+    YM=Math.max(YM, Math.abs(s.data[0][1]||0), Math.abs(s.data[s.data.length-1][1]||0)); }
+  YM=Math.ceil(YM*1.08);
   const X=v=>padL+(v+XM)/(2*XM)*pw, Y=v=>padT+(1-(v+YM)/(2*YM))*ph;
   geom={mode:'i',X,Y,padL,padR,padT,padB,pw,ph,W,H,XM,YM};
   const mut=css('--mut'),hair=css('--hair'),line=css('--line');
   ctx.font='10px ui-monospace,monospace'; ctx.textBaseline='middle';
-  for(let v=-15;v<=15;v+=5){ const y=Y(v); ctx.strokeStyle=v===0?line:hair; ctx.lineWidth=v===0?1.3:1;
+  const ystep=YM>24?10:5;
+  for(let v=-Math.floor(YM/ystep)*ystep;v<=YM;v+=ystep){ const y=Y(v); ctx.strokeStyle=v===0?line:hair; ctx.lineWidth=v===0?1.3:1;
     ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
     ctx.fillStyle=mut; ctx.textAlign='right'; ctx.fillText((v>0?'+':'')+v, padL-6, y); }
   ctx.save(); ctx.translate(12,padT+ph/2); ctx.rotate(-Math.PI/2); ctx.textAlign='center';
@@ -263,7 +336,9 @@ function mkRow(el,it,group){ const row=document.createElement('div'); row.classN
   row.onclick=()=>{ off[it.id]=!off[it.id]; draw(); renderLegend(); renderTable(); }; el.appendChild(row); }
 function renderLegend(){
   const el=document.getElementById('legend'); el.innerHTML='';
-  const h1=document.createElement('div'); h1.className='lg-group'; h1.textContent='BTR profiles — 6 regimes, real wiggle labeled'; el.appendChild(h1);
+  const h0=document.createElement('div'); h0.className='lg-group'; h0.textContent='NEW · quartic B-spline (C2 density) — candidate replacement'; el.appendChild(h0);
+  for(const s of bsplineList('rows')) mkRow(el,s);
+  const h1=document.createElement('div'); h1.className='lg-group'; h1.textContent='FC Hermite profiles (current Spline.sol)'; el.appendChild(h1);
   for(const s of profileList('rows')) mkRow(el,s);
   const h2=document.createElement('div'); h2.className='lg-group'; h2.textContent='Curve · Ethereum mainnet (real)'; el.appendChild(h2);
   for(const s of curveList('rows')) mkRow(el,s);
@@ -271,30 +346,73 @@ function renderLegend(){
 function renderTable(){
   const t=document.getElementById('rtable');
   if(TAB==='density'){
-    const bands=[0,0.5,1,2,5];
+    const bands=visXmD()>10?[0,5,10,15,25,38]:[0,0.5,1,2,5];
     let h=`<thead><tr><th>series</th>${bands.map(b=>`<th>density @ ${b}bp</th>`).join('')}</tr></thead><tbody>`;
     for(const s of allSeries('density')){ if(off[s.id]) continue; let cells='';
       for(const b of bands){ const v=interp(s.data,b); cells+=`<td class="val">${v==null?'—':fmtUsd(v)+'/bp'}</td>`; }
       h+=`<tr><td><span style="color:${css(s.cvar)}">${s.label}</span></td>${cells}</tr>`; }
     t.innerHTML=h+'</tbody>';
   } else {
-    const bands=[0.5,1,2,5]; let h=`<thead><tr><th>series</th>${bands.map(b=>`<th>within ±${b}bp</th>`).join('')}<th>hard wall</th></tr></thead><tbody>`;
+    const bands=visXmD()>10?[1,5,15,25,38]:[0.5,1,2,5]; let h=`<thead><tr><th>series</th>${bands.map(b=>`<th>within ±${b}bp</th>`).join('')}<th>hard wall</th></tr></thead><tbody>`;
     for(const s of allSeries('rows')){ if(off[s.id]) continue; let cells='';
       for(const b of bands){ let lo=0; for(const [v,o] of s.data) if(o!=null&&Math.abs(o)<=b) lo=Math.abs(v); cells+=`<td class="val">${fmtUsd(lo)}</td>`; }
-      const wall = s.disp ? '±'+(s.disp/200)+'bp' : (s.id.startsWith('curve')?'unbounded':'—');
+      const wall = s.wall ? s.wall : s.disp ? '±'+(s.disp/200)+'bp' : (s.id.startsWith('curve')?'unbounded':'—');
       h+=`<tr><td><span style="color:${css(s.cvar)}">${s.label}</span></td>${cells}<td class="val">${wall}</td></tr>`; }
     t.innerHTML=h+'</tbody>';
   }
 }
 function renderChips(){
   document.getElementById('chips').innerHTML =
-    `<span class="chip">math = <b>Spline.sol eval/_tangents</b>, 1:1 port</span>`+
-    `<span class="chip"><b class="teal">2 hard gates</b>: continuity 0.0000% + bump ≤1%</span>`+
-    `<span class="chip"><b class="teal">area-filled</b>, floor lowered — no more phantom "no depth"</span>`+
-    `<span class="chip">capital integral = <b class="teal">$10.00M exact</b>, every regime</span>`+
+    `<span class="chip"><b class="teal">NEW</b> quartic B-spline: log-density roughness ≤ <b>0.12</b> decades (kinky v1 ≥1.18); smoothed in the viewed metric</span>`+
+    `<span class="chip">B-spline series = <b>on-chain path</b> (power-basis Horner, powEval/powDeriv)</span>`+
+    `<span class="chip"><b class="teal">multimodal proven</b>: 2 density peaks, monotone cumulative</span>`+
+    `<span class="chip">FC math = <b>Spline.sol eval/_tangents</b>, 1:1 port</span>`+
+    `<span class="chip">capital integral = <b class="teal">$10.00M exact</b>, every series</span>`+
     `<span class="chip">Curve benchmarks = <b class="teal">real Ethereum L1</b>, not BSC</span>`;
 }
 const NOTES_DENSITY =
+ `<p><b>NEW v2 — clamped QUARTIC B-spline (penalized I-spline): removes the SEAM class, not just the kink `+
+ `class.</b> The FC Hermite is structurally C1 — curvature JUMPS at every knot. The v1 cubic B-spline fixed `+
+ `that one level up (C2 cumulative ⇒ C1 density) but the density's own curvature still jumped at every knot: `+
+ `measured 0.46–0.59 decade/bp log-slope breaks exactly at the knot anchors = the polygon-vertex look. `+
+ `Quartic cumulative is C3 ⇒ density is <b class='teal'>C2 = G2 curvature-continuous</b> — a knot physically `+
+ `cannot leave a corner. What remains (a jump in the density's THIRD derivative) is gated by a calibrated `+
+ `seam metric: worst log-chart footprint ≤ <b class='teal'>0.27 decades</b> across all 10 shapes (owner-`+
+ `flagged kinky fits measured ≥1.18). Knots are UNIFORM-IN-OFFSET + a fixed wall pair — no hand-tuned `+
+ `anchors — with a target-normalized Eilers-Marx roughness penalty (smallest λ passing all gates). `+
+ `Monotonicity = <span class='k'>Δw≥0</span>, an O(n) integer compare at push time, valid at ANY degree. `+
+ `Fits: Curve A=4000/1500/256 at <b class='teal'>6/6/7 control points</b>, max err 0.10/0.27/0.44 pbps, `+
+ `bump 0.000%, capital $10.0M exact. <b>Multimodality proven:</b> two density peaks at ±15.0bp from ONE `+
+ `monotone cumulative, zero spurious lobes. uint16 weight quantization drifts fit metrics ≤0.02 pbps, `+
+ `leaves the seam metric unchanged to 3 decimals (rounding perturbs density through smooth basis mixtures — `+
+ `it cannot create a seam), and cannot break monotonicity (non-negative ints ⇒ nondecreasing cumsum). `+
+ `Real forge gas (QuarticProto, non-uniform knots as shipped, storage-backed, DCE-proofed): eval `+
+ `<b>19,630</b> vs current Spline.eval 17,993 (parity), trade-integral area <b>33,726 at ANY span</b> via `+
+ `prefix integrals (current: O(covered segments) with a sqrt each — the wide-trade win). Uniform-knot `+
+ `floor if ever needed: 8.9k eval / 14.2k area. Fewer knots (pruned fits above) ⇒ shorter binary search `+
+ `⇒ cheaper still. TS↔Solidity parity PROVEN on the exact fitted objects: worst eval delta 4e-9 pbps, `+
+ `areas within 1e-6 rel (QuarticProto.t.sol, 8/8). Every B-spline line is sampled through the exact `+
+ `on-chain path (push-time power-basis conversion, then Horner): what the contract would return, not an `+
+ `idealization.</p>`+
+ `<p><b>Adversarial verification — complete, 3 independent lenses.</b> (1) Monotonicity via `+
+ `<span class='k'>Δw≥0</span> is <b class='teal'>airtight</b>: 120k randomized trials through the on-chain `+
+ `path, worst "decrease" 5.7e-14 pbps = floating-point noise (structural: y' = Σ dᵢMᵢ with dᵢ∝Δwᵢ≥0, Mᵢ≥0). `+
+ `(2) Integer feasibility passes: power-basis ≡ de Boor at 5.5e-14 rel, exact clamped-end interpolation, `+
+ `area vs Simpson 2.3e-12, worst P=1e18 intermediate 1.3e43 — far inside int256. (3) Every reported fit `+
+ `number independently reproduced within 2%. <b>One claim was REFUTED and is dropped:</b> "unimodal Δw ⇒ `+
+ `unimodal density" fails on non-uniform knots (12.4% of trials; clean interior counterexample on a `+
+ `strictly single-peak Δw sequence) — so the single-peak quality gate is enforced OFF-chain on the density `+
+ `curve itself (the fit pipeline already does exactly that), never via the cheap Δw-sequence shortcut. `+
+ `The contract never needed that shortcut: on-chain validation is Δw≥0 (safety) only, which stands at any `+
+ `degree (derivative control points are ∝ Δw regardless of order — re-verified for the quartic: power-basis `+
+ `≡ de Boor at ~4e-14 rel, quintic antiderivative vs numeric integral at ~8e-7). Rivals, four-expert panel `+
+ `(2026-07-09), tested not argued: Schumaker quadratic ELIMINATED (C0 density — literal polygon generator); `+
+ `Steffen/Hyman/Dougherty-Edelman-Hyman/Akima ELIMINATED (all Hermite-class ⇒ density ≤C1, the disease `+
+ `itself; Akima additionally has NO monotone guarantee); Delbourgo-Gregory rational ELIMINATED (∫p/q ⇒ ln `+
+ `terms per segment — no closed-form area — and its monotone cert is not integer compares); tension/`+
+ `exponential splines ELIMINATED (sinh per eval AND per area). The penalized I-spline (density = non-negative `+
+ `cubic B-spline) is the unique survivor of all five on-chain constraints; its C2 density is basis-structural `+
+ `(unforgeable by a malicious push). Production Solidity port pending owner go + security review.</p>`+
  `<p><b>The "no depth near ±5bp" reading was a chart bug, not a real design gap.</b> Every shipped profile `+
  `has genuinely nonzero density all the way to the wall — <span class='k'>smooth_concentrated</span> bottoms `+
  `out at <b class='teal'>$9,231/bp</b> near ±4.75bp, never zero. The OLD chart's log-scale floor was `+
@@ -401,7 +519,7 @@ const NOTES_IMPACT =
  `change to the wall itself. See the density tab for the continuity-bug story and the verified scorecard.</p>`;
 function renderChrome(){
   document.getElementById('chart-title').textContent = TAB==='density' ? 'Liquidity density vs price offset (log $/bp)' : 'Cumulative price offset vs traded volume';
-  document.getElementById('axis-note').textContent = TAB==='density' ? 'linear x · log y · ±7bp zoom' : 'linear · linear · $10M/side pool';
+  document.getElementById('axis-note').textContent = TAB==='density' ? 'linear x · log y · x-range fits visible series' : 'linear · linear · $10M/side pool';
   document.getElementById('notes').innerHTML = TAB==='density' ? NOTES_DENSITY : NOTES_IMPACT;
 }
 
