@@ -62,9 +62,12 @@ library Spline {
                     (int256 m0, int256 m1) = _tangents(pts, i, n);
                     int256 k0 = m0 * h;
                     int256 k1 = m1 * h;
-                    int256 dy = p1.y - p0.y;
-                    int256 A = k0 + k1 - 2 * dy;
-                    int256 B = 3 * dy - 2 * k0 - k1;
+                    // FIX 2026-07-09: k0/k1 are now Y*P-scale (m0/m1 P-scaled in _tangents, see fix there) —
+                    // dy must match, or A/B mix a Y*P term with a ~1e18x-smaller raw-Y term, drowning k0/k1
+                    // out of the integral exactly like eval()'s pre-fix c2/c3 did. dyP mirrors eval():27.
+                    int256 dyP = (p1.y - p0.y) * P;
+                    int256 A = k0 + k1 - 2 * dyP;
+                    int256 B = 3 * dyP - 2 * k0 - k1;
                     int256 F2 = _primitive(int256(end - p0.x), h, p0.y, k0, A, B);
                     int256 F1 = _primitive(int256(start - p0.x), h, p0.y, k0, A, B);
                     res += (F2 - F1) * h / P;
@@ -98,18 +101,26 @@ library Spline {
         unchecked {
             Point memory p0 = pts[i];
             Point memory p1 = pts[i + 1];
-            s = (p1.y - p0.y) / int256(p1.x - p0.x);
+            // FIX 2026-07-09: secants were unscaled int division (dy/dx, no *P) while eval()'s dyP=dy*P and
+            // k0=m0*h/k1=m1*h expect Y*P-scale inputs — at real PBPS-y/BPS-x production units |dy|<|dx|
+            // almost always, so s truncated to 0 far more often than intended, and even when nonzero, m0/m1
+            // (built from s) fed k0/k1 in at ~1e-18 relative weight vs dyP, making the Fritsch-Carlson
+            // tangent terms numerically dead — eval() collapsed toward plain smoothstep on real profiles
+            // (confirmed empirically: up to 300%+ divergence from the intended curve, independently
+            // reproduced via patch-and-retest). *P here makes m0/m1 Y*P-scale, matching k0/k1's existing
+            // scale in eval() — see the matching area()/_primitive() fix below for the same reason.
+            s = ((p1.y - p0.y) * P) / int256(p1.x - p0.x);
             if (i == 0) m0 = s;
             else {
                 Point memory pm = pts[i - 1];
-                int256 sp = (p0.y - pm.y) / int256(p0.x - pm.x);
+                int256 sp = ((p0.y - pm.y) * P) / int256(p0.x - pm.x);
                 int256 mask = (sp ^ s) >> 255;
                 m0 = ((sp + s) >> 1) & ~mask;
             }
             if (i == n - 2) m1 = s;
             else {
                 Point memory p2 = pts[i + 2];
-                int256 sn = (p2.y - p1.y) / int256(p2.x - p1.x);
+                int256 sn = ((p2.y - p1.y) * P) / int256(p2.x - p1.x);
                 int256 mask2 = (s ^ sn) >> 255;
                 m1 = ((s + sn) >> 1) & ~mask2;
             }
@@ -122,6 +133,10 @@ library Spline {
         uint256 sa = s >= 0 ? uint256(s) : uint256(-s);
         // Bound m0a, m1a ≤ ~2·sa (sign-mask of avg of co-sign slopes); m0a² fits in uint256 for typical ranges.
         // Guard: if either |m_k| > 2^120, skip clamp (extreme inputs already handled by sign-mask).
+        // Re-checked after the 2026-07-09 P-scaling fix above: secants are now ~P=1e18x larger than before
+        // (Y*P scale, not raw Y). Worst realistic case (steepest single-weight segment at generous PBPS/BPS
+        // bounds) is still ~1e21 — ~15 orders of magnitude below 2^120≈1.33e36, so this guard remains safe
+        // margin, not a new bottleneck; sumSq below still fits comfortably inside uint256 (max ~1.16e77).
         if (m0a > (1 << 120) || m1a > (1 << 120) || sa > (1 << 120)) return (m0, m1);
         uint256 sumSq = m0a * m0a + m1a * m1a;
         uint256 nineSSq = 9 * sa * sa;
@@ -136,13 +151,17 @@ library Spline {
     }
 
     /// @dev Primitive F(t) of the Hermite cubic; output Y*P.
+    /// FIX 2026-07-09: k0/A/B are now Y*P-scale (see _tangents/area fixes above), t2/t3/t4 are separately
+    /// P-scale (each `t^n` carries exactly one factor of P by construction, same convention as t itself) —
+    /// so k0*t2/A*t4/B*t3 land at Y*P*P, one factor too many vs y0*t's correct Y*P. Divide those three
+    /// terms by an extra P to bring every additive term of F back to the same Y*P scale.
     function _primitive(int256 dx, int256 h, int256 y0, int256 k0, int256 A, int256 B) private pure returns (int256 F) {
         unchecked {
             int256 t = dx * P / h;
             int256 t2 = (t * t) / P;
             int256 t3 = (t2 * t) / P;
             int256 t4 = (t3 * t) / P;
-            F = y0 * t + (k0 * t2) / 2 + (B * t3) / 3 + (A * t4) / 4;
+            F = y0 * t + (k0 * t2) / (2 * P) + (B * t3) / (3 * P) + (A * t4) / (4 * P);
         }
     }
 }
