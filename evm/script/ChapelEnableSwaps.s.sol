@@ -108,9 +108,10 @@ contract ChapelEnableSwaps is Script {
 
         for (uint256 i = 0; i < tokens.length; i++) {
             address tok = tokens[i];
-            (uint16 minFee, uint16 refBand) = _assetParams(tok, stable);
+            (uint16 minFee, uint16 refBand, uint32 minDisp, uint32 maxDisp) = _assetParams(tok, stable);
             IPool.OracleConfig memory oc = _oracleCfg(tok, tokens[0], refBand);
-            admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, 1000, 100_000, 10_000, 10_000);
+            IPool.LiquidityProfile memory pfTok = stable ? _stableProfile() : pf;
+            admin.addAsset(poolAddr, tok, oc, rc, pfTok, minFee, 18, minDisp, maxDisp, 10_000, 10_000);
         }
 
         admin.setBaseTokenOracle(poolAddr, ORACLE, USDC_FEED);
@@ -128,6 +129,7 @@ contract ChapelEnableSwaps is Script {
     }
 
     function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
+        // Volatile default (flat-ish 5-knot). Stable uses `_stableProfile`.
         p.weights[0] = 50;
         p.weights[1] = 50;
         p.weights[2] = 50;
@@ -139,12 +141,42 @@ contract ChapelEnableSwaps is Script {
         p.knots[4] = 50;
     }
 
-    function _assetParams(address tok, bool stable) internal pure returns (uint16 minFee, uint16 refBand) {
-        minFee = 1;
+    /// @dev testnet-asset-params.json sharedLiquidityProfile — 4-knot center bump.
+    function _stableProfile() internal pure returns (IPool.LiquidityProfile memory p) {
+        p.weights[0] = 25;
+        p.weights[1] = 150;
+        p.weights[2] = 25;
+        p.knots[0] = -50;
+        p.knots[1] = -12;
+        p.knots[2] = 12;
+        p.knots[3] = 50;
+    }
+
+    /// @dev Per-asset from testnet-asset-params.json stable-core / volatile-core.
+    function _assetParams(address tok, bool stable)
+        internal
+        pure
+        returns (uint16 minFee, uint16 refBand, uint32 minDisp, uint32 maxDisp)
+    {
+        if (stable) {
+            minDisp = 500;
+            maxDisp = 5000;
+            minFee = 10;
+            refBand = 0;
+            if (tok == USDC) { minFee = 10; minDisp = 100; maxDisp = 2000; refBand = 50; }
+            else if (tok == USDT) { minFee = 10; minDisp = 600; maxDisp = 6000; refBand = 100; }
+            else if (tok == USD1) { minFee = 10; minDisp = 500; maxDisp = 5000; refBand = 150; }
+            else if (tok == USDE) { minFee = 15; minDisp = 500; maxDisp = 5000; refBand = 200; }
+            else if (tok == FDUSD) { minFee = 15; minDisp = 500; maxDisp = 5000; refBand = 200; }
+            return (minFee, refBand, minDisp, maxDisp);
+        }
+        // volatile-core defaults
+        minFee = 1000;
+        minDisp = 1000;
+        maxDisp = 100_000;
         refBand = 0;
         if (tok == USDT) refBand = 100;
-        else if (stable && tok != USDC) refBand = 150;
-        else if (!stable && tok == XAUT) refBand = 200;
+        else if (tok == XAUT) refBand = 200;
     }
 
     function _oracleCfg(address asset, address base, uint16 refBandBps)
