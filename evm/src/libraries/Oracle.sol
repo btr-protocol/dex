@@ -130,8 +130,4 @@ library Oracle {
             tauSigma: 0
         });
     }
-
-    function getBaseFeed() internal view returns (IOracle.FeedData memory feed) {
-        return getPegFeed(M.encodeB64(SC.WAD, 18), uint32(SC.ONE_PCT_PBPS));
-    }
 }

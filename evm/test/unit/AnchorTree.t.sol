@@ -31,7 +31,6 @@ contract LibAnchorTreeHarness {
     function findRoutingPath(address a, address b) external view returns (IPool.RoutePath memory) {
         return T.findRoutingPath(_s(), a, b);
     }
-    function isRoot(address a) external view returns (bool) { return T.isRoot(_s(), a); }
 }
 
 /// @notice AnchorTree is a depth-1 STAR: base = depth 0, every spoke anchors directly to base
@@ -107,12 +106,5 @@ contract LibAnchorTreeTest is BaseTestSetup {
     function test_route_rejects_asset_not_in_tree() public {
         vm.expectRevert(abi.encodeWithSelector(Err.AssetNotInTree.selector, OUTSIDER));
         harness.findRoutingPath(OUTSIDER, SPOKE_A);
-    }
-
-    // ── isRoot ──
-
-    function test_isRoot() public view {
-        assertTrue(harness.isRoot(BASE), "base is root");
-        assertFalse(harness.isRoot(SPOKE_A), "spoke is not root");
     }
 }

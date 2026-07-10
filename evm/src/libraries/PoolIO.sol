@@ -86,17 +86,7 @@ library PoolIO {
         }
     }
 
-    function exec(
-        IPool.PoolStorage storage $,
-        address tkIn,
-        address tkOut,
-        uint256 amtIn,
-        IPool.SwapQuote memory q
-    ) internal {
-        exec($, tkIn, tkOut, amtIn, q, $.assets[tkIn], $.assets[tkOut]);
-    }
-
-    /// @notice Same as exec but reuses caller-warmed Asset storage refs (G2-4).
+    /// @notice Reuses caller-warmed Asset storage refs.
     function exec(
         IPool.PoolStorage storage $,
         address tkIn,
