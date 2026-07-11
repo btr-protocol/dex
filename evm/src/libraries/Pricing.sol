@@ -93,23 +93,21 @@ library Pricing {
         amountOut = (amountIn * executionPrice) / SC.WAD;
     }
 
-    /// @dev κ⁻¹: dispersion ∝ σ. dispersion = clamp(1000 + σ·vega/1000/BPS, [min,max]).
+    /// @dev κ⁻¹: dispersion ∝ σ. dispersion = clamp(minDispersion + σ·vega/1000/BPS, [min,max]).
+    ///      `minDispersion` is the quiet-tape floor (owner-set per asset); do NOT hardcode a 1000 PBPS
+    ///      base or tight stable bands (1–6 bp) are unreachable when σ≈0.
     function _calculateDispersion(
         uint32 volatility,
         uint16 vega,
         uint32 minDispersion,
         uint32 maxDispersion
     ) internal pure returns (uint32 dispersion) {
-        // Linear mapping: dispersion increases with volatility
-        // Base dispersion + volatility scaled by vega
+        // Linear mapping: dispersion increases with volatility above the per-asset floor.
         // Vega controls sensitivity: 10000 (100%=1x) means vol/1000, 5000 (50%=0.5x) means vol/2000
         uint256 scaledVol = (uint256(volatility) * uint256(vega)) / (1000 * SC.BPS);
-        uint256 raw = 1000 + scaledVol;
+        uint256 raw = uint256(minDispersion) + scaledVol;
 
-        // Clamp to [minDispersion, maxDispersion]
-        if (raw < uint256(minDispersion)) return minDispersion;
         if (raw > uint256(maxDispersion)) return maxDispersion;
-
         return uint32(raw);
     }
 
