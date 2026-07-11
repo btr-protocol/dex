@@ -207,6 +207,7 @@ pub fn run(amm: &mut dyn Amm, prices: &[f64], cfg: &SimCfg, days: f64) -> Report
 
     let push_every = cfg.push_every.max(1);
     for (step, &p_ext) in path.iter().enumerate() {
+        amm.tick(step);
         // 1) keeper push at the configured cadence. Oracle-quote AMMs refresh their mark to the
         //    current true price only every `push_every` steps; BETWEEN pushes the mark goes stale
         //    while the true price moves, so the arb pass below picks the pool off (measurable LVR).

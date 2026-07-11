@@ -11,9 +11,9 @@
 - **Feed rework = OPTION A (full migration).** External-keeper mark + on-chain EMA replace the
   **write-on-swap TDWAP accumulator** (midPrice→lastPriceB64, getFastTWAP→emaPriceB64, drop per-swap
   pushOracle write, migrate harness). Rationale: keeper-mark quoting kills LVR vs lagging internal discovery.
-- **FeedData = 8 fields, ONE slot (256b):** `{lastPriceB64; emaPriceB64; sigmaEma; updatedAt; ttl; confidence; tau; tauSigma}`. Keeper pushes mark + σ **sample** + CI; chain folds σ-EMA. Quote = lastPrice; pricing σ = sigmaEma.
-  on-chain manip-resistant reference (Pyth-parity, servable oracle); confidence = 1σ CI (bps) → surcharge
-  + halt; sigma = realized vol (our edge vs Pyth/CL). See memory project_dex_feed_ema_design.
+- **FeedData = 8 fields, ONE slot (256b):** `{lastPriceB64; emaPriceB64; sigmaEma; updatedAt; ttl; confidence; tau; tauSigma}`. Keeper pushes NXR mark + σ **sample** + CI; chain folds σ-EMA. Quote = lastPrice; pricing σ = sigmaEma.
+  The on-chain EMA is a manipulation-bounded servable reference; confidence = 1σ CI (bps) → surcharge
+  + halt; sigma = realized volatility. See memory project_dex_feed_ema_design.
 - **On-chain EMA:** single, time-decayed (α=min(Δt/τ,1)), RATE-clamped (band=k·confidence, cap
   MAX_BAND_BPS=2000; rate-clamp NOT absolute → dodges LUNA/Venus minAnswer brick). k=8, τ default 1800s.
 - **Delete (no-deferred):** Δ/U momentum surcharge (directional=RW), fastOffset/slowOffset/slowVolEMA,
@@ -39,7 +39,7 @@
 ### Push triggers (single daemon)
 One `btr-keeper oracle-daemon` per cluster instance. Per feed, push when:
 - cold-start (no prior on-chain mark), **or**
-- `|m − p_last| / p_last > θ` (±0.3–0.5 bp stables, ±5 bp volatiles), **or**
+- `|m − p_last| / p_last > θ` (±0.3 bp stables, ±10 bp volatiles), **or**
 - `heartbeat_s` elapsed since last on-chain push for that feed.
 
 Heartbeat is the staleness ceiling the daemon enforces — not an independent
@@ -61,7 +61,7 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
   failover on upstream silence, not parallel triple-push.
 
 ## POOLS (BNB testnet, base = USDC for both)
-- **Stable core (FINAL, 5 tokens, 2026-07-08):** USDC(base), USDT, USD1, USDE, FDUSD — **USDS dropped** (no live Pyth feed / negligible BSC flow). All 5 priced off **Pyth** (keeper reads Hermes, pushes to ExternalOracle; Pyth = source, never on the quote path). θ stables = **0.3–0.5 bp** (not ±1 bp). SSoT: `dex/evm/deploy/testnet-asset-params.json`.
+- **Stable core (FINAL, 5 tokens, 2026-07-08):** USDC(base), USDT, USD1, USDE, FDUSD — **USDS dropped** (no approved NXR mark / negligible BSC flow). All 5 are priced from **NXR** marks pushed by the keeper to `ExternalOracle`. θ stables = **0.3 bp**; the 0.1 bp candidate over-triggered on historical replay. SSoT: `dex/evm/deploy/testnet-asset-params.json`.
 - **Volatile core:** USDC(base), USDT, BTCB(=BTC), ETH, WBNB(=BNB), CAKE, XAUT(gold, fallback PAXG).
   (CAKE = PancakeSwap native, top BNB liquidity; XAUT = tokenized gold. Verify final liquidity list.)
 - Testnet = MOCK ERC20s mirroring real symbols/decimals; oracle pushes REAL NX prices for them.
@@ -80,8 +80,8 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
       post-feed-rework.
 - [ ] **Lean/clean sweep** (ponytail): dead code zero-tolerance, consolidate, gas pass (SLOAD/SSTORE/
       calldata), storage packing, comment trim. style-reviewer + /simplify.
-- [ ] **Keeper (btr-keeper):** update push callers to new pushFeed sig (priceB64, sigma, confidence, tau@add);
-      implement deviation-trigger (|Δ|>θ: ±0.3–0.5bp stable, ±5bp volatile) + heartbeat (≤3600s) push loop.
+- [x] **Keeper (btr-keeper):** pushFeed/batchPush use NXR priceB64, sigma and confidence;
+      deviation-trigger (|Δ|>θ: ±0.3bp stable, ±10bp volatile) + heartbeat push loop.
 - [ ] **NX Rates:** confirm it emits per-asset {mid→b64, Parkinson σ, 1σ CI (ci), MITCH ticker id};
       wire the BNB-testnet asset set (mocks map to real NX symbols; wrappers→underlying ticker).
 - [ ] **Docs sync** (owner flagged lag): FeedData spec, spread model (drop U/Δ, add confidence), oracle/
@@ -164,6 +164,9 @@ halt bits (d142d8c) · refFeed no-staleness-gate (3c551e1) · conf=0 EMA freeze 
 - 2026-07-07: σ-EMA v2 + `MIN_FEE_PBPS=1` (`f659706`); `TestnetDeploy.s.sol` + Faucet (`fd1644b`); PR#3.
 - 2026-07-08: Pure-view quote (`5daf76c`); **deviation clamp SHIPPED** (`46fab34` — resolves D1 above);
   hub-neutral cross (`1241099`/`e79d955`); `requestUpdateProfile` (`9eb780e`); **stable-core finalized:
-  5 tokens (USDS dropped), θ=0.3–0.5bp, priced off Pyth** (`1dd2e28`); Distributor propose/finalize root
+  5 tokens (USDS dropped), θ=0.3bp, NXR marks** (`1dd2e28`); Distributor propose/finalize root
   cooldown (`44024fd`); sim params (`1a88b84`).
 - 2026-07-09: Per-asset stable-core minFee/dispersion/refBand differentiation (`08bc838`).
+- 2026-07-10: 7-day NXR 30s cadence replay rejected θ=0.1bp stable (+29% batched transactions);
+  retained θ=0.3bp stable and moved volatile θ from 5bp to 10bp. Trade-driven bounded
+  mean-reverting fair-value offset failed the LP/LVR and self-roundtrip falsification tests.

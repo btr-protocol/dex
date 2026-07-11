@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Audit + top-up Chapel pool liquidity to TARGET=10_000 ether per token side per pool."""
+"""Audit + top-up Chapel pool liquidity.
+
+⚠ Prefer `chapel_rebalance_mark_liquidity.py` for volatile pairs — equal TOKEN
+amounts (10k BTCB + 10k USDC) make a one-sided BTCB book (bid ≈ USDC/mark).
+This script's TARGET defaults to 10_000 ether per token for stables / coverage
+checks only; set MARK_PRICED=1 to skip volatile spokes (leave mark rebalance).
+"""
 from __future__ import annotations
 
 import json

@@ -19,27 +19,28 @@
     "stable-core": {
       "base": "USDC",
       "classDefaults": {
-        "minFeeBps": 100,
+        "minFeeBps": 10,
         "maxFeeBps": 2000,
-        "minDispersion": 1000,
-        "maxDispersion": 100000,
+        "minDispersion": 500,
+        "maxDispersion": 5000,
         "gamma": 10000,
         "vega": 10000,
         "oracleMode": "EXTERNAL",
         "refBandBps": 100,
-        "thetaBps": 0.3,
-        "heartbeatS": 3600,
+        "thetaBps": 0.1,
+        "heartbeatS": 1800,
         "ttlS": 7200
       },
-      "_paramNote": "SIM-TUNED (faithful 3mo state-machine replay of 11.5M BSC swaps; prime/research/stable-core/RISK_PARAMS_TESTNET.md + stable_report.html). minFeeBps=100 (1bp spread) is the LP<->trader EQUILIBRIUM: wins ~23% of trades / ~12% of volume (sane, non-toxic flow) at ~11-15% LP net APR. Lower starves LPs (0.5bp->8% APR, 0.3bp->5%), higher sheds trader share (1.5bp->18% win). Floor is 1 PBPS (0.01bp) — reserved for a price war via setAssetParams, NOT the launch value; on stables σ is too small to lift a 1-PBPS floor off the floor. θ=0.3bp = the CRITICAL LP-protection knob: fresh marks keep the pool at true peg so it takes balanced flow (rebalancing stays ~2-4% of won volume, LVR ~0). ~800 pushes/day, ~$60/mo. Coverage band is NOT load-bearing (covMin 0.5..0.8 all equivalent in sim) — freshness is. All 5 priced off Pyth (see priceFeeds).",
+      "_paramNote": "Competitiveness: minFee 0.1bp + θ 0.1bp + tight per-asset dispersion (1–6bp bands from observed peg ranges) + 4-knot center-bump profile. Absolute peg discounts (e.g. FDUSD ~0.997) live in the NXR mark; dispersion is WIDTH around mark only.",
       "assets": {
-        "USDC":  { "minFeeBps": 100, "minDispersion": 1000, "refBandBps": 50 },
-        "USDT":  { "minFeeBps": 100, "minDispersion": 1000, "refBandBps": 100, "refFeedId": "USDC" },
-        "USD1":  { "minFeeBps": 75,  "minDispersion": 2000, "refBandBps": 150 },
-        "USDE":  { "minFeeBps": 150, "minDispersion": 3000, "refBandBps": 200 },
-        "FDUSD": { "minFeeBps": 150, "minDispersion": 3000, "refBandBps": 200 }
+        "USDC":  { "minFeeBps": 10, "minDispersion": 100,  "maxDispersion": 2000,  "refBandBps": 50 },
+        "USDT":  { "minFeeBps": 10, "minDispersion": 600,  "maxDispersion": 6000,  "refBandBps": 100, "refFeedId": "USDC" },
+        "USD1":  { "minFeeBps": 10, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 150 },
+        "USDE":  { "minFeeBps": 15, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 200 },
+        "FDUSD": { "minFeeBps": 15, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 200 },
+        "USDG":  { "minFeeBps": 10, "minDispersion": 200,  "maxDispersion": 2000,  "refBandBps": 50 }
       },
-      "_perAssetNote": "Owner-set per-asset differentiation (2026-07-09). minFee: USDC/USDT 1bp (safe deep pegs), USD1 0.75bp (win more of the biggest pair — young but liquid), USDe/FDUSD 1.5bp (modest depeg risk premium). minDispersion (spline width): 1000 concentrated for USDC/USDT (deep near-peg, low slippage), 2000 for USD1, 3000 for USDe/FDUSD (wider = less picked-off if they jump). refBandBps = depeg circuit-breaker halt (±0.5%/1%/1.5%/2%): pool stops swapping an asset if its mark leaves that band vs the Pyth reference. θ (fresh mark, shared 0.3bp) is the primary depeg shield; dispersion+refBand are the backstop.",
+      "_perAssetNote": "minDispersion = observed tight trading-band WIDTH in PBPS (100 PBPS=1bp), mark-relative — absolute discount vs $1 is carried by the NXR mark, not the spline. USDC 1bp (0.9997–0.9998), USDG 2bp (0.9999–1.0001), USDT 6bp (0.9993–0.9999), USD1/USDe/FDUSD 5bp. Shape: 4-knot center bump (min for a peak) sharedLiquidityProfile — 75% depth in center 24% of band (~3.1× vs flat). USDG listed for add when feed+token live.",
       "depositCapScheduleUsd": {
         "_comment": "Testnet growth schedule $50K->$1M. Per-asset split = observed 3mo stable-stable volume weights (base USDC 35%, USDT 26%, USD1 27%, FDUSD 8.5%, USDe 3.5%). USDe kept tiny (near-0 BSC flow + depeg risk). Raise the active tier via setAssetParams as TVL fills; win-share by count (~23%) is TVL-invariant, volume-share and abs fees scale up ($8k/yr@50K -> $111k/yr@1M).",
         "50000":   { "USDC": 17500, "USDT": 13000, "USD1": 13500, "FDUSD": 4300, "USDE": 1750 },
@@ -48,24 +49,23 @@
         "500000":  { "USDC": 175000, "USDT": 130000, "USD1": 135000, "FDUSD": 42500, "USDE": 17500 },
         "1000000": { "USDC": 350000, "USDT": 260000, "USD1": 270000, "FDUSD": 85000, "USDE": 35000 }
       },
-      "priceFeeds": {
-        "_comment": "Keeper reads Pyth Hermes off-chain per token → pushes to ExternalOracle (deviation-θ + heartbeat + on-chain EMA). Pyth is the SOURCE, not on the quote path. All 5 verified live on Pyth (BSC contract 0x4D7E825f80bDf85e913E0DD2A2D54927e9dE1594). USD1 = young token, quiet Pyth add — monitor conf/heartbeat, NX-Rates fallback ready.",
-        "source": "pyth",
-        "pythBscContract": "0x4D7E825f80bDf85e913E0DD2A2D54927e9dE1594",
-        "ids": {
-          "USDC":  "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a",
-          "USDT":  "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b",
-          "USD1":  "0x0a2425d43486780990d8b63543029e20556be51fd756cca584212f4d539611d4",
-          "USDE":  "0x6ec879b1e9963de5ee97e9c8710b742d6228252a5e2ca12d4ae81d7fe5ee8c5d",
-          "FDUSD": "0xccdc1a08923e2e4f4b1e6ea89de6acbc5fe1948e9706f5604b8cb50bc1ed3979"
-        },
-        "usd1Fallback": "NX-Rates feed if Pyth conf/heartbeat degrades (young token)"
+      "markSource": {
+        "_comment": "The keeper reads NXR REST marks and pushes them to ExternalOracle under the deviation-θ, confidence-spike and heartbeat policy. NXR is the sole BTR-facing market-data boundary.",
+        "source": "nxr",
+        "restUrl": "https://api.nxrates.com",
+        "symbols": {
+          "USDC": "USDC-USDT × USDT-USDC",
+          "USDT": "USDT-USDC",
+          "USD1": "USD1-USDC",
+          "USDE": "USDE-USDC",
+          "FDUSD": "FDUSD-USDC"
+        }
       }
     },
     "volatile-core": {
       "base": "USDC",
       "classDefaults": {
-        "minFeeBps": 1,
+        "minFeeBps": 1000,
         "maxFeeBps": 10000,
         "minDispersion": 1000,
         "maxDispersion": 100000,
@@ -73,18 +73,19 @@
         "vega": 10000,
         "oracleMode": "EXTERNAL",
         "refBandBps": 0,
-        "thetaBps": 5,
+        "thetaBps": 10,
         "heartbeatS": 300,
         "ttlS": 600
       },
+      "_paramNote": "Fee charged = pathSpread/2 (Pricing.sol). Mean arb gate (not worst-case 2θ): center_error_mean ≤ minFee/2. Replay BTC/ETH/BNB: θ=10+fee=10 PASS (edge −0.6bp); θ=10+fee=5 FAIL; θ=5+fee=10 PASS but ~70% more pushes. Launch: minFee=10bp (1000 PBPS), θ=10. fee=5 only if θ≲5 and you accept higher keeper gas — still FAIL at θ=5/fee=5 on mean edge. S_vol adds cushion when σ>0; floor is sized for quiet tapes.",
       "assets": {
-        "USDC": { "minFeeBps": 1 },
-        "USDT": { "minFeeBps": 1, "refBandBps": 100, "refFeedId": "USDC" },
-        "BTCB": { "minFeeBps": 1 },
-        "ETH": { "minFeeBps": 1 },
-        "WBNB": { "minFeeBps": 1 },
-        "CAKE": { "minFeeBps": 1 },
-        "XAUT": { "minFeeBps": 1, "refBandBps": 200 }
+        "USDC": { "minFeeBps": 1000 },
+        "USDT": { "minFeeBps": 1000, "refBandBps": 100, "refFeedId": "USDC" },
+        "BTCB": { "minFeeBps": 1000 },
+        "ETH": { "minFeeBps": 1000 },
+        "WBNB": { "minFeeBps": 1000 },
+        "CAKE": { "minFeeBps": 1000 },
+        "XAUT": { "minFeeBps": 1000, "refBandBps": 200 }
       }
     }
   },
@@ -96,12 +97,13 @@
     "kappaCovBps": 0
   },
   "sharedLiquidityProfile": {
-    "weights": [50, 50, 50, 50],
-    "knots": [-50, -25, 0, 25, 50]
+    "_comment": "Min knots for a center bump: 4 knots / 3 segments. Outer ±50% of dispersion (= full band width). Center segment ±12% of band gets 75% of depth (~3.1× denser than flat).",
+    "weights": [25, 150, 25],
+    "knots": [-50, -12, 12, 50]
   },
   "feeFloorsHuman": {
     "protocolMinBp": 0.01,
     "protocolMinPercent": 0.0001,
-    "note": "On-chain quantum is 1 PBPS (MIN_FEE_PBPS = 0.01 bp). Sub-1 bp quotes enabled at σ=0 on all classes. Production minFee may be raised via setAssetParams (e.g. 2·θ LVR sizing)."
+    "note": "Launch: stable ~0.1bp (10 PBPS) with θ=0.1; volatile 10bp (1000 PBPS) with θ=10. Fee charged is half path spread, so mean arb gate is center_error ≤ minFee/2. Volatile fee=5 fails that gate at θ=10."
   }
 }

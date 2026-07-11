@@ -31,6 +31,41 @@ pub enum OracleMode {
     /// spread floor keyed to ~θ then makes the threshold pick-off unprofitable. `on_step` must be called
     /// every step (push_every=1) so the keeper "observes" continuously.
     Deviation { threshold: f64, heartbeat: usize },
+    /// Keeper marks remain authoritative, but the execution center approaches each fresh mark by
+    /// `alpha` per observation. `breaker` snaps to truth when lag becomes too large. This is the
+    /// deterministic smoothing policy under test, not a production recommendation.
+    Smoothing {
+        threshold: f64,
+        heartbeat: usize,
+        alpha: f64,
+        breaker: f64,
+    },
+    /// Experimental fair-value discovery layered on the deviation keeper. Signed trade flow moves a
+    /// bounded log-price offset around the last external mark; the offset mean-reverts every step and
+    /// resets when a fresh mark lands. This is deliberately research-only: the comparison must prove
+    /// that predictive flow outweighs self-induced manipulation and snap-back before any Solidity port.
+    TradeOffset {
+        threshold: f64,
+        heartbeat: usize,
+        /// Log-price response to signed trade notional / pool TVL.
+        gain: f64,
+        /// Per-step residual multiplier in [0,1]; lower means faster mean reversion.
+        decay: f64,
+        /// Absolute log-price clamp (0.001 = approximately 10 bp).
+        max_offset: f64,
+    },
+    /// Economic keeper trigger: wait while the stale gap is covered by the live quote spread and
+    /// the estimated arb surplus is below push gas, but pre-trigger for inclusion-latency risk.
+    /// An age spread `age_z·sigma·sqrt(age)` starts immediately after each push.
+    Adaptive {
+        theta_floor: f64,
+        theta_cap: f64,
+        heartbeat: usize,
+        age_z: f64,
+        latency_z: f64,
+        latency_steps: usize,
+        gas_cost_base: f64,
+    },
 }
 
 const BPS: f64 = 1e4; // 0.01%
@@ -120,12 +155,16 @@ pub struct Aimm {
     pub mark: f64,     // last executed mark (canonical base-per-token)
     pub fast_ema: f64, // fast price EMA (the price the pool quotes around)
     pub slow_ema: f64, // slow price EMA (trend signal for the toxic surcharge)
+    target_mark: f64,  // latest keeper target for deterministic smoothing
     pub fast_vol: f64, // PBPS-ish vol EMA (1e6 = 100%)
     pub slow_vol: f64,
+    confidence_bps: f64,         // last pushed 1σ CI, in bps
+    pending_confidence_bps: f64, // latest external observation, committed on push
     last_ext: f64, // previous external sample (for realized-vol on the feed)
     cur_step: usize,       // current sim step (set by tick(); on-chain ≙ block.timestamp)
     last_push_step: usize, // step of the last keeper mark push (on-chain ≙ lastPushTimestamp)
     pushes: usize,         // # keeper mark pushes performed (keeper-tx / gas-cost accounting)
+    trade_offset: f64,     // experimental bounded log-price residual around the keeper mark
     /// Coverage-toll surplus (base units), banked OUTSIDE reserves so coverage c=R/L evolves only by
     /// gross trade amounts (⇒ the Q-difference toll telescopes exactly). Rebates are capped at this
     /// balance, so an improve-then-worsen round trip cannot extract more than was previously tolled.
@@ -148,12 +187,16 @@ impl Aimm {
             mark: price,
             fast_ema: price,
             slow_ema: price,
+            target_mark: price,
             fast_vol: 1e4, // seed 1%
             slow_vol: 1e4,
+            confidence_bps: 0.0,
+            pending_confidence_bps: 0.0,
             last_ext: price,
             cur_step: 0,
             last_push_step: 0,
             pushes: 0,
+            trade_offset: 0.0,
             lp_surplus: 0.0,
         }
     }
@@ -184,8 +227,32 @@ impl Aimm {
     #[inline]
     fn delta(&self) -> f64 {
         let d_fs = (self.fast_ema - self.slow_ema).abs();
-        let d_fc = (self.fast_ema - self.mark).abs();
+        let d_fc = (self.quote_mark() - self.mark).abs();
         (d_fs.max(d_fc) / self.mark) * ORACLE_PBPS
+    }
+
+    #[inline]
+    fn quote_mark(&self) -> f64 {
+        match self.mode {
+            OracleMode::TradeOffset { .. } => self.fast_ema * self.trade_offset.exp(),
+            _ => self.fast_ema,
+        }
+    }
+
+    /// Research diagnostics: current one-sided fee (half of the full path spread), as a fraction.
+    pub fn effective_spread_fraction(&self) -> f64 {
+        self.spread() / (2.0 * PBPS)
+    }
+
+    /// Research diagnostics: current execution center before inventory skew and spline traversal.
+    pub fn execution_center(&self) -> f64 {
+        self.quote_mark()
+    }
+
+    /// Supply the CI attached to the latest external observation. Keeper modes commit it only when
+    /// they push the corresponding mark, matching ExternalOracle's mark+confidence atomic update.
+    pub fn set_external_confidence_bps(&mut self, confidence_bps: f64) {
+        self.pending_confidence_bps = confidence_bps.max(0.0);
     }
 
     /// Linear inventory skew in [-100, 100] from a leg's coverage. (`Pricing.computeInventorySkew`)
@@ -283,7 +350,7 @@ impl Aimm {
     /// Asymmetric fee (spread) in PBPS for a trade with coverage `impact`. (`Pricing` path spread
     /// + CS-4 fix: Δ is ORACLE_PBPS, rescale to PBPS before forming the surcharge.)
     fn spread(&self) -> f64 {
-        let s_vol = 100.0 + (self.sigma() * self.p.vega) / (100.0 * BPS);
+        let s_vol = self.p.min_fee + (self.sigma() * self.p.vega) / (100.0 * BPS);
         // U = adverse-selection (Glosten-Milgrom) surcharge, keyed on Δ (fast/slow EMA divergence =
         // stale-mark / momentum toxicity) ONLY — NOT gated on coverage direction. Coverage drives the
         // MID (inventory skew) alone; double-gating U on coverage over-taxed the healthy cooperative-
@@ -299,11 +366,18 @@ impl Aimm {
         let age = self.cur_step.saturating_sub(self.last_push_step);
         let excess = age.saturating_sub(self.push_grace()) as f64;
         let u_stale = if self.p.stale_z > 0.0 && excess > 0.0 {
-            self.p.stale_z * self.sigma() * excess.sqrt()
+            self.p.stale_z * self.sigma() * excess.sqrt() / BPS
         } else {
             0.0
         };
-        (s_vol + u + u_stale).clamp(self.p.min_fee, self.p.max_fee)
+        let u_age = match self.mode {
+            OracleMode::Adaptive { age_z, .. } if age_z > 0.0 => {
+                age_z * self.sigma() * (age as f64).sqrt() / BPS
+            }
+            _ => 0.0,
+        };
+        let u_conf = self.confidence_bps * (PBPS / BPS);
+        (s_vol + u + u_stale + u_age + u_conf).clamp(self.p.min_fee, self.p.max_fee)
     }
 
     /// Grace period (steps) before the staleness premium engages = the keeper's promised max quiet
@@ -311,7 +385,10 @@ impl Aimm {
     /// flat market). External: 0 (fixed-cadence legacy mode keys on raw age). Internal/Hybrid: no keeper.
     fn push_grace(&self) -> usize {
         match self.mode {
-            OracleMode::Deviation { heartbeat, .. } => heartbeat,
+            OracleMode::Deviation { heartbeat, .. }
+            | OracleMode::Smoothing { heartbeat, .. }
+            | OracleMode::TradeOffset { heartbeat, .. }
+            | OracleMode::Adaptive { heartbeat, .. } => heartbeat,
             _ => 0,
         }
     }
@@ -336,7 +413,7 @@ impl Aimm {
         // Mark = the lagging internal EMA. The coverage re-peg is NOT applied here as a mark shift
         // (that uniform form is non-conservative / round-trip-extractable); it is charged in `swap`
         // as a path-integrated potential toll skimmed to LP surplus. See `cov_q`.
-        let twap = self.fast_ema.max(1e-18);
+        let twap = self.quote_mark().max(1e-18);
         let disp = self.dispersion();
         let skew = self.skew(self.tok_res, self.tok_liab);
         let depth = self.depth();
@@ -368,7 +445,8 @@ impl Aimm {
             return Fill::default();
         }
         let spread = self.spread(); // U keys on Δ, not coverage direction (see spread())
-        let net_out = gross_out * (1.0 - spread / PBPS);
+        // Production `_settleQuote` charges half the full path spread on amount-out.
+        let net_out = gross_out * (1.0 - spread / (2.0 * PBPS));
         let fee = gross_out - net_out;
         Fill {
             amount_in,
@@ -407,6 +485,8 @@ impl Amm for Aimm {
                     self.slow_ema += 0.2 * (ext_px - self.slow_ema);
                     self.fast_ema = ext_px;
                     self.mark = ext_px;
+                    self.target_mark = ext_px;
+                    self.confidence_bps = self.pending_confidence_bps;
                     self.last_push_step = step; // reset staleness clock
                     self.pushes += 1;
                 }
@@ -417,9 +497,13 @@ impl Amm for Aimm {
                 self.fast_ema += alpha * (ext_px - self.fast_ema);
                 self.slow_ema += (alpha * 0.2) * (ext_px - self.slow_ema);
                 self.mark = self.fast_ema;
+                self.target_mark = self.mark;
+                self.confidence_bps = self.pending_confidence_bps;
                 if (self.mark / ext_px - 1.0).abs() > band {
                     self.mark = ext_px; // deviation breaker: snap the center back
                     self.fast_ema = ext_px;
+                    self.target_mark = ext_px;
+                    self.confidence_bps = self.pending_confidence_bps;
                 }
             }
             OracleMode::Deviation { threshold, heartbeat } => {
@@ -430,7 +514,73 @@ impl Amm for Aimm {
                     self.slow_ema += 0.2 * (ext_px - self.slow_ema);
                     self.fast_ema = ext_px;
                     self.mark = ext_px;
+                    self.target_mark = ext_px;
+                    self.confidence_bps = self.pending_confidence_bps;
                     self.last_push_step = step; // reset staleness clock (both deviation + heartbeat)
+                    self.pushes += 1;
+                }
+            }
+            OracleMode::Smoothing { threshold, heartbeat, alpha, breaker } => {
+                self.update_vol_from_ext(ext_px);
+                let drift = if self.mark > 0.0 { (ext_px / self.mark - 1.0).abs() } else { 1.0 };
+                let stale = heartbeat > 0 && step.saturating_sub(self.last_push_step) >= heartbeat;
+                if drift > threshold || stale {
+                    self.slow_ema += 0.2 * (ext_px - self.slow_ema);
+                    self.mark = ext_px;
+                    self.target_mark = ext_px;
+                    self.confidence_bps = self.pending_confidence_bps;
+                    self.last_push_step = step;
+                    self.pushes += 1;
+                }
+                self.fast_ema += alpha.clamp(0.0, 1.0) * (self.target_mark - self.fast_ema);
+                if breaker > 0.0 && (self.fast_ema / ext_px - 1.0).abs() > breaker {
+                    self.fast_ema = ext_px;
+                    self.target_mark = ext_px;
+                }
+            }
+            OracleMode::TradeOffset { threshold, heartbeat, decay, .. } => {
+                self.update_vol_from_ext(ext_px);
+                self.trade_offset *= decay.clamp(0.0, 1.0);
+                let drift = if self.mark > 0.0 { (ext_px / self.mark - 1.0).abs() } else { 1.0 };
+                let stale = heartbeat > 0 && step.saturating_sub(self.last_push_step) >= heartbeat;
+                if drift > threshold || stale {
+                    self.slow_ema += 0.2 * (ext_px - self.slow_ema);
+                    self.fast_ema = ext_px;
+                    self.mark = ext_px;
+                    self.target_mark = ext_px;
+                    self.confidence_bps = self.pending_confidence_bps;
+                    self.trade_offset = 0.0;
+                    self.last_push_step = step;
+                    self.pushes += 1;
+                }
+            }
+            OracleMode::Adaptive {
+                theta_floor,
+                theta_cap,
+                heartbeat,
+                latency_z,
+                latency_steps,
+                gas_cost_base,
+                ..
+            } => {
+                self.update_vol_from_ext(ext_px);
+                let drift = if self.mark > 0.0 { (ext_px / self.mark - 1.0).abs() } else { 1.0 };
+                let spread = self.effective_spread_fraction();
+                let depth_base = (self.depth() * self.mark).max(1e-18);
+                let gas_gap = (2.0 * gas_cost_base.max(0.0) / depth_base).sqrt();
+                let latency_risk =
+                    latency_z.max(0.0) * (self.sigma() / PBPS) * (latency_steps as f64).sqrt();
+                let lo = theta_floor.max(0.0);
+                let hi = theta_cap.max(lo);
+                let economic_threshold = (spread + gas_gap - latency_risk).clamp(lo, hi);
+                let stale = heartbeat > 0 && step.saturating_sub(self.last_push_step) >= heartbeat;
+                if drift > economic_threshold || stale {
+                    self.slow_ema += 0.2 * (ext_px - self.slow_ema);
+                    self.fast_ema = ext_px;
+                    self.mark = ext_px;
+                    self.target_mark = ext_px;
+                    self.confidence_bps = self.pending_confidence_bps;
+                    self.last_push_step = step;
                     self.pushes += 1;
                 }
             }
@@ -460,7 +610,7 @@ impl Amm for Aimm {
         // <0 ⇒ improves → rebate, but CAPPED at the banked surplus ledger so an improve-then-worsen
         // round trip cannot extract more than was previously tolled (round-trip-neutral, not a spring).
         let l = self.tok_liab;
-        let twap = self.fast_ema.max(1e-18);
+        let twap = self.quote_mark().max(1e-18);
         let mut out = gross;
         if self.p.kappa_cov > 0.0 && l > 0.0 {
             // Clamp coverage to the peg (min(c,1)) before differencing the potential: Q peaks at c=1
@@ -487,6 +637,15 @@ impl Amm for Aimm {
         } else {
             self.base_res += amount_in;
             self.tok_res -= out;
+        }
+        if let OracleMode::TradeOffset { gain, max_offset, .. } = self.mode {
+            // Buy token => positive information; sell token => negative. The trader executes against
+            // the PRE-update quote, so the residual can only affect subsequent flow. Normalizing by
+            // post-trade TVL makes the response depth-aware and comparable across pool sizes.
+            let signed_base = if tin == 0 { amount_in } else { -amount_in * twap };
+            let tvl = (self.base_res + self.tok_res * twap).max(1e-18);
+            self.trade_offset =
+                (self.trade_offset + gain * signed_base / tvl).clamp(-max_offset.abs(), max_offset.abs());
         }
         // Only the Internal oracle walks its mark from executed fills. In External/Hybrid the mark
         // is controlled by on_step (keeper push / recenter), so fills don't move it.
