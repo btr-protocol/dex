@@ -10,6 +10,7 @@ import {ExternalOracle} from "../src/oracles/ExternalOracle.sol";
 import {TestnetERC20} from "../src/testnet/TestnetERC20.sol";
 import {TestnetFaucet} from "../src/testnet/TestnetFaucet.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
 import {console2} from "forge-std/Script.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
@@ -252,6 +253,8 @@ contract TestnetDeploy is Deploy {
         r.coverageMin = 5000;
         r.coverageMax = 20_000;
         r.depthAmplifier = 10_000;
+        // Chapel demo: enable swaps at listing (prod gates these via timelocked risk updates).
+        r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
 
     function _profile() internal pure returns (IPool.LiquidityProfile memory p) {

@@ -547,7 +547,7 @@ fn fine_competitive_10s() {
 
 /// STALENESS-PREMIUM FIX: at a 30s keeper on 60%-vol data the plain External AIMM is an arb piñata
 /// (LVR ~300%+, wins ~0% of flow) because between pushes its frozen mark is picked off and the spread
-/// can't see the unobserved gap. The A-S staleness premium (stale_z·σ·√elapsed) widens the spread as
+/// can't see the unobserved gap. The A-S staleness premium (stale_z·σ·√elapsed/BPS) widens the spread as
 /// the mark ages, making the pick-off unprofitable. Sweeps stale_z on the SAME 30s data and asserts it
 /// collapses LVR and lifts net-vs-CM back above the CFMM field — cadence-ROBUST, not knife-edge.
 #[test]
@@ -571,7 +571,7 @@ fn staleness_premium_sweep() {
     println!("  stale_z    net/HODL  net/CMix   LVR     vol_share  trader_cost");
     let mut best_lvr = f64::INFINITY;
     let mut base_lvr = 0.0;
-    for &z in &[0.0f64, 4.0, 8.0, 16.0, 32.0] {
+    for &z in &[0.0f64, 100.0, 1_000.0, 10_000.0, 100_000.0] {
         let mut ap = AimmParams::default();
         ap.stale_z = z;
         let mut amms: Vec<Box<dyn Amm>> = vec![
@@ -1086,4 +1086,104 @@ fn real_data_comparison() {
     println!("  wrote {out}");
 
     for r in &results { assert!(r.net_apr.is_finite(), "{} finite", r.name); }
+}
+
+/// TRADE-DRIVEN FAIR-VALUE OFFSET: falsification harness for the only discovery variant still under
+/// consideration. The offset is a bounded, mean-reverting log-price residual around the last keeper
+/// mark and resets on a fresh push. We compare LP economics on a volatile path and separately test
+/// whether a trader can manufacture the signal and immediately unwind against its own shifted quote.
+#[test]
+fn trade_offset_discovery_comparison() {
+    let p0 = 3_000.0;
+    let tvl = 10_000_000.0;
+    let days = 7.0;
+    let steps_per_day = 2_880.0; // 30-second mark observations
+    let n = (days * steps_per_day) as usize;
+    let path = engine::gbm_path(p0, n, 0.60, 365.0 * steps_per_day, 0xD15C_0A11);
+    let cfg = SimCfg {
+        daily_turnover: 0.5,
+        arb_threshold: 0.0001,
+        trades_per_step: 1,
+        organic_maxslip: 0.01,
+        push_every: 1,
+        substeps: 1,
+        seed: 0xD15C_0A11,
+    };
+    let params = || {
+        let mut p = AimmParams::default();
+        p.lambda = 0.0; // sim-only toxic surcharge is absent from production
+        p.min_fee = 2_000.0; // 20 bp full spread => 10 bp one-sided protection = theta
+        p
+    };
+    let mut baseline = Aimm::new(params(), p0, tvl / 2.0).with_mode(OracleMode::Deviation {
+        threshold: 0.001, // 10 bp candidate
+        heartbeat: 10,   // 300 s at 30-second steps
+    });
+    let mut discovery = Aimm::new(params(), p0, tvl / 2.0).with_mode(OracleMode::TradeOffset {
+        threshold: 0.001,
+        heartbeat: 10,
+        gain: 0.5,
+        decay: 0.8,
+        max_offset: 0.001, // 10 bp
+    });
+    let base = engine::run(&mut baseline, &path, &cfg, days);
+    let disc = engine::run(&mut discovery, &path, &cfg, days);
+    println!(
+        "\n  === TRADE-OFFSET DISCOVERY (GBM 30s, 7d, theta=10bp) ===\
+         \n  mode        net/HODL   LVR       toxic_vol   mean|c-1|\
+         \n  baseline    {:>8.2}% {:>8.2}% {:>12.0} {:>10.5}\
+         \n  offset      {:>8.2}% {:>8.2}% {:>12.0} {:>10.5}",
+        base.net_apr * 100.0,
+        base.lvr_apr * 100.0,
+        base.toxic_vol,
+        base.cov_mean_dev,
+        disc.net_apr * 100.0,
+        disc.lvr_apr * 100.0,
+        disc.toxic_vol,
+        disc.cov_mean_dev,
+    );
+    assert!(base.net_apr.is_finite() && disc.net_apr.is_finite());
+
+    // Flat-price, same-step manipulation: buy to move the residual, then sell every token received.
+    // A profitable result is a direct self-induced discovery exploit, independent of oracle latency.
+    let mut profitable = 0usize;
+    println!("\n  immediate self-roundtrip (production 0.01bp floor, flat external price):");
+    println!("  gain  clamp(bp)  size(base)  baseline_pnl  offset_pnl");
+    for &gain in &[0.25, 0.5, 1.0, 2.0] {
+        for &max_offset in &[0.0005, 0.001, 0.002] {
+            for &size in &[100.0, 1_000.0, 10_000.0, 100_000.0] {
+                let mut p = params();
+                p.min_fee = 1.0; // current volatile floor: 1 PBPS = 0.01 bp
+                let mut plain = Aimm::new(p.clone(), p0, tvl / 2.0).with_mode(OracleMode::Deviation {
+                    threshold: 0.001,
+                    heartbeat: 10,
+                });
+                let mut shifted = Aimm::new(p, p0, tvl / 2.0).with_mode(OracleMode::TradeOffset {
+                    threshold: 0.001,
+                    heartbeat: 10,
+                    gain,
+                    decay: 0.8,
+                    max_offset,
+                });
+                let plain_tokens = plain.swap(0, 1, size);
+                let plain_pnl = plain.swap(1, 0, plain_tokens) - size;
+                let shifted_tokens = shifted.swap(0, 1, size);
+                let shifted_pnl = shifted.swap(1, 0, shifted_tokens) - size;
+                if shifted_pnl > 1e-9 {
+                    profitable += 1;
+                }
+                println!(
+                    "  {:>4.2} {:>9.1} {:>11.0} {:>13.4} {:>11.4}",
+                    gain,
+                    max_offset * 10_000.0,
+                    size,
+                    plain_pnl,
+                    shifted_pnl,
+                );
+                assert!(plain_pnl <= 1e-6, "baseline round trip unexpectedly profitable");
+            }
+        }
+    }
+    println!("  profitable offset configurations: {profitable}/48");
+    assert!(profitable > 0, "falsification sweep must expose unsafe trade-offset settings");
 }

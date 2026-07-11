@@ -1,0 +1,3 @@
+usage: oracle_cadence.py [-h] [--days DAYS] [--timeframe TIMEFRAME]
+                         [--mark-max-age MARK_MAX_AGE]
+oracle_cadence.py: error: unrecognized arguments: --tf 30 --scenarios stable0.3_vol10:stable=0.3,vol=10,hb_stable=1800,hb_vol=300 stable0.1_vol10:stable=0.1,vol=10,hb_stable=1800,hb_vol=300 stable0.3_vol5:stable=0.3,vol=5,hb_stable=1800,hb_vol=300 stable0.5_vol10:stable=0.5,vol=10,hb_stable=1800,hb_vol=300

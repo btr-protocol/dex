@@ -1,0 +1,321 @@
+{
+  "source": {
+    "provider": "NXR",
+    "start": "2026-07-03T21:18:42.576000+00:00",
+    "end": "2026-07-10T21:18:42.576000+00:00",
+    "timeframe_s": 30,
+    "mark_max_age_s": 120,
+    "requested_days": 7,
+    "available_feeds": [
+      "USD1-USDC",
+      "USDE-USDC",
+      "FDUSD-USDC"
+    ],
+    "unavailable_symbols": {
+      "USDT-USDC": "HTTP Error 503: Service Unavailable",
+      "XAUT-USDT": "HTTP Error 503: Service Unavailable"
+    }
+  },
+  "scenarios": [
+    {
+      "scenario": "current_chapel",
+      "feed_updates": 6946,
+      "feed_updates_per_day": 992.2857142857143,
+      "batched_transactions": 5026,
+      "batched_transactions_per_day": 718.0,
+      "feeds": [
+        {
+          "feed": "USD1-USDC",
+          "group": "stable",
+          "theta_bps": 0.5,
+          "heartbeat_s": 1800,
+          "updates": 3054,
+          "updates_per_day": 436.2857142857143,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 82,
+            "deviation": 2866,
+            "ci-spike": 105
+          },
+          "rejected_attempts": 12,
+          "jump_bps": {
+            "mean": 1.5014738814369175,
+            "p50": 1.0008507231145374,
+            "p95": 4.05642039512392,
+            "p99": 8.350694516406062,
+            "max": 61.0874072822997
+          }
+        },
+        {
+          "feed": "USDE-USDC",
+          "group": "stable",
+          "theta_bps": 0.5,
+          "heartbeat_s": 1800,
+          "updates": 2806,
+          "updates_per_day": 400.85714285714283,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 104,
+            "deviation": 2697,
+            "ci-spike": 4
+          },
+          "rejected_attempts": 6,
+          "jump_bps": {
+            "mean": 3.707194136354785,
+            "p50": 2.481048760696689,
+            "p95": 9.776366901145542,
+            "p99": 13.002555879580685,
+            "max": 58.19527275643772
+          }
+        },
+        {
+          "feed": "FDUSD-USDC",
+          "group": "stable",
+          "theta_bps": 0.5,
+          "heartbeat_s": 1800,
+          "updates": 1086,
+          "updates_per_day": 155.14285714285714,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 133,
+            "deviation": 952,
+            "ci-spike": 0
+          },
+          "rejected_attempts": 0,
+          "jump_bps": {
+            "mean": 0.6319406342805877,
+            "p50": 0.604296057104266,
+            "p95": 1.0830779596026636,
+            "p99": 1.4479538904602023,
+            "max": 1.928038808738672
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "candidate",
+      "feed_updates": 15060,
+      "feed_updates_per_day": 2151.4285714285716,
+      "batched_transactions": 9675,
+      "batched_transactions_per_day": 1382.142857142857,
+      "feeds": [
+        {
+          "feed": "USD1-USDC",
+          "group": "stable",
+          "theta_bps": 0.1,
+          "heartbeat_s": 1800,
+          "updates": 4472,
+          "updates_per_day": 638.8571428571429,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 79,
+            "deviation": 4355,
+            "ci-spike": 37
+          },
+          "rejected_attempts": 12,
+          "jump_bps": {
+            "mean": 1.1142281153522706,
+            "p50": 0.6311033078716821,
+            "p95": 3.1639246740453366,
+            "p99": 7.482488237305988,
+            "max": 61.0874072822997
+          }
+        },
+        {
+          "feed": "USDE-USDC",
+          "group": "stable",
+          "theta_bps": 0.1,
+          "heartbeat_s": 1800,
+          "updates": 3420,
+          "updates_per_day": 488.57142857142856,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 101,
+            "deviation": 3318,
+            "ci-spike": 0
+          },
+          "rejected_attempts": 6,
+          "jump_bps": {
+            "mean": 3.0928953312586605,
+            "p50": 1.651491745259235,
+            "p95": 9.288593888404078,
+            "p99": 12.344764932657446,
+            "max": 58.19527275643772
+          }
+        },
+        {
+          "feed": "FDUSD-USDC",
+          "group": "stable",
+          "theta_bps": 0.1,
+          "heartbeat_s": 1800,
+          "updates": 7168,
+          "updates_per_day": 1024.0,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 5,
+            "deviation": 7162,
+            "ci-spike": 0
+          },
+          "rejected_attempts": 0,
+          "jump_bps": {
+            "mean": 0.2504675733221813,
+            "p50": 0.18346580020530986,
+            "p95": 0.6572089956537842,
+            "p99": 0.9911141629541113,
+            "max": 2.0418485409018294
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "volatile_10_stable_current",
+      "feed_updates": 6946,
+      "feed_updates_per_day": 992.2857142857143,
+      "batched_transactions": 5026,
+      "batched_transactions_per_day": 718.0,
+      "feeds": [
+        {
+          "feed": "USD1-USDC",
+          "group": "stable",
+          "theta_bps": 0.5,
+          "heartbeat_s": 1800,
+          "updates": 3054,
+          "updates_per_day": 436.2857142857143,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 82,
+            "deviation": 2866,
+            "ci-spike": 105
+          },
+          "rejected_attempts": 12,
+          "jump_bps": {
+            "mean": 1.5014738814369175,
+            "p50": 1.0008507231145374,
+            "p95": 4.05642039512392,
+            "p99": 8.350694516406062,
+            "max": 61.0874072822997
+          }
+        },
+        {
+          "feed": "USDE-USDC",
+          "group": "stable",
+          "theta_bps": 0.5,
+          "heartbeat_s": 1800,
+          "updates": 2806,
+          "updates_per_day": 400.85714285714283,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 104,
+            "deviation": 2697,
+            "ci-spike": 4
+          },
+          "rejected_attempts": 6,
+          "jump_bps": {
+            "mean": 3.707194136354785,
+            "p50": 2.481048760696689,
+            "p95": 9.776366901145542,
+            "p99": 13.002555879580685,
+            "max": 58.19527275643772
+          }
+        },
+        {
+          "feed": "FDUSD-USDC",
+          "group": "stable",
+          "theta_bps": 0.5,
+          "heartbeat_s": 1800,
+          "updates": 1086,
+          "updates_per_day": 155.14285714285714,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 133,
+            "deviation": 952,
+            "ci-spike": 0
+          },
+          "rejected_attempts": 0,
+          "jump_bps": {
+            "mean": 0.6319406342805877,
+            "p50": 0.604296057104266,
+            "p95": 1.0830779596026636,
+            "p99": 1.4479538904602023,
+            "max": 1.928038808738672
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "volatile_10_stable_0_3",
+      "feed_updates": 8805,
+      "feed_updates_per_day": 1257.857142857143,
+      "batched_transactions": 5774,
+      "batched_transactions_per_day": 824.8571428571429,
+      "feeds": [
+        {
+          "feed": "USD1-USDC",
+          "group": "stable",
+          "theta_bps": 0.3,
+          "heartbeat_s": 1800,
+          "updates": 3678,
+          "updates_per_day": 525.4285714285714,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 79,
+            "deviation": 3523,
+            "ci-spike": 75
+          },
+          "rejected_attempts": 12,
+          "jump_bps": {
+            "mean": 1.3131069784878362,
+            "p50": 0.8339481827037548,
+            "p95": 3.6955221590965834,
+            "p99": 8.00040002000123,
+            "max": 61.0874072822997
+          }
+        },
+        {
+          "feed": "USDE-USDC",
+          "group": "stable",
+          "theta_bps": 0.3,
+          "heartbeat_s": 1800,
+          "updates": 3072,
+          "updates_per_day": 438.85714285714283,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 101,
+            "deviation": 2968,
+            "ci-spike": 2
+          },
+          "rejected_attempts": 6,
+          "jump_bps": {
+            "mean": 3.4224665089363335,
+            "p50": 2.0771553361802586,
+            "p95": 9.495903760094972,
+            "p99": 12.550164237090883,
+            "max": 58.19527275643772
+          }
+        },
+        {
+          "feed": "FDUSD-USDC",
+          "group": "stable",
+          "theta_bps": 0.3,
+          "heartbeat_s": 1800,
+          "updates": 2055,
+          "updates_per_day": 293.57142857142856,
+          "reasons": {
+            "cold-start": 1,
+            "heartbeat": 59,
+            "deviation": 1995,
+            "ci-spike": 0
+          },
+          "rejected_attempts": 0,
+          "jump_bps": {
+            "mean": 0.4925793754793183,
+            "p50": 0.42569627618875444,
+            "p95": 0.9262699890749521,
+            "p99": 1.2797786435892242,
+            "max": 1.928038808738672
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -65,6 +65,6 @@ Raise the active tier via `setAssetParams` as TVL fills. USDe stays tiny (near-0
 - **Coverage excursions per leg** — if a leg pins at the floor under sustained one-way flow, the keeper rebalance
   cadence (not the coverage band) is the fix; confirm rebalancing stays low (~2–4%).
 - **θ freshness** — if realized LVR rises, tighten θ before touching fees.
-- **USD1 feed** — youngest token; Pyth conf/heartbeat monitored, NX-Rates fallback ready.
+- **USD1 feed** — youngest token; monitor its NXR confidence and heartbeat closely.
 - Post-testnet: our structural edge (fresh-mark LVR recapture) pays far more in **volatile pairs** — the stable-core
   is the positioning beachhead, the volatile-core is the revenue thesis.
