@@ -245,4 +245,32 @@ library PoolAdminWrite {
         $.baseTokenOracle = oracle;
         $.baseTokenFeedId = feedId;
     }
+
+    /// @notice Install/replace per-asset hook. `hook == address(0)` clears (same as clearAssetHook).
+    /// @dev Requires invested == 0 when changing target away from the current hook (no stranded R_inv).
+    ///      With invested != 0: cannot soft-clear (flags=0) or drop HOOK_BEFORE_OUTFLOW.
+    ///      Unknown flag bits rejected.
+    function setAssetHook(IPool.PoolStorage storage $, address token, address hook, uint32 flags) external {
+        address t = PoolIO.wrap($, token);
+        _requireAsset($, t);
+        if (flags & ~C.HOOK_FLAGS_MASK != 0) revert Err.InvalidInput();
+        address prev = $.assetHooks[t].target;
+        uint256 inv = $.invested[t];
+        if (hook != prev && inv != 0) revert Err.InvalidState();
+        if (hook == address(0)) {
+            if (inv != 0) revert Err.InvalidState();
+            delete $.assetHooks[t];
+            return;
+        }
+        // Invested capital needs a recall path: BEFORE_OUTFLOW must stay on.
+        if (inv != 0 && (flags & C.HOOK_BEFORE_OUTFLOW) == 0) revert Err.InvalidState();
+        $.assetHooks[t] = IPool.HookSlot({target: hook, flags: flags});
+    }
+
+    function clearAssetHook(IPool.PoolStorage storage $, address token) external {
+        address t = PoolIO.wrap($, token);
+        _requireAsset($, t);
+        if ($.invested[t] != 0) revert Err.InvalidState();
+        delete $.assetHooks[t];
+    }
 }

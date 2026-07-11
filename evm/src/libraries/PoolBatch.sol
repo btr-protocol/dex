@@ -9,6 +9,7 @@ import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolDecay} from "./PoolDecay.sol";
 import {PoolIO} from "./PoolIO.sol";
+import {PoolHooks} from "./PoolHooks.sol";
 
 /// @title PoolBatch — batchSwap via PoolIO.exec (DELEGATECALL from Pool trampoline).
 library PoolBatch {
@@ -40,6 +41,8 @@ library PoolBatch {
 
         if (tk == base) return amt;
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk, base, amt);
+        uint256 need = q.amountOut + q.protoFee + $.assets[base].minLiquidity;
+        PoolHooks.beforeOutflow($, base, msg.sender, need);
         PoolIO.exec($, tk, base, amt, q, a, $.assets[base]);
         return q.amountOut;
     }
@@ -72,6 +75,8 @@ library PoolBatch {
             outAmt = baseIn;
         } else {
             IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, base, tk, baseIn);
+            uint256 need = q.amountOut + q.protoFee + a.minLiquidity;
+            PoolHooks.beforeOutflow($, tk, msg.sender, need);
             PoolIO.exec($, base, tk, baseIn, q, $.assets[base], a);
             outAmt = q.amountOut;
         }

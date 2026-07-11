@@ -67,8 +67,8 @@
       "classDefaults": {
         "minFeeBps": 1000,
         "maxFeeBps": 10000,
-        "minDispersion": 1000,
-        "maxDispersion": 100000,
+        "minDispersion": 50000,
+        "maxDispersion": 500000,
         "gamma": 10000,
         "vega": 10000,
         "oracleMode": "EXTERNAL",
@@ -77,7 +77,7 @@
         "heartbeatS": 300,
         "ttlS": 600
       },
-      "_paramNote": "Fee charged = pathSpread/2 (Pricing.sol). Mean arb gate (not worst-case 2θ): center_error_mean ≤ minFee/2. Replay BTC/ETH/BNB: θ=10+fee=10 PASS (edge −0.6bp); θ=10+fee=5 FAIL; θ=5+fee=10 PASS but ~70% more pushes. Launch: minFee=10bp (1000 PBPS), θ=10. fee=5 only if θ≲5 and you accept higher keeper gas — still FAIL at θ=5/fee=5 on mean edge. S_vol adds cushion when σ>0; floor is sized for quiet tapes.",
+      "_paramNote": "Fee charged = pathSpread/2 (Pricing.sol). Mean arb gate (not worst-case 2θ): center_error_mean ≤ minFee/2. Replay BTC/ETH/BNB: θ=10+fee=10 PASS (edge −0.6bp); θ=10+fee=5 FAIL; θ=5+fee=10 PASS but ~70% more pushes. Launch: minFee=10bp (1000 PBPS), θ=10. Dispersion 2026-07-11: minDisp 50_000 PBPS (5%) × knots ±50 → ±2.5% half-band (was 1000/±5bp — too tight for BTC depth viz). fee=5 only if θ≲5 and you accept higher keeper gas — still FAIL at θ=5/fee=5 on mean edge.",
       "assets": {
         "USDC": { "minFeeBps": 1000 },
         "USDT": { "minFeeBps": 1000, "refBandBps": 100, "refFeedId": "USDC" },

@@ -39,7 +39,7 @@
 ### Push triggers (single daemon)
 One `btr-keeper oracle-daemon` per cluster instance. Per feed, push when:
 - cold-start (no prior on-chain mark), **or**
-- `|m − p_last| / p_last > θ` (±0.3 bp stables, ±10 bp volatiles), **or**
+- `|m − p_last| / p_last > θ` (±0.1 bp stables, ±10 bp volatiles), **or**
 - `heartbeat_s` elapsed since last on-chain push for that feed.
 
 Heartbeat is the staleness ceiling the daemon enforces — not an independent
@@ -61,7 +61,7 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
   failover on upstream silence, not parallel triple-push.
 
 ## POOLS (BNB testnet, base = USDC for both)
-- **Stable core (FINAL, 5 tokens, 2026-07-08):** USDC(base), USDT, USD1, USDE, FDUSD — **USDS dropped** (no approved NXR mark / negligible BSC flow). All 5 are priced from **NXR** marks pushed by the keeper to `ExternalOracle`. θ stables = **0.3 bp**; the 0.1 bp candidate over-triggered on historical replay. SSoT: `dex/evm/deploy/testnet-asset-params.json`.
+- **Stable core (FINAL, 5 tokens, 2026-07-08):** USDC(base), USDT, USD1, USDE, FDUSD — **USDS dropped** (no approved NXR mark / negligible BSC flow). All 5 are priced from **NXR** marks pushed by the keeper to `ExternalOracle`. θ stables = **0.1 bp** (accepted vs 0.3 for tighter quotes; ~2× stable pushes). SSoT: `dex/evm/deploy/testnet-asset-params.json` + `keepers/oracle.chapel.toml`.
 - **Volatile core:** USDC(base), USDT, BTCB(=BTC), ETH, WBNB(=BNB), CAKE, XAUT(gold, fallback PAXG).
   (CAKE = PancakeSwap native, top BNB liquidity; XAUT = tokenized gold. Verify final liquidity list.)
 - Testnet = MOCK ERC20s mirroring real symbols/decimals; oracle pushes REAL NX prices for them.

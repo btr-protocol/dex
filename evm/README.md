@@ -13,6 +13,35 @@ Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under
 - **Piecewise bonding curve** — Adaptive liquidity distribution with volatility-based breadth.
 - **Protocol fees** — Configurable split between LPs and treasury.
 - **Risk + admin controls** — Per-pool freezes, circuit breakers, fee curation via the per-chain `Admin` singleton.
+- **Per-asset hooks (dual ledger)** — Optional `IPoolHooks` (`beforeOutflow`, `postDeposit`) for physical rehypothecation; `VenusHook` + Chapel `MockVenus` shipped as the example strategy. Pricing uses full economic reserves; executable cash is liquid reserves (`reserves − invested`).
+
+## Off-chain reads (no storage getters)
+
+**Policy:** do **not** add Solidity `view` getters that merely mirror storage for indexers /
+frontends. Keep the Pool bytecode minimal (EIP-170) and Solana-style: off-chain readers hit
+deterministic `PoolStorage` slots via `eth_getStorageAt`.
+
+| Layer | Responsibility |
+|-------|----------------|
+| **On-chain views** | Only what **other contracts** need (Flash, VenusHook, ALM adapters): `getAsset`, `getRiskFlags`, `getFeeParams`, `getLiquidReserves`, `getInvested`, `getLPBalance`, identity (`baseToken` / `wnative` / …), plus **computational** previews (`getSwapQuote`, `previewWithdraw`). |
+| **Off-chain** | Profile / full `RiskConfig` / `OracleConfig` / derived coverage → SDK `@sdk/pool/storage` (`readLiquidityProfile`, `readRiskConfig`, `readOracleConfig`). |
+
+Layout (pinned by `test/PoolStorageLayout.t.sol`):
+
+```
+slot 0  baseToken
+slot 1  wnative
+slot 2  bridge
+slot 3  treasury + initialized
+slot 4  assets          mapping
+slot 5  oracleConfigs   mapping
+slot 6  riskConfigs     mapping
+slot 7  profiles        mapping
+…
+```
+
+Mapping entry base = `keccak256(abi.encode(token, mappingSlot))`. Do not reorder fields
+before the mappings (append-only rule in `IPool.PoolStorage`).
 
 ## Contract Layout
 
@@ -26,12 +55,12 @@ src/
 ├── Flash.sol             # ERC-3156 flash-loan singleton (loans pool reserves; no minting).
 ├── Router.sol            # Hub-and-spoke swap router (batch + multi-leg).
 ├── interfaces/           # IPool, IPoolFactory, IPoolHooks, IAdmin, IFlash, IRouter, IOracle, …
+├── hooks/                # BasePoolHook, VenusHook, MockVenus, VenusAddresses (BSC Core pins)
 ├── oracles/
 │   └── ExternalOracle.sol  # Keeper-push external oracle (onlyOracle); fresh pushed mark = quote source.
-└── libraries/            # AdminTimelock, AnchorTree, Constants, Maths, Oracle, PoolAdmin, PoolAdminWrite,
-                          # PoolBatch, PoolIO, PoolDecay, PoolEdge,
-                          # PoolLiquidity, PoolSwap, PoolView,
-                          # Pricing, Spline, TransientCache.
+└── libraries/            # AdminTimelock, AdminHooks, AdminRisk, AnchorTree, Constants, Maths, Oracle,
+                          # PoolAdmin, PoolAdminWrite, PoolBatch, PoolHooks, PoolIO, PoolDecay, PoolEdge,
+                          # PoolLiquidity, PoolSwap, PoolView, Pricing, Spline, TransientCache.
 ```
 
 `PoolSwap` inlines `PoolIO.exec` after quoting (EIP-170 headroom on `PoolSwap` ~8 KB; `Pool` stays near the 24 576-byte cap so the Pool→PoolSwap DELEGATECALL remains).
@@ -72,12 +101,12 @@ slither . --filter-paths 'test|.deps'
 
 ## Security
 
-- Reentrancy: Solady `ReentrancyGuardTransient`.
+- Reentrancy: Solady `ReentrancyGuardTransient` (Pool hot paths + PoolAux hook ledger writers share the guard under DELEGATECALL; blocks double-book during `postDeposit` / `beforeOutflow` Δbalance booking).
 - Safe transfers: Solady `SafeTransferLib`.
 - Overflow protection: Solidity 0.8 checked arithmetic + explicit range checks/casts.
 - Access control: role-based via shared `AccessControl`.
-- Circuit breakers: manual owner-only freeze/pause via `Admin` (`freezeAsset`/`pauseAsset`/`batchRiskOp`); automatic gates = feed TTL staleness halt, confidence halt, depeg bands, opt-in per-feed push deviation clamp on `ExternalOracle`.
-- All compiled artifacts ≪ 24 576-byte EIP-170 cap.
+- Circuit breakers: manual owner-only freeze/pause via `Admin` (`freezeAsset`/`pauseAsset`/`batchRiskOp`); automatic gates = feed TTL staleness halt, confidence halt, depeg bands, opt-in per-feed push deviation clamp on `ExternalOracle`. Hook invested NAV: no on-chain breaker — harvest SLA / pause is ops control for stale book.
+- All compiled artifacts ≪ 24 576-byte EIP-170 cap (`forge build --sizes`; `ContractSizeTest` asserts Pool / PoolAux / Admin / Flash / VenusHook).
 
 ## License
 

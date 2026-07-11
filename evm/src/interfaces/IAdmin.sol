@@ -86,6 +86,11 @@ interface IAdmin {
     function cancelUpdateRiskConfig(address pool, address token) external;
     function cancelTimelock(address pool, uint8 opType) external;
 
+    function requestSetAssetHook(address pool, address token, address hook, uint32 flags) external;
+    function executeSetAssetHook(address pool, address token) external;
+    function cancelSetAssetHook(address pool, address token) external;
+    function clearAssetHook(address pool, address token) external;
+
     // ── events (pool-keyed) ──
     event AssetAdded(address indexed pool, address indexed token, uint8 decimals, uint128 minLiquidity);
     event AssetParamsUpdated(address indexed pool, address indexed token, uint128 minLiquidity, uint64 reservationPrice);
@@ -119,4 +124,5 @@ interface IAdmin {
     event BootstrapSealed(address indexed pool);
     /// @dev OBS-03: base-token depeg oracle (re-)pinned — untimelocked SAFETY config, now observable.
     event BaseTokenOracleSet(address indexed pool, address indexed oracle, bytes32 feedId);
+    event AssetHookUpdated(address indexed pool, address indexed token, address hook, uint32 flags);
 }

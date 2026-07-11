@@ -86,7 +86,14 @@ interface IPool is IOracle {
         UPDATE_FEES,
         UPDATE_BRIDGE,
         UPDATE_TREASURY,
-        UPDATE_PROFILE
+        UPDATE_PROFILE,
+        UPDATE_HOOK
+    }
+
+    /// @dev Packed hook slot: one SLOAD = target + flags. `address(0)` = disabled.
+    struct HookSlot {
+        address target;
+        uint32 flags;
     }
 
     /// @dev Phase 42H.B.3d -ERC-7201 indirection dropped. Pool storage is now plain
@@ -94,6 +101,9 @@ interface IPool is IOracle {
     ///      single instance variable for library compat (Pricing/AnchorTree pass-by-ref).
     /// @dev Dead-state from earlier phases removed: govToken/sGovToken/stakingConfig/
     ///      lpStaked/totalLPStaked/modules/pendingOps/pendingData/owner.
+    /// @dev Off-chain readers: do NOT add view getters for mappings below — use
+    ///      eth_getStorageAt (SDK `@sdk/pool/storage`). Mapping slots pinned:
+    ///      assets=4, oracleConfigs=5, riskConfigs=6, profiles=7.
     struct PoolStorage {
         address baseToken;
         address wnative;
@@ -124,6 +134,10 @@ interface IPool is IOracle {
         //   SafetyOps enumeration finds them. 0 for a non-factory-initialized clone (sync skipped).
         //   ⚠ Appended AT TAIL to preserve mapping slot indices + storage-layout pins. Do not move.
         address factory;
+        // Hooks (append-only): per-asset HookSlot + R_inv book cache. Asset.reserves = R_liq + R_inv.
+        //   ⚠ Appended AT TAIL. Do not reorder prior fields.
+        mapping(address => HookSlot) assetHooks;
+        mapping(address => uint128) invested;
     }
 
     event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);
@@ -176,12 +190,30 @@ interface IPool is IOracle {
     function adminSetBaseToken(address newBase) external;
     /// @notice R44-2: configure base-token oracle for depeg detection. address(0) = unset (stable-base).
     function adminSetBaseTokenOracle(address oracle, bytes32 feedId) external;
+    /// @notice Timelocked hook install/replace (Admin.executeSetAssetHook).
+    function adminSetAssetHook(address token, address hook, uint32 flags) external;
+    /// @notice Immediate hook clear (Admin.clearAssetHook). Requires invested == 0.
+    function adminClearAssetHook(address token) external;
 
     // ── Phase 42H.B.3c: restricted setters gated by `flash` singleton ──
+    /// @notice Pre-flash recall: ensures R_liq ≥ amount + minLiquidity (via beforeOutflow).
+    function flashPrepare(address token, uint256 amount, address initiator) external;
     function flashSend(address token, uint256 amount, address to) external;
     function flashAccount(address token, uint256 fee, uint256 protoFee) external;
 
-    // ── views consumed by Staking + Flash singletons ──
+    // ── Hook-authorized ledger (VenusHook keeper paths; not user entrypoints) ──
+    // Mutex: nonReentrant under Pool DELEGATECALL — blocked during PoolHooks Δbalance booking.
+    function hookPull(address token, uint256 amount) external;
+    /// @notice Keeper trim only (transfer tokens to pool first). Hot-path recall = beforeOutflow Δbalance.
+    function hookNotifyRecall(address token, uint256 amount) external;
+    function hookCreditYield(address token, uint256 amount) external;
+    /// @notice Write-down when Venus NAV < book: cut invested + reserves; haircut L/index (L→0 floors idx).
+    ///         Stale NAV: harvest SLA / pause is ops (no on-chain breaker).
+    function hookWriteDown(address token, uint256 amount) external;
+
+    // ── views for on-chain consumers (Flash / hooks / ALM) ──
+    // Off-chain MUST read profile/risk/oracle via eth_getStorageAt (SDK @sdk/pool/storage).
+    // Do NOT add storage-mirror getters — see dex/evm/README.md § "Off-chain reads".
     // TODO(Wave-ABI-break): rename view getters getX → x for style harmonization with ALM.
     /// @notice Read packed `Asset` record (reserves, liabilities, fees, params) for `token`.
     /// @param token Asset address.
@@ -190,6 +222,10 @@ interface IPool is IOracle {
     function getLPBalance(address user, address token) external view returns (uint256);
     function getRiskFlags(address token) external view returns (uint16);
     function getFeeParams() external view returns (FeeParams memory);
+    function getAssetHook(address token) external view returns (HookSlot memory);
+    function getInvested(address token) external view returns (uint128);
+    /// @notice Executable liquid reserves R_liq = reserves − invested (pricing uses full economic R).
+    function getLiquidReserves(address token) external view returns (uint256);
 
     // ─── Exchange types & events (canonical -was IPoolModule) ────────────────
     struct SwapQuote {
