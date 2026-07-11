@@ -10,6 +10,8 @@ import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Timelock as TL} from "@btr-shared/Timelock.sol";
 import {AdminTimelock as ATL} from "./libraries/AdminTimelock.sol";
+import {AdminHooks as AH} from "./libraries/AdminHooks.sol";
+import {AdminRisk as AR} from "./libraries/AdminRisk.sol";
 
 /// @title Admin
 /// @notice Standalone singleton governance contract. Replaces the former Admin Diamond module.
@@ -87,13 +89,11 @@ contract Admin is IAdmin {
     // ─── one-shot setters ───
 
     function freezeAsset(address pool, address token) external onlyAdmin {
-        IPool(pool).adminFreezeAsset(token);
-        emit EmergencyFreeze(pool, token);
+        AR.freeze(pool, token);
     }
 
     function unfreezeAsset(address pool, address token) external onlyAdmin {
-        IPool(pool).adminUnfreezeAsset(token);
-        emit EmergencyUnfreeze(pool, token);
+        AR.unfreeze(pool, token);
     }
 
     /// @notice Guardian emergency halt for one asset on one pool (bit6, separate from FROZEN so
@@ -102,13 +102,11 @@ contract Admin is IAdmin {
     ///         fails onlyAdmin — msg.sender must be the AC owner). // ponytail: onlyAdmin today; a
     ///         dedicated fast onlyPauser guardian (never the keeper key) is the next-layer upgrade.
     function pauseAsset(address pool, address token) external onlyAdmin {
-        IPool(pool).adminPauseAsset(token);
-        emit ProtocolPause(pool, token);
+        AR.pause(pool, token);
     }
 
     function unpauseAsset(address pool, address token) external onlyAdmin {
-        IPool(pool).adminUnpauseAsset(token);
-        emit ProtocolUnpause(pool, token);
+        AR.unpause(pool, token);
     }
 
     /// @notice Batch a freeze/unfreeze/pause/unpause across (pool,token) pairs in ONE owner tx — works
@@ -120,24 +118,7 @@ contract Admin is IAdmin {
     ///         from the events. // ponytail: onlyAdmin today; a dedicated fast onlyPauser guardian
     ///         (never the keeper key) is the next-layer upgrade.
     function batchRiskOp(address[] calldata pools, address[] calldata tokens, BatchOp op) external onlyAdmin {
-        uint256 n = pools.length;
-        if (n != tokens.length) revert Err.InvalidInput();
-        for (uint256 i; i < n; ++i) {
-            address p = pools[i];
-            address t = tokens[i];
-            bool ok;
-            if (op == BatchOp.Pause) {
-                try IPool(p).adminPauseAsset(t) { ok = true; } catch {}
-            } else if (op == BatchOp.Unpause) {
-                try IPool(p).adminUnpauseAsset(t) { ok = true; } catch {}
-            } else if (op == BatchOp.Freeze) {
-                try IPool(p).adminFreezeAsset(t) { ok = true; } catch {}
-            } else {
-                try IPool(p).adminUnfreezeAsset(t) { ok = true; } catch {}
-            }
-            if (ok) emit BatchRiskOp(p, t, uint8(op));
-            else emit BatchLegSkipped(p, t);
-        }
+        AR.batch(pools, tokens, op);
     }
 
     function addAsset(
@@ -153,15 +134,11 @@ contract Admin is IAdmin {
         uint16 gamma,
         uint16 vega
     ) external onlyAdmin {
-        // GOV-03: after the pool is sealed, the ONLY listing path is the timelocked one (no instant
-        // malicious oracle/risk listing against live LPs). Same sink as executeAddAsset, minus the delay,
-        // so it is bootstrap-only.
-        if (bootstrapSealed[pool]) revert Err.InvalidState();
-        IPool(pool).adminInitAsset(
-            token, oracleCfg, riskCfg, profile, minFeeBps, decimals,
-            minDispersion, maxDispersion, gamma, vega
+        // GOV-03: after seal, only the timelocked path remains.
+        ATL.addAssetBootstrap(
+            bootstrapSealed, pool, token, oracleCfg, riskCfg, profile,
+            minFeeBps, decimals, minDispersion, maxDispersion, gamma, vega
         );
-        emit AssetAdded(pool, token, decimals, 0);
     }
 
     /// @notice GOV-03: permanently close the direct `addAsset` bootstrap path for a pool. Call once
@@ -180,13 +157,11 @@ contract Admin is IAdmin {
     }
 
     function setFlowCooldown(address pool, uint16 cooldownSeconds) external onlyAdmin {
-        IPool(pool).adminSetFlowCooldown(cooldownSeconds);
-        emit FlowCooldownUpdated(pool, 0, cooldownSeconds);
+        AR.setFlowCooldown(pool, cooldownSeconds);
     }
 
     function setAnchor(address pool, address token, address anchor) external onlyAdmin {
-        IPool(pool).adminSetAnchor(token, anchor);
-        emit AnchorUpdated(pool, token, anchor, 0);
+        AR.setAnchor(pool, token, anchor);
     }
 
     /// @notice R44-2 (T3-HIGH2): owner-only base-token oracle configuration. Untimelocked because
@@ -195,8 +170,7 @@ contract Admin is IAdmin {
     ///         (revert-on-depeg), not looser. Pass `oracle = address(0)` to revert to the
     ///         legacy stable-base 1e18-hardcoded path.
     function setBaseTokenOracle(address pool, address oracle, bytes32 feedId) external onlyAdmin {
-        IPool(pool).adminSetBaseTokenOracle(oracle, feedId);
-        emit BaseTokenOracleSet(pool, oracle, feedId); // OBS-03: safety-critical re-pin was invisible
+        AR.setBaseTokenOracle(pool, oracle, feedId);
     }
 
     function setAssetParams(
@@ -211,11 +185,10 @@ contract Admin is IAdmin {
         uint64 reservationPrice,
         uint64 reservationPriceMax
     ) external onlyAdmin {
-        IPool(pool).adminSetAssetParams(
-            token, minLiquidity, minFeeBps, maxFeeBps,
+        ATL.setAssetParams(
+            pool, token, minLiquidity, minFeeBps, maxFeeBps,
             gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax
         );
-        emit AssetParamsUpdated(pool, token, minLiquidity, reservationPrice);
     }
 
     // ─── timelocked governance ───
@@ -369,6 +342,23 @@ contract Admin is IAdmin {
 
     function cancelUpdateRiskConfig(address pool, address token) external onlyAdmin {
         _cancel(pool, _keyToken(pool, OP_UPDATE_RISK, token), uint8(IPool.OpType.UPDATE_RISK));
+    }
+
+    function requestSetAssetHook(address pool, address token, address hook, uint32 flags) external onlyAdmin {
+        AH.request(pendingOps, pendingData, pool, token, hook, flags);
+    }
+
+    function executeSetAssetHook(address pool, address token) external onlyAdmin {
+        AH.execute(pendingOps, pendingData, pool, token);
+    }
+
+    function cancelSetAssetHook(address pool, address token) external onlyAdmin {
+        AH.cancel(pendingOps, pendingData, pool, token);
+    }
+
+    /// @notice Immediate clear: fail-closed if invested > 0 (recall first).
+    function clearAssetHook(address pool, address token) external onlyAdmin {
+        AH.clear(pool, token);
     }
 
     function cancelTimelock(address pool, uint8 opType) external onlyAdmin {

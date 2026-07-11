@@ -21,8 +21,8 @@ import {Constants as C} from "../src/libraries/Constants.sol";
 ///   # 3) after ≥15m: execute oracles
 ///   forge script ... --sig executeOracles --rpc-url chapel --broadcast --with-gas-price 100000000
 contract ChapelApplyStableParams is Script {
-    address constant ADMIN = 0x6BF816A11dFA6f83d18Bd3885E3F9eceB2a9d190;
-    address constant STABLE = 0x8DB94FE6b4d8808A3069A1F571c10485Eb6fb827;
+    address constant ADMIN = 0x71ad34866B2bB0E99478297DA735E9b94922B7Fb;
+    address constant STABLE = 0xC954A27E69ae7C9d10a136c4f7F3910b38F09324;
     address constant ORACLE = 0xD91712c9F4037D0010041691Df191AB45994F2bF;
     bytes32 constant USDC_FEED = 0xdacab87341ef44905f4cfdb16cbfbd61ad65accd449f2df15ae6fb26f53ba17d;
 

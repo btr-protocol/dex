@@ -147,7 +147,8 @@ contract Pool is ReentrancyGuardTransient {
         return PoolBatch.batchSwap($, inputs, outputs, recipient);
     }
 
-    // ── Views (hot) ──
+    // ── Views (hot) — on-chain consumers + computational previews only ──
+    // Storage dumps for off-chain (profile/risk/oracle) → SDK slot readers, not getters.
     function owner() external view returns (address) { return _owner(); }
     function baseToken() external view returns (address) { return $.baseToken; }
     function wnative() external view returns (address) { return $.wnative; }
@@ -169,6 +170,7 @@ contract Pool is ReentrancyGuardTransient {
         return $.riskConfigs[PoolIO.wrap($, tk)].flags;
     }
     function getFeeParams() external view returns (IPool.FeeParams memory) { return $.feeParams; }
+    /// @dev Convenience R/L WAD — prefer deriving off-chain from getAsset (or slots). Kept for Flash-era tooling.
     function getCoverageRatio(address tk) external view returns (uint256) {
         return PoolView.getCoverageRatio($, tk);
     }

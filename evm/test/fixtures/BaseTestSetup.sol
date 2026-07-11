@@ -10,8 +10,10 @@ import {IOracle} from "../../src/interfaces/IOracle.sol";
 ///         constructors after Phase 42H.B.1 dropped the per-pool $.owner auth path.
 contract MockAC {
     address public owner;
+    mapping(address => bool) public isKeeper;
     constructor(address o) { owner = o; }
     function rotate(address newOwner) external { owner = newOwner; }
+    function setKeeper(address k, bool s) external { isKeeper[k] = s; }
 }
 
 /// @notice Multi-feed external IOracle for pool tests. Pools wire `primary = address(this)` and

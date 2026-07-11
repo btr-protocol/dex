@@ -1,0 +1,1474 @@
+{
+  "targetUsd": 50000.0,
+  "tolerance": 0.02,
+  "marks": {
+    "USDC": 1.000160844343584,
+    "USDT": 0.9993779117000001,
+    "USD1": 0.9994145272000001,
+    "USDE": 1.000196043,
+    "FDUSD": 0.9976902476,
+    "BTCB": 64415.5631497403,
+    "ETH": 1813.987169366724,
+    "WBNB": 582.0268964631019,
+    "CAKE": 1.442312626565718,
+    "XAUT": 4109.465485274529
+  },
+  "rows": [
+    {
+      "venue": "BTR-stable",
+      "pool": "0xC954A27E69ae7C9d10a136c4f7F3910b38F09324",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-stable",
+      "pool": "0xC954A27E69ae7C9d10a136c4f7F3910b38F09324",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-stable",
+      "pool": "0xC954A27E69ae7C9d10a136c4f7F3910b38F09324",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-stable",
+      "pool": "0xC954A27E69ae7C9d10a136c4f7F3910b38F09324",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-stable",
+      "pool": "0xC954A27E69ae7C9d10a136c4f7F3910b38F09324",
+      "token": "FDUSD",
+      "balance": 49999.99999999999,
+      "mark": 0.9976902476,
+      "usd": 49884.51237999999,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-volatile",
+      "pool": "0x88d5EC4C0c83391a9C84Bc196911084D7179AA40",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-volatile",
+      "pool": "0x88d5EC4C0c83391a9C84Bc196911084D7179AA40",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-volatile",
+      "pool": "0x88d5EC4C0c83391a9C84Bc196911084D7179AA40",
+      "token": "BTCB",
+      "balance": 0.7782101167315175,
+      "mark": 64415.5631497403,
+      "usd": 50128.84291808584,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-volatile",
+      "pool": "0x88d5EC4C0c83391a9C84Bc196911084D7179AA40",
+      "token": "ETH",
+      "balance": 27.746947835738066,
+      "mark": 1813.987169366724,
+      "usd": 50332.607363116644,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-volatile",
+      "pool": "0x88d5EC4C0c83391a9C84Bc196911084D7179AA40",
+      "token": "WBNB",
+      "balance": 85.9106529209622,
+      "mark": 582.0268964631019,
+      "usd": 50002.310692706356,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-volatile",
+      "pool": "0x88d5EC4C0c83391a9C84Bc196911084D7179AA40",
+      "token": "CAKE",
+      "balance": 34965.03496503496,
+      "mark": 1.442312626565718,
+      "usd": 50430.51141838174,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "BTR-volatile",
+      "pool": "0x88d5EC4C0c83391a9C84Bc196911084D7179AA40",
+      "token": "XAUT",
+      "balance": 12.18026796589525,
+      "mark": 4109.465485274529,
+      "usd": 50054.39080724152,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve3pool",
+      "pool": "0xB2aF84882627CD2D3EBc01f3f23C53e060303691",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve3pool",
+      "pool": "0xB2aF84882627CD2D3EBc01f3f23C53e060303691",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve3pool",
+      "pool": "0xB2aF84882627CD2D3EBc01f3f23C53e060303691",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve-USDE/USDT",
+      "pool": "0xfc44F8608F435Cb309E627921f94155739a19a23",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve-USDE/USDT",
+      "pool": "0xfc44F8608F435Cb309E627921f94155739a19a23",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve-FDUSD/USDC",
+      "pool": "0x0734E0E2e75A6e993115C400e02A6560B7F07Ed5",
+      "token": "FDUSD",
+      "balance": 49999.99999999999,
+      "mark": 0.9976902476,
+      "usd": 49884.51237999999,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve-FDUSD/USDC",
+      "pool": "0x0734E0E2e75A6e993115C400e02A6560B7F07Ed5",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve-USDT/BNB/BTCB",
+      "pool": "0xF64E188DA36e86afC151fd98DEb93A82f06B54E3",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve-USDT/BNB/BTCB",
+      "pool": "0xF64E188DA36e86afC151fd98DEb93A82f06B54E3",
+      "token": "WBNB",
+      "balance": 49999.99999999999,
+      "mark": 582.0268964631019,
+      "usd": 29101344.823155094,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "curve-USDT/BNB/BTCB",
+      "pool": "0xF64E188DA36e86afC151fd98DEb93A82f06B54E3",
+      "token": "BTCB",
+      "balance": 49999.99999999999,
+      "mark": 64415.5631497403,
+      "usd": 3220778157.487015,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "curve-USDC/ETH/BTCB",
+      "pool": "0x6166F0020EFb6A8896dDc8A5e352F958962957F4",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "curve-USDC/ETH/BTCB",
+      "pool": "0x6166F0020EFb6A8896dDc8A5e352F958962957F4",
+      "token": "ETH",
+      "balance": 49999.99999999999,
+      "mark": 1813.987169366724,
+      "usd": 90699358.46833618,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "curve-USDC/ETH/BTCB",
+      "pool": "0x6166F0020EFb6A8896dDc8A5e352F958962957F4",
+      "token": "BTCB",
+      "balance": 49999.99999999999,
+      "mark": 64415.5631497403,
+      "usd": 3220778157.487015,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "wombat",
+      "pool": "0xc1eF1AE0615b2020Cf3AD5fc150aECE8dbd3241e",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "wombat",
+      "pool": "0xc1eF1AE0615b2020Cf3AD5fc150aECE8dbd3241e",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "wombat",
+      "pool": "0xc1eF1AE0615b2020Cf3AD5fc150aECE8dbd3241e",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "wombat",
+      "pool": "0xc1eF1AE0615b2020Cf3AD5fc150aECE8dbd3241e",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-0",
+      "pool": "0xF659089c9285760cF15074AF2B44454336AA6B69",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-0",
+      "pool": "0xF659089c9285760cF15074AF2B44454336AA6B69",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-1",
+      "pool": "0x5b09b1A05feF61aB303C81702D4964cc57446c35",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-1",
+      "pool": "0x5b09b1A05feF61aB303C81702D4964cc57446c35",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-2",
+      "pool": "0x02E821C9d4b2A6dEF616Ea8A0571DE09EC447B98",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-2",
+      "pool": "0x02E821C9d4b2A6dEF616Ea8A0571DE09EC447B98",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-3",
+      "pool": "0x39aa9BEcB01A74B2581DE8469e82fdDe34C0178D",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-3",
+      "pool": "0x39aa9BEcB01A74B2581DE8469e82fdDe34C0178D",
+      "token": "FDUSD",
+      "balance": 49999.99999999999,
+      "mark": 0.9976902476,
+      "usd": 49884.51237999999,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-4",
+      "pool": "0x63bBA3d3fff7211B337B0c5AfD0D51DB2e1DB105",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-4",
+      "pool": "0x63bBA3d3fff7211B337B0c5AfD0D51DB2e1DB105",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-5",
+      "pool": "0xf82178A5e637b5774f80aB28e3D1f1432CFa4636",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "fluid-5",
+      "pool": "0xf82178A5e637b5774f80aB28e3D1f1432CFa4636",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDC/USDT",
+      "pool": "0xF5aA3173d162130B5A2394116f490E29957De069",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDC/USDT",
+      "pool": "0xF5aA3173d162130B5A2394116f490E29957De069",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDC/USD1",
+      "pool": "0x72d7D1F0CF6625022eb4562499e180802f124570",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDC/USD1",
+      "pool": "0x72d7D1F0CF6625022eb4562499e180802f124570",
+      "token": "USD1",
+      "balance": 90000.0,
+      "mark": 0.9994145272000001,
+      "usd": 89947.307448,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-USDC/USDE",
+      "pool": "0xE55D5B8A16B5F724bB01c3e6c932588F6301BcC4",
+      "token": "USDC",
+      "balance": 90000.0,
+      "mark": 1.000160844343584,
+      "usd": 90014.47599092257,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-USDC/USDE",
+      "pool": "0xE55D5B8A16B5F724bB01c3e6c932588F6301BcC4",
+      "token": "USDE",
+      "balance": 90000.0,
+      "mark": 1.000196043,
+      "usd": 90017.64387000001,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-USDC/FDUSD",
+      "pool": "0xfA3dE945D1736Efe1DcB99942dbf2664Aeb3Ba9c",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDC/FDUSD",
+      "pool": "0xfA3dE945D1736Efe1DcB99942dbf2664Aeb3Ba9c",
+      "token": "FDUSD",
+      "balance": 49999.99999999999,
+      "mark": 0.9976902476,
+      "usd": 49884.51237999999,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDT/USD1",
+      "pool": "0x2044A3459E99B160B0d18FbCc093F94c3217C508",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDT/USD1",
+      "pool": "0x2044A3459E99B160B0d18FbCc093F94c3217C508",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDT/USDE",
+      "pool": "0xb61Db1008d83f6845eAa5F685A4233fdae8B7F54",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDT/USDE",
+      "pool": "0xb61Db1008d83f6845eAa5F685A4233fdae8B7F54",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDT/FDUSD",
+      "pool": "0xB087836c18EC3cb2eD76A7cAb315b43A701B3dd6",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDT/FDUSD",
+      "pool": "0xB087836c18EC3cb2eD76A7cAb315b43A701B3dd6",
+      "token": "FDUSD",
+      "balance": 49999.99999999999,
+      "mark": 0.9976902476,
+      "usd": 49884.51237999999,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USD1/USDE",
+      "pool": "0x5Dd409ef8aC588CDEb7B7986E34ae631F34298Fc",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USD1/USDE",
+      "pool": "0x5Dd409ef8aC588CDEb7B7986E34ae631F34298Fc",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USD1/FDUSD",
+      "pool": "0x42EeB44C79B677f5d4647d2c2241D200642aD7E7",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USD1/FDUSD",
+      "pool": "0x42EeB44C79B677f5d4647d2c2241D200642aD7E7",
+      "token": "FDUSD",
+      "balance": 49999.99999999999,
+      "mark": 0.9976902476,
+      "usd": 49884.51237999999,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDE/FDUSD",
+      "pool": "0x5E85D91b602aff5B98562bF386Cc4F82cF646C5D",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-USDE/FDUSD",
+      "pool": "0x5E85D91b602aff5B98562bF386Cc4F82cF646C5D",
+      "token": "FDUSD",
+      "balance": 49999.99999999999,
+      "mark": 0.9976902476,
+      "usd": 49884.51237999999,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-BTCB/USDC",
+      "pool": "0x064cAbd8BC743C3273Df7e6081908251c1e258E2",
+      "token": "BTCB",
+      "balance": 7.812499999999999e+17,
+      "mark": 64415.5631497403,
+      "usd": 5.03246587107346e+22,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-BTCB/USDC",
+      "pool": "0x064cAbd8BC743C3273Df7e6081908251c1e258E2",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-ETH/USDC",
+      "pool": "0x7a932487e3078Ca8a2518c3f4D33F1C373756C68",
+      "token": "ETH",
+      "balance": 1.6129032258064517e+19,
+      "mark": 1813.987169366724,
+      "usd": 2.9257857570431035e+22,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-ETH/USDC",
+      "pool": "0x7a932487e3078Ca8a2518c3f4D33F1C373756C68",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-WBNB/USDC",
+      "pool": "0x590f62D9EAe71eA939c1E2800A54988d19254b3e",
+      "token": "WBNB",
+      "balance": 8.196721311475409e+19,
+      "mark": 582.0268964631019,
+      "usd": 4.770712266090999e+22,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-WBNB/USDC",
+      "pool": "0x590f62D9EAe71eA939c1E2800A54988d19254b3e",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-XAUT/USDC",
+      "pool": "0x583018ab5413eb4C91d07374c12f99F8B2bA3976",
+      "token": "XAUT",
+      "balance": 2.1008403361344537e+19,
+      "mark": 4109.465485274529,
+      "usd": 8.633330851417077e+22,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-XAUT/USDC",
+      "pool": "0x583018ab5413eb4C91d07374c12f99F8B2bA3976",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-BTCB/USDT",
+      "pool": "0xeCfA4a54Cfe56EBd8402531c109c545D89880312",
+      "token": "BTCB",
+      "balance": 7.812499999999999e+17,
+      "mark": 64415.5631497403,
+      "usd": 5.03246587107346e+22,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-BTCB/USDT",
+      "pool": "0xeCfA4a54Cfe56EBd8402531c109c545D89880312",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-ETH/USDT",
+      "pool": "0x125C7BB75F382A1c0DbFAE0D704e1707220C8825",
+      "token": "ETH",
+      "balance": 1.6129032258064517e+19,
+      "mark": 1813.987169366724,
+      "usd": 2.9257857570431035e+22,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-ETH/USDT",
+      "pool": "0x125C7BB75F382A1c0DbFAE0D704e1707220C8825",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-WBNB/USDT",
+      "pool": "0x83dBDc791391a3959c4A145068D3990723e2F592",
+      "token": "WBNB",
+      "balance": 8.196721311475409e+19,
+      "mark": 582.0268964631019,
+      "usd": 4.770712266090999e+22,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-WBNB/USDT",
+      "pool": "0x83dBDc791391a3959c4A145068D3990723e2F592",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "uv2-XAUT/USDT",
+      "pool": "0x9aD64Ac3c1B5A37a946F5e239030c1b97Cf9952f",
+      "token": "XAUT",
+      "balance": 2.1008403361344537e+19,
+      "mark": 4109.465485274529,
+      "usd": 8.633330851417077e+22,
+      "ok": false,
+      "status": "HIGH"
+    },
+    {
+      "venue": "uv2-XAUT/USDT",
+      "pool": "0x9aD64Ac3c1B5A37a946F5e239030c1b97Cf9952f",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "rcl-BTCB/USDC",
+      "pool": "0xf5Dd80e903158153D4d32E6C66518730251D694F",
+      "token": "BTCB",
+      "balance": 0.7776049766718508,
+      "mark": 64415.5631497403,
+      "usd": 50089.86248035794,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "rcl-BTCB/USDC",
+      "pool": "0xf5Dd80e903158153D4d32E6C66518730251D694F",
+      "token": "USDC",
+      "balance": 45343.11627561828,
+      "mark": 1.000160844343584,
+      "usd": 45350.40945939169,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "rcl-ETH/USDC",
+      "pool": "0x444a77748082031a1E05750E7ee46206292aA063",
+      "token": "ETH",
+      "balance": 25.260912269378405,
+      "mark": 1813.987169366724,
+      "usd": 45822.97074315088,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "rcl-ETH/USDC",
+      "pool": "0x444a77748082031a1E05750E7ee46206292aA063",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "rcl-WBNB/USDC",
+      "pool": "0xf76993bdFD2d8F4a5257eE6b02B5752DfC232d9a",
+      "token": "WBNB",
+      "balance": 78.9953615590733,
+      "mark": 582.0268964631019,
+      "usd": 45977.42512320806,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "rcl-WBNB/USDC",
+      "pool": "0xf76993bdFD2d8F4a5257eE6b02B5752DfC232d9a",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "rcl-XAUT/USDC",
+      "pool": "0xB779B6fB35A3b1053f8ac4F2067BC1929Ed6F382",
+      "token": "XAUT",
+      "balance": 12.224938875305623,
+      "mark": 4109.465485274529,
+      "usd": 50237.964367659275,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "rcl-XAUT/USDC",
+      "pool": "0xB779B6fB35A3b1053f8ac4F2067BC1929Ed6F382",
+      "token": "USDC",
+      "balance": 45343.39497835208,
+      "mark": 1.000160844343584,
+      "usd": 45350.68820695325,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usdt-5",
+      "pool": "0xc11ACfA8F4eAD78a742886d170003d002F09351A",
+      "token": "USDC",
+      "balance": 45343.33734046711,
+      "mark": 1.000160844343584,
+      "usd": 45350.630559797544,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usdt-5",
+      "pool": "0xc11ACfA8F4eAD78a742886d170003d002F09351A",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-usdt-100",
+      "pool": "0x9810054C9802Aa62377A14E2570cAAEb15e14dfc",
+      "token": "USDC",
+      "balance": 45343.33734046711,
+      "mark": 1.000160844343584,
+      "usd": 45350.630559797544,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usdt-100",
+      "pool": "0x9810054C9802Aa62377A14E2570cAAEb15e14dfc",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-usdt-1000",
+      "pool": "0x463bc823ADB1120B2F6Fa14D327BBdC3215faFC3",
+      "token": "USDC",
+      "balance": 45343.33734046711,
+      "mark": 1.000160844343584,
+      "usd": 45350.630559797544,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usdt-1000",
+      "pool": "0x463bc823ADB1120B2F6Fa14D327BBdC3215faFC3",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-usd1-5",
+      "pool": "0x99693a80edC50951857e743A1f8651c3e9F280AE",
+      "token": "USDC",
+      "balance": 45343.33734046711,
+      "mark": 1.000160844343584,
+      "usd": 45350.630559797544,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usd1-5",
+      "pool": "0x99693a80edC50951857e743A1f8651c3e9F280AE",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-usd1-100",
+      "pool": "0x44bDe8Cedb4Ce7969F98e0567b145d12B5f7dB64",
+      "token": "USDC",
+      "balance": 45343.33734046711,
+      "mark": 1.000160844343584,
+      "usd": 45350.630559797544,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usd1-100",
+      "pool": "0x44bDe8Cedb4Ce7969F98e0567b145d12B5f7dB64",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-usd1-1000",
+      "pool": "0xc846356FA531dD46316795EF700Dc59466FD3C18",
+      "token": "USDC",
+      "balance": 45343.33734046711,
+      "mark": 1.000160844343584,
+      "usd": 45350.630559797544,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usd1-1000",
+      "pool": "0xc846356FA531dD46316795EF700Dc59466FD3C18",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-usde-5",
+      "pool": "0x0A4095B4DE924a769B690cC241a56C60f9110608",
+      "token": "USDC",
+      "balance": 45343.33734046711,
+      "mark": 1.000160844343584,
+      "usd": 45350.630559797544,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usde-5",
+      "pool": "0x0A4095B4DE924a769B690cC241a56C60f9110608",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-usde-100",
+      "pool": "0x29599311d6a77D00bCC4E637F523a7480602dD9B",
+      "token": "USDC",
+      "balance": 45343.33734046711,
+      "mark": 1.000160844343584,
+      "usd": 45350.630559797544,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usde-100",
+      "pool": "0x29599311d6a77D00bCC4E637F523a7480602dD9B",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-usde-1000",
+      "pool": "0x272bCF6080AE6dC11e7911b358b39f2C4732171D",
+      "token": "USDC",
+      "balance": 45343.33734046711,
+      "mark": 1.000160844343584,
+      "usd": 45350.630559797544,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-usde-1000",
+      "pool": "0x272bCF6080AE6dC11e7911b358b39f2C4732171D",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-fdusd-5",
+      "pool": "0x0a902FF1cbCaf5748329D2240B6249Ea368D0fDF",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-fdusd-5",
+      "pool": "0x0a902FF1cbCaf5748329D2240B6249Ea368D0fDF",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-fdusd-100",
+      "pool": "0x47dc7579Dd0e21c9B06FDb174424A36f8a0Fe139",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-fdusd-100",
+      "pool": "0x47dc7579Dd0e21c9B06FDb174424A36f8a0Fe139",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdc-fdusd-1000",
+      "pool": "0xaEA8FfaC5684c558FEEf3611f534507A218Aa820",
+      "token": "USDC",
+      "balance": 49999.99999999999,
+      "mark": 1.000160844343584,
+      "usd": 50008.042217179194,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdc-fdusd-1000",
+      "pool": "0xaEA8FfaC5684c558FEEf3611f534507A218Aa820",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdt-usd1-5",
+      "pool": "0xA99Ab36C206dACEb99b806549F415d7A7D12cc50",
+      "token": "USDT",
+      "balance": 45343.33734046711,
+      "mark": 0.9993779117000001,
+      "usd": 45315.12978082465,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdt-usd1-5",
+      "pool": "0xA99Ab36C206dACEb99b806549F415d7A7D12cc50",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdt-usd1-100",
+      "pool": "0xcB52d5F387Ea7Def8Aa2F9afc83c4B191d23AE22",
+      "token": "USDT",
+      "balance": 45343.33734046711,
+      "mark": 0.9993779117000001,
+      "usd": 45315.12978082465,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdt-usd1-100",
+      "pool": "0xcB52d5F387Ea7Def8Aa2F9afc83c4B191d23AE22",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdt-usd1-1000",
+      "pool": "0xb3C58cAB2C8252e4834A274C6D3CcB0e822B8a95",
+      "token": "USDT",
+      "balance": 45343.33734046711,
+      "mark": 0.9993779117000001,
+      "usd": 45315.12978082465,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdt-usd1-1000",
+      "pool": "0xb3C58cAB2C8252e4834A274C6D3CcB0e822B8a95",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdt-usde-5",
+      "pool": "0x9D214b529b133620dB1d90DDf30682e936AEe1e0",
+      "token": "USDT",
+      "balance": 45343.33734046711,
+      "mark": 0.9993779117000001,
+      "usd": 45315.12978082465,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdt-usde-5",
+      "pool": "0x9D214b529b133620dB1d90DDf30682e936AEe1e0",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdt-usde-100",
+      "pool": "0x0498402Bb8Af5692823C9A59c5A44564E21b3109",
+      "token": "USDT",
+      "balance": 45343.33734046711,
+      "mark": 0.9993779117000001,
+      "usd": 45315.12978082465,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdt-usde-100",
+      "pool": "0x0498402Bb8Af5692823C9A59c5A44564E21b3109",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdt-usde-1000",
+      "pool": "0x61fF939734cF5AfE870C29F743fc1244bf922e64",
+      "token": "USDT",
+      "balance": 45343.33734046711,
+      "mark": 0.9993779117000001,
+      "usd": 45315.12978082465,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdt-usde-1000",
+      "pool": "0x61fF939734cF5AfE870C29F743fc1244bf922e64",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdt-fdusd-5",
+      "pool": "0x73F4416aDd15867E816e1661927deEd55635626e",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdt-fdusd-5",
+      "pool": "0x73F4416aDd15867E816e1661927deEd55635626e",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdt-fdusd-100",
+      "pool": "0xA3de6E1A0BAB0A0F35d92954f3CeE39B1e2e4bE9",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdt-fdusd-100",
+      "pool": "0xA3de6E1A0BAB0A0F35d92954f3CeE39B1e2e4bE9",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usdt-fdusd-1000",
+      "pool": "0xA31f65cC348125850F02Be1137A17e93Fd21Cba9",
+      "token": "USDT",
+      "balance": 49999.99999999999,
+      "mark": 0.9993779117000001,
+      "usd": 49968.895585,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usdt-fdusd-1000",
+      "pool": "0xA31f65cC348125850F02Be1137A17e93Fd21Cba9",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usd1-usde-5",
+      "pool": "0x87A09E7B577379594c56B8cb6157A5abB5F9C8a3",
+      "token": "USD1",
+      "balance": 45343.33734046711,
+      "mark": 0.9994145272000001,
+      "usd": 45316.790049793046,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usd1-usde-5",
+      "pool": "0x87A09E7B577379594c56B8cb6157A5abB5F9C8a3",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usd1-usde-100",
+      "pool": "0xcCa045Ec3373d60528D1Dd7A6FF31846d9d633E9",
+      "token": "USD1",
+      "balance": 45343.33734046711,
+      "mark": 0.9994145272000001,
+      "usd": 45316.790049793046,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usd1-usde-100",
+      "pool": "0xcCa045Ec3373d60528D1Dd7A6FF31846d9d633E9",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usd1-usde-1000",
+      "pool": "0x2ebb9918D8C25112c974Eb6c451B404eE46c9731",
+      "token": "USD1",
+      "balance": 45343.33734046711,
+      "mark": 0.9994145272000001,
+      "usd": 45316.790049793046,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usd1-usde-1000",
+      "pool": "0x2ebb9918D8C25112c974Eb6c451B404eE46c9731",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usd1-fdusd-5",
+      "pool": "0x491Ae1FB2fA62820B61CfFae189d728516D3F732",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usd1-fdusd-5",
+      "pool": "0x491Ae1FB2fA62820B61CfFae189d728516D3F732",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usde-fdusd-1000",
+      "pool": "0xc4906528183444295C386BbA4311067DD77B342c",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usde-fdusd-1000",
+      "pool": "0xc4906528183444295C386BbA4311067DD77B342c",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usde-fdusd-100",
+      "pool": "0x05f646fD6d2293Fb666E1935eD826de1683eA813",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usde-fdusd-100",
+      "pool": "0x05f646fD6d2293Fb666E1935eD826de1683eA813",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usd1-fdusd-1000",
+      "pool": "0xBa140f98A79ed25DfD831a70dD2bA94cfc08bdA0",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usd1-fdusd-1000",
+      "pool": "0xBa140f98A79ed25DfD831a70dD2bA94cfc08bdA0",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usde-fdusd-5",
+      "pool": "0x8cC0532cd130Ce9Ca81074900Af006D6380788db",
+      "token": "USDE",
+      "balance": 49999.99999999999,
+      "mark": 1.000196043,
+      "usd": 50009.802149999996,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usde-fdusd-5",
+      "pool": "0x8cC0532cd130Ce9Ca81074900Af006D6380788db",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    },
+    {
+      "venue": "univ4-usd1-fdusd-100",
+      "pool": "0x10270Af8B039d353BfA6e1d5E1dD43cfEBbb674E",
+      "token": "USD1",
+      "balance": 49999.99999999999,
+      "mark": 0.9994145272000001,
+      "usd": 49970.72636,
+      "ok": true,
+      "status": "OK"
+    },
+    {
+      "venue": "univ4-usd1-fdusd-100",
+      "pool": "0x10270Af8B039d353BfA6e1d5E1dD43cfEBbb674E",
+      "token": "FDUSD",
+      "balance": 45343.33734046711,
+      "mark": 0.9976902476,
+      "usd": 45238.605458220954,
+      "ok": false,
+      "status": "LOW"
+    }
+  ],
+  "summary": {
+    "total": 145,
+    "ok": 96,
+    "low": 34,
+    "high": 15
+  }
+}

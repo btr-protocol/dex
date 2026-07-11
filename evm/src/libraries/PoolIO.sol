@@ -96,8 +96,11 @@ library PoolIO {
         IPool.Asset storage aIn,
         IPool.Asset storage aOut
     ) internal {
+        // Executable depth = R_liq (reserves − invested). Pricing still sees full reserves.
+        uint256 inv = $.invested[tkOut];
+        uint256 liq = aOut.reserves > inv ? uint256(aOut.reserves) - inv : 0;
         uint256 minReq = q.amountOut + q.protoFee + aOut.minLiquidity;
-        if (aOut.reserves < minReq) revert Err.InsufficientAmount(aOut.reserves, minReq);
+        if (liq < minReq) revert Err.InsufficientAmount(liq, minReq);
 
         if (amtIn > type(uint128).max) revert Err.ExcessiveAmount(amtIn, type(uint128).max);
         aIn.reserves += uint128(amtIn);

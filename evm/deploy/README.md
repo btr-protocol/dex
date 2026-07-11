@@ -69,13 +69,16 @@ bun scripts/propagate-deploy.ts 97
 
 Artifacts: `deployments/97.deploy.json` (router, factory, admin, oracle, faucet, pools, tokens, feed ids).
 
-Keeper: fill `keepers/oracle.example.toml` feed_id fields from deploy JSON (`keccak256(asset, USDC)` per pair), apply `keepers/k8s/oracle-daemon.yaml` on nxrates k0s (BuildKit image only).
+Keeper (Chapel): SSoT `keepers/oracle.chapel.toml` (feeds + θ/heartbeat). Dedicated
+pusher `0xc4B4635B…a5B9` (secrets in `keepers/.env.chapel`, gitignored) — not the
+deployer. Runtime = nxrates k0s Deployment (`keepers/k8s/oracle-daemon.yaml`);
+BuildKit image only, then `keepers/scripts/apply-chapel-oracle-k8s.sh <tag>`.
 
 ## Contract verification (Chapel / BscScan)
 
 Pool clones are **EIP-1167** minimal proxies (impl embedded in bytecode). Wallets (Rabby, MetaMask) only decode `Pool.swap` calldata when the **implementation** (and ideally the clone as proxy) is verified on [testnet.bscscan.com](https://testnet.bscscan.com). Until then, sequential swap txs look like raw hex — that is wallet display, not leftover `wallet_sendCalls`.
 
-Status as of 2026-07-11 (Sourcify chain 97): **not verified** for live addresses in `97.deploy.json` / `front` `CHAPEL_BTR` — stable/volatile pools, Pool impl `0x8eA45Afd…294E`, Admin, PoolFactory, AC, oracle.
+Status as of 2026-07-11 (Sourcify chain 97): **not verified** for live addresses in `97.deploy.json` / front `CHAPEL_BTR` — stable/volatile pools, Pool impl `0x6281c177…76629`, Admin `0x71ad3486…B7Fb`, Factory, AC, oracle.
 
 `forge script … --verify` needs an Etherscan API key (BscScan is on the Etherscan v2 API). No `[etherscan]` block in `foundry.toml` yet; `ETHERSCAN_API_KEY` / `BSCSCAN_API_KEY` were unset in the investigation env.
 
@@ -86,22 +89,22 @@ export ETHERSCAN_API_KEY=...   # https://etherscan.io/apidashboard (works for ch
 forge verify-contract \
   --chain-id 97 \
   --watch \
-  0x8eA45AfdAdd01c2d5778472bFac97D220f70294E \
+  0x6281c177fC5Aaf293be6a759E44535E1F2E76629 \
   src/Pool.sol:Pool \
   --constructor-args $(cast abi-encode "constructor(address,address,address,address)" \
     0x626eb915d4a4136F7c00352A54378d3A322488da \
-    0x6BF816A11dFA6f83d18Bd3885E3F9eceB2a9d190 \
-    0xFA8eF9803EA1dde5A7CBFeC31E738F39d10f2952 \
-    0x9Db40e6487Ae2d3F36Ec6d1597A3A1d8646Ef282)
+    0x71ad34866B2bB0E99478297DA735E9b94922B7Fb \
+    0xbd00b8718cf82d0d1b93ec2460b97a0774f15d6f \
+    0x2a05ef641d01c85461085a1d2ce99711cda7b4a6)
 
 # Also verify Admin (full contract, not a clone):
 forge verify-contract --chain-id 97 --watch \
-  0x6BF816A11dFA6f83d18Bd3885E3F9eceB2a9d190 src/Admin.sol:Admin \
+  0x71ad34866B2bB0E99478297DA735E9b94922B7Fb src/Admin.sol:Admin \
   --constructor-args $(cast abi-encode "constructor(address)" 0x626eb915d4a4136F7c00352A54378d3A322488da)
 
-# Optional: on BscScan UI, mark pool clones as EIP-1167 proxies → impl 0x8eA45Afd…294E
-#   stable  0x8DB94FE6b4d8808A3069A1F571c10485Eb6fb827
-#   volatile 0x684b1b1B997F28C0724f1225d510bEB5F17C9288
+# Optional: on BscScan UI, mark pool clones as EIP-1167 proxies → impl 0x6281c177…6629
+#   stable  0xC954A27E69ae7C9d10a136c4f7F3910b38F09324
+#   volatile 0x88d5EC4C0c83391a9C84Bc196911084D7179AA40
 ```
 
 If keys are missing, skip — UX impact is decode-only; swaps still execute via sequential `eth_sendTransaction` when Batch approve + tx is off.

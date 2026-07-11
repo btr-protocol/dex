@@ -31,6 +31,7 @@ test/
 ├── PoolFlash.t.sol               ERC-3156 singleton flash loans (repay by raising pool balance)
 ├── PoolFlashExploit.t.sol        flash-in-flight guard (repay-via-deposit double-count)
 ├── PoolSwapAccounting.t.sol      swap token-conservation (R8): balance == reserves + protocolFees
+├── PoolHooks.t.sol               hookless gas, flag skip, recall, MockVenus, spoof/writeDown/minLiq/flags/flash
 ├── PoolStorageLayout.t.sol       PoolStorage slot pins (append-only layout)
 ├── DistributorBridgeIntegration.t.sol  campaign propose→24h→finalize + bridge flows
 └── fixtures/                     shared setup + mock tokens

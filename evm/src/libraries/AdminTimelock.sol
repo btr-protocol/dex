@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
+import {IAdmin} from "../interfaces/IAdmin.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
@@ -54,5 +55,53 @@ library AdminTimelock {
             p.vega
         );
         return p.decimals;
+    }
+
+    /// @dev Bootstrap listing (untimelocked). Fail-closed if `bootstrapSealed[pool]`.
+    function addAssetBootstrap(
+        mapping(address => bool) storage bootstrapSealed,
+        address pool,
+        address token,
+        IPool.OracleConfig calldata oracleCfg,
+        IPool.RiskConfig calldata riskCfg,
+        IPool.LiquidityProfile calldata profile,
+        uint16 minFeeBps,
+        uint8 decimals,
+        uint32 minDispersion,
+        uint32 maxDispersion,
+        uint16 gamma,
+        uint16 vega
+    ) external {
+        if (bootstrapSealed[pool]) revert Err.InvalidState();
+        IPool(pool).adminInitAsset(
+            token, oracleCfg, riskCfg, profile, minFeeBps, decimals, minDispersion, maxDispersion, gamma, vega
+        );
+        emit IAdmin.AssetAdded(pool, token, decimals, 0);
+    }
+
+    function setAssetParams(
+        address pool,
+        address token,
+        uint128 minLiquidity,
+        uint16 minFeeBps,
+        uint16 maxFeeBps,
+        uint16 gamma,
+        uint16 vega,
+        uint16 haircutSuppressor,
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
+    ) external {
+        IPool(pool).adminSetAssetParams(
+            token,
+            minLiquidity,
+            minFeeBps,
+            maxFeeBps,
+            gamma,
+            vega,
+            haircutSuppressor,
+            reservationPrice,
+            reservationPriceMax
+        );
+        emit IAdmin.AssetParamsUpdated(pool, token, minLiquidity, reservationPrice);
     }
 }

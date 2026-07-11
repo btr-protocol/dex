@@ -3,6 +3,7 @@ pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {Pool} from "../src/Pool.sol";
+import {PoolAux} from "../src/PoolAux.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 
 /// @title PoolStorageLayoutTest
@@ -16,18 +17,26 @@ import {IPool} from "../src/interfaces/IPool.sol";
 ///        slot 1  = wnative   (address, 20 bytes)         -packed offset 0
 ///        slot 2  = bridge    (address, 20 bytes)         -packed offset 0
 ///        slot 3  = treasury  (address, 20 bytes)         + initialized (bool, byte 20)
-///      Mappings @ slots 4..9 inclusive (6 mapping fields → keccak-derived).
+///      Mappings @ slots 4..9 inclusive (assets=4, oracleConfigs=5, riskConfigs=6,
+///      profiles=7, lpBalances=8, protocolFees=9). Off-chain readers (SDK storage.ts)
+///      hash keccak256(abi.encode(key, slot)) — do NOT add Solidity getters for these.
 ///      `IPool.FeeParams feeParams` is a struct → uses its own slot range starting @ 10.
+///      Hooks append-only: assetHooks=18, invested=19 (SDK `POOL_STORAGE`).
 contract PoolStorageLayoutTest is Test {
     Pool pool;
     address constant SENTINEL_BASE     = address(0x1111111111111111111111111111111111111111);
     address constant SENTINEL_WNATIVE  = address(0x2222222222222222222222222222222222222222);
     address constant SENTINEL_BRIDGE   = address(0x3333333333333333333333333333333333333333);
     address constant SENTINEL_TREASURY = address(0x4444444444444444444444444444444444444444);
+    address constant SENTINEL_HOOK     = address(0x5555555555555555555555555555555555555555);
+    address constant SENTINEL_TOKEN    = address(0x6666666666666666666666666666666666666666);
+    uint256 constant ASSET_HOOKS_SLOT = 18;
+    uint256 constant INVESTED_SLOT = 19;
 
     function setUp() public {
-        // Pool ctor only validates ac/admin/flash/poolAux != 0; we don't initialize().
-        pool = new Pool(address(0xAA), address(0xBB), address(0xCC), address(0xDD));
+        // PoolAux required for fallback views (getAssetHook / getInvested).
+        PoolAux aux = new PoolAux(address(0xAA), address(0xBB), address(0xCC));
+        pool = new Pool(address(0xAA), address(0xBB), address(0xCC), address(aux));
     }
 
     /// @notice Slot 0 holds `baseToken` (first PoolStorage field).
@@ -100,5 +109,22 @@ contract PoolStorageLayoutTest is Test {
             )
         );
         assertEq(hash, expected, "slot 0-3 layout hash mismatch - append-only invariant broken");
+    }
+
+    /// @notice Pin hooks mapping bases (assetHooks=18, invested=19) to SDK `POOL_STORAGE`.
+    function test_layout_hooks_mapping_bases() public {
+        bytes32 hookSlot = keccak256(abi.encode(SENTINEL_TOKEN, ASSET_HOOKS_SLOT));
+        // HookSlot packs target (20 B) + flags (uint32) into one word.
+        uint32 flags = 3; // BEFORE_OUTFLOW | POST_DEPOSIT
+        uint256 packed = uint256(uint160(SENTINEL_HOOK)) | (uint256(flags) << 160);
+        vm.store(address(pool), hookSlot, bytes32(packed));
+
+        IPool.HookSlot memory h = IPool(address(pool)).getAssetHook(SENTINEL_TOKEN);
+        assertEq(h.target, SENTINEL_HOOK, "assetHooks base must be slot 18");
+        assertEq(h.flags, flags, "HookSlot flags packing");
+
+        bytes32 invSlot = keccak256(abi.encode(SENTINEL_TOKEN, INVESTED_SLOT));
+        vm.store(address(pool), invSlot, bytes32(uint256(42e18)));
+        assertEq(IPool(address(pool)).getInvested(SENTINEL_TOKEN), 42e18, "invested base must be slot 19");
     }
 }

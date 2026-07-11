@@ -5,6 +5,7 @@ import {IPool} from "../interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {PoolDecay} from "./PoolDecay.sol";
 import {PoolIO} from "./PoolIO.sol";
+import {PoolHooks} from "./PoolHooks.sol";
 
 /// @title PoolEdge -flash-edge ops extracted from Pool.sol
 /// @notice Wave-2 bytecode reduction. Pure refactor; behavior preserved.
@@ -28,8 +29,10 @@ function flashSend(IPool.PoolStorage storage $, address token, uint256 amount, a
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
         PoolDecay.applyDecay($, t, asset);
         if (amount == 0) revert Err.ZeroValue();
-        if (asset.reserves < amount || asset.reserves - amount < asset.minLiquidity) {
-            revert Err.InsufficientAmount(asset.reserves, amount);
+        // Executable flash capacity = R_liq (invested is not loanable without prior recall).
+        uint256 liq = PoolHooks.liquidReserves($, t);
+        if (liq < amount || liq - amount < asset.minLiquidity) {
+            revert Err.InsufficientAmount(liq, amount);
         }
         // Block reserve-mutating entrypoints for the flash callback's duration (cleared in
         // flashAccount): a borrower must repay by plain transfer, not by deposit/swap which would

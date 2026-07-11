@@ -7,6 +7,7 @@ import {Pricing} from "./Pricing.sol";
 import {Constants as C} from "./Constants.sol";
 import {PoolDecay} from "./PoolDecay.sol";
 import {PoolIO} from "./PoolIO.sol";
+import {PoolHooks} from "./PoolHooks.sol";
 
 /// @title PoolSwap — single-leg swap orchestration.
 library PoolSwap {
@@ -36,8 +37,11 @@ library PoolSwap {
         uint256 actualIn = PoolIO.pull($, tokenIn, amountIn);
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk[0], tk[1], actualIn);
 
-        // Inline former PoolSwapQuote trampoline (G-1/L-1) — exec already enforces minLiquidity (G-5).
         out = q.amountOut;
+        // Hard recall on tokenOut only when R_liq shortfall (0 CALL if buffer OK).
+        uint256 need = out + q.protoFee + aOut.minLiquidity;
+        PoolHooks.beforeOutflow($, tk[1], msg.sender, need);
+
         PoolIO.exec($, tk[0], tk[1], actualIn, q, aIn, aOut);
 
         if (out < minAmountOut) revert Err.ThresholdViolation(out, minAmountOut);

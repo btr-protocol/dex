@@ -170,10 +170,10 @@ contract ChapelEnableSwaps is Script {
             else if (tok == FDUSD) { minFee = 15; minDisp = 500; maxDisp = 5000; refBand = 200; }
             return (minFee, refBand, minDisp, maxDisp);
         }
-        // volatile-core defaults
+        // volatile-core defaults (minDisp 50_000 → ±2.5% with knots ±50)
         minFee = 1000;
-        minDisp = 1000;
-        maxDisp = 100_000;
+        minDisp = 50_000;
+        maxDisp = 500_000;
         refBand = 0;
         if (tok == USDT) refBand = 100;
         else if (tok == XAUT) refBand = 200;
@@ -198,12 +198,13 @@ contract ChapelEnableSwaps is Script {
     }
 
     function _seedAmount(address tok, uint256 seedUsdc) internal pure returns (uint256) {
+        // 50k USD notionnel per token (mark-sized for volatiles). Marks ~2026-07-11 NXR.
         if (tok == USDC || tok == USDT || tok == USD1 || tok == USDE || tok == FDUSD) return seedUsdc;
-        if (tok == BTCB) return seedUsdc * 1e18 / 64_300e18;
-        if (tok == ETH) return seedUsdc * 1e18 / 1_795e18;
-        if (tok == WBNB) return seedUsdc * 1e18 / 574e18;
-        if (tok == CAKE) return seedUsdc * 1e18 / 1.39e18;
-        if (tok == XAUT) return seedUsdc * 1e18 / 4_090e18;
+        if (tok == BTCB) return seedUsdc * 1e18 / 64_250e18;
+        if (tok == ETH) return seedUsdc * 1e18 / 1_802e18;
+        if (tok == WBNB) return seedUsdc * 1e18 / 582e18;
+        if (tok == CAKE) return seedUsdc * 1e18 / 1.43e18;
+        if (tok == XAUT) return seedUsdc * 1e18 / 4_105e18;
         return seedUsdc;
     }
 

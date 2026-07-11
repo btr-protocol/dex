@@ -8,6 +8,7 @@ import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolDecay} from "./PoolDecay.sol";
 import {PoolIO} from "./PoolIO.sol";
+import {PoolHooks} from "./PoolHooks.sol";
 
 /// @title PoolLiquidity -deposit/donate/withdraw/swapLiability extracted from Pool.sol
 /// @notice Wave-2 bytecode reduction. Pure refactor; behavior preserved.
@@ -69,6 +70,8 @@ library PoolLiquidity {
         $.lpBalances[msg.sender][tkn] += lpAmt;
         $.lastDepositTime[msg.sender][tkn] = uint32(block.timestamp);
 
+        PoolHooks.postDeposit($, tkn, msg.sender, amt, lpAmt);
+
         emit IPool.Deposited(msg.sender, tkn, amt, lpAmt);
         return IPool.DepositResult({lpAmount: lpAmt, actualDeposit: amt});
     }
@@ -111,6 +114,7 @@ library PoolLiquidity {
         uint256 withdrawValue;
         uint256 amt;
         uint256 haircut;
+        uint256 protoFee;
     }
 
     function withdrawTo(
@@ -151,17 +155,20 @@ library PoolLiquidity {
         }
 
         if (ctx.fromTk == ctx.toTk) {
-            _withdrawSame($, ctx);
+            _quoteWithdrawSame($, ctx);
         } else {
-            _withdrawCross($, ctx);
+            _quoteWithdrawCross($, ctx);
         }
 
-        $.lpBalances[msg.sender][ctx.fromTk] -= lpAmount;
+        // Recall BEFORE ledger debit so post-debit R_liq ≥ minLiquidity (same as swap/flash).
+        uint256 minLiq = $.assets[ctx.toTk].minLiquidity;
+        uint256 cashNeed = ctx.amt + ctx.protoFee;
+        PoolHooks.beforeOutflow($, ctx.toTk, msg.sender, cashNeed + minLiq);
+        _applyWithdraw($, ctx, lpAmount);
+
         {
-            IPool.Asset storage assetTo = $.assets[ctx.toTk];
-            if (assetTo.reserves < assetTo.minLiquidity) {
-                revert Err.ThresholdViolation(assetTo.reserves, assetTo.minLiquidity);
-            }
+            uint256 liq = PoolHooks.liquidReserves($, ctx.toTk);
+            if (liq < minLiq) revert Err.ThresholdViolation(liq, minLiq);
         }
         if (ctx.amt < minAmountOut) revert Err.ThresholdViolation(ctx.amt, minAmountOut);
         PoolIO.push($, tokenTo, msg.sender, ctx.amt);
@@ -175,18 +182,14 @@ library PoolLiquidity {
         return IPool.WithdrawResult({amountOut: ctx.amt, lpBurned: lpAmount});
     }
 
-    function _withdrawSame(IPool.PoolStorage storage $, WithdrawCtx memory ctx) private {
+    function _quoteWithdrawSame(IPool.PoolStorage storage $, WithdrawCtx memory ctx) private view {
         IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
         (ctx.amt, ctx.haircut) = applyHaircut(ctx.withdrawValue, assetFrom.reserves, assetFrom.liabilities, assetFrom.haircutSuppressor);
         if (assetFrom.reserves < ctx.amt) revert Err.InsufficientAmount(assetFrom.reserves, ctx.amt);
         if (ctx.amt > type(uint128).max) revert Err.ExcessiveAmount(ctx.amt, type(uint128).max);
-
-        uint256 liabRed = ctx.withdrawValue > assetFrom.liabilities ? assetFrom.liabilities : ctx.withdrawValue;
-        assetFrom.reserves -= uint128(ctx.amt);
-        assetFrom.liabilities -= uint128(liabRed);
     }
 
-    function _withdrawCross(IPool.PoolStorage storage $, WithdrawCtx memory ctx) private {
+    function _quoteWithdrawCross(IPool.PoolStorage storage $, WithdrawCtx memory ctx) private {
         IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
         IPool.Asset storage assetTo = $.assets[ctx.toTk];
         // Depeg breaker on BOTH legs: the conversion is priced off fromTk's mark, so a wrong-but-fresh
@@ -194,7 +197,7 @@ library PoolLiquidity {
         // the same drain the exec/swapLiability input-leg guard closes. Cover all mark-priced value-out paths.
         PoolIO.priceBandGuard($, ctx.fromTk, assetFrom);
         PoolIO.priceBandGuard($, ctx.toTk, assetTo);
-        // From-asset coverage haircut BEFORE the mark conversion, mirroring _withdrawSame: an LP exiting an
+        // From-asset coverage haircut BEFORE the mark conversion, mirroring same-asset: an LP exiting an
         // under-covered asset converts only face·c_from and leaves its deficit socialized (liabilities still
         // drop by the FULL face below, so the index invariant holds). Without this the cross path pays full
         // face out of the healthy output asset — an under-covered LP escapes the haircut (Lemma B) and dumps
@@ -202,13 +205,25 @@ library PoolLiquidity {
         (uint256 fairValue,) = applyHaircut(ctx.withdrawValue, assetFrom.reserves, assetFrom.liabilities, assetFrom.haircutSuppressor);
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, ctx.fromTk, ctx.toTk, fairValue);
         (ctx.amt, ctx.haircut) = applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
-        if (assetTo.reserves < ctx.amt + q.protoFee) revert Err.InsufficientAmount(assetTo.reserves, ctx.amt + q.protoFee);
+        ctx.protoFee = q.protoFee;
+        uint256 outNeed = ctx.amt + ctx.protoFee;
+        if (assetTo.reserves < outNeed) revert Err.InsufficientAmount(assetTo.reserves, outNeed);
+    }
 
+    function _applyWithdraw(IPool.PoolStorage storage $, WithdrawCtx memory ctx, uint256 lpAmount) private {
+        $.lpBalances[msg.sender][ctx.fromTk] -= lpAmount;
+        IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
         uint256 liabRed = ctx.withdrawValue > assetFrom.liabilities ? assetFrom.liabilities : ctx.withdrawValue;
-        assetFrom.liabilities -= uint128(liabRed);
 
-        if (q.protoFee > 0) $.protocolFees[ctx.toTk] += q.protoFee;
-        assetTo.reserves -= uint128(ctx.amt + q.protoFee);
+        if (ctx.fromTk == ctx.toTk) {
+            assetFrom.reserves -= uint128(ctx.amt);
+            assetFrom.liabilities -= uint128(liabRed);
+        } else {
+            IPool.Asset storage assetTo = $.assets[ctx.toTk];
+            assetFrom.liabilities -= uint128(liabRed);
+            if (ctx.protoFee > 0) $.protocolFees[ctx.toTk] += ctx.protoFee;
+            assetTo.reserves -= uint128(ctx.amt + ctx.protoFee);
+        }
     }
 
     function swapLiability(

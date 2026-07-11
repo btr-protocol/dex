@@ -689,47 +689,157 @@ impl Amm for Aimm {
     }
 }
 
-/// Piecewise-linear interpolation of the spline at `x`. (Default profile is collinear, so this is
-/// exact; concentrated profiles use monotone-cubic on-chain — a bounded approximation here.)
-fn eval_spline(pts: &[(f64, f64)], x: f64) -> f64 {
-    if pts.is_empty() {
-        return 0.0;
-    }
+// Float 1:1 port of Spline.sol's monotone (Fritsch-Carlson) cubic Hermite — same `eval`/`area`/
+// `_tangents`/`_primitive`/`_search` algorithm, just dropping the 1e18 fixed-point scale for
+// ordinary f64. Keeps every sign/clamp quirk of the on-chain version (see spline_tangents below)
+// so a deployed non-collinear profile matches on-chain exactly, not just approximately.
+
+/// Binary search for the segment index i s.t. pts[i].0 < x <= pts[i+1].0 (Spline.sol:_search).
+fn search_spline(pts: &[(f64, f64)], x: f64, n: usize) -> usize {
     if x <= pts[0].0 {
-        return pts[0].1;
+        return 0;
     }
-    let last = pts.len() - 1;
-    if x >= pts[last].0 {
-        return pts[last].1;
-    }
-    for w in pts.windows(2) {
-        let (x0, y0) = w[0];
-        let (x1, y1) = w[1];
-        if x <= x1 {
-            let t = (x - x0) / (x1 - x0);
-            return y0 + t * (y1 - y0);
+    let mut low = 0usize;
+    let mut high = n - 2;
+    while low < high {
+        let mid = (low + high + 1) / 2;
+        if x < pts[mid].0 {
+            high = mid - 1;
+        } else {
+            low = mid;
         }
     }
-    pts[last].1
+    low
 }
 
-/// Integral of the piecewise-linear spline over `[lo, hi]` (lo <= hi).
-fn area_spline(pts: &[(f64, f64)], lo: f64, hi: f64) -> f64 {
-    if hi <= lo || pts.is_empty() {
-        return 0.0;
-    }
-    let mut acc = 0.0;
-    let mut x = lo;
-    while x < hi {
-        // advance through whichever segment contains x
-        let next_knot = pts.iter().map(|p| p.0).find(|&xk| xk > x).unwrap_or(hi).min(hi);
-        let xa = x;
-        let xb = next_knot;
-        acc += 0.5 * (eval_spline(pts, xa) + eval_spline(pts, xb)) * (xb - xa);
-        x = xb;
-        if xb == lo {
-            break;
+/// Endpoint tangents for segment i (Spline.sol:_tangents). Secant s of the segment; interior
+/// tangents = sign-preserving average of the two adjacent secants (0 if they disagree in sign —
+/// note a zero secant's sign bit reads as non-negative, matching the on-chain int256 XOR trick, so
+/// a flat secant next to a rising one still yields a nonzero endpoint tangent, never the reverse).
+/// Then the Fritsch-Carlson α²+β²≤9 clamp: if m0²+m1²>9s², scale both by 3|s|/√(m0²+m1²).
+fn spline_tangents(pts: &[(f64, f64)], i: usize, n: usize) -> (f64, f64) {
+    let p0 = pts[i];
+    let p1 = pts[i + 1];
+    let s = (p1.1 - p0.1) / (p1.0 - p0.0);
+    let mut m0 = if i == 0 {
+        s
+    } else {
+        let pm = pts[i - 1];
+        let sp = (p0.1 - pm.1) / (p0.0 - pm.0);
+        if (sp < 0.0) != (s < 0.0) {
+            0.0
+        } else {
+            (sp + s) / 2.0
+        }
+    };
+    let mut m1 = if i == n - 2 {
+        s
+    } else {
+        let p2 = pts[i + 2];
+        let sn = (p2.1 - p1.1) / (p2.0 - p1.0);
+        if (s < 0.0) != (sn < 0.0) {
+            0.0
+        } else {
+            (s + sn) / 2.0
+        }
+    };
+    let sum_sq = m0 * m0 + m1 * m1;
+    let nine_s_sq = 9.0 * s * s;
+    if sum_sq > nine_s_sq {
+        let root = sum_sq.sqrt();
+        if root > 0.0 {
+            let scale = 3.0 * s.abs() / root;
+            m0 *= scale;
+            m1 *= scale;
         }
     }
-    acc
+    (m0, m1)
+}
+
+/// Monotone cubic Hermite interpolation at `x`, flat outside the knot span. (Spline.sol:eval)
+fn eval_spline(pts: &[(f64, f64)], x: f64) -> f64 {
+    let n = pts.len();
+    if n == 0 {
+        return 0.0;
+    }
+    if n == 1 || x <= pts[0].0 {
+        return pts[0].1;
+    }
+    if x >= pts[n - 1].0 {
+        return pts[n - 1].1;
+    }
+    let i = search_spline(pts, x, n);
+    let p0 = pts[i];
+    let p1 = pts[i + 1];
+    let h = p1.0 - p0.0;
+    let (m0, m1) = spline_tangents(pts, i, n);
+    let dy = p1.1 - p0.1;
+    let k0 = m0 * h;
+    let k1 = m1 * h;
+    let c2 = 3.0 * dy - 2.0 * k0 - k1;
+    let c3 = -2.0 * dy + k0 + k1;
+    let t = (x - p0.0) / h;
+    p0.1 + k0 * t + c2 * t * t + c3 * t * t * t
+}
+
+/// Primitive F(t) of the Hermite cubic at `dx` into a segment of width `h`. (Spline.sol:_primitive)
+fn spline_primitive(dx: f64, h: f64, y0: f64, k0: f64, a: f64, b: f64) -> f64 {
+    let t = dx / h;
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let t4 = t3 * t;
+    y0 * t + k0 * t2 / 2.0 + b * t3 / 3.0 + a * t4 / 4.0
+}
+
+/// Exact integral of the monotone cubic Hermite spline over `[x1, x2]`. (Spline.sol:area)
+fn area_spline(pts: &[(f64, f64)], x1: f64, x2: f64) -> f64 {
+    let n = pts.len();
+    if x1 == x2 || n == 0 {
+        return 0.0;
+    }
+    let inv = x1 > x2;
+    let (mut x1, x2) = if inv { (x2, x1) } else { (x1, x2) };
+    if n == 1 {
+        let res = pts[0].1 * (x2 - x1);
+        return if inv { -res } else { res };
+    }
+    if x2 <= pts[0].0 {
+        let res = pts[0].1 * (x2 - x1);
+        return if inv { -res } else { res };
+    }
+    if x1 >= pts[n - 1].0 {
+        let res = pts[n - 1].1 * (x2 - x1);
+        return if inv { -res } else { res };
+    }
+    let mut i = search_spline(pts, x1, n);
+    let mut res = 0.0;
+    while i < n - 1 && x1 < x2 {
+        let p0 = pts[i];
+        let p1 = pts[i + 1];
+        let seg_end = p1.0;
+        let start = x1.max(p0.0);
+        let end = x2.min(seg_end);
+        if end > start {
+            let h = p1.0 - p0.0;
+            let (m0, m1) = spline_tangents(pts, i, n);
+            let k0 = m0 * h;
+            let k1 = m1 * h;
+            let dy = p1.1 - p0.1;
+            let a = k0 + k1 - 2.0 * dy;
+            let b = 3.0 * dy - 2.0 * k0 - k1;
+            let f2 = spline_primitive(end - p0.0, h, p0.1, k0, a, b);
+            let f1 = spline_primitive(start - p0.0, h, p0.1, k0, a, b);
+            res += (f2 - f1) * h;
+        }
+        if seg_end >= x2 {
+            break;
+        }
+        x1 = seg_end;
+        i += 1;
+    }
+    if inv {
+        -res
+    } else {
+        res
+    }
 }
