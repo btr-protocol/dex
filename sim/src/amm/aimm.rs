@@ -284,10 +284,10 @@ impl Aimm {
         }
     }
 
-    /// Dispersion κ in PBPS. (`Pricing._calculateDispersion`)
+    /// Dispersion κ in PBPS. Quiet floor = min_disp; σ·vega widens above it. (`Pricing._calculateDispersion`)
     fn dispersion(&self) -> f64 {
         let scaled = (self.sigma() * self.p.vega) / (1000.0 * BPS);
-        (1000.0 + scaled).clamp(self.p.min_disp, self.p.max_disp)
+        (self.p.min_disp + scaled).clamp(self.p.min_disp, self.p.max_disp)
     }
 
     /// Effective pricing depth for the token leg. (`Pricing.calculateDepth`)
