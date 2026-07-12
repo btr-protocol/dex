@@ -10,6 +10,7 @@ import {Pool} from "../src/Pool.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
+import {ChapelSeedAmounts} from "./ChapelSeedAmounts.sol";
 
 /// @notice Seed Chapel pools on an already-deployed Admin+Factory (SWAP flags at listing).
 /// @dev Env: DEPLOYER_PK, ADMIN, FACTORY. Optional SEED_USDC (default 50_000e18).
@@ -134,14 +135,8 @@ contract ChapelSeedPools is Script {
         o.refBandBps = refBandBps;
     }
 
-    function _seedAmount(address tok, uint256 seedUsdc) internal pure returns (uint256) {
-        if (tok == USDC || tok == USDT || tok == USD1 || tok == USDE || tok == FDUSD) return seedUsdc;
-        if (tok == BTCB) return seedUsdc * 1e18 / 64_300e18;
-        if (tok == ETH) return seedUsdc * 1e18 / 1_795e18;
-        if (tok == WBNB) return seedUsdc * 1e18 / 574e18;
-        if (tok == CAKE) return seedUsdc * 1e18 / 1.39e18;
-        if (tok == XAUT) return seedUsdc * 1e18 / 4_090e18;
-        return seedUsdc;
+    function _seedAmount(address tok, uint256 seedUsdc) internal view returns (uint256) {
+        return ChapelSeedAmounts.seedAmount(tok, seedUsdc);
     }
 
     function _seedPool(Pool pool, address[] memory tokens, uint256 seedUsdc) internal {
