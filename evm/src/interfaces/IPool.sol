@@ -196,7 +196,7 @@ interface IPool is IOracle {
     function adminClearAssetHook(address token) external;
 
     // ── Phase 42H.B.3c: restricted setters gated by `flash` singleton ──
-    /// @notice Pre-flash recall: ensures R_liq ≥ amount + minLiquidity (via beforeOutflow).
+    /// @notice Pre-flash recall: ensures R_liq ≥ amount + minLiquidity (via preOutflow).
     function flashPrepare(address token, uint256 amount, address initiator) external;
     function flashSend(address token, uint256 amount, address to) external;
     function flashAccount(address token, uint256 fee, uint256 protoFee) external;
@@ -204,7 +204,7 @@ interface IPool is IOracle {
     // ── Hook-authorized ledger (VenusHook keeper paths; not user entrypoints) ──
     // Mutex: nonReentrant under Pool DELEGATECALL — blocked during PoolHooks Δbalance booking.
     function hookPull(address token, uint256 amount) external;
-    /// @notice Keeper trim only (transfer tokens to pool first). Hot-path recall = beforeOutflow Δbalance.
+    /// @notice Keeper trim only (transfer tokens to pool first). Hot-path recall = preOutflow Δbalance.
     function hookNotifyRecall(address token, uint256 amount) external;
     function hookCreditYield(address token, uint256 amount) external;
     /// @notice Write-down when Venus NAV < book: cut invested + reserves; haircut L/index (L→0 floors idx).

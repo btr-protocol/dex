@@ -3,13 +3,13 @@ pragma solidity =0.8.35;
 
 /// @title IPoolHooks — lean per-asset hooks (void; side-effects only).
 /// @notice Venus surface: unified pre-outflow recall + optional postDeposit deploy.
-///         Flags: `HOOK_BEFORE_OUTFLOW`, `HOOK_POST_DEPOSIT` in Constants.
+///         Flags: `HOOK_PRE_OUTFLOW`, `HOOK_POST_DEPOSIT` in Constants.
 ///         Pool dispatches only when `HookSlot.target != 0` and the matching flag is set.
-///         Deploy never runs in beforeOutflow (postDeposit and/or keeper-only).
+///         Deploy never runs in preOutflow (postDeposit and/or keeper-only).
 interface IPoolHooks {
     /// @notice Recall invested → liquid when R_liq < amountNeeded (swap-out / withdraw / flash).
     /// @dev Fail-closed at Pool if still short after this CALL. 0 CALL when R_liq covers need.
-    function beforeOutflow(address pool, address sender, address token, uint256 amountNeeded) external;
+    function preOutflow(address pool, address sender, address token, uint256 amountNeeded) external;
 
     /// @notice Optional deploy after deposit (pool pre-approves liquid book; books via Δbalance).
     function postDeposit(address pool, address sender, address token, uint256 amountIn, uint256 lpMinted)

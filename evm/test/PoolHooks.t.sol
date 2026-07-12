@@ -21,19 +21,19 @@ import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 
-/// @notice Counts callback invocations; optional hard revert on beforeOutflow.
+/// @notice Counts callback invocations; optional hard revert on preOutflow.
 contract CountingHook is BasePoolHook {
-    uint256 public beforeOutflowCalls;
+    uint256 public preOutflowCalls;
     uint256 public postDepositCalls;
-    bool public revertBeforeOutflow;
+    bool public revertPreOutflow;
 
-    function setRevertBeforeOutflow(bool v) external {
-        revertBeforeOutflow = v;
+    function setRevertPreOutflow(bool v) external {
+        revertPreOutflow = v;
     }
 
-    function beforeOutflow(address, address, address, uint256) external override {
-        ++beforeOutflowCalls;
-        if (revertBeforeOutflow) revert("beforeOutflow boom");
+    function preOutflow(address, address, address, uint256) external override {
+        ++preOutflowCalls;
+        if (revertPreOutflow) revert("preOutflow boom");
     }
 
     function postDeposit(address, address, address, uint256, uint256) external override {
@@ -52,7 +52,7 @@ contract RecallHook is BasePoolHook {
         token = token_;
     }
 
-    function beforeOutflow(address pool, address, address token_, uint256 amountNeeded) external override {
+    function preOutflow(address pool, address, address token_, uint256 amountNeeded) external override {
         if (token_ != token) return;
         uint256 liq = IPool(pool).getLiquidReserves(token);
         if (liq >= amountNeeded) return;
@@ -135,7 +135,7 @@ contract DoubleBookRecallHook is BasePoolHook {
         token = token_;
     }
 
-    function beforeOutflow(address pool, address, address token_, uint256 amountNeeded) external override {
+    function preOutflow(address pool, address, address token_, uint256 amountNeeded) external override {
         if (token_ != token) return;
         uint256 liq = IPool(pool).getLiquidReserves(token);
         if (liq >= amountNeeded) return;
@@ -300,13 +300,13 @@ contract PoolHooksTest is Test {
     function test_hook_eoa_rejected() public {
         vm.prank(OWNER);
         vm.expectRevert(Err.NotCode.selector);
-        admin.requestSetAssetHook(address(pool), address(quote), address(0xE0A), C.HOOK_BEFORE_OUTFLOW);
+        admin.requestSetAssetHook(address(pool), address(quote), address(0xE0A), C.HOOK_PRE_OUTFLOW);
     }
 
     /// @notice Flag off → no callback even when hook is set.
     function test_flag_skip_no_call() public {
         CountingHook hook = new CountingHook();
-        // Only POST_DEPOSIT — BEFORE_OUTFLOW off.
+        // Only POST_DEPOSIT — PRE_OUTFLOW off.
         _setHook(address(quote), address(hook), C.HOOK_POST_DEPOSIT);
 
         uint256 amt = 100e18;
@@ -316,13 +316,13 @@ contract PoolHooksTest is Test {
         vm.prank(USER);
         pool.swap(address(base), address(quote), amt, 0, USER);
 
-        assertEq(hook.beforeOutflowCalls(), 0, "beforeOutflow skipped");
+        assertEq(hook.preOutflowCalls(), 0, "preOutflow skipped");
     }
 
-    /// @notice beforeOutflow recall books invested down; reserves (R) unchanged across recall.
-    function test_beforeOutflow_recall_updates_invested() public {
+    /// @notice preOutflow recall books invested down; reserves (R) unchanged across recall.
+    function test_preOutflow_recall_updates_invested() public {
         RecallHook hook = new RecallHook(address(quote));
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
 
         // Simulate R_inv: leave only a tiny liquid buffer so swap must recall.
         uint256 reserves = pool.getAsset(address(quote)).reserves;
@@ -357,7 +357,7 @@ contract PoolHooksTest is Test {
     ///         (hookNotifyRecall) still works — an emergency halt must never strand invested capital.
     function test_halt_blocks_deploy_allows_recall() public {
         RecallHook hook = new RecallHook(address(quote));
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
 
         uint256 reserves = pool.getAsset(address(quote)).reserves;
         uint256 keep = 1e18;
@@ -389,7 +389,7 @@ contract PoolHooksTest is Test {
     /// @notice Fail-closed when shortfall and hook cannot cover.
     function test_fail_closed_shortfall() public {
         CountingHook hook = new CountingHook();
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
 
         uint256 reserves = pool.getAsset(address(quote)).reserves;
         uint256 keep = 1e18;
@@ -400,7 +400,7 @@ contract PoolHooksTest is Test {
         deal(address(quote), address(pool), keep + inv);
         vm.prank(address(hook));
         IPool(address(pool)).hookPull(address(quote), inv);
-        // Hook does not transfer anything back on beforeOutflow (CountingHook).
+        // Hook does not transfer anything back on preOutflow (CountingHook).
         uint256 amt = 100e18;
         base.mint(USER, amt);
         vm.prank(USER);
@@ -459,7 +459,7 @@ contract PoolHooksTest is Test {
 
     function test_clearAssetHook_requires_zero_invested() public {
         RecallHook hook = new RecallHook(address(quote));
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
         uint256 inv = 100e18;
         deal(address(quote), address(pool), IPool(address(pool)).getLiquidReserves(address(quote)) + inv);
         vm.prank(address(hook));
@@ -490,12 +490,12 @@ contract PoolHooksTest is Test {
         address attacker = address(0xBAD);
         vm.prank(attacker);
         vm.expectRevert(YieldHook.OnlyPool.selector);
-        hook.beforeOutflow(attacker, attacker, address(quote), 1e18);
+        hook.preOutflow(attacker, attacker, address(quote), 1e18);
 
         // Spoofed "pool" arg is ignored; msg.sender must be immutable pool.
         vm.prank(attacker);
         vm.expectRevert(YieldHook.OnlyPool.selector);
-        hook.beforeOutflow(address(pool), attacker, address(quote), 1e18);
+        hook.preOutflow(address(pool), attacker, address(quote), 1e18);
     }
 
     /// @notice Write-down when Venus NAV < book: invested + reserves + liabilities cut; R_liq unchanged.
@@ -564,7 +564,7 @@ contract PoolHooksTest is Test {
         _setMinLiquidity(address(quote), minLiq);
 
         DrainAllHook hook = new DrainAllHook(address(quote));
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW | C.HOOK_POST_DEPOSIT);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW | C.HOOK_POST_DEPOSIT);
 
         quote.mint(address(this), 50_000e18);
         // transferFrom(liq) fails: allowance = liq - minLiquidity only.
@@ -575,10 +575,10 @@ contract PoolHooksTest is Test {
         assertGe(IPool(address(pool)).getLiquidReserves(address(quote)), minLiq, "floor held");
     }
 
-    /// @notice flags=0 (or drop BEFORE_OUTFLOW) blocked while invested > 0.
+    /// @notice flags=0 (or drop PRE_OUTFLOW) blocked while invested > 0.
     function test_flags_zero_blocked_when_invested() public {
         RecallHook hook = new RecallHook(address(quote));
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW | C.HOOK_POST_DEPOSIT);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW | C.HOOK_POST_DEPOSIT);
 
         uint256 inv = 50e18;
         deal(address(quote), address(pool), IPool(address(pool)).getLiquidReserves(address(quote)) + inv);
@@ -590,7 +590,7 @@ contract PoolHooksTest is Test {
         vm.expectRevert(Err.InvalidState.selector);
         IPool(address(pool)).adminSetAssetHook(address(quote), address(hook), 0);
 
-        // Drop BEFORE_OUTFLOW only (POST_DEPOSIT alone).
+        // Drop PRE_OUTFLOW only (POST_DEPOSIT alone).
         vm.prank(address(admin));
         vm.expectRevert(Err.InvalidState.selector);
         IPool(address(pool)).adminSetAssetHook(address(quote), address(hook), C.HOOK_POST_DEPOSIT);
@@ -607,7 +607,7 @@ contract PoolHooksTest is Test {
         _setMinLiquidity(address(quote), minLiq);
 
         RecallHook hook = new RecallHook(address(quote));
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
 
         uint256 reserves = pool.getAsset(address(quote)).reserves;
         // Leave liquid just below amount+minLiq so flash must recall.
@@ -639,11 +639,11 @@ contract PoolHooksTest is Test {
     // ── HIGH re-review MUST coverage ───────────────────────────────────────
 
     /// @notice POST_DEPOSIT-only cannot create invested (hookPull + postDeposit delta).
-    function test_beforeOutflow_required_to_increase_invested() public {
+    function test_preOutflow_required_to_increase_invested() public {
         DeployHook hook = new DeployHook(address(quote), 50e18);
         _setHook(address(quote), address(hook), C.HOOK_POST_DEPOSIT);
 
-        // hookPull blocked without BEFORE_OUTFLOW.
+        // hookPull blocked without PRE_OUTFLOW.
         vm.prank(address(hook));
         vm.expectRevert(Err.InvalidState.selector);
         IPool(address(pool)).hookPull(address(quote), 1e18);
@@ -655,8 +655,8 @@ contract PoolHooksTest is Test {
 
         assertEq(IPool(address(pool)).getInvested(address(quote)), 0);
 
-        // Same hook with BEFORE_OUTFLOW can invest.
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW | C.HOOK_POST_DEPOSIT);
+        // Same hook with PRE_OUTFLOW can invest.
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW | C.HOOK_POST_DEPOSIT);
         quote.mint(address(this), 100e18);
         pool.deposit(address(quote), 100e18);
         assertEq(IPool(address(pool)).getInvested(address(quote)), 50e18);
@@ -668,7 +668,7 @@ contract PoolHooksTest is Test {
         _setMinLiquidity(address(quote), minLiq);
 
         RecallHook hook = new RecallHook(address(quote));
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
 
         uint256 reserves = pool.getAsset(address(quote)).reserves;
         // Leave liquid == minLiq only → withdraw of W requires recall of W + minLiq - keep = W.
@@ -818,7 +818,7 @@ contract PoolHooksTest is Test {
     /// @notice postDeposit cannot hookPull after Δbalance transfer (shared Solady guard).
     function test_postDeposit_hookPull_reverts_reentrancy() public {
         DoubleBookDeployHook hook = new DoubleBookDeployHook(address(quote), 50e18);
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW | C.HOOK_POST_DEPOSIT);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW | C.HOOK_POST_DEPOSIT);
 
         quote.mint(address(this), 100e18);
         vm.expectRevert(ReentrancyGuardTransient.Reentrancy.selector);
@@ -827,10 +827,10 @@ contract PoolHooksTest is Test {
         assertEq(IPool(address(pool)).getInvested(address(quote)), 0, "no double-book");
     }
 
-    /// @notice beforeOutflow cannot hookNotifyRecall after transfer (Δbalance is sole booker).
-    function test_beforeOutflow_hookNotifyRecall_reverts_reentrancy() public {
+    /// @notice preOutflow cannot hookNotifyRecall after transfer (Δbalance is sole booker).
+    function test_preOutflow_hookNotifyRecall_reverts_reentrancy() public {
         DoubleBookRecallHook hook = new DoubleBookRecallHook(address(quote));
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
 
         uint256 inv = 50e18;
         deal(address(quote), address(hook), inv);
@@ -858,7 +858,7 @@ contract PoolHooksTest is Test {
         oracle.setMark(address(base), M.encodeB64(1e18, 18));
         oracle.setMark(address(quote), M.encodeB64(1e18, 18));
 
-        // Re-invest liquid above keep so withdraw must call beforeOutflow.
+        // Re-invest liquid above keep so withdraw must call preOutflow.
         uint256 liqNow = IPool(address(pool)).getLiquidReserves(address(quote));
         if (liqNow > keep) {
             uint256 extra = liqNow - keep;
@@ -879,7 +879,7 @@ contract PoolHooksTest is Test {
     /// @notice postDeposit cannot hookCreditYield (phantom R / R_inv).
     function test_postDeposit_hookCreditYield_reverts_reentrancy() public {
         PhantomYieldHook hook = new PhantomYieldHook(address(quote));
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW | C.HOOK_POST_DEPOSIT);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW | C.HOOK_POST_DEPOSIT);
 
         quote.mint(address(this), 100e18);
         vm.expectRevert(ReentrancyGuardTransient.Reentrancy.selector);
@@ -889,7 +889,7 @@ contract PoolHooksTest is Test {
     /// @notice hookNotifyRecall without prior transfer fails balance proof (keeper trim only).
     function test_hookNotifyRecall_requires_balance_proof() public {
         CountingHook hook = new CountingHook();
-        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+        _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
 
         uint256 inv = 20e18;
         // Pull from existing liquid book (no surplus deal — bal must track R_liq + fees).

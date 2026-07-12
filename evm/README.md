@@ -13,7 +13,7 @@ Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under
 - **Piecewise bonding curve** — Adaptive liquidity distribution with volatility-based breadth.
 - **Protocol fees** — Configurable split between LPs and treasury.
 - **Risk + admin controls** — Per-pool freezes, circuit breakers, fee curation via the per-chain `Admin` singleton.
-- **Per-asset hooks (dual ledger)** — Optional `IPoolHooks` (`beforeOutflow`, `postDeposit`) for physical rehypothecation; `YieldHook` family (`CompoundV2`/`VenusHook`, Aave V3, **experimental** Aave V4 Spoke (no mainnet pin), ERC4626/Morpho Vault/Felix Vanilla, Morpho Blue, Euler V2). Incentives sweep to treasury (no in-hook swaps). Harvest credits capped by `maxHarvestCreditBps` (default 100). Morpho Blue NAV = virtual shares only (no IRM accrual in view). Pricing uses full economic reserves; executable cash is liquid reserves (`reserves − invested`).
+- **Per-asset hooks (dual ledger)** — Optional `IPoolHooks` (`preOutflow`, `postDeposit`) for physical rehypothecation; `YieldHook` family (`CompoundV2`/`VenusHook`, Aave V3, **experimental** Aave V4 Spoke (no mainnet pin), ERC4626/Morpho Vault/Felix Vanilla, Morpho Blue, Euler V2). Incentives sweep to treasury (no in-hook swaps). Harvest credits capped by `maxHarvestCreditBps` (default 100). Morpho Blue NAV = virtual shares only (no IRM accrual in view). Pricing uses full economic reserves; executable cash is liquid reserves (`reserves − invested`).
 
 ## Off-chain reads (no storage getters)
 
@@ -103,7 +103,7 @@ slither . --filter-paths 'test|.deps'
 
 ## Security
 
-- Reentrancy: Solady `ReentrancyGuardTransient` (Pool hot paths + PoolAux hook ledger writers share the guard under DELEGATECALL; blocks double-book during `postDeposit` / `beforeOutflow` Δbalance booking).
+- Reentrancy: Solady `ReentrancyGuardTransient` (Pool hot paths + PoolAux hook ledger writers share the guard under DELEGATECALL; blocks double-book during `postDeposit` / `preOutflow` Δbalance booking).
 - Safe transfers: Solady `SafeTransferLib`.
 - Overflow protection: Solidity 0.8 checked arithmetic + explicit range checks/casts.
 - Access control: role-based via shared `AccessControl`.

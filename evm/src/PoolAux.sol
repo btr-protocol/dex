@@ -195,7 +195,7 @@ contract PoolAux is ReentrancyGuardTransient {
     {
         address t = PoolIO.wrap($, token);
         uint256 need = amount + uint256($.assets[t].minLiquidity);
-        PoolHooks.beforeOutflow($, t, initiator, need);
+        PoolHooks.preOutflow($, t, initiator, need);
     }
 
     function flashSend(address token, uint256 amount, address to) external onlyFlash whenInitialized nonReentrant {
@@ -219,7 +219,7 @@ contract PoolAux is ReentrancyGuardTransient {
         // (hookNotifyRecall) and loss-booking (hookWriteDown) stay open so funds can always exit.
         if (($.riskConfigs[t].flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
         // Cannot create/increase invested without a recall path.
-        if ((h.flags & C.HOOK_BEFORE_OUTFLOW) == 0) revert Err.InvalidState();
+        if ((h.flags & C.HOOK_PRE_OUTFLOW) == 0) revert Err.InvalidState();
         if (amount == 0) revert Err.ZeroValue();
         uint256 liq = PoolHooks.liquidReserves($, t);
         uint256 minLiq = $.assets[t].minLiquidity;
@@ -231,7 +231,7 @@ contract PoolAux is ReentrancyGuardTransient {
     }
 
     /// @notice Keeper trim only: book recall after tokens already sit on the pool.
-    /// @dev Hot-path recall uses beforeOutflow Δbalance. Balance proof: ERC20 bal ≥
+    /// @dev Hot-path recall uses preOutflow Δbalance. Balance proof: ERC20 bal ≥
     ///      R_liq + protocolFees + amount (transfer-before-notify; fees are escrowed in the same
     ///      token balance). Mutex blocks callback reentry; stale NAV / harvest SLA is ops.
     function hookNotifyRecall(address token, uint256 amount) external nonReentrant {
@@ -254,7 +254,7 @@ contract PoolAux is ReentrancyGuardTransient {
         address t = PoolIO.wrap($, token);
         IPool.HookSlot memory h = $.assetHooks[t];
         if (msg.sender != h.target) revert Err.NotOwner();
-        if ((h.flags & C.HOOK_BEFORE_OUTFLOW) == 0) revert Err.InvalidState();
+        if ((h.flags & C.HOOK_PRE_OUTFLOW) == 0) revert Err.InvalidState();
         if (amount == 0) return;
         if (amount > type(uint128).max) revert Err.ExcessiveAmount(amount, type(uint128).max);
         IPool.Asset storage a = $.assets[t];

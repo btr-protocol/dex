@@ -248,7 +248,7 @@ library PoolAdminWrite {
 
     /// @notice Install/replace per-asset hook. `hook == address(0)` clears (same as clearAssetHook).
     /// @dev Requires invested == 0 when changing target away from the current hook (no stranded R_inv).
-    ///      With invested != 0: cannot soft-clear (flags=0) or drop HOOK_BEFORE_OUTFLOW.
+    ///      With invested != 0: cannot soft-clear (flags=0) or drop HOOK_PRE_OUTFLOW.
     ///      Unknown flag bits rejected.
     function setAssetHook(IPool.PoolStorage storage $, address token, address hook, uint32 flags) external {
         address t = PoolIO.wrap($, token);
@@ -262,8 +262,8 @@ library PoolAdminWrite {
             delete $.assetHooks[t];
             return;
         }
-        // Invested capital needs a recall path: BEFORE_OUTFLOW must stay on.
-        if (inv != 0 && (flags & C.HOOK_BEFORE_OUTFLOW) == 0) revert Err.InvalidState();
+        // Invested capital needs a recall path: PRE_OUTFLOW must stay on.
+        if (inv != 0 && (flags & C.HOOK_PRE_OUTFLOW) == 0) revert Err.InvalidState();
         $.assetHooks[t] = IPool.HookSlot({target: hook, flags: flags});
     }
 

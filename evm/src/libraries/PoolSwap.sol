@@ -40,7 +40,7 @@ library PoolSwap {
         out = q.amountOut;
         // Hard recall on tokenOut only when R_liq shortfall (0 CALL if buffer OK).
         uint256 need = out + q.protoFee + aOut.minLiquidity;
-        PoolHooks.beforeOutflow($, tk[1], msg.sender, need);
+        PoolHooks.preOutflow($, tk[1], msg.sender, need);
 
         PoolIO.exec($, tk[0], tk[1], actualIn, q, aIn, aOut);
 
