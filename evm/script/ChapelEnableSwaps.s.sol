@@ -122,9 +122,10 @@ contract ChapelEnableSwaps is Script {
             // Base numeraire forbids κ wall (PoolAdminWrite); spokes use stable κ=100.
             IPool.RiskConfig memory rc = (tok == tokens[0]) ? rcBase : rcSpoke;
             admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, minDisp, maxDisp, GAMMA, VEGA);
-            // initAsset defaults maxFeeBps=BPS; clamp to SSoT (stable 2000 / volatile 10000).
+            // initAsset defaults maxFeeBps=BPS; clamp to SSoT. κ-walled spokes require haircut=0.
             uint16 maxFee = stable ? 2_000 : 10_000;
-            admin.setAssetParams(poolAddr, tok, 0, minFee, maxFee, GAMMA, VEGA, 10_000, 0, 0);
+            uint16 haircut = (rc.kappaCovBps > 0) ? 0 : 10_000;
+            admin.setAssetParams(poolAddr, tok, 0, minFee, maxFee, GAMMA, VEGA, haircut, 0, 0);
             admin.setRiskFences(poolAddr, tok, _fences(tok, stable));
         }
 
