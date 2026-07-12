@@ -1,5 +1,10 @@
 # BSC Stable-Core — Launch Parameters (empirical, 2026-07-08)
 
+> **Live SSoT (2026-07-12):** keeper θ stables = **0.25 bp** / heartbeat **1800 s**;
+> volatiles θ = **5 bp** / heartbeat **300 s** — see `keepers/oracle.chapel.toml` and
+> `dex/research/oracle-price-discovery/results/LAUNCH_PARAMS.md`. Numbers below are the
+> 2026-07-08 tape study (historical).
+
 Source: 6mo BSC HyperSync tape (3.24M swaps, 6 active pools) → microstructure → push economics → capture
 simulation through the REAL quote law (`front/src/lib/amm/aimm.ts`). All numbers trace to `out/*.json`.
 Run locally (Mac), nothing on the cluster. Window = 182.7 days (2026-01-06 → 2026-07-08).

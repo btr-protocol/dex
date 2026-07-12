@@ -39,7 +39,7 @@
 ### Push triggers (single daemon)
 One `btr-keeper oracle-daemon` per cluster instance. Per feed, push when:
 - cold-start (no prior on-chain mark), **or**
-- `|m − p_last| / p_last > θ` (±0.1 bp stables, ±10 bp volatiles), **or**
+- `|m − p_last| / p_last > θ` (±0.25 bp stables, ±5 bp volatiles), **or**
 - `heartbeat_s` elapsed since last on-chain push for that feed.
 
 Heartbeat is the staleness ceiling the daemon enforces — not an independent
@@ -61,9 +61,9 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
   failover on upstream silence, not parallel triple-push.
 
 ## POOLS (BNB testnet, base = USDC for both)
-- **Stable core (FINAL, 5 tokens, 2026-07-08):** USDC(base), USDT, USD1, USDE, FDUSD — **USDS dropped** (no approved NXR mark / negligible BSC flow). All 5 are priced from **NXR** marks pushed by the keeper to `ExternalOracle`. θ stables = **0.1 bp** (accepted vs 0.3 for tighter quotes; ~2× stable pushes). SSoT: `dex/evm/deploy/testnet-asset-params.json` + `keepers/oracle.chapel.toml`.
+- **Stable core (FINAL, 5 tokens, 2026-07-08):** USDC(base), USDT, USD1, USDE, FDUSD — **USDS dropped** (no approved NXR mark / negligible BSC flow). All 5 are priced from **NXR** marks pushed by the keeper to `ExternalOracle`. θ stables = **0.25 bp** (2026-07-12: 0.1 was ~118/h NXR jitter). SSoT: `dex/evm/deploy/testnet-asset-params.json` + `keepers/oracle.chapel.toml`.
 - **Volatile core:** USDC(base), USDT, BTCB(=BTC), ETH, WBNB(=BNB), CAKE, XAUT(gold, fallback PAXG).
-  (CAKE = PancakeSwap native, top BNB liquidity; XAUT = tokenized gold. Verify final liquidity list.)
+  θ=**5 bp**, heartbeat=**300 s** (ttl/2). (CAKE = PancakeSwap native; XAUT = tokenized gold.)
 - Testnet = MOCK ERC20s mirroring real symbols/decimals; oracle pushes REAL NX prices for them.
 
 ## PHASES + TO-DO (checkbox = open)
@@ -81,7 +81,7 @@ watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
 - [ ] **Lean/clean sweep** (ponytail): dead code zero-tolerance, consolidate, gas pass (SLOAD/SSTORE/
       calldata), storage packing, comment trim. style-reviewer + /simplify.
 - [x] **Keeper (btr-keeper):** pushFeed/batchPush use NXR priceB64, sigma and confidence;
-      deviation-trigger (|Δ|>θ: ±0.3bp stable, ±10bp volatile) + heartbeat push loop.
+      deviation-trigger (|Δ|>θ: ±0.25bp stable, ±5bp volatile) + heartbeat push loop.
 - [ ] **NX Rates:** confirm it emits per-asset {mid→b64, Parkinson σ, 1σ CI (ci), MITCH ticker id};
       wire the BNB-testnet asset set (mocks map to real NX symbols; wrappers→underlying ticker).
 - [ ] **Docs sync** (owner flagged lag): FeedData spec, spread model (drop U/Δ, add confidence), oracle/
@@ -170,3 +170,5 @@ halt bits (d142d8c) · refFeed no-staleness-gate (3c551e1) · conf=0 EMA freeze 
 - 2026-07-10: 7-day NXR 30s cadence replay rejected θ=0.1bp stable (+29% batched transactions);
   retained θ=0.3bp stable and moved volatile θ from 5bp to 10bp. Trade-driven bounded
   mean-reverting fair-value offset failed the LP/LVR and self-roundtrip falsification tests.
+- 2026-07-12: Live Chapel cadence review — stable θ=0.1 was ~118/h on sub-bp NXR jitter → **θ=0.25 bp**;
+  volatile θ=10 → **5 bp**, heartbeat kept **300 s** (ttl/2). SSoT: `oracle.chapel.toml` + `testnet-asset-params.json`.
