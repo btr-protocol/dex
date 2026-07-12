@@ -10,6 +10,7 @@ import {Flash} from "../src/Flash.sol";
 import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
+import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {TestnetERC20} from "../src/testnet/TestnetERC20.sol";
@@ -17,7 +18,11 @@ import {TestnetERC20} from "../src/testnet/TestnetERC20.sol";
 /// @title ChapelEnableSwaps — surgical Chapel reseed: new Admin+pools, reuse tokens/oracle/faucet.
 /// @notice Live Admin predates shared `govDelay` (1d LOW). Pool.admin is immutable ⇒ no in-place
 ///         risk-flag flip. Redeploy Admin/Flash/PoolAux/Pool/Factory, list assets with
-///         SWAP|LIABILITY_SWAP already set, seed liquidity. Keeps AC + ExternalOracle + mocks + faucet.
+///         SWAP|LIABILITY_SWAP already set, seed liquidity + Steward-lite fences. Keeps AC +
+///         ExternalOracle + mocks + faucet.
+/// @dev AC is NOT upgradeable. Incumbent Chapel AC lacks `isGuardian`/`isRiskSteward`; owner
+///      short-circuits those checks so owner ops still work. Granting guardian/steward requires a
+///      fresh AccessControl (full periphery redeploy) — fences themselves live on Admin.
 /// @dev Run:
 ///   forge script script/ChapelEnableSwaps.s.sol:ChapelEnableSwaps --sig run \
 ///     --rpc-url chapel --broadcast --with-gas-price 100000000
@@ -112,12 +117,33 @@ contract ChapelEnableSwaps is Script {
             IPool.OracleConfig memory oc = _oracleCfg(tok, tokens[0], refBand);
             IPool.LiquidityProfile memory pfTok = stable ? _stableProfile() : pf;
             admin.addAsset(poolAddr, tok, oc, rc, pfTok, minFee, 18, minDisp, maxDisp, 10_000, 10_000);
+            admin.setRiskFences(poolAddr, tok, _fences(tok, stable));
         }
 
         admin.setBaseTokenOracle(poolAddr, ORACLE, USDC_FEED);
         admin.sealBootstrap(poolAddr);
 
         _seedPool(Pool(payable(poolAddr)), tokens, seedUsdc);
+    }
+
+    /// @dev Steward-lite fences at list time so `setAssetParamsBounded` is usable post-seed.
+    function _fences(address tok, bool stable) internal pure returns (IAdmin.RiskFences memory f) {
+        f.maxDeltaBps = 2_500;
+        f.haircutHardMax = 10_000;
+        f.gammaHardMin = 5_000;
+        f.gammaHardMax = 40_000;
+        f.vegaHardMin = 5_000;
+        if (stable || tok == USDC || tok == USDT) {
+            f.minFeeHardMin = tok == FDUSD ? 50 : 25;
+            f.minFeeHardMax = 2_000;
+            f.maxFeeHardMax = 10_000;
+            f.vegaHardMax = 20_000;
+        } else {
+            f.minFeeHardMin = 100;
+            f.minFeeHardMax = 20_000;
+            f.maxFeeHardMax = 50_000;
+            f.vegaHardMax = 30_000;
+        }
     }
 
     function _risk() internal pure returns (IPool.RiskConfig memory r) {
