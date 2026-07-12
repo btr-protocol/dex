@@ -19,11 +19,11 @@
     "stable-core": {
       "base": "USDC",
       "classDefaults": {
-        "minFeeBps": 10,
+        "minFeeBps": 50,
         "maxFeeBps": 2000,
         "minDispersion": 500,
         "maxDispersion": 5000,
-        "gamma": 10000,
+        "gamma": 20000,
         "vega": 10000,
         "oracleMode": "EXTERNAL",
         "refBandBps": 100,
@@ -31,16 +31,16 @@
         "heartbeatS": 1800,
         "ttlS": 7200
       },
-      "_paramNote": "Competitiveness: minFee 0.1bp + θ 0.25bp (was 0.1 → ~118/h NXR jitter) + tight per-asset dispersion (1–6bp bands from observed peg ranges) + 4-knot center-bump profile. Absolute peg discounts (e.g. FDUSD ~0.997) live in the NXR mark; dispersion is WIDTH around mark only.",
+      "_paramNote": "2026-07-12 postmortem: minFee 0.1bp + center-bump + kappaCov=0 let bots drain FDUSD→USDC and dump BTCB into volatile. New floors: stable minFee 0.5bp (50 PBPS), gamma 2× inventory skew, flatter profile. FDUSD minFee 1bp. θ stays 0.25bp (mark cadence ≠ fee floor).",
       "assets": {
-        "USDC":  { "minFeeBps": 10, "minDispersion": 100,  "maxDispersion": 2000,  "refBandBps": 0 },
-        "USDT":  { "minFeeBps": 10, "minDispersion": 600,  "maxDispersion": 6000,  "refBandBps": 100, "refFeedId": "USDC" },
-        "USD1":  { "minFeeBps": 10, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 0 },
-        "USDE":  { "minFeeBps": 15, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 0 },
-        "FDUSD": { "minFeeBps": 15, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 0 },
-        "USDG":  { "minFeeBps": 10, "minDispersion": 200,  "maxDispersion": 2000,  "refBandBps": 0 }
+        "USDC":  { "minFeeBps": 50, "minDispersion": 200,  "maxDispersion": 2000,  "refBandBps": 0 },
+        "USDT":  { "minFeeBps": 50, "minDispersion": 600,  "maxDispersion": 6000,  "refBandBps": 100, "refFeedId": "USDC" },
+        "USD1":  { "minFeeBps": 50, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 0 },
+        "USDE":  { "minFeeBps": 75, "minDispersion": 800,  "maxDispersion": 5000,  "refBandBps": 0 },
+        "FDUSD": { "minFeeBps": 100, "minDispersion": 1000, "maxDispersion": 8000,  "refBandBps": 0 },
+        "USDG":  { "minFeeBps": 50, "minDispersion": 200,  "maxDispersion": 2000,  "refBandBps": 0 }
       },
-      "_perAssetNote": "minDispersion = observed tight trading-band WIDTH in PBPS (100 PBPS=1bp), mark-relative — absolute discount vs $1 is carried by the NXR mark, not the spline. USDC 1bp (0.9997–0.9998), USDG 2bp (0.9999–1.0001), USDT 6bp (0.9993–0.9999), USD1/USDe/FDUSD 5bp. Shape: 4-knot center bump (min for a peak) sharedLiquidityProfile — 75% depth in center 24% of band (~3.1× vs flat). USDG listed for add when feed+token live.",
+      "_perAssetNote": "minDispersion = observed tight trading-band WIDTH in PBPS (100 PBPS=1bp), mark-relative. FDUSD raised (peg ~0.997 + prior drain). Shape: 4-knot mild center bump — 50% depth in center 24% of band (~2× vs flat, was 3.1×).",
       "depositCapScheduleUsd": {
         "_comment": "Testnet growth schedule $50K->$1M. Per-asset split = observed 3mo stable-stable volume weights (base USDC 35%, USDT 26%, USD1 27%, FDUSD 8.5%, USDe 3.5%). USDe kept tiny (near-0 BSC flow + depeg risk). Raise the active tier via setAssetParams as TVL fills; win-share by count (~23%) is TVL-invariant, volume-share and abs fees scale up ($8k/yr@50K -> $111k/yr@1M).",
         "50000":   { "USDC": 17500, "USDT": 13000, "USD1": 13500, "FDUSD": 4300, "USDE": 1750 },
@@ -69,7 +69,7 @@
         "maxFeeBps": 10000,
         "minDispersion": 50000,
         "maxDispersion": 500000,
-        "gamma": 10000,
+        "gamma": 20000,
         "vega": 10000,
         "oracleMode": "EXTERNAL",
         "refBandBps": 0,
@@ -77,15 +77,15 @@
         "heartbeatS": 300,
         "ttlS": 600
       },
-      "_paramNote": "Fee charged = pathSpread/2 (Pricing.sol). Mean arb gate (not worst-case 2θ): center_error_mean ≤ minFee/2. 2026-07-12 cadence: θ=5 + heartbeat=300 (ttl/2); minFee stays 10bp.",
+      "_paramNote": "Fee charged = pathSpread/2 (Pricing.sol). Mean arb gate: center_error_mean ≤ minFee/2. θ=5 + heartbeat=300; minFee 10bp. gamma 2× after 2026-07-12 BTCB dump (inventory skew was too soft).",
       "assets": {
-        "USDC": { "minFeeBps": 1000 },
-        "USDT": { "minFeeBps": 1000, "refBandBps": 100, "refFeedId": "USDC" },
-        "BTCB": { "minFeeBps": 1000 },
-        "ETH": { "minFeeBps": 1000 },
-        "WBNB": { "minFeeBps": 1000 },
-        "CAKE": { "minFeeBps": 1000 },
-        "XAUT": { "minFeeBps": 1000, "refBandBps": 0 }
+        "USDC": { "minFeeBps": 1000, "gamma": 20000 },
+        "USDT": { "minFeeBps": 1000, "gamma": 20000, "refBandBps": 100, "refFeedId": "USDC" },
+        "BTCB": { "minFeeBps": 1000, "gamma": 20000 },
+        "ETH": { "minFeeBps": 1000, "gamma": 20000 },
+        "WBNB": { "minFeeBps": 1000, "gamma": 20000 },
+        "CAKE": { "minFeeBps": 1000, "gamma": 20000 },
+        "XAUT": { "minFeeBps": 1000, "gamma": 20000, "refBandBps": 0 }
       }
     }
   },
@@ -94,16 +94,17 @@
     "coverageMin": 5000,
     "coverageMax": 20000,
     "depthAmplifier": 10000,
-    "kappaCovBps": 0
+    "kappaCovBps": 0,
+    "_kappaNote": "kappaCov>0 needs depthAmplifier=0 (enforced). Leave 0 until a dedicated coverage-wall pass; rely on gamma + higher minFee for now."
   },
   "sharedLiquidityProfile": {
-    "_comment": "Min knots for a center bump: 4 knots / 3 segments. Outer ±50% of dispersion (= full band width). Center segment ±12% of band gets 75% of depth (~3.1× denser than flat).",
-    "weights": [25, 150, 25],
+    "_comment": "Milder center bump post 2026-07-12: knots ±50 / ±12; weights [50,100,50] ≈ 50% depth in center 24% (~2× vs flat; was [25,150,25] ≈3.1×).",
+    "weights": [50, 100, 50],
     "knots": [-50, -12, 12, 50]
   },
   "feeFloorsHuman": {
     "protocolMinBp": 0.01,
     "protocolMinPercent": 0.0001,
-    "note": "Launch: stable ~0.1bp (10 PBPS) with θ=0.25; volatile 10bp (1000 PBPS) with θ=5 + heartbeat 300s. Fee charged is half path spread, so mean arb gate is center_error ≤ minFee/2."
+    "note": "Launch revision 2026-07-12: stable ~0.5bp (50 PBPS; FDUSD 1bp) with θ=0.25; volatile 10bp with θ=5 + heartbeat 300s. Fee charged is half path spread."
   }
 }

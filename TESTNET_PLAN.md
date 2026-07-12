@@ -172,3 +172,6 @@ halt bits (d142d8c) · refFeed no-staleness-gate (3c551e1) · conf=0 EMA freeze 
   mean-reverting fair-value offset failed the LP/LVR and self-roundtrip falsification tests.
 - 2026-07-12: Live Chapel cadence review — stable θ=0.1 was ~118/h on sub-bp NXR jitter → **θ=0.25 bp**;
   volatile θ=10 → **5 bp**, heartbeat kept **300 s** (ttl/2). SSoT: `oracle.chapel.toml` + `testnet-asset-params.json`.
+- 2026-07-12b: Inventory drain postmortem — FDUSD ~0%, USDC-stable 284%, BTCB R≈1994 / L≈0.778 (real on-chain).
+  Raised stable minFee **0.5 bp** (FDUSD **1 bp**), gamma **2×**, milder profile `[50,100,50]`. Bot mark-sanity
+  + lower max_usd. Reseed via `ChapelEnableSwaps` after pause. See `research/oracle-price-discovery/results/LAUNCH_PARAMS.md`.
