@@ -13,7 +13,7 @@
     "dispersion": "PBPS",
     "coverage": "0.01% units (10000=100%)",
     "reservationPrice": "B64 uint64; 0=disabled",
-    "refBandBps": "symmetric bps (200=±2%)"
+        "refBandBps": "symmetric bps (200=±2%). Active only when refFeedId is set; otherwise MUST be 0 (PoolIO: refBand = refFeedId≠0 && refBandBps≠0)."
   },
   "pools": {
     "stable-core": {
@@ -33,12 +33,12 @@
       },
       "_paramNote": "Competitiveness: minFee 0.1bp + θ 0.1bp + tight per-asset dispersion (1–6bp bands from observed peg ranges) + 4-knot center-bump profile. Absolute peg discounts (e.g. FDUSD ~0.997) live in the NXR mark; dispersion is WIDTH around mark only.",
       "assets": {
-        "USDC":  { "minFeeBps": 10, "minDispersion": 100,  "maxDispersion": 2000,  "refBandBps": 50 },
+        "USDC":  { "minFeeBps": 10, "minDispersion": 100,  "maxDispersion": 2000,  "refBandBps": 0 },
         "USDT":  { "minFeeBps": 10, "minDispersion": 600,  "maxDispersion": 6000,  "refBandBps": 100, "refFeedId": "USDC" },
-        "USD1":  { "minFeeBps": 10, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 150 },
-        "USDE":  { "minFeeBps": 15, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 200 },
-        "FDUSD": { "minFeeBps": 15, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 200 },
-        "USDG":  { "minFeeBps": 10, "minDispersion": 200,  "maxDispersion": 2000,  "refBandBps": 50 }
+        "USD1":  { "minFeeBps": 10, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 0 },
+        "USDE":  { "minFeeBps": 15, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 0 },
+        "FDUSD": { "minFeeBps": 15, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 0 },
+        "USDG":  { "minFeeBps": 10, "minDispersion": 200,  "maxDispersion": 2000,  "refBandBps": 0 }
       },
       "_perAssetNote": "minDispersion = observed tight trading-band WIDTH in PBPS (100 PBPS=1bp), mark-relative — absolute discount vs $1 is carried by the NXR mark, not the spline. USDC 1bp (0.9997–0.9998), USDG 2bp (0.9999–1.0001), USDT 6bp (0.9993–0.9999), USD1/USDe/FDUSD 5bp. Shape: 4-knot center bump (min for a peak) sharedLiquidityProfile — 75% depth in center 24% of band (~3.1× vs flat). USDG listed for add when feed+token live.",
       "depositCapScheduleUsd": {
@@ -85,7 +85,7 @@
         "ETH": { "minFeeBps": 1000 },
         "WBNB": { "minFeeBps": 1000 },
         "CAKE": { "minFeeBps": 1000 },
-        "XAUT": { "minFeeBps": 1000, "refBandBps": 200 }
+        "XAUT": { "minFeeBps": 1000, "refBandBps": 0 }
       }
     }
   },

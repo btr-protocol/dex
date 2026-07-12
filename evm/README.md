@@ -24,7 +24,9 @@ deterministic `PoolStorage` slots via `eth_getStorageAt`.
 | Layer | Responsibility |
 |-------|----------------|
 | **On-chain views** | Only what **other contracts** need (Flash, VenusHook, ALM adapters): `getAsset`, `getRiskFlags`, `getFeeParams`, `getLiquidReserves`, `getInvested`, `getLPBalance`, identity (`baseToken` / `wnative` / …), plus **computational** previews (`getSwapQuote`, `previewWithdraw`). |
-| **Off-chain** | Profile / full `RiskConfig` / `OracleConfig` / derived coverage → SDK `@sdk/pool/storage` (`readLiquidityProfile`, `readRiskConfig`, `readOracleConfig`). |
+| **Off-chain** | Profile / full `RiskConfig` / `OracleConfig` → SDK `@sdk/pool/storage` (`readLiquidityProfile`, `readRiskConfig`, `readOracleConfig`). Native (EIP-7528 / `address(0)`) is remapped to `wnative` before the mapping key. |
+| **Coverage** | Prefer `R/L` from `getAsset` (or ΣR/ΣL off-chain). `getCoverageRatio` is a convenience view — not required for front quoting. |
+| **Protocol fees** | Accrued protocol fees are collected via **Admin / Treasury** (`getProtocolFees` lives on the fee-collector path, not as a Pool storage-mirror getter for the front). |
 
 Layout (pinned by `test/PoolStorageLayout.t.sol`):
 
