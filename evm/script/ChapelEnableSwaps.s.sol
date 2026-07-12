@@ -79,6 +79,7 @@ contract ChapelEnableSwaps is Script {
     }
 
     function _stableList() internal pure returns (address[] memory list) {
+        // SSoT also lists USDG — no Chapel mock token yet; 5 live stables only.
         list = new address[](5);
         list[0] = USDC;
         list[1] = USDT;
@@ -118,6 +119,9 @@ contract ChapelEnableSwaps is Script {
             (uint16 minFee, uint16 refBand, uint32 minDisp, uint32 maxDisp) = _assetParams(tok, stable);
             IPool.OracleConfig memory oc = _oracleCfg(tok, tokens[0], refBand);
             admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, minDisp, maxDisp, GAMMA, VEGA);
+            // initAsset defaults maxFeeBps=BPS; clamp to SSoT (stable 2000 / volatile 10000).
+            uint16 maxFee = stable ? 2_000 : 10_000;
+            admin.setAssetParams(poolAddr, tok, 0, minFee, maxFee, GAMMA, VEGA, 10_000, 0, 0);
             admin.setRiskFences(poolAddr, tok, _fences(tok, stable));
         }
 
@@ -174,7 +178,7 @@ contract ChapelEnableSwaps is Script {
         f.gammaHardMax = 40_000;
         f.vegaHardMin = 5_000;
         if (stable || tok == USDC || tok == USDT) {
-            f.minFeeHardMin = tok == FDUSD ? 50 : 25;
+            f.minFeeHardMin = 50; // SSoT floor 0.5 bp; FDUSD listed at 100
             f.minFeeHardMax = 2_000;
             f.maxFeeHardMax = 10_000;
             f.vegaHardMax = 20_000;
