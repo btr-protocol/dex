@@ -176,7 +176,7 @@ contract ChapelEnableSwaps is Script {
         maxDisp = 500_000;
         refBand = 0;
         if (tok == USDT) refBand = 100;
-        else if (tok == XAUT) refBand = 200;
+        // No refFeedId for XAUT (or other volatiles) → refBandBps must stay 0 (inactive guard).
     }
 
     function _oracleCfg(address asset, address base, uint16 refBandBps)
@@ -186,13 +186,13 @@ contract ChapelEnableSwaps is Script {
     {
         o.primary = ORACLE;
         o.feedId = asset == USDC ? USDC_FEED : keccak256(abi.encodePacked(asset, base));
-        // Only USDT pins USDC as depeg ref (testnet-asset-params); others keep refBand without refFeed.
+        // Only USDT pins USDC as depeg ref (testnet-asset-params). Others: refFeedId=0 and refBandBps=0.
         if (asset == USDT) {
             o.refFeedId = USDC_FEED;
             o.refBandBps = refBandBps;
         } else {
             o.refFeedId = bytes32(0);
-            o.refBandBps = refBandBps;
+            o.refBandBps = 0;
         }
         o.mode = 0;
     }

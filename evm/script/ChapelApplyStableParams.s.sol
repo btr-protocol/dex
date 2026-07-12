@@ -102,13 +102,13 @@ contract ChapelApplyStableParams is Script {
     function _oracle(address tok, uint16 refBand) internal pure returns (IPool.OracleConfig memory o) {
         o.primary = ORACLE;
         o.feedId = tok == USDC ? USDC_FEED : keccak256(abi.encodePacked(tok, USDC));
-        // Only USDT pins a USDC refFeed (testnet-asset-params / user table). Others: refBand stored, no ref.
+        // Only USDT pins a USDC refFeed. Others: no ref → refBandBps = 0 (do not store a dead band).
         if (tok == USDT) {
             o.refFeedId = USDC_FEED;
             o.refBandBps = refBand;
         } else {
             o.refFeedId = bytes32(0);
-            o.refBandBps = refBand; // kept for ops visibility; inactive without refFeedId
+            o.refBandBps = 0;
         }
         o.mode = 0; // EXTERNAL
     }
