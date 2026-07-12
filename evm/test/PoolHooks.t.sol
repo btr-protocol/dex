@@ -12,6 +12,7 @@ import {IPool} from "../src/interfaces/IPool.sol";
 import {IERC3156FlashBorrower} from "../src/interfaces/external/IERC3156FlashBorrower.sol";
 import {BasePoolHook} from "../src/hooks/BasePoolHook.sol";
 import {VenusHook} from "../src/hooks/VenusHook.sol";
+import {YieldHook} from "../src/hooks/YieldHook.sol";
 import {MockVenus} from "../src/hooks/MockVenus.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
@@ -488,12 +489,12 @@ contract PoolHooksTest is Test {
 
         address attacker = address(0xBAD);
         vm.prank(attacker);
-        vm.expectRevert(VenusHook.OnlyPool.selector);
+        vm.expectRevert(YieldHook.OnlyPool.selector);
         hook.beforeOutflow(attacker, attacker, address(quote), 1e18);
 
         // Spoofed "pool" arg is ignored; msg.sender must be immutable pool.
         vm.prank(attacker);
-        vm.expectRevert(VenusHook.OnlyPool.selector);
+        vm.expectRevert(YieldHook.OnlyPool.selector);
         hook.beforeOutflow(address(pool), attacker, address(quote), 1e18);
     }
 
