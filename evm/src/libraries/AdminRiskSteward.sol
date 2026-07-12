@@ -11,25 +11,11 @@ import {AdminTimelock as ATL} from "./AdminTimelock.sol";
 ///         Tighten (more defensive) is exempt from the relative clamp. No per-param matrix,
 ///         no EIP-712 injector, no param-write circuit breaker.
 library AdminRiskSteward {
-    /// @dev Per-(pool,token) fences. `maxDeltaBps` = 2500 ⇒ ±25% on any risk-up field.
-    ///      Zeroed struct ⇒ bounded path disabled (must `setRiskFences` first).
-    struct RiskFences {
-        uint16 minFeeHardMin;
-        uint16 minFeeHardMax;
-        uint16 maxFeeHardMax;
-        uint16 gammaHardMin;
-        uint16 gammaHardMax;
-        uint16 vegaHardMin;
-        uint16 vegaHardMax;
-        uint16 haircutHardMax; // suppressor upper bound (higher = less haircut = riskier)
-        uint16 maxDeltaBps;    // relative clamp for risk-increasing moves only
-    }
-
     function setFences(
-        mapping(address => mapping(address => RiskFences)) storage fences,
+        mapping(address => mapping(address => IAdmin.RiskFences)) storage fences,
         address pool,
         address token,
-        RiskFences calldata f
+        IAdmin.RiskFences calldata f
     ) external {
         if (pool == address(0) || token == address(0)) revert Err.ZeroAddr();
         if (f.maxDeltaBps == 0 || f.maxDeltaBps > 10_000) revert Err.BadConfig();
@@ -43,7 +29,7 @@ library AdminRiskSteward {
 
     /// @dev Validate then forward to the same untimelocked Pool write path as owner setAssetParams.
     function setAssetParamsBounded(
-        mapping(address => mapping(address => RiskFences)) storage fences,
+        mapping(address => mapping(address => IAdmin.RiskFences)) storage fences,
         address pool,
         address token,
         uint128 minLiquidity,
@@ -55,7 +41,7 @@ library AdminRiskSteward {
         uint64 reservationPrice,
         uint64 reservationPriceMax
     ) external {
-        RiskFences memory f = fences[pool][token];
+        IAdmin.RiskFences memory f = fences[pool][token];
         if (f.maxDeltaBps == 0) revert Err.NotConfigured(Err.Resource.ASSET, token);
 
         IPool.Asset memory cur = IPool(pool).getAsset(token);
@@ -92,7 +78,7 @@ library AdminRiskSteward {
     }
 
     function _enforceHard(
-        RiskFences memory f,
+        IAdmin.RiskFences memory f,
         uint16 minFeeBps,
         uint16 maxFeeBps,
         uint16 gamma,
@@ -120,7 +106,7 @@ library AdminRiskSteward {
         pure
         returns (bool)
     {
-        if (oldLo == 0 && oldHi == 0) return false; // enabling/disabling left to hard fences / owner
+        if (oldLo == 0 && oldHi == 0) return false;
         if (newLo == 0 && newHi == 0) return false;
         if (oldLo != 0 && newLo != 0 && newLo < oldLo) return true;
         if (oldHi != 0 && newHi != 0 && newHi > oldHi) return true;
