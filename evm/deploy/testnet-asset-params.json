@@ -13,7 +13,10 @@
     "dispersion": "PBPS",
     "coverage": "0.01% units (10000=100%)",
     "reservationPrice": "B64 uint64; 0=disabled",
-        "refBandBps": "symmetric bps (200=±2%). Active only when refFeedId is set; otherwise MUST be 0 (PoolIO: refBand = refFeedId≠0 && refBandBps≠0)."
+    "refFeedId": "OPTIONAL depeg reference — NOT the asset's own price feed. Asset still quotes off its primary ExternalOracle feedId. When set (e.g. USDT→USDC), swaps halt if |mark_asset − mark_ref| / mark_ref > refBandBps. Use when a spoke should track another feed (USDT vs USDC, WBTC vs BTC).",
+    "refBandBps": "Symmetric depeg tolerance in bps around refFeedId (100 = ±1%). Active ONLY when both refFeedId and refBandBps are non-zero; otherwise MUST be 0 (PoolIO.priceBandGuard).",
+    "kappaCovBps": "Convex coverage-wall strength (Pricing._covToll) in bps. 0 = off. When >0, depthAmplifier MUST be 0 — the c<1 depth subsidy fights the wall (enforced in PoolAdmin).",
+    "depthAmplifier": "Virtual depth subsidy scale (10000=1×). Must be 0 if kappaCovBps > 0."
   },
   "pools": {
     "stable-core": {
@@ -34,13 +37,13 @@
       "_paramNote": "2026-07-12 postmortem: minFee 0.1bp + center-bump + kappaCov=0 let bots drain FDUSD→USDC and dump BTCB into volatile. New floors: stable minFee 0.5bp (50 PBPS), gamma 2× inventory skew, flatter profile. FDUSD minFee 1bp. θ stays 0.25bp (mark cadence ≠ fee floor).",
       "assets": {
         "USDC":  { "minFeeBps": 50, "minDispersion": 200,  "maxDispersion": 2000,  "refBandBps": 0 },
-        "USDT":  { "minFeeBps": 50, "minDispersion": 600,  "maxDispersion": 6000,  "refBandBps": 100, "refFeedId": "USDC" },
+        "USDT":  { "minFeeBps": 50, "minDispersion": 600,  "maxDispersion": 6000,  "refBandBps": 100, "refFeedId": "USDC", "_refNote": "USDT still prices off its own USDT feed; USDC is only the depeg comparator (±1%)." },
         "USD1":  { "minFeeBps": 50, "minDispersion": 500,  "maxDispersion": 5000,  "refBandBps": 0 },
         "USDE":  { "minFeeBps": 75, "minDispersion": 800,  "maxDispersion": 5000,  "refBandBps": 0 },
         "FDUSD": { "minFeeBps": 100, "minDispersion": 1000, "maxDispersion": 8000,  "refBandBps": 0 },
         "USDG":  { "minFeeBps": 50, "minDispersion": 200,  "maxDispersion": 2000,  "refBandBps": 0 }
       },
-      "_perAssetNote": "minDispersion = observed tight trading-band WIDTH in PBPS (100 PBPS=1bp), mark-relative. FDUSD raised (peg ~0.997 + prior drain). Shape: 4-knot mild center bump — 50% depth in center 24% of band (~2× vs flat, was 3.1×).",
+      "_perAssetNote": "minDispersion = observed tight trading-band WIDTH in PBPS (100 PBPS=1bp), mark-relative. FDUSD raised (peg ~0.997 + prior drain). Shape: 4-knot mild center bump — 50% depth in center 24% of band (~2× vs flat, was 3.1×). Only USDT sets refFeedId=USDC (depeg halt vs USDC); other stables rely on absolute reservation bands / primary mark alone.",
       "depositCapScheduleUsd": {
         "_comment": "Testnet growth schedule $50K->$1M. Per-asset split = observed 3mo stable-stable volume weights (base USDC 35%, USDT 26%, USD1 27%, FDUSD 8.5%, USDe 3.5%). USDe kept tiny (near-0 BSC flow + depeg risk). Raise the active tier via setAssetParams as TVL fills; win-share by count (~23%) is TVL-invariant, volume-share and abs fees scale up ($8k/yr@50K -> $111k/yr@1M).",
         "50000":   { "USDC": 17500, "USDT": 13000, "USD1": 13500, "FDUSD": 4300, "USDE": 1750 },
@@ -80,7 +83,7 @@
       "_paramNote": "Fee charged = pathSpread/2 (Pricing.sol). Mean arb gate: center_error_mean ≤ minFee/2. θ=5 + heartbeat=300; minFee 10bp. gamma 2× after 2026-07-12 BTCB dump (inventory skew was too soft).",
       "assets": {
         "USDC": { "minFeeBps": 1000, "gamma": 20000 },
-        "USDT": { "minFeeBps": 1000, "gamma": 20000, "refBandBps": 100, "refFeedId": "USDC" },
+        "USDT": { "minFeeBps": 1000, "gamma": 20000, "refBandBps": 100, "refFeedId": "USDC", "_refNote": "Same as stable: own USDT mark for quotes; USDC ref only for ±1% depeg halt." },
         "BTCB": { "minFeeBps": 1000, "gamma": 20000 },
         "ETH": { "minFeeBps": 1000, "gamma": 20000 },
         "WBNB": { "minFeeBps": 1000, "gamma": 20000 },
@@ -95,7 +98,7 @@
     "coverageMax": 20000,
     "depthAmplifier": 10000,
     "kappaCovBps": 0,
-    "_kappaNote": "kappaCov>0 needs depthAmplifier=0 (enforced). Leave 0 until a dedicated coverage-wall pass; rely on gamma + higher minFee for now."
+    "_kappaNote": "Coverage wall (_covToll) OFF. Enabling kappaCovBps>0 requires depthAmplifier=0 in the same RiskConfig (the under-coverage depth subsidy fights the wall). Separate pass if we want a hard inventory tax beyond gamma skew + minFee."
   },
   "sharedLiquidityProfile": {
     "_comment": "Milder center bump post 2026-07-12: knots ±50 / ±12; weights [50,100,50] ≈ 50% depth in center 24% (~2× vs flat; was [25,150,25] ≈3.1×).",
