@@ -12,6 +12,7 @@ import {IPool} from "../src/interfaces/IPool.sol";
 import {IERC3156FlashBorrower} from "../src/interfaces/external/IERC3156FlashBorrower.sol";
 import {BasePoolHook} from "../src/hooks/BasePoolHook.sol";
 import {VenusHook} from "../src/hooks/VenusHook.sol";
+import {YieldHook} from "../src/hooks/YieldHook.sol";
 import {MockVenus} from "../src/hooks/MockVenus.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
@@ -254,7 +255,7 @@ contract PoolHooksTest is Test {
     function _setHook(address token, address hook, uint32 flags) internal {
         vm.startPrank(OWNER);
         admin.requestSetAssetHook(address(pool), token, hook, flags);
-        vm.warp(block.timestamp + 1 days + 1);
+        vm.warp(block.timestamp + 3 days + 1); // HOOK-TIMELOCK: HIGH tier (3d)
         admin.executeSetAssetHook(address(pool), token);
         vm.stopPrank();
         // Refresh marks after warp (oracle TTL is uint16.max ≈ 18h).
@@ -293,6 +294,13 @@ contract PoolHooksTest is Test {
         // Sanity pin: should stay in the same ballpark as pre-hooks (~warm path).
         assertLt(used, 800_000, "hookless swap gas");
         assertEq(IPool(address(pool)).getInvested(address(quote)), 0);
+    }
+
+    /// @notice HOOK-EOA: an EOA (no code) hook target must be rejected at request time.
+    function test_hook_eoa_rejected() public {
+        vm.prank(OWNER);
+        vm.expectRevert(Err.NotCode.selector);
+        admin.requestSetAssetHook(address(pool), address(quote), address(0xE0A), C.HOOK_BEFORE_OUTFLOW);
     }
 
     /// @notice Flag off → no callback even when hook is set.
@@ -343,6 +351,39 @@ contract PoolHooksTest is Test {
         uint256 i = IPool(address(pool)).getInvested(address(quote));
         uint256 f = pool.getProtocolFees(address(quote));
         assertEq(balAfter, r - i + f, "R8 liquid conservation");
+    }
+
+    /// @notice HALT-KEEP: while the asset is paused, NEW deploy (hookPull) reverts but fund recall
+    ///         (hookNotifyRecall) still works — an emergency halt must never strand invested capital.
+    function test_halt_blocks_deploy_allows_recall() public {
+        RecallHook hook = new RecallHook(address(quote));
+        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+
+        uint256 reserves = pool.getAsset(address(quote)).reserves;
+        uint256 keep = 1e18;
+        uint256 inv = reserves - keep;
+        uint256 fees = pool.getProtocolFees(address(quote));
+        deal(address(quote), address(hook), inv);
+        deal(address(quote), address(pool), keep + fees + inv);
+        vm.prank(address(hook));
+        IPool(address(pool)).hookPull(address(quote), inv); // deploy while healthy
+        assertEq(IPool(address(pool)).getInvested(address(quote)), inv);
+
+        vm.prank(OWNER);
+        admin.pauseAsset(address(pool), address(quote));
+
+        // New deployment blocked by HALT_MASK.
+        vm.prank(address(hook));
+        vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
+        IPool(address(pool)).hookPull(address(quote), 1e18);
+
+        // Recall still works while paused (transfer-before-notify).
+        uint256 recallAmt = inv / 2;
+        vm.prank(address(hook));
+        quote.transfer(address(pool), recallAmt);
+        vm.prank(address(hook));
+        IPool(address(pool)).hookNotifyRecall(address(quote), recallAmt);
+        assertEq(IPool(address(pool)).getInvested(address(quote)), inv - recallAmt, "recall works while paused");
     }
 
     /// @notice Fail-closed when shortfall and hook cannot cover.
@@ -448,12 +489,12 @@ contract PoolHooksTest is Test {
 
         address attacker = address(0xBAD);
         vm.prank(attacker);
-        vm.expectRevert(VenusHook.OnlyPool.selector);
+        vm.expectRevert(YieldHook.OnlyPool.selector);
         hook.beforeOutflow(attacker, attacker, address(quote), 1e18);
 
         // Spoofed "pool" arg is ignored; msg.sender must be immutable pool.
         vm.prank(attacker);
-        vm.expectRevert(VenusHook.OnlyPool.selector);
+        vm.expectRevert(YieldHook.OnlyPool.selector);
         hook.beforeOutflow(address(pool), attacker, address(quote), 1e18);
     }
 

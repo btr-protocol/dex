@@ -43,6 +43,34 @@ interface IAdmin {
         uint64 reservationPriceMax
     ) external;
 
+    /// @notice Steward-lite fences (owner-set). See AdminRiskSteward.RiskFences.
+    struct RiskFences {
+        uint16 minFeeHardMin;
+        uint16 minFeeHardMax;
+        uint16 maxFeeHardMax;
+        uint16 gammaHardMin;
+        uint16 gammaHardMax;
+        uint16 vegaHardMin;
+        uint16 vegaHardMax;
+        uint16 haircutHardMax;
+        uint16 maxDeltaBps;
+    }
+
+    function setRiskFences(address pool, address token, RiskFences calldata f) external;
+
+    function setAssetParamsBounded(
+        address pool,
+        address token,
+        uint128 minLiquidity,
+        uint16 minFeeBps,
+        uint16 maxFeeBps,
+        uint16 gamma,
+        uint16 vega,
+        uint16 haircutSuppressor,
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
+    ) external;
+
     // ── timelocked governance ──
     function requestAddAsset(
         address pool,
@@ -125,4 +153,10 @@ interface IAdmin {
     /// @dev OBS-03: base-token depeg oracle (re-)pinned — untimelocked SAFETY config, now observable.
     event BaseTokenOracleSet(address indexed pool, address indexed oracle, bytes32 feedId);
     event AssetHookUpdated(address indexed pool, address indexed token, address hook, uint32 flags);
+    /// @dev Steward-lite: owner set hard fences + relative maxDelta for bounded param path.
+    event RiskFencesSet(address indexed pool, address indexed token, uint16 maxDeltaBps);
+    /// @dev Steward-lite: bounded setAssetParams applied (`tighten` = relative clamp skipped).
+    event AssetParamsBoundedSet(
+        address indexed pool, address indexed token, uint16 minFeeBps, uint16 gamma, bool tighten
+    );
 }

@@ -46,10 +46,13 @@ function flashSend(IPool.PoolStorage storage $, address token, uint256 amount, a
         address t = PoolIO.wrap($, token);
         IPool.Asset storage asset = $.assets[t];
         if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
-        // Safe: fee = amount·flashFeeBps/1e6 ≤ amount, and Flash gates amount ≤ reserves (uint128),
-        // so fee - protoFee ≤ fee ≤ reserves ≤ type(uint128).max — the cast cannot truncate.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        unchecked { asset.reserves += uint128(fee - protoFee); }
+        // ACC-05: bound the LP credit so a (proof-impossible) oversized fee cannot wrap uint128 reserves.
+        uint256 lpFee = fee - protoFee;
+        if (lpFee > type(uint128).max - asset.reserves) {
+            revert Err.ExcessiveAmount(lpFee, type(uint128).max - asset.reserves);
+        }
+        // forge-lint: disable-next-line(unsafe-typecast) — bounded by the check above.
+        asset.reserves += uint128(lpFee);
         $.protocolFees[t] += protoFee;
         PoolIO.exitFlash();
     }
