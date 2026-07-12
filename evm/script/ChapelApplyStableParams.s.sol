@@ -91,20 +91,20 @@ contract ChapelApplyStableParams is Script {
         pure
         returns (uint16 minFee, uint32 minDisp, uint32 maxDisp, uint16 refBand)
     {
-        // minFee in PBPS (100=1bp). Post-drain floors: 0.5bp stables, 1bp FDUSD.
-        if (tok == USDC) return (50, 200, 2000, 50);
+        // minFee PBPS (100=1bp). refBand: ±1% depeg vs USDC for every non-base stable.
+        if (tok == USDC) return (50, 200, 2000, 0);
         if (tok == USDT) return (50, 600, 6000, 100);
-        if (tok == USD1) return (50, 500, 5000, 150);
-        if (tok == USDE) return (75, 800, 5000, 200);
-        if (tok == FDUSD) return (100, 1000, 8000, 200);
+        if (tok == USD1) return (50, 500, 5000, 100);
+        if (tok == USDE) return (75, 800, 5000, 100);
+        if (tok == FDUSD) return (100, 1000, 8000, 100);
         revert("unknown");
     }
 
     function _oracle(address tok, uint16 refBand) internal pure returns (IPool.OracleConfig memory o) {
         o.primary = ORACLE;
         o.feedId = tok == USDC ? USDC_FEED : keccak256(abi.encodePacked(tok, USDC));
-        // Only USDT pins a USDC refFeed. Others: no ref → refBandBps = 0 (do not store a dead band).
-        if (tok == USDT) {
+        // All non-base stables: USDC refFeed + refBand (±1%). USDC itself: no self-ref.
+        if (tok != USDC && refBand != 0) {
             o.refFeedId = USDC_FEED;
             o.refBandBps = refBand;
         } else {

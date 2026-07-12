@@ -39,17 +39,41 @@ Testnet pusher (segregated from deployer; BNB testnet / chainId 97):
 Each asset has its **own** primary oracle feed for pricing. Separately, an asset may
 pin a **reference feed** used only as a circuit breaker:
 
-- **USDT** → `refFeedId: USDC`, `refBandBps: 100` (±1%): if USDT’s mark drifts more
-  than 1% from USDC’s mark, swaps involving that spoke revert.
-- That does **not** mean USDT is priced as USDC. Quote source remains the USDT feed.
-- Most other assets leave `refFeedId` unset / `refBandBps: 0` (guard off).
+- **All non-base stables** → `refFeedId: USDC`, `refBandBps: 100` (±1%): if the
+  asset’s mark drifts more than 1% from USDC’s mark, swaps involving that spoke revert.
+- That does **not** mean the asset is priced as USDC. Quote source remains its own feed.
+- USDC (base): no self-ref. Wraps: no wrap↔BTC ref until ≥2 wraps share an index feed.
 
-### `kappaCovBps` (coverage wall)
+### `gamma` vs `kappaCov` — complementarity (not redundancy)
 
-`Pricing._covToll` — convex tax on draining an under-covered **output** leg.
-Currently **0** (off). Turning it on requires `depthAmplifier = 0` in the same
-`RiskConfig` (enforced): the depth subsidy when coverage &lt; 1 fights the wall.
-Until a dedicated pass, inventory defense is **gamma skew + higher minFee**.
+Both worsen execution when draining an under-covered leg, but they are **different
+channels**:
+
+| | **gamma (inventory skew)** | **kappa (`_covToll`)** |
+|--|--|--|
+| Input map | **Linear** in coverage progress → skew ∈ [-100,+100] | Potential \(Q(c)=\ln c-c+1\) → **convex** |
+| Acts on | Mid / **start depth** on the liquidity spline | **amountOut** haircut after the path walk |
+| Through spline? | Yes: `startDepth = 5000+50·skew`, then Hermite VWAP → **nonlinear** price | No — independent of dispersion / profile |
+| Saturates? | At critMin/Max (skew clamp ±100) | Diverges as \(c→0\) (toll→grossOut) |
+| Restoring trade | Better mid (A-S symmetric) | **No rebate** (charge-only) |
+| Stables weakness | Max mid shift ≈ `skew·dispersion/100`. With disp~1–6 bp, even skew=100 moves mid by **~1–6 bp** — almost free to drain | Still taxes in output units vs \(L·ΔQ\) |
+
+So: **linear coverage → skew**, then **nonlinear** via the spline (you’re right). But
+on tight stables the spline band is so narrow that gamma’s bite is tiny once
+expressed in price. Kappa is the hard wall where gamma has already maxed out or
+cannot move mid enough. Volatiles (wide dispersion): more overlap; still keep
+kappa=0 there (docs) and lean on gamma + minFee.
+
+**Redeploy recommendation:** full reseed. In-place `setAssetParams` cannot fix
+R/L skew (liabilities stuck). Bundle: new pools + fees/gamma/profile + all stable
+refs + stable `depthAmplifier=0`/`kappaCovBps=100` + oracle `*-USDC` marks + bot
+refill.
+
+### Oracle marks (USDT ≠ USDC)
+
+On-chain feeds are `keccak(asset, USDC)`. Prefer NXR **`BTC-USDC` / `ETH-USDC` / …**
+directly. Do **not** compose `X-USDT × USDT-USDC` when an X-USDC book exists.
+Exception: **CAKE** (no CAKE-USDC on NXR yet) — forced bridge only.
 
 ## 2026-07-12 inventory postmortem (BNB testnet)
 
