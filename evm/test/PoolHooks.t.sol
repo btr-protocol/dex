@@ -295,6 +295,13 @@ contract PoolHooksTest is Test {
         assertEq(IPool(address(pool)).getInvested(address(quote)), 0);
     }
 
+    /// @notice HOOK-EOA: an EOA (no code) hook target must be rejected at request time.
+    function test_hook_eoa_rejected() public {
+        vm.prank(OWNER);
+        vm.expectRevert(Err.NotCode.selector);
+        admin.requestSetAssetHook(address(pool), address(quote), address(0xE0A), C.HOOK_BEFORE_OUTFLOW);
+    }
+
     /// @notice Flag off → no callback even when hook is set.
     function test_flag_skip_no_call() public {
         CountingHook hook = new CountingHook();

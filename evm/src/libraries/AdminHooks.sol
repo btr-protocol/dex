@@ -21,6 +21,9 @@ library AdminHooks {
         uint32 flags
     ) external {
         if (hook == address(0)) revert Err.ZeroAddr();
+        // HOOK-EOA: a hook is fund-custody (deploys reserves to Venus). An EOA / not-yet-deployed
+        // target could wedge invested funds (no recall code) — require real contract code.
+        if (hook.code.length == 0) revert Err.NotCode();
         bytes32 key = keccak256(abi.encode(pool, OP_UPDATE_HOOK, token));
         uint48 delay = SC.govDelay(SC.LOW_TIMELOCK);
         pendingOps[key] = TL.pack(delay, SC.GRACE_PERIOD);
