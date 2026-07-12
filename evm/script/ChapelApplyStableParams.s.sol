@@ -5,6 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/Script.sol";
 
 import {Admin} from "../src/Admin.sol";
+import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 
@@ -43,12 +44,13 @@ contract ChapelApplyStableParams is Script {
             (uint16 minFee, uint32 minDisp, uint32 maxDisp, uint16 refBand) = _params(tok);
             // gamma=20000 (2× inventory skew), vega=1×, haircutSuppressor=10000
             admin.setAssetParams(STABLE, tok, 0, minFee, 2000, 20_000, 10_000, 10_000, 0, 0);
+            admin.setRiskFences(STABLE, tok, _fences(tok));
             admin.requestUpdateProfile(STABLE, tok, _profile(), minDisp, maxDisp);
             admin.requestOracleUpdate(STABLE, tok, _oracle(tok, refBand));
             console2.log("queued", tok, minFee, refBand);
         }
         vm.stopBroadcast();
-        console2.log("setAssetParams done; profile ETA ~5m; oracle ETA ~15m");
+        console2.log("setAssetParams+fences done; profile ETA ~5m; oracle ETA ~15m");
     }
 
     function executeProfiles() external {
@@ -112,5 +114,18 @@ contract ChapelApplyStableParams is Script {
             o.refBandBps = 0;
         }
         o.mode = 0; // EXTERNAL
+    }
+
+    /// @dev Steward-lite fences: hard band + ±25% risk-up. Tighten is clamp-exempt on-chain.
+    function _fences(address tok) internal pure returns (IAdmin.RiskFences memory f) {
+        f.minFeeHardMin = tok == FDUSD ? 50 : 25;
+        f.minFeeHardMax = 2_000;
+        f.maxFeeHardMax = 10_000;
+        f.gammaHardMin = 5_000;
+        f.gammaHardMax = 40_000;
+        f.vegaHardMin = 5_000;
+        f.vegaHardMax = 20_000;
+        f.haircutHardMax = 10_000;
+        f.maxDeltaBps = 2_500;
     }
 }
