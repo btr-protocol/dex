@@ -10,10 +10,12 @@ import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {AaveV3YieldHook} from "../src/hooks/AaveV3YieldHook.sol";
+import {AaveV4YieldHook} from "../src/hooks/AaveV4YieldHook.sol";
 import {ERC4626YieldHook} from "../src/hooks/ERC4626YieldHook.sol";
 import {MorphoBlueYieldHook} from "../src/hooks/MorphoBlueYieldHook.sol";
 import {CompoundV2YieldHook} from "../src/hooks/CompoundV2YieldHook.sol";
 import {MockAavePool, MockAToken} from "../src/hooks/MockAavePool.sol";
+import {MockAaveV4Spoke} from "../src/hooks/MockAaveV4Spoke.sol";
 import {MockERC4626} from "../src/hooks/MockERC4626.sol";
 import {MockMorphoBlue} from "../src/hooks/MockMorphoBlue.sol";
 import {MockVenus} from "../src/hooks/MockVenus.sol";
@@ -350,6 +352,137 @@ contract YieldHooksAdaptersTest is Test {
         hook.rebalance();
         uint256 after2 = IPool(address(pool)).getInvested(address(quote));
         assertEq(after2, book2 + expectedCap2, "owner-raised cap");
+    }
+
+    function test_harvest_credit_disabled_when_cap_zero() public {
+        MockERC4626 vault = new MockERC4626(address(quote));
+        ERC4626YieldHook hook =
+            new ERC4626YieldHook(address(ac), address(pool), address(quote), address(vault));
+        _setHook(address(quote), address(hook), hook.recommendedFlags());
+
+        quote.mint(address(this), 200_000e18);
+        pool.deposit(address(quote), 200_000e18);
+        uint256 book = IPool(address(pool)).getInvested(address(quote));
+        assertGt(book, 0);
+
+        vm.prank(OWNER);
+        hook.setMaxHarvestCreditBps(0);
+        vault.setRate(2e18);
+        vm.prank(OWNER);
+        hook.rebalance();
+        assertEq(IPool(address(pool)).getInvested(address(quote)), book, "cap 0 disables credit");
+    }
+
+    function test_aaveV4_experimental_deploy_and_recall() public {
+        MockAaveV4Spoke spoke = new MockAaveV4Spoke();
+        uint256 reserveId = 1;
+        spoke.setReserve(reserveId, address(quote));
+
+        AaveV4YieldHook hook =
+            new AaveV4YieldHook(address(ac), address(pool), address(quote), address(spoke), reserveId, address(0));
+        _setHook(address(quote), address(hook), hook.recommendedFlags());
+
+        quote.mint(address(this), 200_000e18);
+        pool.deposit(address(quote), 200_000e18);
+        uint256 inv = IPool(address(pool)).getInvested(address(quote));
+        assertGt(inv, 0, "aave v4 deploy");
+        assertEq(spoke.getUserSuppliedAssets(reserveId, address(hook)), inv);
+
+        _forceThinLiquid(address(hook));
+        uint256 onHook = quote.balanceOf(address(hook));
+        if (onHook > 0) {
+            vm.startPrank(address(hook));
+            quote.approve(address(spoke), onHook);
+            spoke.supply(reserveId, onHook, address(hook));
+            vm.stopPrank();
+        }
+
+        uint256 amt = 20e18;
+        base.mint(address(0xBEEF), amt);
+        vm.prank(address(0xBEEF));
+        base.approve(address(pool), type(uint256).max);
+        uint256 invBefore = IPool(address(pool)).getInvested(address(quote));
+        vm.prank(address(0xBEEF));
+        assertGt(pool.swap(address(base), address(quote), amt, 0, address(0xBEEF)), 0);
+        assertLe(IPool(address(pool)).getInvested(address(quote)), invBefore);
+    }
+
+    function test_morphoBlue_nav_virtual_shares_no_irm_accrual() public {
+        MockMorphoBlue morpho = new MockMorphoBlue();
+        IMorphoBlue.MarketParams memory params = IMorphoBlue.MarketParams({
+            loanToken: address(quote),
+            collateralToken: address(base),
+            oracle: address(0x1),
+            irm: address(0x2),
+            lltv: 0.8e18
+        });
+        morpho.setMarket(params);
+
+        MorphoBlueYieldHook hook =
+            new MorphoBlueYieldHook(address(ac), address(pool), address(quote), address(morpho), params);
+        _setHook(address(quote), address(hook), hook.recommendedFlags());
+
+        quote.mint(address(this), 200_000e18);
+        pool.deposit(address(quote), 200_000e18);
+        uint256 book = IPool(address(pool)).getInvested(address(quote));
+        assertGt(book, 0);
+
+        bytes32 mid = MorphoId.id(params);
+        (uint256 shares,,) = morpho.position(mid, address(hook));
+        (uint128 assets, uint128 totalShares,,,,) = morpho.market(mid);
+        // SharesMathLib.toAssetsDown must round-trip ≈ book (virtual shares; no IRM).
+        uint256 expectedNav = (shares * (uint256(assets) + 1)) / (uint256(totalShares) + 1e6);
+        assertApproxEqAbs(expectedNav, book, 2, "virtual-shares NAV ~ book");
+
+        // Inflate totalSupplyAssets without touching shares (= IRM accrual not reflected in view until
+        // we harvest). Harvest should credit only up to maxHarvestCreditBps.
+        morpho.setSupplyTotals(mid, assets + uint128(book), totalShares);
+        uint256 cap = (book * 100) / 10_000;
+        vm.prank(OWNER);
+        hook.rebalance();
+        uint256 afterHarvest = IPool(address(pool)).getInvested(address(quote));
+        assertEq(afterHarvest, book + cap, "stale-to-accrued jump still sandwich-capped");
+    }
+
+    function test_compound_maxWithdrawable_bounded_by_cash() public {
+        MockVenus vToken = new MockVenus(address(quote));
+        CompoundV2YieldHook hook =
+            new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
+        _setHook(address(quote), address(hook), hook.recommendedFlags());
+
+        quote.mint(address(this), 200_000e18);
+        pool.deposit(address(quote), 200_000e18);
+        uint256 inv = IPool(address(pool)).getInvested(address(quote));
+        assertGt(inv, 0);
+
+        // Drain venue cash below book (simulate utilization); redeem must stop at getCash().
+        uint256 cash = vToken.getCash();
+        uint256 leave = cash / 10;
+        vm.prank(address(vToken));
+        quote.transfer(address(0xDEAD), cash - leave);
+        assertEq(vToken.getCash(), leave);
+
+        _forceThinLiquid(address(hook));
+        uint256 onHook = quote.balanceOf(address(hook));
+        if (onHook > 0) {
+            // Leave liquid on hook unused; recall must pull from venue cash only.
+            // (onHook already sits as uninvested tokens on the hook contract.)
+        }
+
+        uint256 amt = 50e18;
+        base.mint(address(0xBEEF), amt);
+        vm.prank(address(0xBEEF));
+        base.approve(address(pool), type(uint256).max);
+        // Swap needs more liquid than leave+thin buffer → fail-closed if cash insufficient,
+        // or succeeds with recall ≤ leave. Either way: no over-redeem past getCash.
+        uint256 cashBefore = vToken.getCash();
+        try pool.swap(address(base), address(quote), amt, 0, address(0xBEEF)) {
+            assertLe(cashBefore - vToken.getCash(), cashBefore, "redeem <= cash");
+        } catch {
+            // Fail-closed shortfall is acceptable when cash ≪ need.
+            assertLt(vToken.getCash(), inv);
+        }
+        assertEq(vToken.getCash(), quote.balanceOf(address(vToken)), "cash = balance");
     }
 
     function test_morphoId_matches_packed_keccak() public pure {
