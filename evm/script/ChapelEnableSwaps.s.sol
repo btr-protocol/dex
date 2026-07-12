@@ -111,13 +111,16 @@ contract ChapelEnableSwaps is Script {
         bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], WNATIVE, fp);
         poolAddr = factory.createPool(tokens[0], tokens, initdata);
 
-        IPool.RiskConfig memory rc = stable ? _riskStable() : _riskVolatile();
+        IPool.RiskConfig memory rcBase = _riskStableBase();
+        IPool.RiskConfig memory rcSpoke = stable ? _riskStableSpoke() : _riskVolatile();
         IPool.LiquidityProfile memory pf = stable ? _stableProfile() : _volatileProfile();
 
         for (uint256 i = 0; i < tokens.length; i++) {
             address tok = tokens[i];
             (uint16 minFee, uint16 refBand, uint32 minDisp, uint32 maxDisp) = _assetParams(tok, stable);
             IPool.OracleConfig memory oc = _oracleCfg(tok, tokens[0], refBand);
+            // Base numeraire forbids κ wall (PoolAdminWrite); spokes use stable κ=100.
+            IPool.RiskConfig memory rc = (tok == tokens[0]) ? rcBase : rcSpoke;
             admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, minDisp, maxDisp, GAMMA, VEGA);
             // initAsset defaults maxFeeBps=BPS; clamp to SSoT (stable 2000 / volatile 10000).
             uint16 maxFee = stable ? 2_000 : 10_000;
@@ -130,11 +133,22 @@ contract ChapelEnableSwaps is Script {
         _seedPool(Pool(payable(poolAddr)), tokens, seedUsdc);
     }
 
-    function _riskStable() internal pure returns (IPool.RiskConfig memory r) {
+    /// @dev Base USDC: κ must be 0 (numeraire never walled). Shared decay/coverage floors.
+    function _riskStableBase() internal pure returns (IPool.RiskConfig memory r) {
         r.decayStartRatioBps = 5000;
         r.coverageMin = 5000;
         r.coverageMax = 20_000;
-        r.depthAmplifier = 0; // κ wall on — no depth subsidy
+        r.depthAmplifier = 10_000;
+        r.kappaCovBps = 0;
+        r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
+    }
+
+    /// @dev Stable spokes: coverage wall ON, no depth subsidy.
+    function _riskStableSpoke() internal pure returns (IPool.RiskConfig memory r) {
+        r.decayStartRatioBps = 5000;
+        r.coverageMin = 5000;
+        r.coverageMax = 20_000;
+        r.depthAmplifier = 0;
         r.kappaCovBps = 100;
         r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
     }
