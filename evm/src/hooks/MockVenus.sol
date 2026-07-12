@@ -4,10 +4,12 @@ pragma solidity =0.8.35;
 import {IVBep20} from "../interfaces/external/IVBep20.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 
 /// @title MockVenus — Compound-like vToken stub for Chapel / unit tests (BTR mock underlyings).
 /// @dev Fixed 1:1 exchange rate. Cash = contract underlying balance. No interest unless `setRate`.
-contract MockVenus is IVBep20 {
+///      `setRate` / `setTotalReserves` are owner-only — permissionless rate cuts grief harvest write-downs.
+contract MockVenus is IVBep20, Ownable {
     using SafeTransferLib for address;
 
     address public immutable override underlying;
@@ -21,14 +23,15 @@ contract MockVenus is IVBep20 {
     constructor(address underlying_) {
         if (underlying_ == address(0)) revert Err.ZeroAddr();
         underlying = underlying_;
+        _initializeOwner(msg.sender);
     }
 
-    function setRate(uint256 rate_) external {
+    function setRate(uint256 rate_) external onlyOwner {
         if (rate_ == 0) revert Err.ZeroValue();
         rate = rate_;
     }
 
-    function setTotalReserves(uint256 r) external {
+    function setTotalReserves(uint256 r) external onlyOwner {
         totalReserves = r;
     }
 
