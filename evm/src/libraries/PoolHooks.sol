@@ -7,7 +7,7 @@ import {Constants as C} from "./Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title PoolHooks — lean dispatch: beforeOutflow + postDeposit only.
+/// @title PoolHooks — lean dispatch: preOutflow + postDeposit only.
 /// @dev Dual ledger: `Asset.reserves = R_liq + R_inv`; `invested[token] = R_inv`.
 ///      Recall/deploy permute R_inv↔R_liq (reserves constant). Book updates via balance-delta
 ///      after the hook CALL so the hook never reenters Pool state writers.
@@ -46,8 +46,8 @@ library PoolHooks {
 
         uint256 balAfter = SafeTransferLib.balanceOf(token, address(this));
         if (balAfter < balBefore) {
-            // Invested capital needs a recall path: refuse deploy without BEFORE_OUTFLOW.
-            if ((h.flags & C.HOOK_BEFORE_OUTFLOW) == 0) revert Err.InvalidState();
+            // Invested capital needs a recall path: refuse deploy without PRE_OUTFLOW.
+            if ((h.flags & C.HOOK_PRE_OUTFLOW) == 0) revert Err.InvalidState();
             uint256 deployed = balBefore - balAfter;
             uint256 inv = $.invested[token];
             uint256 cap = $.assets[token].reserves;
@@ -60,7 +60,7 @@ library PoolHooks {
     }
 
     /// @dev Unified pre-outflow recall (swap-out / withdraw / flash). Never deploys.
-    function beforeOutflow(
+    function preOutflow(
         IPool.PoolStorage storage $,
         address token,
         address sender,
@@ -71,12 +71,12 @@ library PoolHooks {
         if (liq >= amountNeeded) return;
 
         IPool.HookSlot memory h = $.assetHooks[token];
-        if (h.target == address(0) || (h.flags & C.HOOK_BEFORE_OUTFLOW) == 0) {
+        if (h.target == address(0) || (h.flags & C.HOOK_PRE_OUTFLOW) == 0) {
             revert Err.InsufficientAmount(liq, amountNeeded);
         }
 
         uint256 balBefore = SafeTransferLib.balanceOf(token, address(this));
-        IPoolHooks(h.target).beforeOutflow(address(this), sender, token, amountNeeded);
+        IPoolHooks(h.target).preOutflow(address(this), sender, token, amountNeeded);
         uint256 balAfter = SafeTransferLib.balanceOf(token, address(this));
         if (balAfter > balBefore) {
             uint256 recalled = balAfter - balBefore;

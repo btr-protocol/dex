@@ -115,7 +115,7 @@ contract PoolStorageLayoutTest is Test {
     function test_layout_hooks_mapping_bases() public {
         bytes32 hookSlot = keccak256(abi.encode(SENTINEL_TOKEN, ASSET_HOOKS_SLOT));
         // HookSlot packs target (20 B) + flags (uint32) into one word.
-        uint32 flags = 3; // BEFORE_OUTFLOW | POST_DEPOSIT
+        uint32 flags = 3; // PRE_OUTFLOW | POST_DEPOSIT
         uint256 packed = uint256(uint160(SENTINEL_HOOK)) | (uint256(flags) << 160);
         vm.store(address(pool), hookSlot, bytes32(packed));
 

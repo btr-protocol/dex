@@ -42,7 +42,7 @@ library PoolBatch {
         if (tk == base) return amt;
         IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk, base, amt);
         uint256 need = q.amountOut + q.protoFee + $.assets[base].minLiquidity;
-        PoolHooks.beforeOutflow($, base, msg.sender, need);
+        PoolHooks.preOutflow($, base, msg.sender, need);
         PoolIO.exec($, tk, base, amt, q, a, $.assets[base]);
         return q.amountOut;
     }
@@ -76,7 +76,7 @@ library PoolBatch {
         } else {
             IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, base, tk, baseIn);
             uint256 need = q.amountOut + q.protoFee + a.minLiquidity;
-            PoolHooks.beforeOutflow($, tk, msg.sender, need);
+            PoolHooks.preOutflow($, tk, msg.sender, need);
             PoolIO.exec($, base, tk, baseIn, q, $.assets[base], a);
             outAmt = q.amountOut;
         }

@@ -163,7 +163,7 @@ library PoolLiquidity {
         // Recall BEFORE ledger debit so post-debit R_liq ≥ minLiquidity (same as swap/flash).
         uint256 minLiq = $.assets[ctx.toTk].minLiquidity;
         uint256 cashNeed = ctx.amt + ctx.protoFee;
-        PoolHooks.beforeOutflow($, ctx.toTk, msg.sender, cashNeed + minLiq);
+        PoolHooks.preOutflow($, ctx.toTk, msg.sender, cashNeed + minLiq);
         _applyWithdraw($, ctx, lpAmount);
 
         {
