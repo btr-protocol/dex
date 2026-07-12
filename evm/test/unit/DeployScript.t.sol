@@ -21,6 +21,10 @@ contract DeployScriptTest is Test {
 
     function setUp() public {
         script = new Deploy();
+        // Self-contained env, fully reset before EACH test (vm.setEnv is process-global — avoid bleed).
+        vm.setEnv("DEPLOYER_PK", "0x0000000000000000000000000000000000000000000000000000000000000001");
+        vm.setEnv("LZ_ENDPOINT", vm.toString(address(this))); // test contract has code
+        vm.setEnv("ALLOW_NO_LZ", "false");
     }
 
     function test_deploy_e2e_wiring() public {
@@ -63,5 +67,22 @@ contract DeployScriptTest is Test {
         Treasury(payable(a.treasuryProxy)).initialize(a.govToken);
         vm.expectRevert();
         Bridge(payable(a.bridgeProxy)).initialize();
+
+        // BRG-01 negatives — kept in ONE test (vm.setEnv is process-global; forge runs
+        // separate test fns concurrently, so isolating these avoids env-var races).
+
+        // (a) EOA (no code) LZ endpoint must abort the deploy, not wire a dead bridge.
+        vm.setEnv("LZ_ENDPOINT", vm.toString(address(0xBEEF))); // no code
+        vm.expectRevert(bytes("LZ endpoint not a contract"));
+        script.run();
+        vm.setEnv("LZ_ENDPOINT", vm.toString(address(this)));
+
+        // (b) ALLOW_NO_LZ=true opt-out deploys core with NO bridge (no dead endpoint at all).
+        vm.setEnv("ALLOW_NO_LZ", "true");
+        Deploy.Addrs memory b = script.run();
+        assertEq(b.bridgeProxy, address(0), "bridgeProxy should be unset");
+        assertEq(b.bridgeImpl, address(0), "bridgeImpl should be unset");
+        assertEq(Treasury(payable(b.treasuryProxy)).bridge(), address(0), "treasury.bridge should be unset");
+        assertTrue(b.poolFactory != address(0), "core still deployed");
     }
 }
