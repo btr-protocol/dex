@@ -170,6 +170,128 @@ contract PoolLifecycleTest is Test {
         assertEq(pool.getRiskFlags(address(base)) & C.PROTOCOL_PAUSED_BIT, 0, "unpaused");
     }
 
+    function test_guardian_can_freeze_but_not_unfreeze() public {
+        address g = makeAddr("guardian");
+        ac.setGuardian(g, true);
+
+        vm.prank(g);
+        admin.freezeAsset(address(pool), address(base));
+        assertTrue((pool.getRiskFlags(address(base)) & C.FROZEN_BIT) != 0);
+
+        vm.prank(g);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        admin.unfreezeAsset(address(pool), address(base));
+
+        vm.prank(USER);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        admin.freezeAsset(address(pool), address(base));
+    }
+
+    function test_guardian_batch_cannot_unpause() public {
+        address g = makeAddr("guardian");
+        ac.setGuardian(g, true);
+        address[] memory pools = new address[](1);
+        address[] memory tokens = new address[](1);
+        pools[0] = address(pool);
+        tokens[0] = address(base);
+
+        vm.prank(g);
+        admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Pause);
+
+        vm.prank(g);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Unpause);
+    }
+
+    function test_steward_bounded_tighten_ok_riskup_clamped() public {
+        address s = makeAddr("steward");
+        ac.setRiskSteward(s, true);
+
+        IAdmin.RiskFences memory f = IAdmin.RiskFences({
+            minFeeHardMin: 100,
+            minFeeHardMax: 5_000,
+            maxFeeHardMax: 20_000,
+            gammaHardMin: 5_000,
+            gammaHardMax: 30_000,
+            vegaHardMin: 5_000,
+            vegaHardMax: 30_000,
+            haircutHardMax: 10_000,
+            maxDeltaBps: 2_500 // ±25%
+        });
+        vm.prank(OWNER);
+        admin.setRiskFences(address(pool), address(base), f);
+
+        IPool.Asset memory before = pool.getAsset(address(base));
+        // Tighten: raise minFee — exempt from relative clamp.
+        uint16 tighterFee = before.minFeeBps + 200;
+        vm.prank(s);
+        admin.setAssetParamsBounded(
+            address(pool),
+            address(base),
+            before.minLiquidity,
+            tighterFee,
+            before.maxFeeBps,
+            before.gamma,
+            before.vega,
+            before.haircutSuppressor,
+            before.reservationPrice,
+            before.reservationPriceMax
+        );
+        assertEq(pool.getAsset(address(base)).minFeeBps, tighterFee);
+
+        // Risk-up: cut minFee by >25% → revert.
+        uint16 tooLow = uint16((uint256(tighterFee) * 50) / 100); // -50%
+        vm.prank(s);
+        vm.expectRevert();
+        admin.setAssetParamsBounded(
+            address(pool),
+            address(base),
+            before.minLiquidity,
+            tooLow,
+            before.maxFeeBps,
+            before.gamma,
+            before.vega,
+            before.haircutSuppressor,
+            before.reservationPrice,
+            before.reservationPriceMax
+        );
+
+        // Risk-up within 25%: ok.
+        uint16 mildCut = uint16((uint256(tighterFee) * 80) / 100); // -20%
+        vm.prank(s);
+        admin.setAssetParamsBounded(
+            address(pool),
+            address(base),
+            before.minLiquidity,
+            mildCut,
+            before.maxFeeBps,
+            before.gamma,
+            before.vega,
+            before.haircutSuppressor,
+            before.reservationPrice,
+            before.reservationPriceMax
+        );
+        assertEq(pool.getAsset(address(base)).minFeeBps, mildCut);
+
+        // Guardian cannot write params.
+        address g = makeAddr("guardian");
+        ac.setGuardian(g, true);
+        vm.prank(g);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        admin.setAssetParamsBounded(
+            address(pool),
+            address(base),
+            before.minLiquidity,
+            mildCut,
+            before.maxFeeBps,
+            before.gamma,
+            before.vega,
+            before.haircutSuppressor,
+            before.reservationPrice,
+            before.reservationPriceMax
+        );
+    }
+
     /// PROTOCOL_PAUSED on an asset must block withdraw (same HALT_MASK gate as swap/deposit).
     function test_pause_blocks_withdraw() public {
         uint256 amt = 100e18;

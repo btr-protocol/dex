@@ -6,14 +6,17 @@ import {Maths as M} from "../../src/libraries/Maths.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 
-/// @notice Minimal mock AccessControl exposing only `owner()`. Used to satisfy module
-///         constructors after Phase 42H.B.1 dropped the per-pool $.owner auth path.
+/// @notice Minimal mock AccessControl exposing owner / keeper / guardian / riskSteward.
 contract MockAC {
     address public owner;
     mapping(address => bool) public isKeeper;
+    mapping(address => bool) public isGuardian;
+    mapping(address => bool) public isRiskSteward;
     constructor(address o) { owner = o; }
     function rotate(address newOwner) external { owner = newOwner; }
     function setKeeper(address k, bool s) external { isKeeper[k] = s; }
+    function setGuardian(address g, bool s) external { isGuardian[g] = s; }
+    function setRiskSteward(address s, bool ok) external { isRiskSteward[s] = ok; }
 }
 
 /// @notice Multi-feed external IOracle for pool tests. Pools wire `primary = address(this)` and

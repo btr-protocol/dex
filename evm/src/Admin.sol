@@ -38,7 +38,7 @@ contract Admin is IAdmin {
     mapping(address pool => bool) public bootstrapSealed;
 
     /// @notice Steward-lite fences for `setAssetParamsBounded` (owner sets; steward consumes).
-    mapping(address pool => mapping(address token => ARS.RiskFences)) public riskFences;
+    mapping(address pool => mapping(address token => IAdmin.RiskFences)) public riskFences;
 
     // ── op-id namespaces (per-pool) ──
     bytes32 private constant OP_ADD_ASSET            = keccak256("ADD_ASSET");
@@ -207,7 +207,7 @@ contract Admin is IAdmin {
     }
 
     /// @notice Owner sets hard fences + relative maxDelta for the steward-bounded path.
-    function setRiskFences(address pool, address token, ARS.RiskFences calldata f) external onlyAdmin {
+    function setRiskFences(address pool, address token, IAdmin.RiskFences calldata f) external onlyAdmin {
         ARS.setFences(riskFences, pool, token, f);
     }
 
