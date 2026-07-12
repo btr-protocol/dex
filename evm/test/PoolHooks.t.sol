@@ -254,7 +254,7 @@ contract PoolHooksTest is Test {
     function _setHook(address token, address hook, uint32 flags) internal {
         vm.startPrank(OWNER);
         admin.requestSetAssetHook(address(pool), token, hook, flags);
-        vm.warp(block.timestamp + 1 days + 1);
+        vm.warp(block.timestamp + 3 days + 1); // HOOK-TIMELOCK: HIGH tier (3d)
         admin.executeSetAssetHook(address(pool), token);
         vm.stopPrank();
         // Refresh marks after warp (oracle TTL is uint16.max ≈ 18h).
