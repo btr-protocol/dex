@@ -215,6 +215,9 @@ contract PoolAux is ReentrancyGuardTransient {
         address t = PoolIO.wrap($, token);
         IPool.HookSlot memory h = $.assetHooks[t];
         if (msg.sender != h.target) revert Err.NotOwner();
+        // HALT-KEEP: block NEW deployment into a hook while the asset is frozen/paused. Recall
+        // (hookNotifyRecall) and loss-booking (hookWriteDown) stay open so funds can always exit.
+        if (($.riskConfigs[t].flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
         // Cannot create/increase invested without a recall path.
         if ((h.flags & C.HOOK_BEFORE_OUTFLOW) == 0) revert Err.InvalidState();
         if (amount == 0) revert Err.ZeroValue();

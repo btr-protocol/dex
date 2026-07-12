@@ -352,6 +352,39 @@ contract PoolHooksTest is Test {
         assertEq(balAfter, r - i + f, "R8 liquid conservation");
     }
 
+    /// @notice HALT-KEEP: while the asset is paused, NEW deploy (hookPull) reverts but fund recall
+    ///         (hookNotifyRecall) still works — an emergency halt must never strand invested capital.
+    function test_halt_blocks_deploy_allows_recall() public {
+        RecallHook hook = new RecallHook(address(quote));
+        _setHook(address(quote), address(hook), C.HOOK_BEFORE_OUTFLOW);
+
+        uint256 reserves = pool.getAsset(address(quote)).reserves;
+        uint256 keep = 1e18;
+        uint256 inv = reserves - keep;
+        uint256 fees = pool.getProtocolFees(address(quote));
+        deal(address(quote), address(hook), inv);
+        deal(address(quote), address(pool), keep + fees + inv);
+        vm.prank(address(hook));
+        IPool(address(pool)).hookPull(address(quote), inv); // deploy while healthy
+        assertEq(IPool(address(pool)).getInvested(address(quote)), inv);
+
+        vm.prank(OWNER);
+        admin.pauseAsset(address(pool), address(quote));
+
+        // New deployment blocked by HALT_MASK.
+        vm.prank(address(hook));
+        vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
+        IPool(address(pool)).hookPull(address(quote), 1e18);
+
+        // Recall still works while paused (transfer-before-notify).
+        uint256 recallAmt = inv / 2;
+        vm.prank(address(hook));
+        quote.transfer(address(pool), recallAmt);
+        vm.prank(address(hook));
+        IPool(address(pool)).hookNotifyRecall(address(quote), recallAmt);
+        assertEq(IPool(address(pool)).getInvested(address(quote)), inv - recallAmt, "recall works while paused");
+    }
+
     /// @notice Fail-closed when shortfall and hook cannot cover.
     function test_fail_closed_shortfall() public {
         CountingHook hook = new CountingHook();
