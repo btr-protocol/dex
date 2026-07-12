@@ -155,6 +155,23 @@ contract PoolFlashTest is Test {
         flashSingleton.flashLoan(address(pool), b, address(base), 1_000e18, abi.encode(address(pool)));
     }
 
+    /// @notice ACC-05: flashAccount must REVERT (not wrap) when the LP-fee credit would overflow the
+    ///         uint128 reserves. Unreachable via the public Flash path (amount ≤ reserves gates the fee),
+    ///         so we drive the Flash-authorized internal credit directly at the boundary.
+    function test_ACC05_flashAccount_reserve_overflow_reverts() public {
+        uint256 target = type(uint128).max - 3;
+        uint256 cur = pool.getAsset(address(base)).reserves;
+        uint256 topUp = target - cur;
+        base.mint(address(this), topUp);
+        pool.deposit(address(base), topUp);
+        assertEq(pool.getAsset(address(base)).reserves, target, "reserves at boundary");
+
+        // fee=10 exceeds the 3-unit headroom → ExcessiveAmount(10, 3).
+        vm.prank(address(flashSingleton));
+        vm.expectRevert(abi.encodeWithSelector(Err.ExcessiveAmount.selector, uint256(10), uint256(3)));
+        IPool(address(pool)).flashAccount(address(base), 10, 0);
+    }
+
     /// @notice R13: protoShare > 100 must revert at Pool.adminSetFeeParams (admin-gated path).
     function test_R13_protoShare_capped_adminSetFeeParams() public {
         uint8[29] memory pad;

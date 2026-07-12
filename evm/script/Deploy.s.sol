@@ -24,8 +24,9 @@ import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 ///         pre-wired to Treasury (mint/burn gateway). Treasury.distributor + Treasury.bridge
 ///         are wired post-deploy. PoolFactory ownership is transferred to AC.owner() so all
 ///         protocol governance funnels through one multisig. All addresses persisted to JSON.
-/// @dev    Required env: DEPLOYER_PK. Optional: DEPLOYER, TREASURY, LZ_ENDPOINT, GOV_NAME,
-///         GOV_SYMBOL, DEPLOY_OUT.
+/// @dev    Required env: DEPLOYER_PK, LZ_ENDPOINT (a deployed contract) — unless ALLOW_NO_LZ=1,
+///         which skips bridge deploy/wiring for LZ-less testnets. Optional: DEPLOYER, TREASURY,
+///         GOV_NAME, GOV_SYMBOL, DEPLOY_OUT.
 contract Deploy is DeployBase {
     struct Addrs {
         address deployer;
@@ -59,7 +60,16 @@ contract Deploy is DeployBase {
             require(d == a.deployer, "DEPLOYER/DEPLOYER_PK mismatch");
         } catch {}
         a.treasury_owner = _resolveTreasury(a.deployer);
-        address lzEndpoint = vm.envOr("LZ_ENDPOINT", address(0xDEAD));
+        // BRG-01: never wire the bridge to a defaulted/dead endpoint. Either LZ_ENDPOINT is
+        // explicitly set to a real on-chain contract (production), or bridge deployment is
+        // explicitly opted out via ALLOW_NO_LZ=1 (LZ-less testnet) — deploying a 0xDEAD/EOA
+        // endpoint would let a bricked/attacker-controlled endpoint govern cross-chain mint/burn.
+        bool allowNoLz = vm.envOr("ALLOW_NO_LZ", false);
+        address lzEndpoint;
+        if (!allowNoLz) {
+            lzEndpoint = vm.envAddress("LZ_ENDPOINT"); // reverts if unset — no silent default
+            require(lzEndpoint.code.length > 0, "LZ endpoint not a contract");
+        }
         string memory govName = vm.envOr("GOV_NAME", string("BTR Governance"));
         string memory govSymbol = vm.envOr("GOV_SYMBOL", string("BTR"));
 
@@ -91,10 +101,12 @@ contract Deploy is DeployBase {
         // 6. Wire Treasury <- govToken via initialize (write-once).
         Treasury(payable(a.treasuryProxy)).initialize(a.govToken);
 
-        // 7. Bridge (UUPS).
-        a.bridgeImpl = address(new Bridge(lzEndpoint, a.ac));
-        a.bridgeProxy = LibClone.deployERC1967(a.bridgeImpl);
-        Bridge(payable(a.bridgeProxy)).initialize();
+        // 7. Bridge (UUPS). Skipped entirely under ALLOW_NO_LZ — no dead endpoint deployed.
+        if (!allowNoLz) {
+            a.bridgeImpl = address(new Bridge(lzEndpoint, a.ac));
+            a.bridgeProxy = LibClone.deployERC1967(a.bridgeImpl);
+            Bridge(payable(a.bridgeProxy)).initialize();
+        }
 
         // 8. Post-deploy wiring (G13).
         //    - Treasury.distributor + Treasury.bridge MUST be set; GovToken cross-chain
@@ -104,7 +116,7 @@ contract Deploy is DeployBase {
         //      multisig as protocol-wide AccessControl. (deployer initially owns factory
         //      via _initializeOwner(msg.sender) in its constructor.)
         Treasury(payable(a.treasuryProxy)).setDistributor(a.distributor);
-        Treasury(payable(a.treasuryProxy)).setBridge(a.bridgeProxy);
+        if (a.bridgeProxy != address(0)) Treasury(payable(a.treasuryProxy)).setBridge(a.bridgeProxy);
         // PoolFactory migrated to AC-singleton (Track-B Phase-1): ownership funnels
         // through AC.owner() automatically; no separate transferOwnership call needed.
 

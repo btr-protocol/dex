@@ -60,8 +60,8 @@ contract MockVenus is IVBep20 {
 
     function _redeem(address user, uint256 shares, uint256 amt) private returns (uint256) {
         if (shares > balanceOf[user]) revert Err.InsufficientAmount(balanceOf[user], shares);
-        uint256 cash = getCash();
-        if (cash < totalReserves || cash - totalReserves < amt) revert InsufficientCash();
+        // Venus/Compound redeemUnderlying checks getCash() only (not cash − reserves).
+        if (getCash() < amt) revert InsufficientCash();
         balanceOf[user] -= shares;
         totalSupply -= shares;
         underlying.safeTransfer(user, amt);

@@ -12,6 +12,7 @@ import {Timelock as TL} from "@btr-shared/Timelock.sol";
 import {AdminTimelock as ATL} from "./libraries/AdminTimelock.sol";
 import {AdminHooks as AH} from "./libraries/AdminHooks.sol";
 import {AdminRisk as AR} from "./libraries/AdminRisk.sol";
+import {AdminRiskSteward as ARS} from "./libraries/AdminRiskSteward.sol";
 
 /// @title Admin
 /// @notice Standalone singleton governance contract. Replaces the former Admin Diamond module.
@@ -36,6 +37,9 @@ contract Admin is IAdmin {
     ///         requestAddAsset/executeAddAsset path (LP exit notice). Sealing is a one-way latch.
     mapping(address pool => bool) public bootstrapSealed;
 
+    /// @notice Steward-lite fences for `setAssetParamsBounded` (owner sets; steward consumes).
+    mapping(address pool => mapping(address token => ARS.RiskFences)) public riskFences;
+
     // ── op-id namespaces (per-pool) ──
     bytes32 private constant OP_ADD_ASSET            = keccak256("ADD_ASSET");
     bytes32 private constant OP_UPDATE_RISK          = keccak256("UPDATE_RISK");
@@ -53,6 +57,20 @@ contract Admin is IAdmin {
 
     modifier onlyAdmin() {
         if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+        _;
+    }
+
+    /// @dev Owner or AC.isGuardian — safe-direction halt only (freeze/pause).
+    modifier onlyGuardianOrAdmin() {
+        AccessControl ac_ = AccessControl(AC);
+        if (msg.sender != ac_.owner() && !ac_.isGuardian(msg.sender)) revert Ownable.Unauthorized();
+        _;
+    }
+
+    /// @dev Owner or AC.isRiskSteward — bounded param writes only.
+    modifier onlyRiskStewardOrAdmin() {
+        AccessControl ac_ = AccessControl(AC);
+        if (msg.sender != ac_.owner() && !ac_.isRiskSteward(msg.sender)) revert Ownable.Unauthorized();
         _;
     }
 
@@ -88,7 +106,7 @@ contract Admin is IAdmin {
 
     // ─── one-shot setters ───
 
-    function freezeAsset(address pool, address token) external onlyAdmin {
+    function freezeAsset(address pool, address token) external onlyGuardianOrAdmin {
         AR.freeze(pool, token);
     }
 
@@ -96,12 +114,9 @@ contract Admin is IAdmin {
         AR.unfreeze(pool, token);
     }
 
-    /// @notice Guardian emergency halt for one asset on one pool (bit6, separate from FROZEN so
-    ///         unpausing never clobbers an independent risk freeze). Protocol-wide = loop these over
-    ///         PoolFactory.getPoolsForToken / getPoolTokens off-chain via Safe MultiSend (Multicall3
-    ///         fails onlyAdmin — msg.sender must be the AC owner). // ponytail: onlyAdmin today; a
-    ///         dedicated fast onlyPauser guardian (never the keeper key) is the next-layer upgrade.
-    function pauseAsset(address pool, address token) external onlyAdmin {
+    /// @notice Guardian/owner emergency halt (bit6). Separate from FROZEN so unpausing never
+    ///         clobbers an independent risk freeze. Unpause remains owner-only (asymmetric).
+    function pauseAsset(address pool, address token) external onlyGuardianOrAdmin {
         AR.pause(pool, token);
     }
 
@@ -109,15 +124,15 @@ contract Admin is IAdmin {
         AR.unpause(pool, token);
     }
 
-    /// @notice Batch a freeze/unfreeze/pause/unpause across (pool,token) pairs in ONE owner tx — works
-    ///         from an EOA OR a multisig (no Safe MultiSend / Multicall3 needed; the loop runs inside
-    ///         `Admin`, so `msg.sender` stays the AC owner throughout). The UI/operator enumerates pools
-    ///         off-chain (`PoolFactory.officialPools` / `getPoolsForToken` / `getPoolTokens`) and passes
-    ///         the arrays. Per-leg try/catch: a bad leg (uninit pool / unlisted asset) is SKIPPED +
-    ///         logged (`BatchLegSkipped`), so one failure never bricks an emergency sweep — reconcile
-    ///         from the events. // ponytail: onlyAdmin today; a dedicated fast onlyPauser guardian
-    ///         (never the keeper key) is the next-layer upgrade.
-    function batchRiskOp(address[] calldata pools, address[] calldata tokens, BatchOp op) external onlyAdmin {
+    /// @notice Batch freeze/pause (guardian or owner) / unfreeze/unpause (owner only).
+    ///         Per-leg try/catch: a bad leg is skipped so one failure never bricks a sweep.
+    function batchRiskOp(address[] calldata pools, address[] calldata tokens, BatchOp op) external {
+        AccessControl ac_ = AccessControl(AC);
+        bool isOwner = msg.sender == ac_.owner();
+        if (!isOwner && !ac_.isGuardian(msg.sender)) revert Ownable.Unauthorized();
+        if (!isOwner && (op == BatchOp.Unfreeze || op == BatchOp.Unpause)) {
+            revert Ownable.Unauthorized();
+        }
         AR.batch(pools, tokens, op);
     }
 
@@ -188,6 +203,41 @@ contract Admin is IAdmin {
         ATL.setAssetParams(
             pool, token, minLiquidity, minFeeBps, maxFeeBps,
             gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax
+        );
+    }
+
+    /// @notice Owner sets hard fences + relative maxDelta for the steward-bounded path.
+    function setRiskFences(address pool, address token, ARS.RiskFences calldata f) external onlyAdmin {
+        ARS.setFences(riskFences, pool, token, f);
+    }
+
+    /// @notice Risk steward (or owner): setAssetParams under hard fences + relative risk-up clamp.
+    ///         Tighten (more defensive) is exempt from the relative clamp. Owner unbounded path
+    ///         remains `setAssetParams`.
+    function setAssetParamsBounded(
+        address pool,
+        address token,
+        uint128 minLiquidity,
+        uint16 minFeeBps,
+        uint16 maxFeeBps,
+        uint16 gamma,
+        uint16 vega,
+        uint16 haircutSuppressor,
+        uint64 reservationPrice,
+        uint64 reservationPriceMax
+    ) external onlyRiskStewardOrAdmin {
+        ARS.setAssetParamsBounded(
+            riskFences,
+            pool,
+            token,
+            minLiquidity,
+            minFeeBps,
+            maxFeeBps,
+            gamma,
+            vega,
+            haircutSuppressor,
+            reservationPrice,
+            reservationPriceMax
         );
     }
 
