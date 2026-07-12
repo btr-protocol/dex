@@ -27,11 +27,11 @@
         "vega": 10000,
         "oracleMode": "EXTERNAL",
         "refBandBps": 100,
-        "thetaBps": 0.1,
+        "thetaBps": 0.5,
         "heartbeatS": 1800,
         "ttlS": 7200
       },
-      "_paramNote": "Competitiveness: minFee 0.1bp + θ 0.1bp + tight per-asset dispersion (1–6bp bands from observed peg ranges) + 4-knot center-bump profile. Absolute peg discounts (e.g. FDUSD ~0.997) live in the NXR mark; dispersion is WIDTH around mark only.",
+      "_paramNote": "Competitiveness: minFee 0.1bp + θ 0.5bp (cadence target ≤50–60/h; was 0.1bp → ~118/h noise) + tight per-asset dispersion (1–6bp bands from observed peg ranges) + 4-knot center-bump profile. Absolute peg discounts (e.g. FDUSD ~0.997) live in the NXR mark; dispersion is WIDTH around mark only.",
       "assets": {
         "USDC":  { "minFeeBps": 10, "minDispersion": 100,  "maxDispersion": 2000,  "refBandBps": 0 },
         "USDT":  { "minFeeBps": 10, "minDispersion": 600,  "maxDispersion": 6000,  "refBandBps": 100, "refFeedId": "USDC" },
@@ -73,11 +73,11 @@
         "vega": 10000,
         "oracleMode": "EXTERNAL",
         "refBandBps": 0,
-        "thetaBps": 10,
-        "heartbeatS": 300,
+        "thetaBps": 5,
+        "heartbeatS": 60,
         "ttlS": 600
       },
-      "_paramNote": "Fee charged = pathSpread/2 (Pricing.sol). Mean arb gate (not worst-case 2θ): center_error_mean ≤ minFee/2. Replay BTC/ETH/BNB: θ=10+fee=10 PASS (edge −0.6bp); θ=10+fee=5 FAIL; θ=5+fee=10 PASS but ~70% more pushes. Launch: minFee=10bp (1000 PBPS), θ=10. Dispersion 2026-07-11: minDisp 50_000 PBPS (5%) × knots ±50 → ±2.5% half-band (was 1000/±5bp — too tight for BTC depth viz). fee=5 only if θ≲5 and you accept higher keeper gas — still FAIL at θ=5/fee=5 on mean edge.",
+      "_paramNote": "Fee charged = pathSpread/2 (Pricing.sol). Mean arb gate (not worst-case 2θ): center_error_mean ≤ minFee/2. 2026-07-12 cadence: θ=5 + heartbeat=60 (~1/min freshness); minFee stays 10bp. Launch note: θ=10+fee=10 PASS on mean edge; θ below fee is OK for mark freshness (gas) — fee still gates arb.",
       "assets": {
         "USDC": { "minFeeBps": 1000 },
         "USDT": { "minFeeBps": 1000, "refBandBps": 100, "refFeedId": "USDC" },
@@ -104,6 +104,6 @@
   "feeFloorsHuman": {
     "protocolMinBp": 0.01,
     "protocolMinPercent": 0.0001,
-    "note": "Launch: stable ~0.1bp (10 PBPS) with θ=0.1; volatile 10bp (1000 PBPS) with θ=10. Fee charged is half path spread, so mean arb gate is center_error ≤ minFee/2. Volatile fee=5 fails that gate at θ=10."
+    "note": "Launch: stable ~0.1bp (10 PBPS) with θ=0.5 (cadence ≤~60/h); volatile 10bp (1000 PBPS) with θ=5 + heartbeat 60s. Fee charged is half path spread, so mean arb gate is center_error ≤ minFee/2."
   }
 }
