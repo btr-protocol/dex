@@ -15,6 +15,7 @@ import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {TestnetERC20} from "../src/testnet/TestnetERC20.sol";
+import {ChapelSeedAmounts} from "./ChapelSeedAmounts.sol";
 
 /// @title ChapelEnableSwaps — surgical Chapel reseed: new AC+Admin+pools; keep oracle/tokens/faucet.
 /// @notice Bakes `deploy/testnet-asset-params.json` (2026-07-12b): stable κ wall, γ=2×, refs, fees.
@@ -263,14 +264,8 @@ contract ChapelEnableSwaps is Script {
         o.mode = 0;
     }
 
-    function _seedAmount(address tok, uint256 seedUsdc) internal pure returns (uint256) {
-        if (tok == USDC || tok == USDT || tok == USD1 || tok == USDE || tok == FDUSD) return seedUsdc;
-        if (tok == BTCB) return seedUsdc * 1e18 / 64_250e18;
-        if (tok == ETH) return seedUsdc * 1e18 / 1_802e18;
-        if (tok == WBNB) return seedUsdc * 1e18 / 582e18;
-        if (tok == CAKE) return seedUsdc * 1e18 / 1.43e18;
-        if (tok == XAUT) return seedUsdc * 1e18 / 4_105e18;
-        return seedUsdc;
+    function _seedAmount(address tok, uint256 seedUsdc) internal view returns (uint256) {
+        return ChapelSeedAmounts.seedAmount(tok, seedUsdc);
     }
 
     function _seedPool(Pool pool, address[] memory tokens, uint256 seedUsdc) internal {
