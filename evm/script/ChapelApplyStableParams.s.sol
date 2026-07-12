@@ -41,8 +41,8 @@ contract ChapelApplyStableParams is Script {
         for (uint256 i = 0; i < toks.length; i++) {
             address tok = toks[i];
             (uint16 minFee, uint32 minDisp, uint32 maxDisp, uint16 refBand) = _params(tok);
-            // Preserve live haircutSuppressor=10000 / zero reservation band / zero minLiquidity.
-            admin.setAssetParams(STABLE, tok, 0, minFee, 2000, 10_000, 10_000, 10_000, 0, 0);
+            // gamma=20000 (2× inventory skew), vega=1×, haircutSuppressor=10000
+            admin.setAssetParams(STABLE, tok, 0, minFee, 2000, 20_000, 10_000, 10_000, 0, 0);
             admin.requestUpdateProfile(STABLE, tok, _profile(), minDisp, maxDisp);
             admin.requestOracleUpdate(STABLE, tok, _oracle(tok, refBand));
             console2.log("queued", tok, minFee, refBand);
@@ -76,10 +76,10 @@ contract ChapelApplyStableParams is Script {
     }
 
     function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-        // sharedLiquidityProfile: knots [-50,-12,12,50] · weights [25,150,25]
-        p.weights[0] = 25;
-        p.weights[1] = 150;
-        p.weights[2] = 25;
+        // Milder center bump (post 2026-07-12): knots [-50,-12,12,50] · weights [50,100,50]
+        p.weights[0] = 50;
+        p.weights[1] = 100;
+        p.weights[2] = 50;
         p.knots[0] = -50;
         p.knots[1] = -12;
         p.knots[2] = 12;
@@ -91,11 +91,12 @@ contract ChapelApplyStableParams is Script {
         pure
         returns (uint16 minFee, uint32 minDisp, uint32 maxDisp, uint16 refBand)
     {
-        if (tok == USDC) return (10, 100, 2000, 50);
-        if (tok == USDT) return (10, 600, 6000, 100);
-        if (tok == USD1) return (10, 500, 5000, 150);
-        if (tok == USDE) return (15, 500, 5000, 200);
-        if (tok == FDUSD) return (15, 500, 5000, 200);
+        // minFee in PBPS (100=1bp). Post-drain floors: 0.5bp stables, 1bp FDUSD.
+        if (tok == USDC) return (50, 200, 2000, 50);
+        if (tok == USDT) return (50, 600, 6000, 100);
+        if (tok == USD1) return (50, 500, 5000, 150);
+        if (tok == USDE) return (75, 800, 5000, 200);
+        if (tok == FDUSD) return (100, 1000, 8000, 200);
         revert("unknown");
     }
 
