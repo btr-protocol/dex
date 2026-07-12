@@ -1,8 +1,8 @@
 {
   "chainId": 97,
   "pools": {
-    "stable": "0xC954A27E69ae7C9d10a136c4f7F3910b38F09324",
-    "volatile": "0x88d5EC4C0c83391a9C84Bc196911084D7179AA40"
+    "stable": "0xfF83da2711888dCb8B50dc6c1EF0b8F91424d23f",
+    "volatile": "0x68fDAA0be33D4d78AbeEF63aB8A32A6751d2F4C8"
   },
   "tokens": {
     "USDC": "0x6dF80a290E0585dad752c25f2808E83b5624290d",

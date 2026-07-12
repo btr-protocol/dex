@@ -55,23 +55,19 @@ contract Admin is IAdmin {
         AC = ac_;
     }
 
-    modifier onlyAdmin() {
+    /// @dev Inlined as internal (not modifiers) — EIP-170: modifiers duplicate jumpdests per use site.
+    function _onlyAdmin() internal view {
         if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
-        _;
     }
 
-    /// @dev Owner or AC.isGuardian — safe-direction halt only (freeze/pause).
-    modifier onlyGuardianOrAdmin() {
+    function _onlyGuardianOrAdmin() internal view {
         AccessControl ac_ = AccessControl(AC);
         if (msg.sender != ac_.owner() && !ac_.isGuardian(msg.sender)) revert Ownable.Unauthorized();
-        _;
     }
 
-    /// @dev Owner or AC.isRiskSteward — bounded param writes only.
-    modifier onlyRiskStewardOrAdmin() {
+    function _onlyRiskStewardOrAdmin() internal view {
         AccessControl ac_ = AccessControl(AC);
         if (msg.sender != ac_.owner() && !ac_.isRiskSteward(msg.sender)) revert Ownable.Unauthorized();
-        _;
     }
 
     function _key(address pool, bytes32 opId) internal pure returns (bytes32) {
@@ -106,21 +102,25 @@ contract Admin is IAdmin {
 
     // ─── one-shot setters ───
 
-    function freezeAsset(address pool, address token) external onlyGuardianOrAdmin {
+    function freezeAsset(address pool, address token) external {
+        _onlyGuardianOrAdmin();
         AR.freeze(pool, token);
     }
 
-    function unfreezeAsset(address pool, address token) external onlyAdmin {
+    function unfreezeAsset(address pool, address token) external {
+        _onlyAdmin();
         AR.unfreeze(pool, token);
     }
 
     /// @notice Guardian/owner emergency halt (bit6). Separate from FROZEN so unpausing never
     ///         clobbers an independent risk freeze. Unpause remains owner-only (asymmetric).
-    function pauseAsset(address pool, address token) external onlyGuardianOrAdmin {
+    function pauseAsset(address pool, address token) external {
+        _onlyGuardianOrAdmin();
         AR.pause(pool, token);
     }
 
-    function unpauseAsset(address pool, address token) external onlyAdmin {
+    function unpauseAsset(address pool, address token) external {
+        _onlyAdmin();
         AR.unpause(pool, token);
     }
 
@@ -148,7 +148,8 @@ contract Admin is IAdmin {
         uint32 maxDispersion,
         uint16 gamma,
         uint16 vega
-    ) external onlyAdmin {
+    ) external {
+        _onlyAdmin();
         // GOV-03: after seal, only the timelocked path remains.
         ATL.addAssetBootstrap(
             bootstrapSealed, pool, token, oracleCfg, riskCfg, profile,
@@ -158,7 +159,8 @@ contract Admin is IAdmin {
 
     /// @notice GOV-03: permanently close the direct `addAsset` bootstrap path for a pool. Call once
     ///         BEFORE opening the pool to public liquidity; afterwards every listing is timelocked.
-    function sealBootstrap(address pool) external onlyAdmin {
+    function sealBootstrap(address pool) external {
+        _onlyAdmin();
         bootstrapSealed[pool] = true;
         emit BootstrapSealed(pool);
     }
@@ -171,11 +173,13 @@ contract Admin is IAdmin {
         emit ProtocolFeesCollected(pool, token, recipient, amount);
     }
 
-    function setFlowCooldown(address pool, uint16 cooldownSeconds) external onlyAdmin {
+    function setFlowCooldown(address pool, uint16 cooldownSeconds) external {
+        _onlyAdmin();
         AR.setFlowCooldown(pool, cooldownSeconds);
     }
 
-    function setAnchor(address pool, address token, address anchor) external onlyAdmin {
+    function setAnchor(address pool, address token, address anchor) external {
+        _onlyAdmin();
         AR.setAnchor(pool, token, anchor);
     }
 
@@ -184,7 +188,8 @@ contract Admin is IAdmin {
     ///         duress; the only effect on the bad-actor axis is making swaps *stricter*
     ///         (revert-on-depeg), not looser. Pass `oracle = address(0)` to revert to the
     ///         legacy stable-base 1e18-hardcoded path.
-    function setBaseTokenOracle(address pool, address oracle, bytes32 feedId) external onlyAdmin {
+    function setBaseTokenOracle(address pool, address oracle, bytes32 feedId) external {
+        _onlyAdmin();
         AR.setBaseTokenOracle(pool, oracle, feedId);
     }
 
@@ -199,7 +204,8 @@ contract Admin is IAdmin {
         uint16 haircutSuppressor,
         uint64 reservationPrice,
         uint64 reservationPriceMax
-    ) external onlyAdmin {
+    ) external {
+        _onlyAdmin();
         ATL.setAssetParams(
             pool, token, minLiquidity, minFeeBps, maxFeeBps,
             gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax
@@ -207,7 +213,8 @@ contract Admin is IAdmin {
     }
 
     /// @notice Owner sets hard fences + relative maxDelta for the steward-bounded path.
-    function setRiskFences(address pool, address token, IAdmin.RiskFences calldata f) external onlyAdmin {
+    function setRiskFences(address pool, address token, IAdmin.RiskFences calldata f) external {
+        _onlyAdmin();
         ARS.setFences(riskFences, pool, token, f);
     }
 
@@ -225,7 +232,8 @@ contract Admin is IAdmin {
         uint16 haircutSuppressor,
         uint64 reservationPrice,
         uint64 reservationPriceMax
-    ) external onlyRiskStewardOrAdmin {
+    ) external {
+        _onlyRiskStewardOrAdmin();
         ARS.setAssetParamsBounded(
             riskFences,
             pool,
@@ -255,7 +263,8 @@ contract Admin is IAdmin {
         uint32 maxDispersion,
         uint16 gamma,
         uint16 vega
-    ) external onlyAdmin {
+    ) external {
+        _onlyAdmin();
         bytes32 key = _keyToken(pool, OP_ADD_ASSET, token);
         ATL.AddAssetPayload memory p = ATL.AddAssetPayload({
             token: token,
@@ -272,18 +281,21 @@ contract Admin is IAdmin {
         _emitQueued(key, SC.govDelay(SC.LOW_TIMELOCK), ATL.encodeAddAsset(p), pool, uint8(IPool.OpType.ADD_ASSET));
     }
 
-    function executeAddAsset(address pool, address token) external onlyAdmin {
+    function executeAddAsset(address pool, address token) external {
+        _onlyAdmin();
         bytes32 key = _keyToken(pool, OP_ADD_ASSET, token);
         uint8 decimals = ATL.applyAddAsset(pool, token, _consume(key));
         emit AssetAdded(pool, token, decimals, 0);
     }
 
-    function requestUpdateRiskConfig(address pool, address token, IPool.RiskConfig calldata cfg) external onlyAdmin {
+    function requestUpdateRiskConfig(address pool, address token, IPool.RiskConfig calldata cfg) external {
+        _onlyAdmin();
         bytes32 key = _keyToken(pool, OP_UPDATE_RISK, token);
         _emitQueued(key, SC.govDelay(SC.LOW_TIMELOCK), abi.encode(token, cfg), pool, uint8(IPool.OpType.UPDATE_RISK));
     }
 
-    function executeUpdateRiskConfig(address pool, address token) external onlyAdmin {
+    function executeUpdateRiskConfig(address pool, address token) external {
+        _onlyAdmin();
         bytes32 key = _keyToken(pool, OP_UPDATE_RISK, token);
         (address storedToken, IPool.RiskConfig memory cfg) = abi.decode(_consume(key), (address, IPool.RiskConfig));
         if (storedToken != token) revert Err.InvalidInput();
@@ -301,7 +313,8 @@ contract Admin is IAdmin {
         IPool.LiquidityProfile calldata newProfile,
         uint32 minDispersion,
         uint32 maxDispersion
-    ) external onlyAdmin {
+    ) external {
+        _onlyAdmin();
         bytes32 key = _keyToken(pool, OP_UPDATE_PROFILE, token);
         _emitQueued(
             key,
@@ -312,7 +325,8 @@ contract Admin is IAdmin {
         );
     }
 
-    function executeUpdateProfile(address pool, address token) external onlyAdmin {
+    function executeUpdateProfile(address pool, address token) external {
+        _onlyAdmin();
         bytes32 key = _keyToken(pool, OP_UPDATE_PROFILE, token);
         (address storedToken, IPool.LiquidityProfile memory profile, uint32 minDisp, uint32 maxDisp) =
             abi.decode(_consume(key), (address, IPool.LiquidityProfile, uint32, uint32));
@@ -321,16 +335,19 @@ contract Admin is IAdmin {
         emit ProfileUpdated(pool, token);
     }
 
-    function cancelUpdateProfile(address pool, address token) external onlyAdmin {
+    function cancelUpdateProfile(address pool, address token) external {
+        _onlyAdmin();
         _cancel(pool, _keyToken(pool, OP_UPDATE_PROFILE, token), uint8(IPool.OpType.UPDATE_PROFILE));
     }
 
-    function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external onlyAdmin {
+    function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external {
+        _onlyAdmin();
         bytes32 key = _key(pool, OP_UPDATE_FEES);
         _emitQueued(key, SC.govDelay(SC.LOW_TIMELOCK), abi.encode(params), pool, uint8(IPool.OpType.UPDATE_FEES));
     }
 
-    function executeUpdateFeeParams(address pool) external onlyAdmin {
+    function executeUpdateFeeParams(address pool) external {
+        _onlyAdmin();
         bytes32 key = _key(pool, OP_UPDATE_FEES);
         IPool.FeeParams memory params = abi.decode(_consume(key), (IPool.FeeParams));
         if (params.protoShare > 100) revert Err.InvalidInput();
@@ -338,43 +355,51 @@ contract Admin is IAdmin {
         emit FeeParamsUpdated(pool, params.protoShare, params.flashFeeBps);
     }
 
-    function requestBridgeUpdate(address pool, address newBridge) external onlyAdmin {
+    function requestBridgeUpdate(address pool, address newBridge) external {
+        _onlyAdmin();
         _emitQueued(_key(pool, OP_UPDATE_BRIDGE), SC.govDelay(SC.HIGH_TIMELOCK), abi.encode(newBridge), pool, uint8(IPool.OpType.UPDATE_BRIDGE));
     }
 
-    function executeBridgeUpdate(address pool) external onlyAdmin {
+    function executeBridgeUpdate(address pool) external {
+        _onlyAdmin();
         address newBridge = abi.decode(_consume(_key(pool, OP_UPDATE_BRIDGE)), (address));
         IPool(pool).adminSetBridge(newBridge);
         emit BridgeUpdated(pool, address(0), newBridge);
     }
 
-    function requestTreasuryUpdate(address pool, address newTreasury) external onlyAdmin {
+    function requestTreasuryUpdate(address pool, address newTreasury) external {
+        _onlyAdmin();
         if (newTreasury == address(0)) revert Err.ZeroValue();
         _emitQueued(_key(pool, OP_UPDATE_TREASURY), SC.govDelay(SC.HIGH_TIMELOCK), abi.encode(newTreasury), pool, uint8(IPool.OpType.UPDATE_TREASURY));
     }
 
-    function executeTreasuryUpdate(address pool) external onlyAdmin {
+    function executeTreasuryUpdate(address pool) external {
+        _onlyAdmin();
         address newTreasury = abi.decode(_consume(_key(pool, OP_UPDATE_TREASURY)), (address));
         IPool(pool).adminSetTreasury(newTreasury);
         emit TreasuryUpdated(pool, address(0), newTreasury);
     }
 
-    function requestBaseMigration(address pool, address newBase) external onlyAdmin {
+    function requestBaseMigration(address pool, address newBase) external {
+        _onlyAdmin();
         _emitQueued(_key(pool, OP_BASE_MIGRATION), SC.govDelay(SC.CRITICAL_TIMELOCK), abi.encode(newBase), pool, uint8(IPool.OpType.MIGRATE_BASE_TOKEN));
     }
 
-    function executeBaseMigration(address pool) external onlyAdmin {
+    function executeBaseMigration(address pool) external {
+        _onlyAdmin();
         address newBase = abi.decode(_consume(_key(pool, OP_BASE_MIGRATION)), (address));
         IPool(pool).adminSetBaseToken(newBase);
         emit BaseTokenMigrated(pool, address(0), newBase);
     }
 
-    function requestOracleUpdate(address pool, address token, IPool.OracleConfig calldata cfg) external onlyAdmin {
+    function requestOracleUpdate(address pool, address token, IPool.OracleConfig calldata cfg) external {
+        _onlyAdmin();
         bytes32 key = _keyToken(pool, OP_UPDATE_ORACLE, token);
         _emitQueued(key, SC.govDelay(SC.BASE_TIMELOCK), abi.encode(token, cfg), pool, uint8(IPool.OpType.UPDATE_ORACLE));
     }
 
-    function executeOracleUpdate(address pool, address token) external onlyAdmin {
+    function executeOracleUpdate(address pool, address token) external {
+        _onlyAdmin();
         bytes32 key = _keyToken(pool, OP_UPDATE_ORACLE, token);
         (address storedToken, IPool.OracleConfig memory cfg) = abi.decode(_consume(key), (address, IPool.OracleConfig));
         if (storedToken != token) revert Err.InvalidInput();
@@ -382,36 +407,44 @@ contract Admin is IAdmin {
         emit OracleUpdated(pool, token);
     }
 
-    function cancelOracleUpdate(address pool, address token) external onlyAdmin {
+    function cancelOracleUpdate(address pool, address token) external {
+        _onlyAdmin();
         _cancel(pool, _keyToken(pool, OP_UPDATE_ORACLE, token), uint8(IPool.OpType.UPDATE_ORACLE));
     }
 
-    function cancelAddAsset(address pool, address token) external onlyAdmin {
+    function cancelAddAsset(address pool, address token) external {
+        _onlyAdmin();
         _cancel(pool, _keyToken(pool, OP_ADD_ASSET, token), uint8(IPool.OpType.ADD_ASSET));
     }
 
-    function cancelUpdateRiskConfig(address pool, address token) external onlyAdmin {
+    function cancelUpdateRiskConfig(address pool, address token) external {
+        _onlyAdmin();
         _cancel(pool, _keyToken(pool, OP_UPDATE_RISK, token), uint8(IPool.OpType.UPDATE_RISK));
     }
 
-    function requestSetAssetHook(address pool, address token, address hook, uint32 flags) external onlyAdmin {
+    function requestSetAssetHook(address pool, address token, address hook, uint32 flags) external {
+        _onlyAdmin();
         AH.request(pendingOps, pendingData, pool, token, hook, flags);
     }
 
-    function executeSetAssetHook(address pool, address token) external onlyAdmin {
+    function executeSetAssetHook(address pool, address token) external {
+        _onlyAdmin();
         AH.execute(pendingOps, pendingData, pool, token);
     }
 
-    function cancelSetAssetHook(address pool, address token) external onlyAdmin {
+    function cancelSetAssetHook(address pool, address token) external {
+        _onlyAdmin();
         AH.cancel(pendingOps, pendingData, pool, token);
     }
 
     /// @notice Immediate clear: fail-closed if invested > 0 (recall first).
-    function clearAssetHook(address pool, address token) external onlyAdmin {
+    function clearAssetHook(address pool, address token) external {
+        _onlyAdmin();
         AH.clear(pool, token);
     }
 
-    function cancelTimelock(address pool, uint8 opType) external onlyAdmin {
+    function cancelTimelock(address pool, uint8 opType) external {
+        _onlyAdmin();
         bytes32 key;
         if (opType == uint8(IPool.OpType.MIGRATE_BASE_TOKEN)) key = _key(pool, OP_BASE_MIGRATION);
         else if (opType == uint8(IPool.OpType.UPDATE_BRIDGE)) key = _key(pool, OP_UPDATE_BRIDGE);
