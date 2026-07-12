@@ -13,7 +13,7 @@ Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under
 - **Piecewise bonding curve** — Adaptive liquidity distribution with volatility-based breadth.
 - **Protocol fees** — Configurable split between LPs and treasury.
 - **Risk + admin controls** — Per-pool freezes, circuit breakers, fee curation via the per-chain `Admin` singleton.
-- **Per-asset hooks (dual ledger)** — Optional `IPoolHooks` (`beforeOutflow`, `postDeposit`) for physical rehypothecation; `VenusHook` + Chapel `MockVenus` shipped as the example strategy. Pricing uses full economic reserves; executable cash is liquid reserves (`reserves − invested`).
+- **Per-asset hooks (dual ledger)** — Optional `IPoolHooks` (`beforeOutflow`, `postDeposit`) for physical rehypothecation; `YieldHook` family (`CompoundV2`/`VenusHook`, Aave V3, experimental Aave V4 Spoke, ERC4626/Morpho Vault/Felix Vanilla, Morpho Blue, Euler V2). Incentives sweep to treasury (no in-hook swaps). Pricing uses full economic reserves; executable cash is liquid reserves (`reserves − invested`).
 
 ## Off-chain reads (no storage getters)
 
@@ -108,7 +108,7 @@ slither . --filter-paths 'test|.deps'
 - Overflow protection: Solidity 0.8 checked arithmetic + explicit range checks/casts.
 - Access control: role-based via shared `AccessControl`.
 - Circuit breakers: manual owner-only freeze/pause via `Admin` (`freezeAsset`/`pauseAsset`/`batchRiskOp`); automatic gates = feed TTL staleness halt, confidence halt, depeg bands, opt-in per-feed push deviation clamp on `ExternalOracle`. Hook invested NAV: no on-chain breaker — harvest SLA / pause is ops control for stale book.
-- All compiled artifacts ≪ 24 576-byte EIP-170 cap (`forge build --sizes`; `ContractSizeTest` asserts Pool / PoolAux / Admin / Flash / VenusHook).
+- All compiled artifacts ≪ 24 576-byte EIP-170 cap (`forge build --sizes`; `ContractSizeTest` asserts Pool / PoolAux / Admin / Flash / YieldHook adapters).
 
 ## License
 
