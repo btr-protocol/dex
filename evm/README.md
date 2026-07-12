@@ -13,7 +13,7 @@ Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under
 - **Piecewise bonding curve** — Adaptive liquidity distribution with volatility-based breadth.
 - **Protocol fees** — Configurable split between LPs and treasury.
 - **Risk + admin controls** — Per-pool freezes, circuit breakers, fee curation via the per-chain `Admin` singleton.
-- **Per-asset hooks (dual ledger)** — Optional `IPoolHooks` (`beforeOutflow`, `postDeposit`) for physical rehypothecation; `YieldHook` family (`CompoundV2`/`VenusHook`, Aave V3, experimental Aave V4 Spoke, ERC4626/Morpho Vault/Felix Vanilla, Morpho Blue, Euler V2). Incentives sweep to treasury (no in-hook swaps). Pricing uses full economic reserves; executable cash is liquid reserves (`reserves − invested`).
+- **Per-asset hooks (dual ledger)** — Optional `IPoolHooks` (`beforeOutflow`, `postDeposit`) for physical rehypothecation; `YieldHook` family (`CompoundV2`/`VenusHook`, Aave V3, **experimental** Aave V4 Spoke (no mainnet pin), ERC4626/Morpho Vault/Felix Vanilla, Morpho Blue, Euler V2). Incentives sweep to treasury (no in-hook swaps). Harvest credits capped by `maxHarvestCreditBps` (default 100). Morpho Blue NAV = virtual shares only (no IRM accrual in view). Pricing uses full economic reserves; executable cash is liquid reserves (`reserves − invested`).
 
 ## Off-chain reads (no storage getters)
 

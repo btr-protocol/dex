@@ -5,10 +5,13 @@ import {IMorphoBlue, MorphoId} from "../interfaces/external/IMorphoBlue.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title MockMorphoBlue — supply-only Morpho Blue market stub.
+/// @title MockMorphoBlue — supply-only Morpho Blue market stub (SharesMathLib virtual shares).
 contract MockMorphoBlue is IMorphoBlue {
     using SafeTransferLib for address;
     using MorphoId for MarketParams;
+
+    uint256 internal constant VIRTUAL_SHARES = 1e6;
+    uint256 internal constant VIRTUAL_ASSETS = 1;
 
     mapping(bytes32 => MarketParams) internal _params;
     mapping(bytes32 => uint128) public totalSupplyAssets;
@@ -16,6 +19,12 @@ contract MockMorphoBlue is IMorphoBlue {
     mapping(bytes32 => uint128) public totalBorrowAssets;
     mapping(bytes32 => uint128) public totalBorrowShares;
     mapping(bytes32 => mapping(address => uint256)) public supplySharesOf;
+
+    /// @notice Inject supply totals (e.g. simulate IRM accrual without touching shares).
+    function setSupplyTotals(bytes32 id_, uint128 assets, uint128 shares) external {
+        totalSupplyAssets[id_] = assets;
+        totalSupplyShares[id_] = shares;
+    }
 
     function setMarket(MarketParams calldata params_) external {
         bytes32 id_ = params_.id();
@@ -66,9 +75,9 @@ contract MockMorphoBlue is IMorphoBlue {
         bytes32 id_ = marketParams.id();
         if (_params[id_].loanToken == address(0)) revert Err.BadConfig();
         marketParams.loanToken.safeTransferFrom(msg.sender, address(this), assets);
-        uint256 shares = totalSupplyShares[id_] == 0
-            ? assets
-            : (assets * uint256(totalSupplyShares[id_])) / uint256(totalSupplyAssets[id_]);
+        // SharesMathLib.toSharesDown
+        uint256 shares = (assets * (uint256(totalSupplyShares[id_]) + VIRTUAL_SHARES))
+            / (uint256(totalSupplyAssets[id_]) + VIRTUAL_ASSETS);
         totalSupplyAssets[id_] += uint128(assets);
         totalSupplyShares[id_] += uint128(shares);
         supplySharesOf[id_][onBehalf] += shares;
@@ -84,13 +93,16 @@ contract MockMorphoBlue is IMorphoBlue {
     ) external override returns (uint256 assetsWithdrawn, uint256 sharesWithdrawn) {
         bytes32 id_ = marketParams.id();
         uint256 userShares = supplySharesOf[id_][onBehalf];
-        uint256 shares = totalSupplyShares[id_] == 0
-            ? 0
-            : (assets * uint256(totalSupplyShares[id_]) + uint256(totalSupplyAssets[id_]) - 1)
-                / uint256(totalSupplyAssets[id_]);
+        // SharesMathLib.toSharesUp
+        uint256 shares = (
+            assets * (uint256(totalSupplyShares[id_]) + VIRTUAL_SHARES)
+                + (uint256(totalSupplyAssets[id_]) + VIRTUAL_ASSETS) - 1
+        ) / (uint256(totalSupplyAssets[id_]) + VIRTUAL_ASSETS);
         if (shares > userShares) {
             shares = userShares;
-            assets = (shares * uint256(totalSupplyAssets[id_])) / uint256(totalSupplyShares[id_]);
+            // SharesMathLib.toAssetsDown
+            assets = (shares * (uint256(totalSupplyAssets[id_]) + VIRTUAL_ASSETS))
+                / (uint256(totalSupplyShares[id_]) + VIRTUAL_SHARES);
         }
         uint256 liq = uint256(totalSupplyAssets[id_]) > uint256(totalBorrowAssets[id_])
             ? uint256(totalSupplyAssets[id_]) - uint256(totalBorrowAssets[id_])
