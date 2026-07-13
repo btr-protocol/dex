@@ -70,7 +70,7 @@ library PoolLiquidity {
         $.lpBalances[msg.sender][tkn] += lpAmt;
         $.lastDepositTime[msg.sender][tkn] = uint32(block.timestamp);
 
-        PoolHooks.postDeposit($, tkn, msg.sender, amt, lpAmt);
+        PoolHooks.postInflow($, tkn, msg.sender, amt, lpAmt);
 
         emit IPool.Deposited(msg.sender, tkn, amt, lpAmt);
         return IPool.DepositResult({lpAmount: lpAmt, actualDeposit: amt});

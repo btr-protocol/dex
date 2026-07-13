@@ -59,7 +59,7 @@ abstract contract YieldHook is BasePoolHook {
     }
 
     function recommendedFlags() external pure virtual returns (uint32) {
-        return C.HOOK_PRE_OUTFLOW | C.HOOK_POST_DEPOSIT;
+        return C.HOOK_PRE_OUTFLOW | C.HOOK_POST_INFLOW;
     }
 
     function setBuffer(uint16 targetInvestedBps_, uint16 hysteresisBps_) external {
@@ -91,7 +91,7 @@ abstract contract YieldHook is BasePoolHook {
         _recall(token_, amountNeeded);
     }
 
-    function postDeposit(address, address, address token_, uint256, uint256)
+    function postInflow(address, address, address token_, uint256, uint256)
         external
         virtual
         override

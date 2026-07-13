@@ -7,7 +7,7 @@ import {Constants as C} from "./Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title PoolHooks — lean dispatch: preOutflow + postDeposit only.
+/// @title PoolHooks — lean dispatch: preOutflow + postInflow only.
 /// @dev Dual ledger: `Asset.reserves = R_liq + R_inv`; `invested[token] = R_inv`.
 ///      Recall/deploy permute R_inv↔R_liq (reserves constant). Book updates via balance-delta
 ///      after the hook CALL so the hook never reenters Pool state writers.
@@ -20,7 +20,7 @@ library PoolHooks {
     }
 
     /// @dev Approve hook up to deployable = R_liq − minLiquidity, call, revoke, book Δbalance.
-    function postDeposit(
+    function postInflow(
         IPool.PoolStorage storage $,
         address token,
         address sender,
@@ -32,7 +32,7 @@ library PoolHooks {
         if (liq == 0) return;
 
         IPool.HookSlot memory h = $.assetHooks[token];
-        if (h.target == address(0) || (h.flags & C.HOOK_POST_DEPOSIT) == 0) return;
+        if (h.target == address(0) || (h.flags & C.HOOK_POST_INFLOW) == 0) return;
 
         // Never approve past the liquid floor (malicious hooks cannot drain R_liq < minLiquidity).
         uint256 minLiq = $.assets[token].minLiquidity;
@@ -41,7 +41,7 @@ library PoolHooks {
 
         uint256 balBefore = SafeTransferLib.balanceOf(token, address(this));
         SafeTransferLib.safeApproveWithRetry(token, h.target, deployable);
-        IPoolHooks(h.target).postDeposit(address(this), sender, token, amountIn, lpMinted);
+        IPoolHooks(h.target).postInflow(address(this), sender, token, amountIn, lpMinted);
         SafeTransferLib.safeApproveWithRetry(token, h.target, 0);
 
         uint256 balAfter = SafeTransferLib.balanceOf(token, address(this));

@@ -19,7 +19,7 @@ contract ChapelWireYield is Script {
     address constant USDC = 0x6dF80a290E0585dad752c25f2808E83b5624290d;
     address constant USDT = 0xB7b7722369Ab72cb044DE6bb511A4586F3a7dD64;
 
-    uint32 constant FLAGS = C.HOOK_PRE_OUTFLOW | C.HOOK_POST_DEPOSIT;
+    uint32 constant FLAGS = C.HOOK_PRE_OUTFLOW | C.HOOK_POST_INFLOW;
 
     function run() external {
         uint256 pk = vm.envUint("DEPLOYER_PK");

@@ -63,9 +63,9 @@ library Constants {
     /// @notice Cap on σ-EMA and pushed samples (10_000% = 100× in PBPS units).
     uint32 internal constant MAX_SIGMA_PBPS = 100_000_000;
 
-    // --- Pool hooks (lean: unified pre-outflow + optional postDeposit) ---
+    // --- Pool hooks (lean: unified pre-outflow + optional postInflow) ---
     uint32 internal constant HOOK_PRE_OUTFLOW = 1 << 0;
-    uint32 internal constant HOOK_POST_DEPOSIT = 1 << 1;
+    uint32 internal constant HOOK_POST_INFLOW = 1 << 1;
     /// @notice Known flag bits only; unknown bits rejected at setAssetHook.
-    uint32 internal constant HOOK_FLAGS_MASK = HOOK_PRE_OUTFLOW | HOOK_POST_DEPOSIT;
+    uint32 internal constant HOOK_FLAGS_MASK = HOOK_PRE_OUTFLOW | HOOK_POST_INFLOW;
 }
