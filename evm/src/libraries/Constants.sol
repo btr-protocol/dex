@@ -63,6 +63,11 @@ library Constants {
     /// @notice Cap on σ-EMA and pushed samples (10_000% = 100× in PBPS units).
     uint32 internal constant MAX_SIGMA_PBPS = 100_000_000;
 
+    /// @notice Angle Merkl Distributor — canonical multi-chain address (same on BSC/Base/Arbitrum/…).
+    ///         Off-chain proof-carrying rewards (Morpho, Euler rEUL, generic ERC4626) claim here.
+    // ceiling: verify BSC live address at deploy; owner may override via YieldHook.setMerklDistributor.
+    address internal constant MERKL_DISTRIBUTOR = 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae;
+
     // --- Pool hooks (lean: unified pre-outflow + optional postInflow) ---
     uint32 internal constant HOOK_PRE_OUTFLOW = 1 << 0;
     uint32 internal constant HOOK_POST_INFLOW = 1 << 1;

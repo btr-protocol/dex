@@ -4,6 +4,7 @@ pragma solidity =0.8.35;
 import {BasePoolHook} from "./BasePoolHook.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {IHasTreasury} from "../interfaces/IHasTreasury.sol";
+import {IMerklDistributor} from "../interfaces/external/IMerklDistributor.sol";
 import {Constants as C} from "../libraries/Constants.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Err} from "@btr-shared/Errors.sol";
@@ -33,6 +34,10 @@ abstract contract YieldHook is BasePoolHook {
     uint16 public maxHarvestCreditBps;
     /// @notice Optional override; address(0) → `IHasTreasury(pool).treasury()`.
     address public incentivesReceiver;
+    /// @notice Merkl distributor used by the base (proof-carrying) claim route. Defaults to the canonical
+    ///         multi-chain address; owner-settable so deploys/tests can point at a verified/mock address.
+    ///         Ctor-injection would change every adapter's ctor (Aave unaffected per spec) → use a setter.
+    address public merklDistributor = C.MERKL_DISTRIBUTOR;
 
     error OnlyPool();
 
@@ -80,6 +85,11 @@ abstract contract YieldHook is BasePoolHook {
         incentivesReceiver = receiver_;
     }
 
+    function setMerklDistributor(address distributor_) external {
+        if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+        merklDistributor = distributor_;
+    }
+
     // ── IPoolHooks ─────────────────────────────────────────────────────────
 
     function preOutflow(address, address, address token_, uint256 amountNeeded)
@@ -115,7 +125,9 @@ abstract contract YieldHook is BasePoolHook {
 
     // ── Incentives → Treasury (no in-hook swaps) ───────────────────────────
 
-    /// @notice Venue-specific claim (Aave RewardsController, Turtle, etc.). Default no-op.
+    /// @notice Venue claim → rewards land on the hook, then `sweepIncentives` pushes them to Treasury.
+    /// @dev Native venues (Aave, Compound) override `_claimVenueIncentives`. The base default is the
+    ///      universal Merkl route for proof-carrying campaigns (Morpho, Euler rEUL, generic ERC4626).
     function claimVenueIncentives(bytes calldata data) external onlyKeeperOrOwner {
         _claimVenueIncentives(data);
     }
@@ -143,7 +155,23 @@ abstract contract YieldHook is BasePoolHook {
     function _venueWithdraw(uint256 assets) internal virtual returns (uint256 received);
     function _navAssets() internal view virtual returns (uint256);
     function _maxWithdrawable() internal view virtual returns (uint256);
-    function _claimVenueIncentives(bytes calldata) internal virtual {}
+    /// @notice Base default: Merkl (Angle) proof-carrying claim. Empty data → no-op (also the empty-data
+    ///         path native overrides own). Rewards land on the hook (users[i] = this) → swept to Treasury.
+    /// @dev data = abi.encode(address[] tokens, uint256[] amounts, bytes32[][] proofs) — keeper builds it
+    ///      off-chain from the Merkl API. No custom claimRecipient (default recipient = the hook).
+    function _claimVenueIncentives(bytes calldata data) internal virtual {
+        if (data.length == 0) return;
+        (address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) =
+            abi.decode(data, (address[], uint256[], bytes32[][]));
+        address dist = merklDistributor;
+        if (dist == address(0)) revert Err.ZeroAddr();
+        uint256 n = tokens.length;
+        address[] memory users = new address[](n);
+        for (uint256 i; i < n; ++i) {
+            users[i] = address(this);
+        }
+        IMerklDistributor(dist).claim(users, tokens, amounts, proofs);
+    }
 
     /// @notice Venue position ERC20 held by this hook (aToken, cToken, vault shares). address(0) if none.
     function _positionToken() internal view virtual returns (address) {
