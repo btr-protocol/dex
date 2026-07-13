@@ -20,9 +20,35 @@ import {MockERC4626} from "../src/hooks/MockERC4626.sol";
 import {MockMorphoBlue} from "../src/hooks/MockMorphoBlue.sol";
 import {MockVenus} from "../src/hooks/MockVenus.sol";
 import {IMorphoBlue, MorphoId} from "../src/interfaces/external/IMorphoBlue.sol";
+import {IAaveRewardsController} from "../src/interfaces/external/IAaveV3.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+
+/// @notice Minimal Aave RewardsController stub: pays a fixed pre-funded reward amount to `to`.
+contract MockAaveRewards is IAaveRewardsController {
+    address public immutable rewardToken;
+    uint256 public immutable amountPerClaim;
+
+    constructor(address rewardToken_, uint256 amountPerClaim_) {
+        rewardToken = rewardToken_;
+        amountPerClaim = amountPerClaim_;
+    }
+
+    function claimAllRewards(address[] calldata, address to)
+        external
+        override
+        returns (address[] memory rewardsList, uint256[] memory claimedAmounts)
+    {
+        rewardsList = new address[](1);
+        rewardsList[0] = rewardToken;
+        claimedAmounts = new uint256[](1);
+        claimedAmounts[0] = amountPerClaim;
+        SafeTransferLib.safeTransfer(rewardToken, to, amountPerClaim);
+    }
+}
 
 /// @notice Focused adapter smoke tests (Aave V3, ERC4626, Morpho Blue, CompoundV2 alias path).
 contract YieldHooksAdaptersTest is Test {
@@ -483,6 +509,77 @@ contract YieldHooksAdaptersTest is Test {
             assertLt(vToken.getCash(), inv);
         }
         assertEq(vToken.getCash(), quote.balanceOf(address(vToken)), "cash = balance");
+    }
+
+    function _aaveHookWithRewards(uint256 rewardAmt)
+        internal
+        returns (AaveV3YieldHook hook, MockERC20 reward)
+    {
+        MockAavePool aave = new MockAavePool();
+        MockAToken aToken = new MockAToken(address(quote));
+        aave.setAToken(address(quote), address(aToken));
+        reward = new MockERC20("Reward", "RWD", 18);
+        MockAaveRewards rc = new MockAaveRewards(address(reward), rewardAmt);
+        reward.mint(address(rc), rewardAmt);
+        hook = new AaveV3YieldHook(address(ac), address(pool), address(quote), address(aave), address(rc));
+        _setHook(address(quote), address(hook), hook.recommendedFlags());
+    }
+
+    /// @dev Destination check: `claimVenueIncentives` routes rewards to the hook itself
+    ///      (`claimAllRewards(assets, address(this))`), NOT the treasury; the treasury leg is the
+    ///      separate `sweepIncentives` step. Verifies both legs of the documented two-step.
+    function test_claimVenueIncentives_aaveV3_claims_to_hook_then_sweeps_to_treasury() public {
+        (AaveV3YieldHook hook, MockERC20 reward) = _aaveHookWithRewards(50e18);
+
+        vm.prank(OWNER);
+        hook.claimVenueIncentives("");
+        assertEq(reward.balanceOf(address(hook)), 50e18, "reward claimed to hook");
+
+        address treasury = address(0x7ea5);
+        vm.prank(OWNER);
+        hook.setIncentivesReceiver(treasury);
+        address[] memory toks = new address[](1);
+        toks[0] = address(reward);
+        vm.prank(OWNER);
+        hook.sweepIncentives(toks);
+        assertEq(reward.balanceOf(address(hook)), 0, "hook drained");
+        assertEq(reward.balanceOf(treasury), 50e18, "reward swept to treasury");
+    }
+
+    function test_claimVenueIncentives_keeper_authorized() public {
+        (AaveV3YieldHook hook, MockERC20 reward) = _aaveHookWithRewards(30e18);
+        address keeper = address(0xC0FFEE);
+        ac.setKeeper(keeper, true);
+        vm.prank(keeper);
+        hook.claimVenueIncentives("");
+        assertEq(reward.balanceOf(address(hook)), 30e18, "keeper may claim");
+    }
+
+    function test_claimVenueIncentives_unauthorized_reverts() public {
+        (AaveV3YieldHook hook,) = _aaveHookWithRewards(10e18);
+        vm.prank(address(0xBAD));
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        hook.claimVenueIncentives("");
+    }
+
+    /// @dev Base no-op path: adapters without a rewards source must claim as a safe no-op.
+    ///      ERC4626 hook does not override `_claimVenueIncentives` (base empty body); an Aave hook
+    ///      built with `rewards == address(0)` early-returns. Neither reverts nor moves tokens.
+    function test_claimVenueIncentives_noop_when_no_rewards_source() public {
+        MockERC4626 vault = new MockERC4626(address(quote));
+        ERC4626YieldHook vHook =
+            new ERC4626YieldHook(address(ac), address(pool), address(quote), address(vault));
+        _setHook(address(quote), address(vHook), vHook.recommendedFlags());
+        vm.prank(OWNER);
+        vHook.claimVenueIncentives(""); // base no-op: must not revert
+
+        MockAavePool aave = new MockAavePool();
+        MockAToken aToken = new MockAToken(address(base));
+        aave.setAToken(address(base), address(aToken));
+        AaveV3YieldHook aaveHook =
+            new AaveV3YieldHook(address(ac), address(pool), address(base), address(aave), address(0));
+        vm.prank(OWNER);
+        aaveHook.claimVenueIncentives(""); // rewards == 0 → early return, no revert
     }
 
     function test_morphoId_matches_packed_keccak() public pure {
