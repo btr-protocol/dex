@@ -7,5 +7,5 @@ import {IPoolHooks} from "../interfaces/IPoolHooks.sol";
 abstract contract BasePoolHook is IPoolHooks {
     function preOutflow(address, address, address, uint256) external virtual override {}
 
-    function postDeposit(address, address, address, uint256, uint256) external virtual override {}
+    function postInflow(address, address, address, uint256, uint256) external virtual override {}
 }
