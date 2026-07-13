@@ -21,8 +21,8 @@ contract MockAC {
 
 /// @notice Multi-feed external IOracle for pool tests. Pools wire `primary = address(this)` and
 ///         `feedId = feedIdFor(token)`; seed a fresh mark per token via `setMark`. Mirrors the
-///         external-mark model (lastPrice = quote source, ema = reference), so quoting reads a
-///         fresh, keeper-pushed mark rather than any internal accumulator.
+///         external-mark model (lastPrice = quote source), so quoting reads a fresh, keeper-pushed
+///         mark rather than any internal accumulator.
 contract MockOracle is IOracle {
     mapping(bytes32 => FeedData) internal feeds;
 
@@ -44,13 +44,13 @@ contract MockOracle is IOracle {
     function _set(bytes32 id, uint64 priceB64, uint32 sigma, uint16 confidence, uint16 ttl) internal {
         feeds[id] = FeedData({
             lastPriceB64: priceB64,
-            emaPriceB64: priceB64,
             sigmaEma: sigma,
             updatedAt: uint32(block.timestamp),
             ttl: ttl,
             confidence: confidence,
             tau: 0,
-            tauSigma: 0
+            tauSigma: 0,
+            maxDeviation: 0
         });
     }
 
@@ -68,7 +68,6 @@ contract MockOracle is IOracle {
         unchecked { return block.timestamp - f.updatedAt <= f.ttl; }
     }
 
-    function getEma(bytes32 id) external view returns (uint64) { return feeds[id].emaPriceB64; }
 }
 
 /// @title BaseTestSetup
@@ -120,19 +119,19 @@ abstract contract BaseTestSetup is Test {
         return M.decodeB64(b64, decimals);
     }
 
-    /// @notice Build a FeedData directly (external-mark model: lastPrice = ema on construction).
+    /// @notice Build a FeedData directly (external-mark model).
     function makeFeedData(uint64 priceB64, uint32 sigma, uint16 confidence)
         internal view returns (IOracle.FeedData memory)
     {
         return IOracle.FeedData({
             lastPriceB64: priceB64,
-            emaPriceB64: priceB64,
             sigmaEma: sigma,
             updatedAt: uint32(block.timestamp),
             ttl: 3600,
             confidence: confidence,
             tau: 0,
-            tauSigma: 0
+            tauSigma: 0,
+            maxDeviation: 0
         });
     }
 

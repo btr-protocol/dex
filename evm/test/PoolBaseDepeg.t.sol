@@ -23,7 +23,6 @@ contract MockBaseOracle {
 
     function getFeed(bytes32) external view returns (IOracle.FeedData memory feed) {
         feed.lastPriceB64 = priceB64;
-        feed.emaPriceB64 = priceB64;
         feed.sigmaEma = 1_000_000;
         feed.updatedAt = uint32(block.timestamp);
         feed.ttl = type(uint16).max;
@@ -34,7 +33,6 @@ contract MockBaseOracle {
 
     function isFeedFresh(bytes32, uint32) external pure returns (bool) { return true; }
     function isFeedFresh(bytes32) external pure returns (bool) { return true; }
-    function getEma(bytes32) external view returns (uint64) { return priceB64; }
 }
 
 /// @title PoolBaseDepegTest -R44-2 (T3-HIGH2) regression.

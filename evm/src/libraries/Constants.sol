@@ -20,14 +20,6 @@ library Constants {
     /// @dev Share↔value index base. value = lp·index/WAD.
     uint256 internal constant LIQUIDITY_INDEX_INIT = 1e12;
 
-    // --- On-chain EMA (ExternalOracle reference price) ---
-    /// @notice Rate-clamp gain: a single push may move the EMA at most K_BAND·confidence (bps) toward
-    ///         the mark. Trust the mark within k·(its 1σ CI); a manipulated push displaces ≤ α·band.
-    uint256 internal constant K_BAND = 8;
-    /// @notice Absolute cap on the per-push EMA clamp band (bps). Bounds worst-case displacement even
-    ///         when a push claims a huge confidence — a RATE clamp (not absolute min/max) so it tracks
-    ///         real crashes over successive pushes yet never bricks like a LUNA/Venus minAnswer floor.
-    uint256 internal constant MAX_BAND_BPS = 2000; // 20%
     /// @notice Global halt: a swap reverts if the quoted feed's 1σ CI (confidence, bps) exceeds this.
     ///         Past this the mark is too uncertain to price against; fail-closed like the depeg band.
     uint16 internal constant MAX_CONFIDENCE_HALT_BPS = 1000; // 10%

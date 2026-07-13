@@ -33,26 +33,26 @@ library TransientCache {
         return (true, data);
     }
 
-    // Layout: lastPrice(64)|ema(64)|sigmaEma(32)|updatedAt(32)|ttl(16)|confidence(16)|tau(16)|tauSigma(16)
+    // Layout: lastPrice(64)|sigmaEma(32)|updatedAt(32)|ttl(16)|confidence(16)|tau(16)|tauSigma(16)|maxDev(16)
     function _packFeedData(IOracle.FeedData memory d) private pure returns (uint256 packed) {
-        packed |= uint256(d.lastPriceB64) << 192;
-        packed |= uint256(d.emaPriceB64) << 128;
-        packed |= uint256(d.sigmaEma) << 96;
-        packed |= uint256(d.updatedAt) << 64;
-        packed |= uint256(d.ttl) << 48;
-        packed |= uint256(d.confidence) << 32;
-        packed |= uint256(d.tau) << 16;
-        packed |= uint256(d.tauSigma);
+        packed |= uint256(d.lastPriceB64) << 144;
+        packed |= uint256(d.sigmaEma) << 112;
+        packed |= uint256(d.updatedAt) << 80;
+        packed |= uint256(d.ttl) << 64;
+        packed |= uint256(d.confidence) << 48;
+        packed |= uint256(d.tau) << 32;
+        packed |= uint256(d.tauSigma) << 16;
+        packed |= uint256(d.maxDeviation);
     }
 
     function _unpackFeedData(uint256 packed) private pure returns (IOracle.FeedData memory d) {
+        d.maxDeviation = uint16(packed & 0xFFFF); packed >>= 16;
         d.tauSigma = uint16(packed & 0xFFFF); packed >>= 16;
         d.tau = uint16(packed & 0xFFFF); packed >>= 16;
         d.confidence = uint16(packed & 0xFFFF); packed >>= 16;
         d.ttl = uint16(packed & 0xFFFF); packed >>= 16;
         d.updatedAt = uint32(packed & 0xFFFFFFFF); packed >>= 32;
         d.sigmaEma = uint32(packed & 0xFFFFFFFF); packed >>= 32;
-        d.emaPriceB64 = uint64(packed & 0xFFFFFFFFFFFFFFFF); packed >>= 64;
         d.lastPriceB64 = uint64(packed & 0xFFFFFFFFFFFFFFFF);
     }
 }

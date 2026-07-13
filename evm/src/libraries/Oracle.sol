@@ -7,8 +7,8 @@ import {Maths as M} from "./Maths.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 
-/// @title Oracle -pure feed math (mark decode, σ-EMA, on-chain price EMA).
-/// @dev Keeper attests mark + Parkinson σ sample + confidence; chain attests price EMA + σ-EMA steps.
+/// @title Oracle -pure feed math (mark decode, σ-EMA).
+/// @dev Keeper attests mark + Parkinson σ sample + confidence; chain attests the σ-EMA step.
 library Oracle {
     /// @notice Quote source: the fresh keeper mark in 1e18. Quoting off this (not the EMA) kills LVR.
     function mark(IOracle.FeedData memory feed) internal pure returns (uint256) {
@@ -33,41 +33,6 @@ library Oracle {
     /// @notice Pricing σ (PBPS). On-chain σ-EMA — never the raw keeper sample.
     function getSigma(IOracle.FeedData memory feed) internal pure returns (uint32) {
         return feed.sigmaEma;
-    }
-
-    /// @notice One-step on-chain price EMA: time-decayed (α), RATE-clamped toward the mark.
-    function updateEma(uint64 emaB64, uint64 markB64, uint256 dt, uint16 tau, uint16 confidence)
-        internal pure returns (uint64)
-    {
-        return updateEmaMark1e18(emaB64, M.b64To1e18(markB64), dt, tau, confidence);
-    }
-
-    function updateEmaMark1e18(uint64 emaB64, uint256 mark1e18, uint256 dt, uint16 tau, uint16 confidence)
-        internal pure returns (uint64)
-    {
-        if (dt == 0 && tau != 0) return emaB64;
-
-        uint256 ema = M.b64To1e18(emaB64);
-        uint256 p = mark1e18;
-
-        uint256 kc = C.K_BAND * (confidence == 0 ? 1 : uint256(confidence));
-        if (kc > C.MAX_BAND_BPS) kc = C.MAX_BAND_BPS;
-        uint256 band = (ema * kc) / SC.BPS;
-        if (p > ema + band) p = ema + band;
-        else if (p + band < ema) p = ema - band;
-
-        uint256 alpha;
-        if (tau == 0) {
-            alpha = SC.WAD;
-        } else {
-            alpha = (dt * SC.WAD) / uint256(tau);
-            if (alpha > SC.WAD) alpha = SC.WAD;
-        }
-
-        uint256 newEma = p >= ema
-            ? ema + (alpha * (p - ema)) / SC.WAD
-            : ema - (alpha * (ema - p)) / SC.WAD;
-        return M.encodeB64(newEma, 18);
     }
 
     /// @notice Fold keeper Parkinson σ sample into on-chain σ-EMA (asymmetric bands + mark-move floor).
@@ -121,13 +86,13 @@ library Oracle {
     function getPegFeed(uint64 pegB64, uint32 sigmaEma) internal view returns (IOracle.FeedData memory feed) {
         feed = IOracle.FeedData({
             lastPriceB64: pegB64,
-            emaPriceB64: pegB64,
             sigmaEma: sigmaEma,
             updatedAt: uint32(block.timestamp),
             ttl: type(uint16).max,
             confidence: 0,
             tau: 0,
-            tauSigma: 0
+            tauSigma: 0,
+            maxDeviation: 0
         });
     }
 }

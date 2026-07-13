@@ -93,13 +93,13 @@ contract UniPoolOracle is IOracle {
         uint64 priceB64 = M.encodeB64(price1e18, 18);
         data = FeedData({
             lastPriceB64: priceB64,
-            emaPriceB64: priceB64, // pull oracle: mark == ema
             sigmaEma: f.sigmaEma,
             updatedAt: uint32(block.timestamp),
             ttl: f.ttl,
             confidence: f.confidence,
             tau: 0,
-            tauSigma: 0
+            tauSigma: 0,
+            maxDeviation: 0
         });
     }
 
@@ -109,10 +109,6 @@ contract UniPoolOracle is IOracle {
 
     function isFeedFresh(bytes32 feedId) external view returns (bool) {
         return feeds[feedId].exists;
-    }
-
-    function getEma(bytes32 feedId) external view returns (uint64) {
-        return this.getFeed(feedId).emaPriceB64;
     }
 
     function getFeedIds() external view returns (bytes32[] memory) {
