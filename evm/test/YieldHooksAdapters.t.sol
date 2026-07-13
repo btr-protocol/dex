@@ -119,7 +119,7 @@ contract YieldHooksAdaptersTest is Test {
         uint256 leave = 5e18;
         uint256 extra = liq - leave;
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), extra);
+        IPool(address(pool)).hookDeploy(address(quote), extra);
         // Caller must re-deploy venue with leftover liquid on the hook.
     }
 
@@ -139,7 +139,7 @@ contract YieldHooksAdaptersTest is Test {
         assertGt(aToken.balanceOf(address(hook)), 0);
 
         _forceThinLiquid(address(hook));
-        // Re-supply any leftover liquid sitting on the hook from hookPull.
+        // Re-supply any leftover liquid sitting on the hook from hookDeploy.
         uint256 onHook = quote.balanceOf(address(hook));
         if (onHook > 0) {
             vm.startPrank(address(hook));

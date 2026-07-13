@@ -209,7 +209,7 @@ abstract contract YieldHook is BasePoolHook {
         if (msg.sender == pool) {
             token.safeTransferFrom(pool, address(this), deployAmt);
         } else {
-            IPool(pool).hookPull(token, deployAmt);
+            IPool(pool).hookDeploy(token, deployAmt);
         }
         _venueDeposit(deployAmt);
     }
@@ -225,7 +225,7 @@ abstract contract YieldHook is BasePoolHook {
         uint256 got = _venueWithdraw(trim);
         if (got == 0) return;
         token.safeTransfer(pool, got);
-        IPool(pool).hookNotifyRecall(token, got);
+        IPool(pool).hookRecall(token, got);
     }
 
     function _harvest() internal {
