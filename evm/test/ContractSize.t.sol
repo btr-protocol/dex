@@ -32,7 +32,7 @@ contract ContractSizeTest is Test {
         MockERC20 tok = new MockERC20("T", "T", 18);
         MockVenus v = new MockVenus(address(tok));
         assertLe(
-            address(new CompoundV2YieldHook(address(1), address(2), address(tok), address(v))).code.length,
+            address(new CompoundV2YieldHook(address(1), address(2), address(tok), address(v), address(0), bytes4(0))).code.length,
             EIP170_MAX,
             "CompoundV2YieldHook"
         );

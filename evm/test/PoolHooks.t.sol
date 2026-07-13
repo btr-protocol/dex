@@ -413,7 +413,7 @@ contract PoolHooksTest is Test {
     /// @notice MockVenus + CompoundV2YieldHook integration: deposit deploys, swap recalls.
     function test_mockVenus_integration() public {
         MockVenus vToken = new MockVenus(address(quote));
-        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0));
         uint32 flags = hook.recommendedFlags();
         _setHook(address(quote), address(hook), flags);
 
@@ -480,7 +480,7 @@ contract PoolHooksTest is Test {
     /// @notice Pool spoof: non-bound caller cannot drive CompoundV2YieldHook recall/drain.
     function test_venusHook_pool_spoof_reverts() public {
         MockVenus vToken = new MockVenus(address(quote));
-        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 100e18);
@@ -501,7 +501,7 @@ contract PoolHooksTest is Test {
     /// @notice Write-down when Venus NAV < book: invested + reserves + liabilities cut; R_liq unchanged.
     function test_writeDown_nav_below_book() public {
         MockVenus vToken = new MockVenus(address(quote));
-        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 200_000e18);
@@ -542,7 +542,7 @@ contract PoolHooksTest is Test {
         _setMinLiquidity(address(quote), minLiq);
 
         MockVenus vToken = new MockVenus(address(quote));
-        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 200_000e18);
@@ -716,7 +716,7 @@ contract PoolHooksTest is Test {
     /// @notice Severe write-down: loss > L, loss == L, and shares==0 with positive book.
     function test_writeDown_severe_loss_and_zero_shares() public {
         MockVenus vToken = new MockVenus(address(quote));
-        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 200_000e18);

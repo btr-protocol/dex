@@ -37,8 +37,10 @@ contract ChapelWireYield is Script {
 
         MockVenus vUsdc = new MockVenus(USDC);
         MockVenus vUsdt = new MockVenus(USDT);
-        CompoundV2YieldHook hUsdc = new CompoundV2YieldHook(acAddr, stable, USDC, address(vUsdc));
-        CompoundV2YieldHook hUsdt = new CompoundV2YieldHook(acAddr, stable, USDT, address(vUsdt));
+        // MockVenus has no Comptroller → no reward source (address(0), bytes4(0)).
+        // Live Venus: pass Comptroller + claimVenus.selector (0x86df31ee).
+        CompoundV2YieldHook hUsdc = new CompoundV2YieldHook(acAddr, stable, USDC, address(vUsdc), address(0), bytes4(0));
+        CompoundV2YieldHook hUsdt = new CompoundV2YieldHook(acAddr, stable, USDT, address(vUsdt), address(0), bytes4(0));
 
         admin.requestSetAssetHook(stable, USDC, address(hUsdc), FLAGS);
         admin.requestSetAssetHook(stable, USDT, address(hUsdt), FLAGS);

@@ -242,7 +242,7 @@ contract YieldHooksAdaptersTest is Test {
     function test_compoundV2_alias_path() public {
         MockVenus vToken = new MockVenus(address(quote));
         CompoundV2YieldHook hook =
-            new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
+            new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 100_000e18);
@@ -309,7 +309,7 @@ contract YieldHooksAdaptersTest is Test {
     function test_sweepIncentives_skips_cToken() public {
         MockVenus vToken = new MockVenus(address(quote));
         CompoundV2YieldHook cHook =
-            new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
+            new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0));
         _setHook(address(quote), address(cHook), cHook.recommendedFlags());
         quote.mint(address(this), 100_000e18);
         pool.deposit(address(quote), 100_000e18);
@@ -473,7 +473,7 @@ contract YieldHooksAdaptersTest is Test {
     function test_compound_maxWithdrawable_bounded_by_cash() public {
         MockVenus vToken = new MockVenus(address(quote));
         CompoundV2YieldHook hook =
-            new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
+            new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 200_000e18);
