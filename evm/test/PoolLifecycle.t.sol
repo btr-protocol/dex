@@ -216,7 +216,9 @@ contract PoolLifecycleTest is Test {
             vegaHardMin: 5_000,
             vegaHardMax: 30_000,
             haircutHardMax: 10_000,
-            maxDeltaBps: 2_500 // ±25%
+            maxDeltaBps: 2_500, // ±25%
+            reservationHardLoMin: 0,
+            reservationHardHiMax: 0
         });
         vm.prank(OWNER);
         admin.setRiskFences(address(pool), address(base), f);
@@ -289,6 +291,188 @@ contract PoolLifecycleTest is Test {
             before.haircutSuppressor,
             before.reservationPrice,
             before.reservationPriceMax
+        );
+    }
+
+    /// Audit ①: lowering maxFee is risk-up — must not bypass clamp via faux "tighten" on other params.
+    function test_steward_cannot_collapse_maxFee_in_one_step() public {
+        address s = makeAddr("steward");
+        ac.setRiskSteward(s, true);
+        IAdmin.RiskFences memory f = IAdmin.RiskFences({
+            minFeeHardMin: 100,
+            minFeeHardMax: 5_000,
+            maxFeeHardMax: 20_000,
+            gammaHardMin: 5_000,
+            gammaHardMax: 30_000,
+            vegaHardMin: 5_000,
+            vegaHardMax: 30_000,
+            haircutHardMax: 10_000,
+            maxDeltaBps: 2_500,
+            reservationHardLoMin: 0,
+            reservationHardHiMax: 0
+        });
+        vm.prank(OWNER);
+        admin.setRiskFences(address(pool), address(base), f);
+
+        IPool.Asset memory cur = pool.getAsset(address(base));
+        uint16 raisedMin = cur.minFeeBps + 50;
+        vm.prank(s);
+        vm.expectRevert();
+        admin.setAssetParamsBounded(
+            address(pool),
+            address(base),
+            cur.minLiquidity,
+            raisedMin,
+            1, // collapse maxFee — risk-up, not exempt
+            cur.gamma,
+            cur.vega,
+            cur.haircutSuppressor,
+            cur.reservationPrice,
+            cur.reservationPriceMax
+        );
+    }
+
+    /// Audit ②: reservation band cannot jump unbounded on steward path.
+    function test_steward_reservation_clamped() public {
+        address s = makeAddr("steward");
+        ac.setRiskSteward(s, true);
+        IAdmin.RiskFences memory f = IAdmin.RiskFences({
+            minFeeHardMin: 100,
+            minFeeHardMax: 5_000,
+            maxFeeHardMax: 20_000,
+            gammaHardMin: 5_000,
+            gammaHardMax: 30_000,
+            vegaHardMin: 5_000,
+            vegaHardMax: 30_000,
+            haircutHardMax: 10_000,
+            maxDeltaBps: 2_500,
+            reservationHardLoMin: 0,
+            reservationHardHiMax: 0
+        });
+        vm.prank(OWNER);
+        admin.setRiskFences(address(pool), address(base), f);
+
+        IPool.Asset memory seeded = pool.getAsset(address(base));
+        uint64 px = uint64(M.encodeB64(1e18, 18));
+        vm.prank(OWNER);
+        admin.setAssetParams(
+            address(pool),
+            address(base),
+            seeded.minLiquidity,
+            seeded.minFeeBps,
+            seeded.maxFeeBps,
+            seeded.gamma,
+            seeded.vega,
+            seeded.haircutSuppressor,
+            px / 2,
+            px * 2
+        );
+
+        IPool.Asset memory cur = pool.getAsset(address(base));
+        vm.prank(s);
+        vm.expectRevert();
+        admin.setAssetParamsBounded(
+            address(pool),
+            address(base),
+            cur.minLiquidity,
+            cur.minFeeBps,
+            cur.maxFeeBps,
+            cur.gamma,
+            cur.vega,
+            cur.haircutSuppressor,
+            1, // widen lo — risk-up
+            cur.reservationPriceMax
+        );
+    }
+
+    /// Audit ④: absolute reservation fence binds independently of the relative clamp.
+    function test_steward_reservation_hard_fenced() public {
+        address s = makeAddr("steward");
+        ac.setRiskSteward(s, true);
+        uint64 px = uint64(M.encodeB64(1e18, 18));
+        IAdmin.RiskFences memory f = IAdmin.RiskFences({
+            minFeeHardMin: 100,
+            minFeeHardMax: 5_000,
+            maxFeeHardMax: 20_000,
+            gammaHardMin: 5_000,
+            gammaHardMax: 30_000,
+            vegaHardMin: 5_000,
+            vegaHardMax: 30_000,
+            haircutHardMax: 10_000,
+            maxDeltaBps: 10_000, // 100% — relative clamp is loose; the hard fence must bind.
+            reservationHardLoMin: px / 2,
+            reservationHardHiMax: px * 2
+        });
+        vm.prank(OWNER);
+        admin.setRiskFences(address(pool), address(base), f);
+
+        IPool.Asset memory seeded = pool.getAsset(address(base));
+        vm.prank(OWNER);
+        admin.setAssetParams(
+            address(pool), address(base), seeded.minLiquidity, seeded.minFeeBps, seeded.maxFeeBps,
+            seeded.gamma, seeded.vega, seeded.haircutSuppressor, px / 2, px * 2
+        );
+        IPool.Asset memory cur = pool.getAsset(address(base));
+
+        // Ceiling above hardHiMax though within 100% clamp → fence reverts.
+        vm.prank(s);
+        vm.expectRevert();
+        admin.setAssetParamsBounded(
+            address(pool), address(base), cur.minLiquidity, cur.minFeeBps, cur.maxFeeBps,
+            cur.gamma, cur.vega, cur.haircutSuppressor, cur.reservationPrice, px * 2 + px / 4
+        );
+
+        // Floor below hardLoMin though within 100% clamp → fence reverts.
+        vm.prank(s);
+        vm.expectRevert();
+        admin.setAssetParamsBounded(
+            address(pool), address(base), cur.minLiquidity, cur.minFeeBps, cur.maxFeeBps,
+            cur.gamma, cur.vega, cur.haircutSuppressor, px / 2 - px / 8, cur.reservationPriceMax
+        );
+
+        // Narrow within fence → ok.
+        vm.prank(s);
+        admin.setAssetParamsBounded(
+            address(pool), address(base), cur.minLiquidity, cur.minFeeBps, cur.maxFeeBps,
+            cur.gamma, cur.vega, cur.haircutSuppressor, px / 2 + px / 8, px * 2 - px / 4
+        );
+        assertEq(pool.getAsset(address(base)).reservationPrice, px / 2 + px / 8);
+    }
+
+    /// Audit ③: minLiquidity is owner-only on steward path.
+    function test_steward_cannot_change_minLiquidity() public {
+        address s = makeAddr("steward");
+        ac.setRiskSteward(s, true);
+        IAdmin.RiskFences memory f = IAdmin.RiskFences({
+            minFeeHardMin: 100,
+            minFeeHardMax: 5_000,
+            maxFeeHardMax: 20_000,
+            gammaHardMin: 5_000,
+            gammaHardMax: 30_000,
+            vegaHardMin: 5_000,
+            vegaHardMax: 30_000,
+            haircutHardMax: 10_000,
+            maxDeltaBps: 2_500,
+            reservationHardLoMin: 0,
+            reservationHardHiMax: 0
+        });
+        vm.prank(OWNER);
+        admin.setRiskFences(address(pool), address(base), f);
+
+        IPool.Asset memory cur = pool.getAsset(address(base));
+        vm.prank(s);
+        vm.expectRevert(Err.BadConfig.selector);
+        admin.setAssetParamsBounded(
+            address(pool),
+            address(base),
+            cur.minLiquidity + 1,
+            cur.minFeeBps,
+            cur.maxFeeBps,
+            cur.gamma,
+            cur.vega,
+            cur.haircutSuppressor,
+            cur.reservationPrice,
+            cur.reservationPriceMax
         );
     }
 

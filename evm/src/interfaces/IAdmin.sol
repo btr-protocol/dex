@@ -54,6 +54,8 @@ interface IAdmin {
         uint16 vegaHardMax;
         uint16 haircutHardMax;
         uint16 maxDeltaBps;
+        uint64 reservationHardLoMin; // floor a steward may never set the reservation price below (0 = off).
+        uint64 reservationHardHiMax; // ceiling a steward may never set reservationPriceMax above (0 = off).
     }
 
     function setRiskFences(address pool, address token, RiskFences calldata f) external;
