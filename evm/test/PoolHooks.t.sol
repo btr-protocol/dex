@@ -103,7 +103,7 @@ contract DrainAllHook is BasePoolHook {
     }
 }
 
-/// @notice Malicious: transferFrom (Δbalance) then hookPull → double-book invested.
+/// @notice Malicious: transferFrom (Δbalance) then hookDeploy → double-book invested.
 contract DoubleBookDeployHook is BasePoolHook {
     using SafeTransferLib for address;
 
@@ -121,11 +121,11 @@ contract DoubleBookDeployHook is BasePoolHook {
         uint256 amt = deployAmt > liq ? liq : deployAmt;
         if (amt == 0) return;
         token.safeTransferFrom(pool, address(this), amt);
-        IPool(pool).hookPull(token, amt);
+        IPool(pool).hookDeploy(token, amt);
     }
 }
 
-/// @notice Malicious: transfer recall then hookNotifyRecall → double-cut invested.
+/// @notice Malicious: transfer recall then hookRecall → double-cut invested.
 contract DoubleBookRecallHook is BasePoolHook {
     using SafeTransferLib for address;
 
@@ -144,7 +144,7 @@ contract DoubleBookRecallHook is BasePoolHook {
         if (need > inv) need = inv;
         if (need == 0) return;
         token.safeTransfer(pool, need);
-        IPool(pool).hookNotifyRecall(token, need);
+        IPool(pool).hookRecall(token, need);
     }
 }
 
@@ -332,7 +332,7 @@ contract PoolHooksTest is Test {
         deal(address(quote), address(hook), inv);
         deal(address(quote), address(pool), keep + fees + inv);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), inv);
+        IPool(address(pool)).hookDeploy(address(quote), inv);
 
         assertEq(IPool(address(pool)).getInvested(address(quote)), inv);
         assertEq(IPool(address(pool)).getLiquidReserves(address(quote)), keep);
@@ -353,8 +353,8 @@ contract PoolHooksTest is Test {
         assertEq(balAfter, r - i + f, "R8 liquid conservation");
     }
 
-    /// @notice HALT-KEEP: while the asset is paused, NEW deploy (hookPull) reverts but fund recall
-    ///         (hookNotifyRecall) still works — an emergency halt must never strand invested capital.
+    /// @notice HALT-KEEP: while the asset is paused, NEW deploy (hookDeploy) reverts but fund recall
+    ///         (hookRecall) still works — an emergency halt must never strand invested capital.
     function test_halt_blocks_deploy_allows_recall() public {
         RecallHook hook = new RecallHook(address(quote));
         _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
@@ -366,7 +366,7 @@ contract PoolHooksTest is Test {
         deal(address(quote), address(hook), inv);
         deal(address(quote), address(pool), keep + fees + inv);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), inv); // deploy while healthy
+        IPool(address(pool)).hookDeploy(address(quote), inv); // deploy while healthy
         assertEq(IPool(address(pool)).getInvested(address(quote)), inv);
 
         vm.prank(OWNER);
@@ -375,14 +375,14 @@ contract PoolHooksTest is Test {
         // New deployment blocked by HALT_MASK.
         vm.prank(address(hook));
         vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
-        IPool(address(pool)).hookPull(address(quote), 1e18);
+        IPool(address(pool)).hookDeploy(address(quote), 1e18);
 
         // Recall still works while paused (transfer-before-notify).
         uint256 recallAmt = inv / 2;
         vm.prank(address(hook));
         quote.transfer(address(pool), recallAmt);
         vm.prank(address(hook));
-        IPool(address(pool)).hookNotifyRecall(address(quote), recallAmt);
+        IPool(address(pool)).hookRecall(address(quote), recallAmt);
         assertEq(IPool(address(pool)).getInvested(address(quote)), inv - recallAmt, "recall works while paused");
     }
 
@@ -396,10 +396,10 @@ contract PoolHooksTest is Test {
         uint256 inv = reserves - keep;
         deal(address(quote), address(pool), keep);
         vm.prank(address(hook));
-        // Need tokens in pool for hookPull — restore then pull.
+        // Need tokens in pool for hookDeploy — restore then pull.
         deal(address(quote), address(pool), keep + inv);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), inv);
+        IPool(address(pool)).hookDeploy(address(quote), inv);
         // Hook does not transfer anything back on preOutflow (CountingHook).
         uint256 amt = 100e18;
         base.mint(USER, amt);
@@ -433,7 +433,7 @@ contract PoolHooksTest is Test {
             uint256 extra = liq - leave;
             if (extra > 0) {
                 vm.prank(address(hook));
-                IPool(address(pool)).hookPull(address(quote), extra);
+                IPool(address(pool)).hookDeploy(address(quote), extra);
             }
             uint256 onHook = quote.balanceOf(address(hook));
             if (onHook > 0) {
@@ -463,7 +463,7 @@ contract PoolHooksTest is Test {
         uint256 inv = 100e18;
         deal(address(quote), address(pool), IPool(address(pool)).getLiquidReserves(address(quote)) + inv);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), inv);
+        IPool(address(pool)).hookDeploy(address(quote), inv);
 
         vm.prank(OWNER);
         vm.expectRevert(Err.InvalidState.selector);
@@ -551,11 +551,11 @@ contract PoolHooksTest is Test {
         uint256 liq = IPool(address(pool)).getLiquidReserves(address(quote));
         assertGe(liq, minLiq, "post-deploy R_liq >= minLiquidity");
 
-        // hookPull also respects floor.
+        // hookDeploy also respects floor.
         uint256 pullAmt = liq - minLiq + 1;
         vm.prank(address(hook));
         vm.expectRevert();
-        IPool(address(pool)).hookPull(address(quote), pullAmt);
+        IPool(address(pool)).hookDeploy(address(quote), pullAmt);
     }
 
     /// @notice Malicious postInflow cannot pull full R_liq past minLiquidity (approve cap).
@@ -583,7 +583,7 @@ contract PoolHooksTest is Test {
         uint256 inv = 50e18;
         deal(address(quote), address(pool), IPool(address(pool)).getLiquidReserves(address(quote)) + inv);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), inv);
+        IPool(address(pool)).hookDeploy(address(quote), inv);
 
         // Soft-clear via flags=0.
         vm.prank(address(admin));
@@ -618,7 +618,7 @@ contract PoolHooksTest is Test {
         deal(address(quote), address(hook), inv);
         deal(address(quote), address(pool), keep + fees + inv);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), inv);
+        IPool(address(pool)).hookDeploy(address(quote), inv);
 
         assertEq(IPool(address(pool)).getLiquidReserves(address(quote)), keep);
 
@@ -638,15 +638,15 @@ contract PoolHooksTest is Test {
 
     // ── HIGH re-review MUST coverage ───────────────────────────────────────
 
-    /// @notice POST_INFLOW-only cannot create invested (hookPull + postInflow delta).
+    /// @notice POST_INFLOW-only cannot create invested (hookDeploy + postInflow delta).
     function test_preOutflow_required_to_increase_invested() public {
         DeployHook hook = new DeployHook(address(quote), 50e18);
         _setHook(address(quote), address(hook), C.HOOK_POST_INFLOW);
 
-        // hookPull blocked without PRE_OUTFLOW.
+        // hookDeploy blocked without PRE_OUTFLOW.
         vm.prank(address(hook));
         vm.expectRevert(Err.InvalidState.selector);
-        IPool(address(pool)).hookPull(address(quote), 1e18);
+        IPool(address(pool)).hookDeploy(address(quote), 1e18);
 
         // postInflow deploy attempt reverts the whole deposit (no stranded invested).
         quote.mint(address(this), 100e18);
@@ -678,7 +678,7 @@ contract PoolHooksTest is Test {
         deal(address(quote), address(hook), inv);
         deal(address(quote), address(pool), keep + fees + inv);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), inv);
+        IPool(address(pool)).hookDeploy(address(quote), inv);
         assertEq(IPool(address(pool)).getLiquidReserves(address(quote)), keep);
 
         // Seed USER LP on quote via deposit then force most capital invested already.
@@ -699,7 +699,7 @@ contract PoolHooksTest is Test {
             uint256 extra = liqNow - keep;
             deal(address(quote), address(hook), quote.balanceOf(address(hook)) + extra);
             vm.prank(address(hook));
-            IPool(address(pool)).hookPull(address(quote), extra);
+            IPool(address(pool)).hookDeploy(address(quote), extra);
         }
         assertEq(IPool(address(pool)).getLiquidReserves(address(quote)), keep);
 
@@ -769,7 +769,7 @@ contract PoolHooksTest is Test {
         uint256 pullAmt = 40e18;
         deal(address(quote), address(pool), IPool(address(pool)).getLiquidReserves(address(quote)) + pullAmt);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), pullAmt);
+        IPool(address(pool)).hookDeploy(address(quote), pullAmt);
 
         // Reduce L to equal a chosen cut via another cross-exit until L == pullAmt.
         // Simpler: write-down exactly current L (≤ inv).
@@ -797,7 +797,7 @@ contract PoolHooksTest is Test {
         uint256 stale = 25e18;
         deal(address(quote), address(pool), IPool(address(pool)).getLiquidReserves(address(quote)) + stale);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), stale);
+        IPool(address(pool)).hookDeploy(address(quote), stale);
         assertEq(IPool(address(pool)).getInvested(address(quote)), stale);
 
         uint256 sh = vToken.balanceOf(address(hook));
@@ -815,8 +815,8 @@ contract PoolHooksTest is Test {
 
     // ── Mutex / double-book (MUST: nonReentrant on ledger writers) ─────────
 
-    /// @notice postInflow cannot hookPull after Δbalance transfer (shared Solady guard).
-    function test_postInflow_hookPull_reverts_reentrancy() public {
+    /// @notice postInflow cannot hookDeploy after Δbalance transfer (shared Solady guard).
+    function test_postInflow_hookDeploy_reverts_reentrancy() public {
         DoubleBookDeployHook hook = new DoubleBookDeployHook(address(quote), 50e18);
         _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW | C.HOOK_POST_INFLOW);
 
@@ -827,8 +827,8 @@ contract PoolHooksTest is Test {
         assertEq(IPool(address(pool)).getInvested(address(quote)), 0, "no double-book");
     }
 
-    /// @notice preOutflow cannot hookNotifyRecall after transfer (Δbalance is sole booker).
-    function test_preOutflow_hookNotifyRecall_reverts_reentrancy() public {
+    /// @notice preOutflow cannot hookRecall after transfer (Δbalance is sole booker).
+    function test_preOutflow_hookRecall_reverts_reentrancy() public {
         DoubleBookRecallHook hook = new DoubleBookRecallHook(address(quote));
         _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
 
@@ -836,7 +836,7 @@ contract PoolHooksTest is Test {
         deal(address(quote), address(hook), inv);
         deal(address(quote), address(pool), IPool(address(pool)).getLiquidReserves(address(quote)) + inv);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), inv);
+        IPool(address(pool)).hookDeploy(address(quote), inv);
 
         // Force recall: leave liquid short of a modest swap-sized need via withdraw path.
         uint256 keep = 1e18;
@@ -845,7 +845,7 @@ contract PoolHooksTest is Test {
             uint256 extra = liq - keep;
             deal(address(quote), address(hook), quote.balanceOf(address(hook)) + extra);
             vm.prank(address(hook));
-            IPool(address(pool)).hookPull(address(quote), extra);
+            IPool(address(pool)).hookDeploy(address(quote), extra);
         }
 
         uint256 lpSeed = 200e18;
@@ -864,7 +864,7 @@ contract PoolHooksTest is Test {
             uint256 extra = liqNow - keep;
             deal(address(quote), address(hook), quote.balanceOf(address(hook)) + extra);
             vm.prank(address(hook));
-            IPool(address(pool)).hookPull(address(quote), extra);
+            IPool(address(pool)).hookDeploy(address(quote), extra);
         }
 
         uint256 lpBal = pool.getLPBalance(USER, address(quote));
@@ -886,8 +886,8 @@ contract PoolHooksTest is Test {
         pool.deposit(address(quote), 100e18);
     }
 
-    /// @notice hookNotifyRecall without prior transfer fails balance proof (keeper trim only).
-    function test_hookNotifyRecall_requires_balance_proof() public {
+    /// @notice hookRecall without prior transfer fails balance proof (keeper trim only).
+    function test_hookRecall_requires_balance_proof() public {
         CountingHook hook = new CountingHook();
         _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
 
@@ -895,18 +895,18 @@ contract PoolHooksTest is Test {
         // Pull from existing liquid book (no surplus deal — bal must track R_liq + fees).
         assertGe(IPool(address(pool)).getLiquidReserves(address(quote)), inv + 1);
         vm.prank(address(hook));
-        IPool(address(pool)).hookPull(address(quote), inv);
+        IPool(address(pool)).hookDeploy(address(quote), inv);
 
         // No tokens returned — bal ≈ R_liq + fees, need bal ≥ R_liq + fees + amount.
         vm.prank(address(hook));
         vm.expectRevert();
-        IPool(address(pool)).hookNotifyRecall(address(quote), inv);
+        IPool(address(pool)).hookRecall(address(quote), inv);
 
         // Transfer then notify (keeper trim path).
         deal(address(quote), address(this), inv);
         quote.transfer(address(pool), inv);
         vm.prank(address(hook));
-        IPool(address(pool)).hookNotifyRecall(address(quote), inv);
+        IPool(address(pool)).hookRecall(address(quote), inv);
         assertEq(IPool(address(pool)).getInvested(address(quote)), 0);
     }
 }

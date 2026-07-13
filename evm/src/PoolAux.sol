@@ -222,12 +222,12 @@ contract PoolAux is ReentrancyGuardTransient {
     // cannot run during deposit/swap/flash while PoolHooks is booking Δbalance (double-book /
     // phantom R_liq). Hot-path recall/deploy MUST use transfer + Δbalance, not these writers.
 
-    function hookPull(address token, uint256 amount) external nonReentrant {
+    function hookDeploy(address token, uint256 amount) external nonReentrant {
         address t = PoolIO.wrap($, token);
         IPool.HookSlot memory h = $.assetHooks[t];
         if (msg.sender != h.target) revert Err.NotOwner();
         // HALT-KEEP: block NEW deployment into a hook while the asset is frozen/paused. Recall
-        // (hookNotifyRecall) and loss-booking (hookWriteDown) stay open so funds can always exit.
+        // (hookRecall) and loss-booking (hookWriteDown) stay open so funds can always exit.
         if (($.riskConfigs[t].flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
         // Cannot create/increase invested without a recall path.
         if ((h.flags & C.HOOK_PRE_OUTFLOW) == 0) revert Err.InvalidState();
@@ -245,7 +245,7 @@ contract PoolAux is ReentrancyGuardTransient {
     /// @dev Hot-path recall uses preOutflow Δbalance. Balance proof: ERC20 bal ≥
     ///      R_liq + protocolFees + amount (transfer-before-notify; fees are escrowed in the same
     ///      token balance). Mutex blocks callback reentry; stale NAV / harvest SLA is ops.
-    function hookNotifyRecall(address token, uint256 amount) external nonReentrant {
+    function hookRecall(address token, uint256 amount) external nonReentrant {
         address t = PoolIO.wrap($, token);
         if (msg.sender != $.assetHooks[t].target) revert Err.NotOwner();
         if (amount == 0) return;
