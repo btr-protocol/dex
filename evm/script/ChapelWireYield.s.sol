@@ -6,11 +6,11 @@ import {console2} from "forge-std/Script.sol";
 
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Admin} from "../src/Admin.sol";
-import {VenusHook} from "../src/hooks/VenusHook.sol";
+import {CompoundV2YieldHook} from "../src/hooks/CompoundV2YieldHook.sol";
 import {MockVenus} from "../src/hooks/MockVenus.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 
-/// @title ChapelWireYield — MockVenus + VenusHook on stable USDC/USDT (Steward-lite AC).
+/// @title ChapelWireYield — MockVenus + CompoundV2YieldHook on stable USDC/USDT (Steward-lite AC).
 /// @notice Hook install is HIGH-tier (Chapel = 30m). Two-step:
 ///   1) `run` — deploy mocks/hooks, grant drip keeper, queue setAssetHook
 ///   2) after >=30m: `execute` — executeSetAssetHook
@@ -37,8 +37,8 @@ contract ChapelWireYield is Script {
 
         MockVenus vUsdc = new MockVenus(USDC);
         MockVenus vUsdt = new MockVenus(USDT);
-        VenusHook hUsdc = new VenusHook(acAddr, stable, USDC, address(vUsdc));
-        VenusHook hUsdt = new VenusHook(acAddr, stable, USDT, address(vUsdt));
+        CompoundV2YieldHook hUsdc = new CompoundV2YieldHook(acAddr, stable, USDC, address(vUsdc));
+        CompoundV2YieldHook hUsdt = new CompoundV2YieldHook(acAddr, stable, USDT, address(vUsdt));
 
         admin.requestSetAssetHook(stable, USDC, address(hUsdc), FLAGS);
         admin.requestSetAssetHook(stable, USDT, address(hUsdt), FLAGS);

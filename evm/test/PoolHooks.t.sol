@@ -11,7 +11,7 @@ import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IERC3156FlashBorrower} from "../src/interfaces/external/IERC3156FlashBorrower.sol";
 import {BasePoolHook} from "../src/hooks/BasePoolHook.sol";
-import {VenusHook} from "../src/hooks/VenusHook.sol";
+import {CompoundV2YieldHook} from "../src/hooks/CompoundV2YieldHook.sol";
 import {YieldHook} from "../src/hooks/YieldHook.sol";
 import {MockVenus} from "../src/hooks/MockVenus.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
@@ -410,10 +410,10 @@ contract PoolHooksTest is Test {
         pool.swap(address(base), address(quote), amt, 0, USER);
     }
 
-    /// @notice MockVenus + VenusHook integration: deposit deploys, swap recalls.
+    /// @notice MockVenus + CompoundV2YieldHook integration: deposit deploys, swap recalls.
     function test_mockVenus_integration() public {
         MockVenus vToken = new MockVenus(address(quote));
-        VenusHook hook = new VenusHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
         uint32 flags = hook.recommendedFlags();
         _setHook(address(quote), address(hook), flags);
 
@@ -477,10 +477,10 @@ contract PoolHooksTest is Test {
 
     // ── Adversarial MUST coverage ──────────────────────────────────────────
 
-    /// @notice Pool spoof: non-bound caller cannot drive VenusHook recall/drain.
+    /// @notice Pool spoof: non-bound caller cannot drive CompoundV2YieldHook recall/drain.
     function test_venusHook_pool_spoof_reverts() public {
         MockVenus vToken = new MockVenus(address(quote));
-        VenusHook hook = new VenusHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 100e18);
@@ -501,7 +501,7 @@ contract PoolHooksTest is Test {
     /// @notice Write-down when Venus NAV < book: invested + reserves + liabilities cut; R_liq unchanged.
     function test_writeDown_nav_below_book() public {
         MockVenus vToken = new MockVenus(address(quote));
-        VenusHook hook = new VenusHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 200_000e18);
@@ -542,7 +542,7 @@ contract PoolHooksTest is Test {
         _setMinLiquidity(address(quote), minLiq);
 
         MockVenus vToken = new MockVenus(address(quote));
-        VenusHook hook = new VenusHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 200_000e18);
@@ -716,7 +716,7 @@ contract PoolHooksTest is Test {
     /// @notice Severe write-down: loss > L, loss == L, and shares==0 with positive book.
     function test_writeDown_severe_loss_and_zero_shares() public {
         MockVenus vToken = new MockVenus(address(quote));
-        VenusHook hook = new VenusHook(address(ac), address(pool), address(quote), address(vToken));
+        CompoundV2YieldHook hook = new CompoundV2YieldHook(address(ac), address(pool), address(quote), address(vToken));
         _setHook(address(quote), address(hook), hook.recommendedFlags());
 
         quote.mint(address(this), 200_000e18);

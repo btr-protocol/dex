@@ -168,7 +168,7 @@ contract PoolAux is ReentrancyGuardTransient {
     }
 
     // ── Hook views (cold; kept off Pool hot selector table) ──
-    // Only views required by OTHER contracts (Flash, VenusHook). Pure storage dumps for
+    // Only views required by OTHER contracts (Flash, yield hooks). Pure storage dumps for
     // off-chain indexers (profile / risk / oracle) live in SDK slot readers — see
     // dex/evm/README.md § "Off-chain reads (no storage getters)".
 

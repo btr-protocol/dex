@@ -201,13 +201,13 @@ interface IPool is IOracle {
     function flashSend(address token, uint256 amount, address to) external;
     function flashAccount(address token, uint256 fee, uint256 protoFee) external;
 
-    // ── Hook-authorized ledger (VenusHook keeper paths; not user entrypoints) ──
+    // ── Hook-authorized ledger (yield-hook keeper paths; not user entrypoints) ──
     // Mutex: nonReentrant under Pool DELEGATECALL — blocked during PoolHooks Δbalance booking.
     function hookPull(address token, uint256 amount) external;
     /// @notice Keeper trim only (transfer tokens to pool first). Hot-path recall = preOutflow Δbalance.
     function hookNotifyRecall(address token, uint256 amount) external;
     function hookCreditYield(address token, uint256 amount) external;
-    /// @notice Write-down when Venus NAV < book: cut invested + reserves; haircut L/index (L→0 floors idx).
+    /// @notice Write-down when venue NAV < book: cut invested + reserves; haircut L/index (L→0 floors idx).
     ///         Stale NAV: harvest SLA / pause is ops (no on-chain breaker).
     function hookWriteDown(address token, uint256 amount) external;
 
