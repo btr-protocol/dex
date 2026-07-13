@@ -439,6 +439,43 @@ contract PoolLifecycleTest is Test {
         assertEq(pool.getAsset(address(base)).reservationPrice, px / 2 + px / 8);
     }
 
+    /// Sec-review LOW: zeroing a live reservation bound disables that side of the depeg breaker and
+    /// must revert on the steward path even at a 100% relative clamp (only the owner's unbounded
+    /// setAssetParams may disable it). At maxDeltaBps==10000 the relative clamp alone let oldV→0 pass.
+    function test_steward_cannot_zero_reservation_bound() public {
+        address s = makeAddr("steward");
+        ac.setRiskSteward(s, true);
+        uint64 px = uint64(M.encodeB64(1e18, 18));
+        IAdmin.RiskFences memory f = IAdmin.RiskFences({
+            minFeeHardMin: 100,
+            minFeeHardMax: 5_000,
+            maxFeeHardMax: 20_000,
+            gammaHardMin: 5_000,
+            gammaHardMax: 30_000,
+            vegaHardMin: 5_000,
+            vegaHardMax: 30_000,
+            haircutHardMax: 10_000,
+            maxDeltaBps: 10_000,
+            reservationHardLoMin: px / 2,
+            reservationHardHiMax: px * 2
+        });
+        vm.prank(OWNER);
+        admin.setRiskFences(address(pool), address(base), f);
+        IPool.Asset memory seeded = pool.getAsset(address(base));
+        vm.prank(OWNER);
+        admin.setAssetParams(
+            address(pool), address(base), seeded.minLiquidity, seeded.minFeeBps, seeded.maxFeeBps,
+            seeded.gamma, seeded.vega, seeded.haircutSuppressor, px / 2, px * 2
+        );
+        IPool.Asset memory cur = pool.getAsset(address(base));
+        vm.prank(s);
+        vm.expectRevert();
+        admin.setAssetParamsBounded(
+            address(pool), address(base), cur.minLiquidity, cur.minFeeBps, cur.maxFeeBps,
+            cur.gamma, cur.vega, cur.haircutSuppressor, 0, cur.reservationPriceMax
+        );
+    }
+
     /// Audit ③: minLiquidity is owner-only on steward path.
     function test_steward_cannot_change_minLiquidity() public {
         address s = makeAddr("steward");

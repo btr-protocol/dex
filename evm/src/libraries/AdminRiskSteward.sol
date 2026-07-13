@@ -141,10 +141,12 @@ library AdminRiskSteward {
         return true;
     }
 
-    /// @dev Steward cannot seed reservation from zero — owner must set the initial band.
+    /// @dev Steward cannot seed reservation from zero (owner sets the initial band) NOR zero a live
+    ///      bound: newV==0 disables that side of the depeg breaker regardless of maxDeltaBps (at 100%
+    ///      the relative clamp alone lets oldV→0 through), so only the owner's unbounded path may.
     function _relOkReservation(uint256 oldV, uint256 newV, uint16 maxDeltaBps) private pure {
         if (newV == oldV) return;
-        if (oldV == 0) revert Err.BadConfig();
+        if (oldV == 0 || newV == 0) revert Err.BadConfig();
         _relOk(oldV, newV, maxDeltaBps);
     }
 
