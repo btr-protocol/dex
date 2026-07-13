@@ -98,7 +98,7 @@ abstract contract YieldHook is BasePoolHook {
         onlyPool
     {
         if (token_ != token) return;
-        _deploySurplus();
+        _deploy();
     }
 
     /// @notice Cold path: mark venue NAV into books, then retarget buffer.
@@ -110,7 +110,7 @@ abstract contract YieldHook is BasePoolHook {
         if (reserves == 0) return;
         uint256 highInv = (reserves * _hiBps()) / 10_000;
         if (inv > highInv) _trimToTarget(reserves, inv);
-        else _deploySurplus(reserves, inv, minLiq);
+        else _deploy(reserves, inv, minLiq);
     }
 
     // ── Incentives → Treasury (no in-hook swaps) ───────────────────────────
@@ -184,12 +184,12 @@ abstract contract YieldHook is BasePoolHook {
         token.safeTransfer(pool, got);
     }
 
-    function _deploySurplus() internal {
+    function _deploy() internal {
         (uint256 reserves, uint256 inv, uint256 minLiq) = IPool(pool).getBuffer(token);
-        _deploySurplus(reserves, inv, minLiq);
+        _deploy(reserves, inv, minLiq);
     }
 
-    function _deploySurplus(uint256 reserves, uint256 inv, uint256 minLiq) private {
+    function _deploy(uint256 reserves, uint256 inv, uint256 minLiq) private {
         if (reserves == 0) return;
         uint256 liq = reserves > inv ? reserves - inv : 0;
 
