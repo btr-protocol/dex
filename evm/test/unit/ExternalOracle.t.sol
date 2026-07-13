@@ -6,8 +6,6 @@ import {ExternalOracle} from "../../src/oracles/ExternalOracle.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 import {Oracle} from "../../src/libraries/Oracle.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
-import {Constants as C} from "../../src/libraries/Constants.sol";
-import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {MockAC} from "../fixtures/BaseTestSetup.sol";
 
@@ -24,42 +22,39 @@ contract ExternalOracleTest is Test {
         ac = new MockAC(address(this));
         ext = new ExternalOracle(address(ac), address(this));
         vm.warp(1_700_000_000);
-        // Seed with the max (permissive) band so the EMA/σ unit tests below can push large moves; the
+        // Seed with the max (permissive) band so the σ unit tests below can push large moves; the
         // clamp-semantics tests use their own tightly-banded feeds. maxDeviation is mandatory non-zero.
         ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600);
         feedId = keccak256(abi.encodePacked(BASE, QUOTE));
     }
 
-    function test_addFeed_seedsLastEqualsEma() public view {
+    function test_addFeed_seedsMarkAndParams() public view {
         IOracle.FeedData memory f = ext.getFeed(feedId);
-        assertEq(f.lastPriceB64, f.emaPriceB64, "seed: lastPrice == ema");
         assertApproxEqRel(Oracle.mark(f), 3000e18, 0.0005e18, "seed mark = 3000");
         assertEq(f.tau, TAU, "tau stored");
         assertEq(f.tauSigma, TAU, "tauSigma stored");
         assertEq(f.sigmaEma, 1e4, "sigmaEma seeded from sample");
         assertEq(f.confidence, 5, "confidence stored");
+        assertEq(f.maxDeviation, ext.MAX_DEV_THRESHOLD(), "maxDeviation seeded in feed slot");
     }
 
-    function test_pushFeed_commitsFreshMark_decaysEma() public {
+    function test_pushFeed_commitsFreshMark() public {
         vm.warp(block.timestamp + TAU);
         ext.pushFeed(feedId, M.encodeB64(3030e18, 18), 1e4, 5);
         IOracle.FeedData memory f = ext.getFeed(feedId);
         assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 3030e18, 0.001e18, "lastPrice = fresh mark");
-        assertApproxEqRel(M.b64To1e18(f.emaPriceB64), 3030e18, 0.01e18, "ema decayed toward mark");
         assertEq(f.updatedAt, uint32(block.timestamp), "updatedAt stamped");
         assertEq(f.ttl, 3600, "ttl preserved across push");
         assertEq(f.tau, TAU, "tau preserved across push");
         assertEq(f.tauSigma, TAU, "tauSigma preserved across push");
     }
 
-    function test_pushFeed_emaClampBoundsManipulation() public {
+    function test_pushFeed_rawMarkCommitsUnclampedWithinBand() public {
         vm.warp(block.timestamp + TAU);
-        uint256 emaBefore = 3000e18;
-        ext.pushFeed(feedId, M.encodeB64(15000e18, 18), 1e4, 5);
+        // Pool quotes off the raw mark; no on-chain EMA smooths it. Within the per-push band it commits.
+        ext.pushFeed(feedId, M.encodeB64(3050e18, 18), 1e4, 5);
         IOracle.FeedData memory f = ext.getFeed(feedId);
-        uint256 band = (emaBefore * C.K_BAND * 5) / SC.BPS;
-        assertApproxEqRel(M.b64To1e18(f.emaPriceB64), emaBefore + band, 0.01e18, "ema displaced <= band");
-        assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 15000e18, 0.001e18, "mark still commits raw");
+        assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 3050e18, 0.001e18, "mark commits raw");
     }
 
     /// One mark update per feed per block: a same-block re-push reverts. This is the audit fix (all 3
@@ -114,10 +109,6 @@ contract ExternalOracleTest is Test {
         assertEq(f.confidence, 7, "batch confidence");
     }
 
-    function test_getEma_returnsReference() public view {
-        assertEq(ext.getEma(feedId), ext.getFeed(feedId).emaPriceB64, "getEma = emaPriceB64");
-    }
-
     function test_pushFeed_rejectsZeroPrice() public {
         vm.expectRevert(Err.ZeroValue.selector);
         ext.pushFeed(feedId, 0, 1e4, 5);
@@ -138,7 +129,7 @@ contract ExternalOracleTest is Test {
     function test_grantOracle_allowsSafeAsPusher() public {
         address safe = address(0x5AFE);
         ext.grantOracle(safe);
-        assertTrue(ext.isOracle(safe), "multisig address can be oracle pusher");
+        assertTrue(ext.oracles(safe), "multisig address can be oracle pusher");
     }
 
     // ─── BUG#1 (D1): opt-in per-feed push deviation clamp ───
@@ -156,7 +147,7 @@ contract ExternalOracleTest is Test {
 
     function test_maxDeviation_storedAtAddFeed() public {
         bytes32 id = _addBandedFeed(DEV_BAND);
-        assertEq(ext.maxDeviations(id), DEV_BAND, "maxDeviation persisted at addFeed");
+        assertEq(ext.getFeed(id).maxDeviation, DEV_BAND, "maxDeviation persisted at addFeed");
     }
 
     /// A push within the band on a fresh, in-heartbeat feed commits normally (fast/light unslowed).
@@ -208,9 +199,34 @@ contract ExternalOracleTest is Test {
     /// updateFeed now persists maxDeviation (previously dropped — only emitted).
     function test_updateFeed_persistsMaxDeviation_thenEnforced() public {
         ext.updateFeed(feedId, 300, DEV_TTL); // 3% band on the 3000 seed feed
-        assertEq(ext.maxDeviations(feedId), 300, "updateFeed persisted maxDeviation");
+        assertEq(ext.getFeed(feedId).maxDeviation, 300, "updateFeed persisted maxDeviation");
         skip(10);
         vm.expectRevert(); // +10% (3300 vs 3000) > 3%
         ext.pushFeed(feedId, M.encodeB64(3300e18, 18), 1e4, 5);
+    }
+
+    // ─── Gas benchmarks (ORA-02): push clamp reads maxDeviation from the feed slot, no cold mapping ───
+
+    function test_gas_pushFeed_bench() public {
+        vm.warp(block.timestamp + TAU);
+        uint64 p = M.encodeB64(3005e18, 18);
+        uint256 g = gasleft();
+        ext.pushFeed(feedId, p, 1e4, 5);
+        emit log_named_uint("pushFeed gas", g - gasleft());
+    }
+
+    function test_gas_batchPush_bench() public {
+        vm.warp(block.timestamp + TAU);
+        bytes32[] memory ids = new bytes32[](1);
+        uint64[] memory prices = new uint64[](1);
+        uint32[] memory sigmas = new uint32[](1);
+        uint16[] memory confs = new uint16[](1);
+        ids[0] = feedId;
+        prices[0] = M.encodeB64(3005e18, 18);
+        sigmas[0] = 1e4;
+        confs[0] = 5;
+        uint256 g = gasleft();
+        ext.batchPush(ids, prices, sigmas, confs);
+        emit log_named_uint("batchPush(1) gas", g - gasleft());
     }
 }

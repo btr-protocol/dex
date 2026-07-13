@@ -57,7 +57,6 @@ contract UniPiggybackTest is Test {
 
         IOracle.FeedData memory f = oracle.getFeed(feedId);
         assertApproxEqRel(Oracle.mark(f), PRICE, 0.001e18, "oracle mark == uni spot");
-        assertEq(f.lastPriceB64, f.emaPriceB64, "pull: mark == ema");
         assertEq(f.updatedAt, uint32(block.timestamp), "always fresh");
         assertTrue(oracle.isFeedFresh(feedId));
     }
