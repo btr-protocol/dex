@@ -25,16 +25,16 @@ library ChapelSeedAmounts {
     string constant PATH = "deploy/chapel-seed-amounts.json";
 
     function seedAmount(address tok, uint256 seedUsdcFallback) internal view returns (uint256) {
+        // Always prefer live JSON; fallback only for stables if gen not run.
+        string memory sym = _sym(tok);
         if (VM.exists(PATH)) {
             string memory json = VM.readFile(PATH);
-            string memory sym = _sym(tok);
-            string memory key = string.concat(".amountsWei.", sym);
-            return json.readUint(key);
+            return json.readUint(string.concat(".amountsWei.", sym));
         }
         if (tok == USDC || tok == USDT || tok == USD1 || tok == USDE || tok == FDUSD) {
             return seedUsdcFallback;
         }
-        revert("ChapelSeedAmounts: run gen-chapel-seed-amounts.ts for volatile marks");
+        revert("ChapelSeedAmounts: run keepers/bots/scripts/gen-chapel-seed-amounts.ts");
     }
 
     function _sym(address tok) private pure returns (string memory) {
