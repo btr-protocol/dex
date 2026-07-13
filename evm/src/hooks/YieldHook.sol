@@ -4,7 +4,6 @@ pragma solidity =0.8.35;
 import {BasePoolHook} from "./BasePoolHook.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {IHasTreasury} from "../interfaces/IHasTreasury.sol";
-import {IMerklDistributor} from "../interfaces/external/IMerklDistributor.sol";
 import {Constants as C} from "../libraries/Constants.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Err} from "@btr-shared/Errors.sol";
@@ -116,18 +115,6 @@ abstract contract YieldHook is BasePoolHook {
 
     // ── Incentives → Treasury (no in-hook swaps) ───────────────────────────
 
-    /// @notice Claim Merkl distributor rewards for this hook (operator or self).
-    /// @dev Rewards land on this contract (or Merkl claimRecipient). Then call `sweepIncentives`.
-    function claimMerkl(
-        address distributor,
-        address[] calldata users,
-        address[] calldata tokens,
-        uint256[] calldata amounts,
-        bytes32[][] calldata proofs
-    ) external onlyKeeperOrOwner {
-        IMerklDistributor(distributor).claim(users, tokens, amounts, proofs);
-    }
-
     /// @notice Venue-specific claim (Aave RewardsController, Turtle, etc.). Default no-op.
     function claimVenueIncentives(bytes calldata data) external onlyKeeperOrOwner {
         _claimVenueIncentives(data);
@@ -225,11 +212,6 @@ abstract contract YieldHook is BasePoolHook {
             IPool(pool).hookPull(token, deployAmt);
         }
         _venueDeposit(deployAmt);
-    }
-
-    function _trimToTarget() internal {
-        (uint256 reserves, uint256 inv,) = IPool(pool).getBuffer(token);
-        _trimToTarget(reserves, inv);
     }
 
     function _trimToTarget(uint256 reserves, uint256 inv) private {

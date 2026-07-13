@@ -7,7 +7,6 @@ import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
-import {VenusHook} from "../src/hooks/VenusHook.sol";
 import {CompoundV2YieldHook} from "../src/hooks/CompoundV2YieldHook.sol";
 import {AaveV3YieldHook} from "../src/hooks/AaveV3YieldHook.sol";
 import {ERC4626YieldHook} from "../src/hooks/ERC4626YieldHook.sol";
@@ -32,11 +31,6 @@ contract ContractSizeTest is Test {
 
         MockERC20 tok = new MockERC20("T", "T", 18);
         MockVenus v = new MockVenus(address(tok));
-        assertLe(
-            address(new VenusHook(address(1), address(2), address(tok), address(v))).code.length,
-            EIP170_MAX,
-            "VenusHook"
-        );
         assertLe(
             address(new CompoundV2YieldHook(address(1), address(2), address(tok), address(v))).code.length,
             EIP170_MAX,
