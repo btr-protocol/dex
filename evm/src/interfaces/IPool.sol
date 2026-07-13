@@ -226,6 +226,8 @@ interface IPool is IOracle {
     function getInvested(address token) external view returns (uint128);
     /// @notice Executable liquid reserves R_liq = reserves − invested (pricing uses full economic R).
     function getLiquidReserves(address token) external view returns (uint256);
+    /// @notice Lean rehypo triple in one CALL/wrap: (reserves, invested, minLiquidity).
+    function getBuffer(address token) external view returns (uint256 reserves, uint256 invested, uint256 minLiquidity);
 
     // ─── Exchange types & events (canonical -was IPoolModule) ────────────────
     struct SwapQuote {
