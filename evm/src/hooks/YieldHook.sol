@@ -103,10 +103,15 @@ abstract contract YieldHook is BasePoolHook {
     }
 
     /// @notice Cold path: mark venue NAV into books, then retarget buffer.
+    /// @dev deploy/trim are mutually exclusive (inv can't be both < lowInv and > highInv), so dispatch
+    ///      exactly one leg off a single post-harvest read instead of calling both (one always no-ops).
     function rebalance() external virtual onlyKeeperOrOwner {
         _harvest();
-        _deploySurplus();
-        _trimToTarget();
+        (uint256 reserves, uint256 inv, uint256 minLiq) = IPool(pool).getBuffer(token);
+        if (reserves == 0) return;
+        uint256 highInv = (reserves * _hiBps()) / 10_000;
+        if (inv > highInv) _trimToTarget(reserves, inv);
+        else _deploySurplus(reserves, inv, minLiq);
     }
 
     // ── Incentives → Treasury (no in-hook swaps) ───────────────────────────
@@ -166,13 +171,20 @@ abstract contract YieldHook is BasePoolHook {
         return IHasTreasury(pool).treasury();
     }
 
+    /// @dev Capped invested hysteresis ceiling (BPS). Shared by deploy/trim/rebalance.
+    function _hiBps() private view returns (uint256 hi) {
+        hi = uint256(targetInvestedBps) + hysteresisBps;
+        if (hi > 10_000) hi = 10_000;
+    }
+
     function _recall(address token_, uint256 amountNeeded) internal {
         if (token_ != token) return;
-        uint256 liq = IPool(pool).getLiquidReserves(token);
+        // Single wrap+read: liq and inv share the same buffer read (was getLiquidReserves + getInvested).
+        (uint256 reserves, uint256 inv,) = IPool(pool).getBuffer(token);
+        uint256 liq = reserves > inv ? reserves - inv : 0;
         if (liq >= amountNeeded) return;
 
         uint256 shortfall = amountNeeded - liq;
-        uint256 inv = IPool(pool).getInvested(token);
         if (shortfall > inv) shortfall = inv;
         if (shortfall == 0) return;
 
@@ -186,21 +198,20 @@ abstract contract YieldHook is BasePoolHook {
     }
 
     function _deploySurplus() internal {
-        IPool.Asset memory a = IPool(pool).getAsset(token);
-        uint256 reserves = a.reserves;
+        (uint256 reserves, uint256 inv, uint256 minLiq) = IPool(pool).getBuffer(token);
+        _deploySurplus(reserves, inv, minLiq);
+    }
+
+    function _deploySurplus(uint256 reserves, uint256 inv, uint256 minLiq) private {
         if (reserves == 0) return;
-        uint256 inv = IPool(pool).getInvested(token);
         uint256 liq = reserves > inv ? reserves - inv : 0;
 
-        uint16 hi = targetInvestedBps + hysteresisBps;
-        if (hi > 10_000) hi = 10_000;
-        uint256 targetInv = (uint256(reserves) * targetInvestedBps) / 10_000;
+        uint256 targetInv = (reserves * targetInvestedBps) / 10_000;
         uint256 lowInv = targetInvestedBps > hysteresisBps
-            ? (uint256(reserves) * (targetInvestedBps - hysteresisBps)) / 10_000
+            ? (reserves * (targetInvestedBps - hysteresisBps)) / 10_000
             : 0;
         if (inv >= lowInv) return;
-        uint256 keepLiq = reserves - ((uint256(reserves) * hi) / 10_000);
-        uint256 minLiq = a.minLiquidity;
+        uint256 keepLiq = reserves - ((reserves * _hiBps()) / 10_000);
         if (keepLiq < minLiq) keepLiq = minLiq;
         if (liq <= keepLiq) return;
         uint256 deployAmt = liq - keepLiq;
@@ -217,14 +228,15 @@ abstract contract YieldHook is BasePoolHook {
     }
 
     function _trimToTarget() internal {
-        uint256 reserves = IPool(pool).getAsset(token).reserves;
+        (uint256 reserves, uint256 inv,) = IPool(pool).getBuffer(token);
+        _trimToTarget(reserves, inv);
+    }
+
+    function _trimToTarget(uint256 reserves, uint256 inv) private {
         if (reserves == 0) return;
-        uint256 inv = IPool(pool).getInvested(token);
-        uint16 hi = targetInvestedBps + hysteresisBps;
-        if (hi > 10_000) hi = 10_000;
-        uint256 highInv = (uint256(reserves) * hi) / 10_000;
+        uint256 highInv = (reserves * _hiBps()) / 10_000;
         if (inv <= highInv) return;
-        uint256 trim = inv - ((uint256(reserves) * targetInvestedBps) / 10_000);
+        uint256 trim = inv - ((reserves * targetInvestedBps) / 10_000);
         uint256 maxW = _maxWithdrawable();
         if (trim > maxW) trim = maxW;
         if (trim == 0) return;

@@ -184,6 +184,17 @@ contract PoolAux is ReentrancyGuardTransient {
         return PoolHooks.liquidReserves($, PoolIO.wrap($, tk));
     }
 
+    /// @dev One wrap + one Asset SLOT read for the rehypo hooks (was getAsset + getInvested + wrap×2).
+    function getBuffer(address tk)
+        external
+        view
+        returns (uint256 reserves, uint256 invested, uint256 minLiquidity)
+    {
+        address w = PoolIO.wrap($, tk);
+        IPool.Asset storage a = $.assets[w];
+        return (a.reserves, $.invested[w], a.minLiquidity);
+    }
+
     // ── FLASH ──
 
     /// @notice Recall enough for `amount` loan while leaving minLiquidity liquid.
