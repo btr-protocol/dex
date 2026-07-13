@@ -19,3 +19,6 @@ deployments/local-anvil/
 .deps/v2-core/
 .deps/v4-core/
 .venv-vyper/
+
+# Local anvil deploy artifact (testnet is the target now)
+deployments/31337.deploy.json
