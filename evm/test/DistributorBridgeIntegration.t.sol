@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, StdStorage, stdStorage} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
@@ -23,6 +23,8 @@ import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
 contract DistributorBridgeIntegrationTest is Test {
+    using stdStorage for StdStorage;
+
     PoolFactory factory;
     Pool poolImpl;
     Admin admin;
@@ -204,10 +206,10 @@ contract DistributorBridgeIntegrationTest is Test {
         // Request a cap reduction.
         tr.requestEmissionsCapChange(500e18);
 
-        // Manipulate emissionsSchedule.claimed via vm.store to simulate mints during timelock.
-        // Treasury layout: emissionsSchedule struct @ slot 4 (totalAllocation occupies slot 4);
-        // emissionsSchedule.claimed lives in the next slot (5).
-        vm.store(address(tr), bytes32(uint256(5)), bytes32(uint256(800e18))); // emissionsSchedule.claimed
+        // Simulate 800e18 minted during the timelock (claimed rises above the pending 500e18 cap).
+        // stdstore targets emissionsSchedule.claimed (getter return index 1) — layout-independent, so
+        // it survives storage reordering (e.g. the UpgradeGate base hoist).
+        stdstore.target(address(tr)).sig("emissionsSchedule()").depth(1).checked_write(uint256(800e18));
 
         // Skip past the timelock but stay within grace window.
         vm.warp(block.timestamp + 8 days);
@@ -262,8 +264,8 @@ contract DistributorBridgeIntegrationTest is Test {
         MockERC20 placeholder = new MockERC20("G","G",18);
         tr.initialize(address(placeholder));
         tr.initializeEmissions(1_000e18);
-        // Force claimed = 600e18 via storage.
-        vm.store(address(tr), bytes32(uint256(5)), bytes32(uint256(600e18))); // emissionsSchedule.claimed (slot 6 post Track-B Phase-1b)
+        // Force claimed = 600e18 (layout-independent; see stdstore note above).
+        stdstore.target(address(tr)).sig("emissionsSchedule()").depth(1).checked_write(uint256(600e18));
         vm.expectRevert(Err.InvalidInput.selector);
         tr.requestEmissionsCapChange(500e18);
     }
