@@ -227,6 +227,45 @@ contract ExternalOracleSignedTest is Test {
         assertEq(uint256(f.sourceTs), ts, "sourceTs written");
     }
 
+    // ─── future-dated sourceTs bound (Ostium "future-dated report" / feed-freeze DoS) ───
+
+    function test_reject_futureDatedSourceTs() public {
+        skip(TAU);
+        // sourceTs 10 min ahead of wall-clock ≫ 300s skew → an unbounded far-future ts would clear the
+        // monotonic guard once, then permanently freeze the feed (no honest near-now push could exceed it).
+        uint64 future = uint64((block.timestamp + 600) * 1000);
+        bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, future);
+        vm.expectRevert(Err.InvalidInput.selector);
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    }
+
+    function test_accept_withinFutureSkew() public {
+        skip(TAU);
+        uint64 near = uint64((block.timestamp + 240) * 1000); // 4 min ahead, within the 300s skew
+        bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, near);
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+        assertEq(uint256(ext.getFeed(feedId).sourceTs), near, "within-skew future ts lands");
+    }
+
+    // ─── σ floor at mark-move magnitude (compromised-signer economic backstop) ───
+
+    function test_signed_sigmaFlooredAtMarkMove() public {
+        skip(TAU);
+        // attested σ = 0, but the mark moves +2% (3000→3060). Floor = |Δmark|/mark = 20_000 PBPS, so a
+        // signer signing σ=0 can NOT collapse the spread to the minFee floor.
+        bytes memory blob = _rec(0, M.encodeB64(3060e18, 18), 0, 5, _srcTs());
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+        assertApproxEqRel(uint256(ext.getFeed(feedId).sigmaEma), 20_000, 0.001e18, "sigma floored to mark-move (2pct = 20k PBPS)");
+    }
+
+    function test_signed_attestedSigmaKeptAboveFloor() public {
+        skip(TAU);
+        // attested σ = 50_000 PBPS ≫ the ~20_000 move floor → the attested σ is kept verbatim.
+        bytes memory blob = _rec(0, M.encodeB64(3060e18, 18), 50_000, 5, _srcTs());
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+        assertEq(uint256(ext.getFeed(feedId).sigmaEma), 50_000, "attested sigma > floor kept verbatim");
+    }
+
     // ─── multi-feed batch + gas ───
 
     function _addFeeds(uint256 n) internal returns (bytes32[] memory ids) {
