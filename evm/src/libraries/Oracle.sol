@@ -92,7 +92,8 @@ library Oracle {
             confidence: 0,
             tau: 0,
             tauSigma: 0,
-            maxDeviation: 0
+            maxDeviation: 0,
+            sourceTs: 0
         });
     }
 }

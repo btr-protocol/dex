@@ -33,6 +33,12 @@ contract ExternalOracle is IOracle, EIP712 {
     ///         relayer (`msg.sender`) is unpermissioned. Decouples price-authority from push-liveness.
     mapping(address => bool) public signers;
 
+    /// @notice Absolute freshness bound for the signed path (seconds). A signed blob is rejected if its
+    ///         `sourceTs` lags wall-clock by more than this — monotonicity alone lets a withheld older
+    ///         blob land and read perfectly fresh downstream (updatedAt = block.timestamp). 0 = disabled
+    ///         (bring-up default); set generously above real relay + clock skew once live.
+    uint32 public maxRelayLagSecs;
+
     event FeedAdded(
         bytes32 indexed feedId,
         address indexed base,
@@ -58,6 +64,7 @@ contract ExternalOracle is IOracle, EIP712 {
     event OracleRevoked(address indexed oracle);
     event SignerGranted(address indexed signer);
     event SignerRevoked(address indexed signer);
+    event MaxRelayLagSet(uint32 secs);
 
     modifier onlyOracle() {
         if (!oracles[msg.sender]) revert Err.NotAuth();
@@ -105,7 +112,8 @@ contract ExternalOracle is IOracle, EIP712 {
             confidence: confidence,
             tau: tau,
             tauSigma: tauSigma,
-            maxDeviation: maxDeviation
+            maxDeviation: maxDeviation,
+            sourceTs: 0 // legacy-added feed; set only by the signed path
         });
         feedIds.push(feedId);
         emit FeedAdded(feedId, base, quote, price, sigmaSample, confidence, tau, tauSigma, maxDeviation);
@@ -139,6 +147,12 @@ contract ExternalOracle is IOracle, EIP712 {
     function revokeSigner(address signer) external onlyAdmin {
         signers[signer] = false;
         emit SignerRevoked(signer);
+    }
+
+    /// @notice Set the signed-path absolute freshness bound (seconds); 0 disables. See `maxRelayLagSecs`.
+    function setMaxRelayLag(uint32 secs) external onlyAdmin {
+        maxRelayLagSecs = secs;
+        emit MaxRelayLagSet(secs);
     }
 
     /// @dev solady EIP712 domain. Fixed name/version; solady binds chainId + address(this), fork-safe.
@@ -202,6 +216,12 @@ contract ExternalOracle is IOracle, EIP712 {
         address signer = ECDSA.recoverCalldata(digest, sig);
         if (!signers[signer]) revert Err.NotAuth();
 
+        // Absolute freshness floor (ms), read ONCE (no per-feed SLOAD). 0 = disabled. A signed blob
+        // whose sourceTs predates (now - maxRelayLag) is rejected fail-closed — see `maxRelayLagSecs`.
+        uint256 minSourceTsMs;
+        uint32 lag = maxRelayLagSecs;
+        if (lag != 0 && block.timestamp > lag) minSourceTsMs = (block.timestamp - lag) * 1000;
+
         uint256 n = len / RECORD_BYTES;
         uint256 base;
         assembly ("memory-safe") { base := blob.offset }
@@ -221,7 +241,7 @@ contract ExternalOracle is IOracle, EIP712 {
                 conf := and(shr(128, w), 0xFFFF)
                 sourceTs := and(shr(64, w), 0xFFFFFFFFFFFFFFFF)
             }
-            _pushSignedInternal(feedIds[idx], price, sigma, conf, sourceTs); // feedIds[idx] OOB reverts
+            _pushSignedInternal(feedIds[idx], price, sigma, conf, sourceTs, minSourceTsMs); // OOB idx reverts
             unchecked { ++i; }
         }
     }
@@ -311,9 +331,14 @@ contract ExternalOracle is IOracle, EIP712 {
     ///      (2) stores the NXR-signed σ DIRECTLY (no on-chain updateSigmaEma — the smoothing moves to
     ///      source, -800 gas), (3) no event (observability = getFeed() state polling). Same slot, same
     ///      one-per-block + deviation-band + validate guards. Auth already checked by the caller.
-    function _pushSignedInternal(bytes32 feedId, uint64 newPriceB64, uint32 sigma, uint16 conf, uint64 sourceTs)
-        internal
-    {
+    function _pushSignedInternal(
+        bytes32 feedId,
+        uint64 newPriceB64,
+        uint32 sigma,
+        uint16 conf,
+        uint64 sourceTs,
+        uint256 minSourceTsMs
+    ) internal {
         FeedData storage feed = feeds[feedId];
         uint256 slot;
         uint256 word;
@@ -328,6 +353,9 @@ contract ExternalOracle is IOracle, EIP712 {
         // (same sourceTs) or a stale/reordered relay fails closed here — the timestamp IS the nonce.
         uint256 prevSourceTs = (word >> 208) & 0xFFFFFFFFFFFF;
         if (sourceTs <= prevSourceTs || sourceTs >= (1 << 48)) revert Err.InvalidInput();
+        // Absolute freshness bound (fail-closed): a withheld older-but-monotonic blob would otherwise
+        // land and stamp updatedAt=now, reading fresh downstream. minSourceTsMs==0 → disabled.
+        if (minSourceTsMs != 0 && sourceTs < minSourceTsMs) revert Err.FeedStale();
 
         uint256 prevMark1e18 = M.b64To1e18(uint64(word));
         uint256 mark1e18 = _validate(newPriceB64, sigma);
@@ -346,9 +374,8 @@ contract ExternalOracle is IOracle, EIP712 {
             | (uint256(uint32(block.timestamp)) << 96)
             | (word & (uint256(0xFFFF) << 128)) // ttl
             | (uint256(conf) << 144)
-            | (word & (uint256(0xFFFF) << 160)) // tau
-            | (word & (uint256(0xFFFF) << 176)) // tauSigma
-            | (word & (uint256(0xFFFF) << 192)) // maxDeviation
+            // GAS-22: tau|tauSigma|maxDeviation are contiguous [160:208) → preserve in one 48-bit mask.
+            | (word & (uint256(0xFFFFFFFFFFFF) << 160))
             | (uint256(uint48(sourceTs)) << 208);
         assembly ("memory-safe") { sstore(slot, newWord) }
     }
