@@ -13,7 +13,8 @@ interface IOracle {
         uint32 updatedAt;      // push timestamp.
         uint16 ttl;            // freshness window (s).
         uint16 confidence;     // mark 1σ CI (bps). Spread surcharge + halt gate.
-        uint16 tau;            // reserved time-constant (s). Set at addFeed.
+        uint16 flags;          // feed flags. bit0 = paused (guardian fast-freeze; fail-closed in gate/isFeedFresh).
+                               // Repurposed from vestigial `tau` (dead since updateSigmaEma removed). Slot bits [160:176).
         uint16 tauSigma;       // reserved time-constant (s). Set at addFeed; unused on-chain (direct-σ path).
         uint16 maxDeviation;   // per-push max mark move (bps) at zero staleness. Mandatory non-zero.
         uint48 sourceTs;       // GAS-20: NXR-signed source time (ms since epoch); signed-path monotonic

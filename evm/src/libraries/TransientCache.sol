@@ -33,7 +33,7 @@ library TransientCache {
         return (true, data);
     }
 
-    // Layout: sourceTs(48)@208|lastPrice(64)@144|sigmaEma(32)|updatedAt(32)|ttl(16)|confidence(16)|tau(16)|tauSigma(16)|maxDev(16)
+    // Layout: sourceTs(48)@208|lastPrice(64)@144|sigmaEma(32)|updatedAt(32)|ttl(16)|confidence(16)|flags(16)|tauSigma(16)|maxDev(16)
     function _packFeedData(IOracle.FeedData memory d) private pure returns (uint256 packed) {
         packed |= uint256(d.sourceTs) << 208; // keep cache == fresh so pool-internal readers see true data-age
         packed |= uint256(d.lastPriceB64) << 144;
@@ -41,7 +41,7 @@ library TransientCache {
         packed |= uint256(d.updatedAt) << 80;
         packed |= uint256(d.ttl) << 64;
         packed |= uint256(d.confidence) << 48;
-        packed |= uint256(d.tau) << 32;
+        packed |= uint256(d.flags) << 32; // preserve paused bit through the tx cache (fail-closed consistency)
         packed |= uint256(d.tauSigma) << 16;
         packed |= uint256(d.maxDeviation);
     }
@@ -50,7 +50,7 @@ library TransientCache {
         d.sourceTs = uint48(packed >> 208);
         d.maxDeviation = uint16(packed & 0xFFFF); packed >>= 16;
         d.tauSigma = uint16(packed & 0xFFFF); packed >>= 16;
-        d.tau = uint16(packed & 0xFFFF); packed >>= 16;
+        d.flags = uint16(packed & 0xFFFF); packed >>= 16;
         d.confidence = uint16(packed & 0xFFFF); packed >>= 16;
         d.ttl = uint16(packed & 0xFFFF); packed >>= 16;
         d.updatedAt = uint32(packed & 0xFFFFFFFF); packed >>= 32;

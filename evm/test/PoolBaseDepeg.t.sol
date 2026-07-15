@@ -27,7 +27,7 @@ contract MockBaseOracle {
         feed.updatedAt = uint32(block.timestamp);
         feed.ttl = type(uint16).max;
         feed.confidence = 0;
-        feed.tau = 0;
+        feed.flags = 0;
         feed.tauSigma = 0;
     }
 

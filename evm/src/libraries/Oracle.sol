@@ -21,6 +21,9 @@ library Oracle {
     ///         gate feed, refFeed) halts on the same conditions — an uncertain safety feed must never
     ///         silently permit execution. Returns the decoded 1e18 mark. `view` (reads block.timestamp).
     function gate(IOracle.FeedData memory feed) internal view returns (uint256 mark1e18) {
+        // Guardian fast-freeze (fail-closed): a paused feed must revert even if it still reads fresh —
+        // a paused-but-fresh feed is the whole footgun. bit0 of flags = paused. See IOracle.FeedData.
+        if (feed.flags & 1 != 0) revert Err.FeedPaused();
         uint256 age = block.timestamp >= feed.updatedAt ? block.timestamp - feed.updatedAt : type(uint32).max;
         if (age > feed.ttl) revert Err.StaleData(age > type(uint32).max ? type(uint32).max : uint32(age), feed.ttl);
         mark1e18 = M.b64To1e18(feed.lastPriceB64);
@@ -51,7 +54,7 @@ library Oracle {
             updatedAt: uint32(block.timestamp),
             ttl: type(uint16).max,
             confidence: 0,
-            tau: 0,
+            flags: 0,
             tauSigma: 0,
             maxDeviation: 0,
             sourceTs: 0

@@ -31,7 +31,7 @@ contract ExternalOracleTest is Test {
     function test_addFeed_seedsMarkAndParams() public view {
         IOracle.FeedData memory f = ext.getFeed(feedId);
         assertApproxEqRel(Oracle.mark(f), 3000e18, 0.0005e18, "seed mark = 3000");
-        assertEq(f.tau, TAU, "tau stored");
+        assertEq(f.flags, 0, "flags default unpaused");
         assertEq(f.tauSigma, TAU, "tauSigma stored");
         assertEq(f.sigmaEma, 1e4, "sigmaEma seeded from sample");
         assertEq(f.confidence, 5, "confidence stored");

@@ -30,6 +30,8 @@ contract ExternalOracle is IOracle, EIP712 {
     ///      packed calldata (24 B/feed, idx-based). See ORACLE_SIGNED_PUSH_SPEC.md.
     bytes32 private constant BATCH_TYPEHASH = keccak256("BatchQuote(bytes32 blobHash)");
     uint256 private constant RECORD_BYTES = 24;
+    /// @dev FeedData.flags bit0 = paused (guardian fast-freeze). Repurposed from vestigial `tau`. No new slot.
+    uint16 private constant FLAG_PAUSED = 1;
 
     mapping(bytes32 => FeedData) private feeds;
     bytes32[] public feedIds;
@@ -58,10 +60,21 @@ contract ExternalOracle is IOracle, EIP712 {
     event SignerGranted(address indexed signer);
     event SignerRevoked(address indexed signer);
     event MaxRelayLagSet(uint32 secs);
+    event FeedPaused(bytes32 indexed feedId);
+    event FeedUnpaused(bytes32 indexed feedId);
+    event MaxDeviationNarrowed(bytes32 indexed feedId, uint16 newMaxDeviation);
 
     modifier onlyAdmin() {
         if (msg.sender != AccessControl(AC).owner()) revert Err.NotAuth();
         _;
+    }
+
+    /// @dev Guardian gate: owner OR AC.isGuardian. Guardian may only HALT/TIGHTEN/CANCEL — every reverse
+    ///      (grantSigner, unpauseFeed, widen via updateFeed) stays owner-only. Guardian is owner-set +
+    ///      instant-revocable (AC.isGuardian), the rogue-guardian bound. Mirrors Admin._onlyGuardianOrAdmin.
+    function _onlyGuardianOrAdmin() internal view {
+        AccessControl ac_ = AccessControl(AC);
+        if (msg.sender != ac_.owner() && !ac_.isGuardian(msg.sender)) revert Err.NotAuth();
     }
 
     constructor(address ac_) {
@@ -96,7 +109,7 @@ contract ExternalOracle is IOracle, EIP712 {
             updatedAt: uint32(block.timestamp),
             ttl: ttl,
             confidence: confidence,
-            tau: tau,
+            flags: 0, // new feed starts unpaused; guardian pause sets bit0 later
             tauSigma: tauSigma,
             maxDeviation: maxDeviation,
             sourceTs: 0 // legacy-added feed; set only by the signed path
@@ -119,9 +132,45 @@ contract ExternalOracle is IOracle, EIP712 {
         emit SignerGranted(signer);
     }
 
-    function revokeSigner(address signer) external onlyAdmin {
+    /// @notice Guardian OR owner may revoke a signer (fast removal of a leaked NXR key). Asymmetric with
+    ///         grantSigner (owner-only): worst rogue-guardian case = revoke all signers → feeds go stale →
+    ///         pool fail-closes = a safe halt, never a loosening.
+    function revokeSigner(address signer) external {
+        _onlyGuardianOrAdmin();
         signers[signer] = false;
         emit SignerRevoked(signer);
+    }
+
+    /// @notice Guardian OR owner may pause a feed (fast-freeze). Fail-closed: a paused feed reverts in
+    ///         Oracle.gate() and reads not-fresh in isFeedFresh, regardless of freshness. Mark/σ preserved —
+    ///         unpause (owner-only) restores exactly. Sets FeedData.flags bit0 in-slot (no new storage).
+    function pauseFeed(bytes32 feedId) external {
+        _onlyGuardianOrAdmin();
+        if (feeds[feedId].updatedAt == 0) revert Err.FeedNotFound(feedId);
+        feeds[feedId].flags |= FLAG_PAUSED;
+        emit FeedPaused(feedId);
+    }
+
+    /// @notice Unpause a feed. Owner-only: un-halting is the reverse power, never a guardian's.
+    function unpauseFeed(bytes32 feedId) external onlyAdmin {
+        if (feeds[feedId].updatedAt == 0) revert Err.FeedNotFound(feedId);
+        feeds[feedId].flags &= ~FLAG_PAUSED;
+        emit FeedUnpaused(feedId);
+    }
+
+    /// @notice Guardian OR owner may TIGHTEN the per-push deviation band (never widen). Guardrails: strictly
+    ///         narrower than current, non-zero (a zero band = unbounded push = single-tx drain), and within
+    ///         MAX_DEV_THRESHOLD. Touches only maxDeviation; ttl and all other fields untouched. Widening back
+    ///         is owner-only via updateFeed (deliberately unguarded here).
+    function narrowMaxDeviation(bytes32 feedId, uint16 newMaxDeviation) external {
+        _onlyGuardianOrAdmin();
+        uint16 cur = feeds[feedId].maxDeviation;
+        if (cur == 0) revert Err.FeedNotFound(feedId); // maxDeviation is mandatory non-zero on every live feed
+        if (newMaxDeviation == 0 || newMaxDeviation >= cur || newMaxDeviation > MAX_DEV_THRESHOLD) {
+            revert Err.InvalidInput();
+        }
+        feeds[feedId].maxDeviation = newMaxDeviation;
+        emit MaxDeviationNarrowed(feedId, newMaxDeviation);
     }
 
     /// @notice Set the signed-path absolute freshness bound (seconds); 0 disables. See `maxRelayLagSecs`.
@@ -207,7 +256,7 @@ contract ExternalOracle is IOracle, EIP712 {
     /// @dev Sole feed writer. One feed-slot SLOAD + one SSTORE. maxDeviation for the push clamp lives IN
     ///      the slot (no separate cold mapping — ORA-02). Slot layout (low→high bits):
     ///      lastPriceB64[0:64) | sigmaEma[64:96) | updatedAt[96:128) | ttl[128:144)
-    ///      | confidence[144:160) | tau[160:176) | tauSigma[176:192) | maxDeviation[192:208)
+    ///      | confidence[144:160) | flags[160:176) (bit0=paused) | tauSigma[176:192) | maxDeviation[192:208)
     ///      | sourceTs[208:256) (uint48 ms, monotonic replay guard; 0 until first signed push).
     ///      Guards: (1) monotonic `sourceTs` replay guard + a future-dated bound, (2) stores the NXR-signed
     ///      σ DIRECTLY (no on-chain EMA — smoothing moves to source) FLOORED at |Δmark|/mark
@@ -270,7 +319,8 @@ contract ExternalOracle is IOracle, EIP712 {
             | (uint256(uint32(block.timestamp)) << 96)
             | (word & (uint256(0xFFFF) << 128)) // ttl
             | (uint256(conf) << 144)
-            // GAS-22: tau|tauSigma|maxDeviation are contiguous [160:208) → preserve in one 48-bit mask.
+            // GAS-22: flags|tauSigma|maxDeviation are contiguous [160:208) → preserve in one 48-bit mask
+            // (so a guardian-set paused bit survives every signed push; only owner unpause clears it).
             | (word & (uint256(0xFFFFFFFFFFFF) << 160))
             | (uint256(uint48(sourceTs)) << 208);
         assembly ("memory-safe") { sstore(slot, newWord) }
@@ -283,13 +333,13 @@ contract ExternalOracle is IOracle, EIP712 {
 
     function isFeedFresh(bytes32 feedId, uint32 maxAge) external view override returns (bool) {
         FeedData storage f = feeds[feedId];
-        if (f.updatedAt == 0) return false;
+        if (f.updatedAt == 0 || f.flags & FLAG_PAUSED != 0) return false; // paused = fail-closed not-fresh
         unchecked { return block.timestamp - f.updatedAt <= maxAge; }
     }
 
     function isFeedFresh(bytes32 feedId) external view override returns (bool) {
         FeedData storage f = feeds[feedId];
-        if (f.updatedAt == 0) return false;
+        if (f.updatedAt == 0 || f.flags & FLAG_PAUSED != 0) return false; // paused = fail-closed not-fresh
         unchecked { return block.timestamp - f.updatedAt <= f.ttl; }
     }
 

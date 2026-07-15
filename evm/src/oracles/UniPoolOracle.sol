@@ -97,7 +97,7 @@ contract UniPoolOracle is IOracle {
             updatedAt: uint32(block.timestamp),
             ttl: f.ttl,
             confidence: f.confidence,
-            tau: 0,
+            flags: 0,
             tauSigma: 0,
             maxDeviation: 0,
             sourceTs: 0

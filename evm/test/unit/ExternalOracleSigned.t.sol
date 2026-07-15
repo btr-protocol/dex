@@ -227,7 +227,8 @@ contract ExternalOracleSignedTest is Test {
     function test_signed_preservesConfigBits() public {
         address ba = address(0xCAFE1);
         address qa = address(0xCAFE2);
-        // distinct tau / tauSigma / maxDeviation / ttl so a bit-mixing bug would surface (idx 1).
+        // distinct tauSigma / maxDeviation / ttl so a bit-mixing bug would surface (idx 1). tau param (111)
+        // is vestigial now (struct field repurposed to flags) — addFeed stores flags:0 regardless.
         ext.addFeed(ba, qa, M.encodeB64(1000e18, 18), 1e4, 5, 111, 222, 333, 4444);
         bytes32 id = keccak256(abi.encodePacked(ba, qa));
         skip(TAU);
@@ -236,7 +237,7 @@ contract ExternalOracleSignedTest is Test {
         ext.batchPushSigned(blob, _sign(NXR_PK, blob));
 
         IOracle.FeedData memory f = ext.getFeed(id);
-        assertEq(f.tau, 111, "tau preserved");
+        assertEq(f.flags, 0, "flags preserved unpaused");
         assertEq(f.tauSigma, 222, "tauSigma preserved");
         assertEq(f.maxDeviation, 333, "maxDeviation preserved");
         assertEq(f.ttl, 4444, "ttl preserved");

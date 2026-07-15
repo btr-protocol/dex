@@ -50,7 +50,7 @@ contract MockOracle is IOracle {
             updatedAt: uint32(block.timestamp),
             ttl: ttl,
             confidence: confidence,
-            tau: 0,
+            flags: 0,
             tauSigma: 0,
             maxDeviation: 0,
             sourceTs: 0
@@ -132,7 +132,7 @@ abstract contract BaseTestSetup is Test {
             updatedAt: uint32(block.timestamp),
             ttl: 3600,
             confidence: confidence,
-            tau: 0,
+            flags: 0,
             tauSigma: 0,
             maxDeviation: 0,
             sourceTs: 0
