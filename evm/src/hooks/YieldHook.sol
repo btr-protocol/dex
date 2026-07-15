@@ -80,8 +80,12 @@ abstract contract YieldHook is BasePoolHook {
         maxHarvestCreditBps = bps_;
     }
 
+    /// @notice MED: gated by `treasuryOwner` (the treasury authority), not `owner` — this override
+    ///         redirects the incentive sweep destination away from `pool.treasury()`, a custody-split
+    ///         decision that must sit with the same principal as the timelocked treasury-rotation path,
+    ///         not the param/admin owner.
     function setIncentivesReceiver(address receiver_) external {
-        if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+        if (msg.sender != AccessControl(AC).treasuryOwner()) revert Ownable.Unauthorized();
         incentivesReceiver = receiver_;
     }
 
