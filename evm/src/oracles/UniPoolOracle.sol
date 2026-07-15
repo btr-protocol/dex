@@ -99,7 +99,8 @@ contract UniPoolOracle is IOracle {
             confidence: f.confidence,
             tau: 0,
             tauSigma: 0,
-            maxDeviation: 0
+            maxDeviation: 0,
+            sourceTs: 0
         });
     }
 

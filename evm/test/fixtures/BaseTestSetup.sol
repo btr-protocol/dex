@@ -52,7 +52,8 @@ contract MockOracle is IOracle {
             confidence: confidence,
             tau: 0,
             tauSigma: 0,
-            maxDeviation: 0
+            maxDeviation: 0,
+            sourceTs: 0
         });
     }
 
@@ -133,7 +134,8 @@ abstract contract BaseTestSetup is Test {
             confidence: confidence,
             tau: 0,
             tauSigma: 0,
-            maxDeviation: 0
+            maxDeviation: 0,
+            sourceTs: 0
         });
     }
 

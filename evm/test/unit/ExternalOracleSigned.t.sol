@@ -178,6 +178,55 @@ contract ExternalOracleSignedTest is Test {
         ext.batchPushSigned(blob, _sign(NXR_PK, blob));
     }
 
+    // ─── absolute freshness bound (fix #6) + sourceTs surfacing (fix #7) ───
+
+    function test_reject_beyondRelayLag() public {
+        ext.setMaxRelayLag(60); // 60s absolute bound
+        skip(TAU);
+        // sourceTs 2 minutes behind wall clock (still monotonic > 0, but stale beyond the 60s bound)
+        uint64 stale = uint64((block.timestamp - 120) * 1000);
+        bytes memory blob = _rec(0, M.encodeB64(3005e18, 18), 1e4, 5, stale);
+        vm.expectRevert(Err.FeedStale.selector);
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    }
+
+    function test_accept_withinRelayLag_surfacesSourceTs() public {
+        ext.setMaxRelayLag(600);
+        skip(TAU);
+        uint64 ts = uint64((block.timestamp - 5) * 1000); // 5s behind, within 600s bound
+        bytes memory blob = _rec(0, M.encodeB64(3005e18, 18), 1e4, 5, ts);
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+        // fix #7: getFeed surfaces the signed source timestamp for downstream data-age reasoning.
+        assertEq(uint256(ext.getFeed(feedId).sourceTs), ts, "sourceTs stored + surfaced");
+    }
+
+    function test_relayLag_disabledByDefault() public view {
+        assertEq(ext.maxRelayLagSecs(), 0, "0 = disabled at bring-up");
+    }
+
+    // ─── config-bit preservation across the signed write (fix #8) ───
+
+    function test_signed_preservesConfigBits() public {
+        address ba = address(0xCAFE1);
+        address qa = address(0xCAFE2);
+        // distinct tau / tauSigma / maxDeviation / ttl so a bit-mixing bug would surface (idx 1).
+        ext.addFeed(ba, qa, M.encodeB64(1000e18, 18), 1e4, 5, 111, 222, 333, 4444);
+        bytes32 id = keccak256(abi.encodePacked(ba, qa));
+        skip(TAU);
+        uint64 ts = _srcTs();
+        bytes memory blob = _rec(1, M.encodeB64(1005e18, 18), 7e4, 9, ts); // +50 bps < 333-bps band
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+
+        IOracle.FeedData memory f = ext.getFeed(id);
+        assertEq(f.tau, 111, "tau preserved");
+        assertEq(f.tauSigma, 222, "tauSigma preserved");
+        assertEq(f.maxDeviation, 333, "maxDeviation preserved");
+        assertEq(f.ttl, 4444, "ttl preserved");
+        assertEq(f.confidence, 9, "confidence overwritten");
+        assertEq(f.sigmaEma, 7e4, "sigma stored direct");
+        assertEq(uint256(f.sourceTs), ts, "sourceTs written");
+    }
+
     // ─── multi-feed batch + gas ───
 
     function _addFeeds(uint256 n) internal returns (bytes32[] memory ids) {

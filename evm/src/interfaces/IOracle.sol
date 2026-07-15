@@ -16,6 +16,8 @@ interface IOracle {
         uint16 tau;            // reserved EMA time-constant (s). Set at addFeed.
         uint16 tauSigma;       // σ-EMA time-constant (s). Set at addFeed.
         uint16 maxDeviation;   // per-push max mark move (bps) at zero staleness. Mandatory non-zero.
+        uint48 sourceTs;       // GAS-20: NXR-signed source time (ms since epoch); signed-path monotonic
+                               // replay guard + true data-age. 0 on legacy-only feeds. Slot bits [208:256).
     }
 
     function getFeed(bytes32 feedId) external view returns (FeedData memory data);
