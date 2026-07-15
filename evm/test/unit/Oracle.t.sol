@@ -5,6 +5,7 @@ import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {Oracle} from "../../src/libraries/Oracle.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
+import {Constants as C} from "../../src/libraries/Constants.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 
 /// @title LibOracleTest
@@ -33,13 +34,13 @@ contract LibOracleTest is BaseTestSetup {
         assertEq(f.confidence, 0, "peg has no CI");
     }
 
-    function test_updateSigmaEma_zeroSampleRatchetsOnMarkMove() public pure {
-        uint32 got = Oracle.updateSigmaEma(1e4, 0, 3000e18, 3300e18, 100, 100);
-        assertGt(got, 1e4, "evidence floor lifts sigmaEma above sample=0");
+    // ─── markMovePbps (signed-path σ floor magnitude) ───
+
+    function test_markMovePbps_zeroOnFlat() public pure {
+        assertEq(Oracle.markMovePbps(3000e18, 3000e18), 0, "no move = 0");
     }
 
-    function test_updateSigmaEma_sameBlockFrozen() public pure {
-        uint32 got = Oracle.updateSigmaEma(1e4, 2e4, 3000e18, 3100e18, 0, 100);
-        assertEq(got, 1e4, "dt=0 freezes sigmaEma");
+    function test_markMovePbps_capsAtMaxSigma() public pure {
+        assertEq(Oracle.markMovePbps(1e18, 1e30), C.MAX_SIGMA_PBPS, "huge move caps at MAX_SIGMA_PBPS");
     }
 }

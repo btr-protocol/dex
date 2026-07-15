@@ -8,9 +8,9 @@ import {Maths as M} from "../../src/libraries/Maths.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {MockAC} from "../fixtures/BaseTestSetup.sol";
 
-/// @notice NXR-signed push path (batchPushSigned). Verifies EIP-712 auth, monotonic-sourceTs replay
-///         guard, one-per-block, deviation band, and gas vs the legacy batchPush. See
-///         ORACLE_SIGNED_PUSH_SPEC.md. Money path — pre-security-review reference tests.
+/// @notice NXR-signed push path (batchPushSigned) — the SOLE mark-update path. Verifies EIP-712 auth,
+///         monotonic-sourceTs replay guard, one-per-block, deviation band + staleness scaling, and gas.
+///         See ORACLE_SIGNED_PUSH_SPEC.md. Money path — pre-security-review reference tests.
 contract ExternalOracleSignedTest is Test {
     ExternalOracle ext;
     MockAC ac;
@@ -26,7 +26,7 @@ contract ExternalOracleSignedTest is Test {
 
     function setUp() public {
         ac = new MockAC(address(this));
-        ext = new ExternalOracle(address(ac), address(this));
+        ext = new ExternalOracle(address(ac));
         vm.warp(1_700_000_000);
         ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600);
         feedId = keccak256(abi.encodePacked(BASE, QUOTE)); // feedIds[0], idx = 0
@@ -160,6 +160,24 @@ contract ExternalOracleSignedTest is Test {
         bytes memory blob = _rec(1, M.encodeB64(110e18, 18), 1e4, 5, _srcTs()); // +10% ≫ 5%
         vm.expectRevert(abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(501)));
         ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    }
+
+    /// H-2: the band grows LINEARLY with staleness — maxDev·(1+dt/ttl) — so a legit post-gap re-sync
+    /// passes but an arbitrary jump bought by inducing staleness stays bounded. At dt=ttl the band doubles.
+    function test_deviationBand_scalesWithStaleness() public {
+        address da = address(0xDA5E);
+        address db = address(0xDB5E);
+        ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // 5% band, ttl 3600, idx=1
+        bytes32 id = keccak256(abi.encodePacked(da, db));
+        skip(3600); // dt = ttl → band = 500·(1+1) = 1000 bps (10%)
+        // A +200% jump is REJECTED even fully stale (was allowed under the old dt>=ttl exemption).
+        bytes memory j = _rec(1, M.encodeB64(300e18, 18), 1e4, 5, _srcTs());
+        vm.expectRevert(abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(20000), uint256(1000)));
+        ext.batchPushSigned(j, _sign(NXR_PK, j));
+        // A move within the doubled band commits (legit post-downtime drift).
+        bytes memory ok = _rec(1, M.encodeB64(108e18, 18), 1e4, 5, _srcTs()); // +8% < 10%
+        ext.batchPushSigned(ok, _sign(NXR_PK, ok));
+        assertApproxEqRel(M.b64To1e18(ext.getFeed(id).lastPriceB64), 108e18, 0.001e18, "in-band re-sync committed");
     }
 
     // ─── malformed calldata ───
@@ -299,41 +317,22 @@ contract ExternalOracleSignedTest is Test {
         }
     }
 
-    /// Gas: signed (packed, no event, direct σ) vs legacy batchPush, N=10, COLD-vs-COLD (disjoint feed
-    /// sets so neither path warms the other's slots). Execution-only (forge gasleft() excludes the 21k
-    /// base tx + L1 calldata). Reduction here is the on-chain execution delta; total-fee delta is smaller
-    /// once the shared 21k base is amortized in. See ORACLE_SIGNED_PUSH_SPEC.md.
-    function test_gas_signed_vs_legacy() public {
+    /// Gas: signed path (packed, no event, direct σ) N=10, COLD slots (matches steady-state keeper cadence).
+    /// Execution-only (forge gasleft() excludes the 21k base tx + L1 calldata). See ORACLE_SIGNED_PUSH_SPEC.md.
+    function test_gas_signed_batch10() public {
         uint256 n = 10;
-        bytes32[] memory legacyIds = _addFeedsFrom(n, 0); // idx 1..10, addr 0x10000..
-        _addFeedsFrom(n, 0x1000); // idx 11..20, disjoint addr 0x11000.. (both cold)
+        _addFeedsFrom(n, 0); // idx 1..10, addr 0x10000.. (cold)
         skip(TAU);
-
-        // legacy batchPush(10) on legacyIds (cold)
-        uint64[] memory prices = new uint64[](n);
-        uint32[] memory sigmas = new uint32[](n);
-        uint16[] memory confs = new uint16[](n);
-        for (uint256 i; i < n; ++i) { prices[i] = M.encodeB64(1005e18, 18); sigmas[i] = 1e4; confs[i] = 5; }
-        uint256 g0 = gasleft();
-        ext.batchPush(legacyIds, prices, sigmas, confs);
-        uint256 legacy = g0 - gasleft();
-
-        // signed batchPushSigned(10) on the DISJOINT signedIds (also cold)
         uint64 ts = _srcTs();
         bytes memory blob;
         for (uint16 i; i < n; ++i) {
-            blob = bytes.concat(blob, _rec(uint16(i + 1 + n), M.encodeB64(1010e18, 18), 2e4, 6, ts)); // idx 11..20
+            blob = bytes.concat(blob, _rec(uint16(i + 1), M.encodeB64(1010e18, 18), 2e4, 6, ts));
         }
         bytes memory sig = _sign(NXR_PK, blob);
-        uint256 g1 = gasleft();
+        uint256 g = gasleft();
         ext.batchPushSigned(blob, sig);
-        uint256 signed = g1 - gasleft();
-
-        emit log_named_uint("legacy batchPush(10) exec gas", legacy);
-        emit log_named_uint("  legacy per-feed", legacy / n);
+        uint256 signed = g - gasleft();
         emit log_named_uint("signed batchPushSigned(10) exec gas", signed);
         emit log_named_uint("  signed per-feed", signed / n);
-        if (signed < legacy) emit log_named_uint("exec reduction pct x100", (legacy - signed) * 10000 / legacy);
-        assertLt(signed, legacy, "signed path must be cheaper than legacy");
     }
 }

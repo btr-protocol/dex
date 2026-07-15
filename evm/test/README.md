@@ -9,9 +9,8 @@ Foundry tests for the AIMM contracts. Solidity `=0.8.35`, `via_ir`, feed-rework 
 test/
 ├── unit/
 │   ├── Maths.t.sol               B64 codec, arithmetic, 1e18 conversions
-│   ├── Oracle.t.sol              price EMA rate-clamp, σ-EMA fold (updateEmaMark1e18 / updateSigmaEma)
-│   ├── ExternalOracle.t.sol      addFeed/pushFeed/batchPush, TTL, maxDeviation push clamp
-│   ├── ExternalOracleGas.t.sol   single-slot push gas pins
+│   ├── Oracle.t.sol              mark decode, getSigma passthrough, peg feed, markMovePbps floor
+│   ├── ExternalOracle.t.sol      admin feed mgmt (addFeed seed / updateFeed config, TTL, maxDeviation)
 │   ├── InternalOracle.t.sol      ORACLE_MODE_INTERNAL constant-peg + fail-closed depeg gate
 │   ├── Pricing.t.sol             spread (minFeePath + σ·vega + staleness + confidence), skew, depth
 │   ├── Spline.t.sol              Fritsch-Carlson monotonicity, eval/area integration
