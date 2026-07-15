@@ -33,8 +33,9 @@ library TransientCache {
         return (true, data);
     }
 
-    // Layout: lastPrice(64)|sigmaEma(32)|updatedAt(32)|ttl(16)|confidence(16)|tau(16)|tauSigma(16)|maxDev(16)
+    // Layout: sourceTs(48)@208|lastPrice(64)@144|sigmaEma(32)|updatedAt(32)|ttl(16)|confidence(16)|tau(16)|tauSigma(16)|maxDev(16)
     function _packFeedData(IOracle.FeedData memory d) private pure returns (uint256 packed) {
+        packed |= uint256(d.sourceTs) << 208; // keep cache == fresh so pool-internal readers see true data-age
         packed |= uint256(d.lastPriceB64) << 144;
         packed |= uint256(d.sigmaEma) << 112;
         packed |= uint256(d.updatedAt) << 80;
@@ -46,6 +47,7 @@ library TransientCache {
     }
 
     function _unpackFeedData(uint256 packed) private pure returns (IOracle.FeedData memory d) {
+        d.sourceTs = uint48(packed >> 208);
         d.maxDeviation = uint16(packed & 0xFFFF); packed >>= 16;
         d.tauSigma = uint16(packed & 0xFFFF); packed >>= 16;
         d.tau = uint16(packed & 0xFFFF); packed >>= 16;

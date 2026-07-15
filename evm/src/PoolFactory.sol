@@ -314,9 +314,11 @@ contract PoolFactory is IPoolFactory {
     }
 
     function cancelReferenceUpgrade() external onlyAdmin {
-        if (pendingReferencePool == address(0)) revert Err.InvalidState();
+        address cancelled = pendingReferencePool;
+        if (cancelled == address(0)) revert Err.InvalidState();
         delete pendingReferencePool;
         delete upgradeTimelock;
+        emit ReferencePoolUpgradeCancelled(msg.sender, cancelled);
     }
 
     /// @notice MED: guardian escape hatch — a fleet-wide code swap is otherwise gated only by the
@@ -327,9 +329,11 @@ contract PoolFactory is IPoolFactory {
     ///      is a multisig; this backstops a single mis-clicked/coerced request, not a full owner takeover.
     function guardianCancelUpgrade() external {
         if (!AccessControl(AC).isGuardian(msg.sender)) revert Err.NotAuth();
-        if (pendingReferencePool == address(0)) revert Err.InvalidState();
+        address cancelled = pendingReferencePool;
+        if (cancelled == address(0)) revert Err.InvalidState();
         delete pendingReferencePool;
         delete upgradeTimelock;
+        emit ReferencePoolUpgradeCancelled(msg.sender, cancelled);
     }
 
     function setProtocolDeployer(address newDeployer) external onlyAdmin {
