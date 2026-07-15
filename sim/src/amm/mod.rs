@@ -5,7 +5,7 @@
 //! (organic + toxic/arbitrage), and measures realized LP economics: fees captured, LVR
 //! (loss-versus-rebalancing / arbitrage extraction), and net APR, decomposed by regime.
 //!
-//! Why order-flow and not a position-level CL model (the prime `cl` strategy): AIMM's edge is a
+//! Why order-flow and not a position-level CL model (a static concentrated-liquidity position): AIMM's edge is a
 //! *dynamic* fee + inventory skew that only acts on actual flow hitting its quote function, so
 //! the σ²/8 closed form cannot represent it. Every trade must be quoted against live state.
 //!

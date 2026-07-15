@@ -618,7 +618,7 @@ library Pricing {
         TCache.cacheOracleFeed(token, _fetchFeed($, token));
     }
 
-    /// @dev Convex coverage toll — port of prime aimm.rs `cov_q` (sim-validated, commit 2d21a29). Charges
+    /// @dev Convex coverage toll — port of `dex/sim/src/amm/aimm.rs` `cov_q` (sim-validated, commit 2d21a29). Charges
     ///      κ·L·(Q(c₀)−Q(c₁)) in OUTPUT units on the drained side, Q(c)=ln c−c+1 (the convex no-drain wall
     ///      that diverges as c→0). The toll is retained in the output reserve (skim to LP surplus), never a
     ///      mark shift ⇒ NOT round-trip-extractable (unlike the deleted covPremiumBps). Uncapped wall: as
