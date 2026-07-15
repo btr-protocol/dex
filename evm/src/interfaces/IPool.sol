@@ -280,6 +280,12 @@ interface IPool is IOracle {
     function owner() external view returns (address);
     function baseToken() external view returns (address);
     function wnative() external view returns (address);
+    /// @notice Baked-in immutable wiring (from the impl bytecode) — used by PoolFactory to assert a
+    ///         candidate upgrade impl matches the live fleet's AC/admin/flash and has a codeful poolAux.
+    function AC() external view returns (address);
+    function admin() external view returns (address);
+    function flash() external view returns (address);
+    function poolAux() external view returns (address);
     function getCoverageRatio(address token) external view returns (uint256);
 
     /// @notice Swap `amountIn` of `tokenIn` for ≥`minAmountOut` of `tokenOut`, sending output to `recipient`.

@@ -4,6 +4,7 @@ pragma solidity =0.8.35;
 import {IPoolFactory} from "./interfaces/IPoolFactory.sol";
 import {IPool} from "./interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
@@ -28,19 +29,15 @@ contract PoolFactory is IPoolFactory {
     uint256 public constant MAX_POOL_TOKENS = 32;
     uint256 public constant MAX_TOKEN_POOLS = 128;
 
-    address public override referencePool;
+    /// @notice GAS-19: the live impl is the single source of truth in `beacon.implementation()`; a mirror
+    ///         storage slot only risked drift. `referencePool()` is now a view over the beacon (below).
     address public pendingReferencePool;
-    /// @notice Earliest block timestamp at which the pending impl swap may be executed.
-    /// @dev Phase 42H.D · G3 -kept as raw `uint256` (≠ shared/Timelock.sol packed `uint96`)
-    ///      because:
-    ///        1. PoolFactory has a SINGLE in-flight pending upgrade (no per-op keying), so
-    ///           the packed (eta|grace) optimisation buys no slot reuse -`pendingReferencePool`
-    ///           lives in its own slot anyway.
-    ///        2. The grace window concept (auto-expiry) is undesirable here: if governance
-    ///           misses the execution window, the upgrade should NOT silently void -admins
-    ///           MUST explicitly cancel via `cancelReferenceUpgrade`. Equivalent semantics =
-    ///           grace = ∞, which the packed lib does not encode (uint48 grace).
-    ///        3. `uint256` is ABI-stable for downstream front-ends already reading this slot.
+    /// @notice Earliest block timestamp at which the pending impl swap may be executed. It expires
+    ///         `SC.GRACE_PERIOD` after that (LOW-11), so a matured-but-forgotten upgrade cannot linger
+    ///         executable forever — governance must re-`request` past the grace window.
+    /// @dev Phase 42H.D · G3 -kept as raw `uint256` (≠ shared/Timelock.sol packed `uint96`) because
+    ///      PoolFactory has a SINGLE in-flight pending upgrade (no per-op keying), so the packed
+    ///      (eta|grace) optimisation buys no slot reuse, and `uint256` is ABI-stable for front-ends.
     uint256 public upgradeTimelock;
     address public override protocolDeployer;
 
@@ -81,7 +78,6 @@ contract PoolFactory is IPoolFactory {
 
     constructor(address referencePool_, address protocolDeployer_, address ac_) {
         if (referencePool_ == address(0) || protocolDeployer_ == address(0) || ac_ == address(0)) revert Err.ZeroValue();
-        referencePool = referencePool_;
         protocolDeployer = protocolDeployer_;
         AC = ac_;
         // Factory owns the beacon → timelocked fleet upgrades funnel through it.
@@ -105,8 +101,8 @@ contract PoolFactory is IPoolFactory {
         if (tokens.length == 0) revert Err.InvalidInput();
 
         bytes32 salt = keccak256(abi.encodePacked(msg.sender, baseToken, keccak256(abi.encode(tokens)), block.chainid));
+        // GAS-14: LibClone reverts on deploy failure (never returns address(0)) → no null check.
         pool = LibClone.deployDeterministicERC1967BeaconProxy(beacon, salt);
-        if (pool == address(0)) revert Err.DeploymentFailed();
 
         (bool success, ) = pool.call(initdata);
         if (!success) revert Err.OperationFailed();
@@ -275,29 +271,62 @@ contract PoolFactory is IPoolFactory {
 
     // ─── admin ───
 
+    /// @notice GAS-19: current live impl for the whole fleet, read straight from the beacon (no mirror slot).
+    function referencePool() external view override returns (address) {
+        return UpgradeableBeacon(beacon).implementation();
+    }
+
     function requestReferenceUpgrade(address newImplementation) external onlyAdmin {
         if (newImplementation == address(0)) revert Err.ZeroValue();
         // REG-04: a non-contract impl would brick every future clone (delegatecalls to empty code).
         if (newImplementation.code.length == 0) revert Err.NotCode();
+        // Impl-compat: the beacon swap re-points the ENTIRE live fleet, so the new impl's baked-in
+        // immutables MUST match the live wiring or every pool breaks atomically. AC/admin/flash are
+        // structural (assert equality); poolAux MAY change across upgrades (assert only codeful — its
+        // $-layout parity with Pool remains a deploy/CI invariant, `forge inspect storage-layout` diff,
+        // NOT on-chain-checkable).
+        address live = UpgradeableBeacon(beacon).implementation();
+        if (
+            IPool(newImplementation).AC() != AC ||
+            IPool(newImplementation).admin() != IPool(live).admin() ||
+            IPool(newImplementation).flash() != IPool(live).flash() ||
+            IPool(newImplementation).poolAux().code.length == 0
+        ) revert Err.BadConfig();
         if (pendingReferencePool != address(0)) revert Err.PendingTimelock(uint48(block.timestamp));
         pendingReferencePool = newImplementation;
         upgradeTimelock = block.timestamp + UPGRADE_TIMELOCK;
-        emit ReferencePoolUpgradeRequested(referencePool, newImplementation, upgradeTimelock);
+        emit ReferencePoolUpgradeRequested(live, newImplementation, upgradeTimelock);
     }
 
     function executeReferenceUpgrade() external onlyAdmin {
         if (block.timestamp < upgradeTimelock) revert Err.PendingTimelock(uint48(upgradeTimelock));
+        // LOW-11: a matured pending upgrade expires SC.GRACE_PERIOD after its eta so a forgotten,
+        // stale-vetted impl cannot be executed months later — must be re-requested past the window.
+        if (block.timestamp > upgradeTimelock + SC.GRACE_PERIOD) revert Err.Expired();
         if (pendingReferencePool == address(0)) revert Err.InvalidState();
-        address oldImpl = referencePool;
-        referencePool = pendingReferencePool;
+        address oldImpl = UpgradeableBeacon(beacon).implementation();
+        address newImpl = pendingReferencePool;
         delete pendingReferencePool;
         delete upgradeTimelock;
         // Atomic fleet upgrade: every live beacon proxy now points at the new impl.
-        UpgradeableBeacon(beacon).upgradeTo(referencePool);
-        emit ReferencePoolUpgraded(oldImpl, referencePool);
+        UpgradeableBeacon(beacon).upgradeTo(newImpl);
+        emit ReferencePoolUpgraded(oldImpl, newImpl);
     }
 
     function cancelReferenceUpgrade() external onlyAdmin {
+        if (pendingReferencePool == address(0)) revert Err.InvalidState();
+        delete pendingReferencePool;
+        delete upgradeTimelock;
+    }
+
+    /// @notice MED: guardian escape hatch — a fleet-wide code swap is otherwise gated only by the
+    ///         owner (request) and cancellable only by that same owner. A guardian (AC.isGuardian) may
+    ///         veto a pending upgrade during the timelock, matching guardians' freeze/pause-only remit.
+    /// @dev Residual (accepted MED): a fully-compromised owner can `setGuardian(false)` to strip
+    ///      guardians instantly, then re-request — the guard raises the bar, it is not absolute. Owner
+    ///      is a multisig; this backstops a single mis-clicked/coerced request, not a full owner takeover.
+    function guardianCancelUpgrade() external {
+        if (!AccessControl(AC).isGuardian(msg.sender)) revert Err.NotAuth();
         if (pendingReferencePool == address(0)) revert Err.InvalidState();
         delete pendingReferencePool;
         delete upgradeTimelock;
