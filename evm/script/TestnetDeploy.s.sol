@@ -62,7 +62,10 @@ contract TestnetDeploy is Deploy {
     function deployTestnet() external returns (TestnetAddrs memory out) {
         out.core = _broadcastDeploy();
         address deployer = out.core.deployer;
-        address oraclePusher = vm.envOr("ORACLE_PUSHER", deployer);
+        // NXR attester (signed-push authority). Deploy MUST grant it or the feed can never be updated
+        // post-seed — the only write path is batchPushSigned (ecrecover ∈ signers). Defaults to deployer
+        // for a self-signed bring-up; set ORACLE_PUSHER to the real NXR attester key for a live deploy.
+        address attester = vm.envOr("ORACLE_PUSHER", deployer);
         address wnative = vm.envOr("WNATIVE", address(0xCAFE));
         uint256 seedUsdc = vm.envOr("SEED_USDC", uint256(2_000_000 ether));
         uint256 pk = vm.envUint("DEPLOYER_PK");
@@ -72,10 +75,8 @@ contract TestnetDeploy is Deploy {
         out.tok = _deployTokens();
         out.faucet = new TestnetFaucet(deployer);
         _configureFaucet(out);
-        out.oracle = new ExternalOracle(out.core.ac, deployer);
-        if (oraclePusher != deployer) {
-            out.oracle.grantOracle(oraclePusher);
-        }
+        out.oracle = new ExternalOracle(out.core.ac);
+        out.oracle.grantSigner(attester);
 
         out.usdcFeedId = _seedFeeds(out.oracle, out.tok);
 
