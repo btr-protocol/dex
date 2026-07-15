@@ -8,20 +8,30 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Constants as C} from "../libraries/Constants.sol";
 import {Oracle} from "../libraries/Oracle.sol";
 import {Maths as M} from "../libraries/Maths.sol";
+import {EIP712} from "solady/utils/EIP712.sol";
+import {ECDSA} from "solady/utils/ECDSA.sol";
 
 /// @title ExternalOracle
 /// @notice Push-based external oracle. Keeper pushes mark + Parkinson σ sample + mark CI; chain
 ///         maintains the rate-clamped σ-EMA. Quote = `lastPriceB64`; pricing σ = `sigmaEma`.
 /// @dev Pusher is any `grantOracle` address — testnet EOA, mainnet Gnosis Safe (2-of-3). No threshold
 ///      logic on-chain; multisig is `msg.sender` after `execTransaction`.
-contract ExternalOracle is IOracle {
+contract ExternalOracle is IOracle, EIP712 {
     address public immutable AC;
     uint32 public constant MAX_VOLATILITY = C.MAX_SIGMA_PBPS;
     uint16 public constant MAX_DEV_THRESHOLD = 65_000;
 
+    /// @dev EIP-712 typehash for a signed batch. The signature commits to `keccak256(blob)` — the exact
+    ///      packed calldata (24 B/feed, idx-based). See ORACLE_SIGNED_PUSH_SPEC.md.
+    bytes32 private constant BATCH_TYPEHASH = keccak256("BatchQuote(bytes32 blobHash)");
+    uint256 private constant RECORD_BYTES = 24;
+
     mapping(address => bool) public oracles;
     mapping(bytes32 => FeedData) private feeds;
     bytes32[] public feedIds;
+    /// @notice NXR attester keys. A signed quote is authorized iff `ecrecover(digest) ∈ signers` — the
+    ///         relayer (`msg.sender`) is unpermissioned. Decouples price-authority from push-liveness.
+    mapping(address => bool) public signers;
 
     event FeedAdded(
         bytes32 indexed feedId,
@@ -46,6 +56,8 @@ contract ExternalOracle is IOracle {
     event BatchPushed(uint256 count, address indexed pusher);
     event OracleGranted(address indexed oracle);
     event OracleRevoked(address indexed oracle);
+    event SignerGranted(address indexed signer);
+    event SignerRevoked(address indexed signer);
 
     modifier onlyOracle() {
         if (!oracles[msg.sender]) revert Err.NotAuth();
@@ -118,6 +130,22 @@ contract ExternalOracle is IOracle {
         emit OracleRevoked(oracle);
     }
 
+    function grantSigner(address signer) external onlyAdmin {
+        if (signer == address(0)) revert Err.ZeroValue();
+        signers[signer] = true;
+        emit SignerGranted(signer);
+    }
+
+    function revokeSigner(address signer) external onlyAdmin {
+        signers[signer] = false;
+        emit SignerRevoked(signer);
+    }
+
+    /// @dev solady EIP712 domain. Fixed name/version; solady binds chainId + address(this), fork-safe.
+    function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
+        return ("BTR ExternalOracle", "1");
+    }
+
     function pushFeed(bytes32 feedId, uint64 newPriceB64, uint32 sigmaSample, uint16 newConfidence)
         external onlyOracle
     {
@@ -157,15 +185,72 @@ contract ExternalOracle is IOracle {
         emit BatchPushed(length, msg.sender);
     }
 
+    /// @notice Relay an NXR-signed batch of quotes. Auth = `ecrecover(digest) ∈ signers`; the relayer
+    ///         (`msg.sender`) needs no permission. One ECDSA sig over the whole `blob`. Single push =
+    ///         a 24-byte blob (n=1). Packed record layout + digest: see ORACLE_SIGNED_PUSH_SPEC.md.
+    /// @param blob Packed records, 24 B each: idx(u16)|price(u64)|sigma(u32)|conf(u16)|sourceTs(u64).
+    /// @param sig  65-byte (or EIP-2098 64-byte) ECDSA signature over the EIP-712 digest.
+    function batchPushSigned(bytes calldata blob, bytes calldata sig) external {
+        uint256 len = blob.length;
+        if (len == 0 || len % RECORD_BYTES != 0) revert Err.InvalidInput();
+
+        // Verify BEFORE any state change (checks-effects). blobHash commits to the exact idx-based bytes;
+        // safe because feedIds is append-only (idx never remaps).
+        // SECURITY: replay defense is the per-feed monotonic sourceTs (_pushSignedInternal), NEVER signature
+        // uniqueness — recoverCalldata does not reject a malleable s. Never key any state on the sig bytes.
+        bytes32 digest = _hashTypedData(keccak256(abi.encode(BATCH_TYPEHASH, keccak256(blob))));
+        address signer = ECDSA.recoverCalldata(digest, sig);
+        if (!signers[signer]) revert Err.NotAuth();
+
+        uint256 n = len / RECORD_BYTES;
+        uint256 base;
+        assembly ("memory-safe") { base := blob.offset }
+        for (uint256 i; i < n;) {
+            uint16 idx;
+            uint64 price;
+            uint32 sigma;
+            uint16 conf;
+            uint64 sourceTs;
+            assembly ("memory-safe") {
+                // 24-byte record occupies the top 24 bytes of the loaded word (bits 64..256). The extra
+                // 8 low bits read past the last record are masked off and never used.
+                let w := calldataload(add(base, mul(i, RECORD_BYTES)))
+                idx := shr(240, w)
+                price := and(shr(176, w), 0xFFFFFFFFFFFFFFFF)
+                sigma := and(shr(144, w), 0xFFFFFFFF)
+                conf := and(shr(128, w), 0xFFFF)
+                sourceTs := and(shr(64, w), 0xFFFFFFFFFFFFFFFF)
+            }
+            _pushSignedInternal(feedIds[idx], price, sigma, conf, sourceTs); // feedIds[idx] OOB reverts
+            unchecked { ++i; }
+        }
+    }
+
     function _validate(uint64 price, uint32 sigmaSample) internal pure returns (uint256 mark1e18) {
         if ((mark1e18 = M.b64To1e18(price)) == 0) revert Err.ZeroValue();
         if (sigmaSample > MAX_VOLATILITY) revert Err.ThresholdViolation(sigmaSample, MAX_VOLATILITY);
     }
 
+    /// @dev Per-push mark-move clamp (D1/H-2), shared by legacy + signed paths. Band grows linearly with
+    ///      staleness: maxDeviation·(1 + dt/ttl), hard-capped at MAX_DEV_THRESHOLD. Fail-closed on out-of-band
+    ///      and on maxDev==0. Signature (signed path) authorizes AUTHENTICITY, not MAGNITUDE — this backstops
+    ///      a compromised NXR key exactly as it backstops a compromised keeper EOA on the legacy path.
+    function _checkDeviation(uint256 prevMark1e18, uint256 mark1e18, uint256 dt, uint16 ttl, uint16 maxDev)
+        internal pure
+    {
+        uint256 diff = mark1e18 > prevMark1e18 ? mark1e18 - prevMark1e18 : prevMark1e18 - mark1e18;
+        uint256 devBps = (diff * SC.BPS) / prevMark1e18;
+        uint256 allowed = uint256(maxDev);
+        allowed += (allowed * dt) / ttl;
+        if (allowed > MAX_DEV_THRESHOLD) allowed = MAX_DEV_THRESHOLD;
+        if (devBps > allowed) revert Err.ThresholdViolation(devBps, allowed);
+    }
+
     /// @dev One feed-slot SLOAD + one SSTORE. maxDeviation for the push clamp now lives IN the slot
     ///      (no separate cold mapping — ORA-02). Slot layout (low→high bits):
     ///      lastPriceB64[0:64) | sigmaEma[64:96) | updatedAt[96:128) | ttl[128:144)
-    ///      | confidence[144:160) | tau[160:176) | tauSigma[176:192) | maxDeviation[192:208).
+    ///      | confidence[144:160) | tau[160:176) | tauSigma[176:192) | maxDeviation[192:208)
+    ///      | sourceTs[208:256) (uint48 ms, signed-path monotonic guard; 0 on legacy-only feeds).
     function _pushInternal(bytes32 feedId, uint64 newPriceB64, uint32 sigmaSample, uint16 newConfidence)
         internal
     {
@@ -203,14 +288,7 @@ contract ExternalOracle is IOracle {
         // monitorable, never infinite. In normal operation the keeper heartbeats < ttl so dt ≈ 0 and the
         // band ≈ maxDeviation. maxDeviation is mandatory-nonzero (addFeed/updateFeed); a 0 would fail
         // CLOSED here (band 0 rejects any move) — the safe direction. Fail-closed: REJECT out-of-band.
-        {
-            uint256 diff = mark1e18 > prevMark1e18 ? mark1e18 - prevMark1e18 : prevMark1e18 - mark1e18;
-            uint256 devBps = (diff * SC.BPS) / prevMark1e18;
-            uint256 allowed = uint256(uint16((word >> 192) & 0xFFFF)); // maxDeviation, from the slot word
-            allowed += (allowed * dt) / ttl;
-            if (allowed > MAX_DEV_THRESHOLD) allowed = MAX_DEV_THRESHOLD;
-            if (devBps > allowed) revert Err.ThresholdViolation(devBps, allowed);
-        }
+        _checkDeviation(prevMark1e18, mark1e18, dt, ttl, uint16((word >> 192) & 0xFFFF));
 
         uint16 tau = uint16((word >> 160) & 0xFFFF);
         uint16 tauSigma = uint16((word >> 176) & 0xFFFF);
@@ -221,11 +299,58 @@ contract ExternalOracle is IOracle {
 
         uint256 newWord = uint256(newPriceB64) | (uint256(sigmaEma) << 64)
             | (uint256(uint32(block.timestamp)) << 96) | (uint256(ttl) << 128) | (uint256(newConfidence) << 144)
-            | (uint256(tau) << 160) | (uint256(tauSigma) << 176) | (uint256(maxDev) << 192);
+            | (uint256(tau) << 160) | (uint256(tauSigma) << 176) | (uint256(maxDev) << 192)
+            | (word & (uint256(0xFFFFFFFFFFFF) << 208)); // preserve sourceTs[208:256) (untouched by legacy path)
         assembly ("memory-safe") { sstore(slot, newWord) }
         // OBS-01: per-feed event on EVERY push (single or batch leg) — indexers/keeper-drift monitors get
         // a full per-feed mark history, not just an opaque BatchPushed(count).
         emit Pushed(feedId, newPriceB64, sigmaSample, sigmaEma, newConfidence, msg.sender);
+    }
+
+    /// @dev Signed-path writer. Differs from `_pushInternal`: (1) monotonic `sourceTs` replay guard,
+    ///      (2) stores the NXR-signed σ DIRECTLY (no on-chain updateSigmaEma — the smoothing moves to
+    ///      source, -800 gas), (3) no event (observability = getFeed() state polling). Same slot, same
+    ///      one-per-block + deviation-band + validate guards. Auth already checked by the caller.
+    function _pushSignedInternal(bytes32 feedId, uint64 newPriceB64, uint32 sigma, uint16 conf, uint64 sourceTs)
+        internal
+    {
+        FeedData storage feed = feeds[feedId];
+        uint256 slot;
+        uint256 word;
+        assembly ("memory-safe") {
+            slot := feed.slot
+            word := sload(slot)
+        }
+        uint32 prevAt = uint32((word >> 96) & 0xFFFFFFFF);
+        if (prevAt == 0) revert Err.FeedNotFound(feedId);
+
+        // Monotonic source timestamp: strictly advance, and fit the 48-bit slot field. A replayed batch
+        // (same sourceTs) or a stale/reordered relay fails closed here — the timestamp IS the nonce.
+        uint256 prevSourceTs = (word >> 208) & 0xFFFFFFFFFFFF;
+        if (sourceTs <= prevSourceTs || sourceTs >= (1 << 48)) revert Err.InvalidInput();
+
+        uint256 prevMark1e18 = M.b64To1e18(uint64(word));
+        uint256 mark1e18 = _validate(newPriceB64, sigma);
+
+        uint256 dt;
+        unchecked { dt = block.timestamp - prevAt; }
+        if (dt == 0) revert Err.CooldownActive(1); // one mark/feed/block; duplicate idx in a batch fails closed
+
+        uint16 ttl = uint16((word >> 128) & 0xFFFF);
+        _checkDeviation(prevMark1e18, mark1e18, dt, ttl, uint16((word >> 192) & 0xFFFF));
+
+        // Preserve config fields (ttl/conf-slot/tau/tauSigma/maxDev) from the slot; overwrite mark, σ (direct),
+        // updatedAt, confidence, sourceTs. sigmaEma[64:96) := signed σ (no EMA on the signed path).
+        uint256 newWord = uint256(newPriceB64)
+            | (uint256(sigma) << 64)
+            | (uint256(uint32(block.timestamp)) << 96)
+            | (word & (uint256(0xFFFF) << 128)) // ttl
+            | (uint256(conf) << 144)
+            | (word & (uint256(0xFFFF) << 160)) // tau
+            | (word & (uint256(0xFFFF) << 176)) // tauSigma
+            | (word & (uint256(0xFFFF) << 192)) // maxDeviation
+            | (uint256(uint48(sourceTs)) << 208);
+        assembly ("memory-safe") { sstore(slot, newWord) }
     }
 
     function getFeed(bytes32 feedId) external view override returns (FeedData memory data) {

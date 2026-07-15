@@ -1,0 +1,251 @@
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.35;
+
+import {Test} from "forge-std/Test.sol";
+import {ExternalOracle} from "../../src/oracles/ExternalOracle.sol";
+import {IOracle} from "../../src/interfaces/IOracle.sol";
+import {Maths as M} from "../../src/libraries/Maths.sol";
+import {Err} from "@btr-shared/Errors.sol";
+import {MockAC} from "../fixtures/BaseTestSetup.sol";
+
+/// @notice NXR-signed push path (batchPushSigned). Verifies EIP-712 auth, monotonic-sourceTs replay
+///         guard, one-per-block, deviation band, and gas vs the legacy batchPush. See
+///         ORACLE_SIGNED_PUSH_SPEC.md. Money path — pre-security-review reference tests.
+contract ExternalOracleSignedTest is Test {
+    ExternalOracle ext;
+    MockAC ac;
+    address constant BASE = address(0xB05E);
+    address constant QUOTE = address(0x9907E);
+    bytes32 feedId;
+
+    uint16 constant TAU = 100;
+    uint256 constant NXR_PK = 0xA11CE;
+    address nxr;
+
+    bytes32 constant BATCH_TYPEHASH = keccak256("BatchQuote(bytes32 blobHash)");
+
+    function setUp() public {
+        ac = new MockAC(address(this));
+        ext = new ExternalOracle(address(ac), address(this));
+        vm.warp(1_700_000_000);
+        ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600);
+        feedId = keccak256(abi.encodePacked(BASE, QUOTE)); // feedIds[0], idx = 0
+        nxr = vm.addr(NXR_PK);
+        ext.grantSigner(nxr);
+    }
+
+    // ─── helpers ───
+
+    function _rec(uint16 idx, uint64 price, uint32 sigma, uint16 conf, uint64 sourceTs)
+        internal pure returns (bytes memory)
+    {
+        return abi.encodePacked(idx, price, sigma, conf, sourceTs); // 2+8+4+2+8 = 24 B
+    }
+
+    function _domainSep() internal view returns (bytes32) {
+        return keccak256(abi.encode(
+            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+            keccak256(bytes("BTR ExternalOracle")),
+            keccak256(bytes("1")),
+            block.chainid,
+            address(ext)
+        ));
+    }
+
+    function _sign(uint256 pk, bytes memory blob) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(abi.encode(BATCH_TYPEHASH, keccak256(blob)));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSep(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _srcTs() internal view returns (uint64) {
+        return uint64(block.timestamp) * 1000; // ms, < 2^48, monotonic as we warp
+    }
+
+    // ─── happy path ───
+
+    function test_batchPushSigned_commitsQuote() public {
+        skip(TAU);
+        bytes memory blob = _rec(0, M.encodeB64(3030e18, 18), 2e4, 7, _srcTs());
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+
+        IOracle.FeedData memory f = ext.getFeed(feedId);
+        assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 3030e18, 0.001e18, "signed mark committed");
+        assertEq(f.sigmaEma, 2e4, "signed sigma stored DIRECTLY (no on-chain EMA)");
+        assertEq(f.confidence, 7, "signed confidence");
+        assertEq(f.updatedAt, uint32(block.timestamp), "updatedAt = block.timestamp");
+        assertEq(f.ttl, 3600, "ttl preserved");
+        assertEq(f.maxDeviation, ext.MAX_DEV_THRESHOLD(), "maxDeviation preserved");
+    }
+
+    function test_relayer_isUnpermissioned() public {
+        skip(TAU);
+        bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+        bytes memory sig = _sign(NXR_PK, blob);
+        vm.prank(address(0xBEEF)); // arbitrary relay, no oracle/signer grant
+        ext.batchPushSigned(blob, sig);
+        assertApproxEqRel(M.b64To1e18(ext.getFeed(feedId).lastPriceB64), 3010e18, 0.001e18, "any relay can land");
+    }
+
+    // ─── auth ───
+
+    function test_reject_unknownSigner() public {
+        skip(TAU);
+        bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+        bytes memory sig = _sign(0xBADBAD, blob); // not a granted signer
+        vm.expectRevert(Err.NotAuth.selector);
+        ext.batchPushSigned(blob, sig);
+    }
+
+    function test_reject_revokedSigner() public {
+        ext.revokeSigner(nxr);
+        skip(TAU);
+        bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+        vm.expectRevert(Err.NotAuth.selector);
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    }
+
+    function test_reject_tamperedBlob() public {
+        skip(TAU);
+        bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+        bytes memory sig = _sign(NXR_PK, blob);
+        bytes memory tampered = _rec(0, M.encodeB64(9999e18, 18), 1e4, 5, _srcTs()); // different price
+        vm.expectRevert(Err.NotAuth.selector); // recovered signer != nxr → not in signers
+        ext.batchPushSigned(tampered, sig);
+    }
+
+    // ─── replay / monotonic sourceTs ───
+
+    function test_reject_replaySameBatch() public {
+        skip(TAU);
+        bytes memory blob = _rec(0, M.encodeB64(3020e18, 18), 1e4, 5, _srcTs());
+        bytes memory sig = _sign(NXR_PK, blob);
+        ext.batchPushSigned(blob, sig);
+        skip(TAU); // advance block so it's not the cooldown that trips
+        vm.expectRevert(Err.InvalidInput.selector); // same sourceTs ≤ stored → monotonic reject
+        ext.batchPushSigned(blob, sig);
+    }
+
+    function test_reject_staleSourceTs() public {
+        skip(TAU);
+        uint64 ts = _srcTs();
+        bytes memory a = _rec(0, M.encodeB64(3020e18, 18), 1e4, 5, ts);
+        ext.batchPushSigned(a, _sign(NXR_PK, a));
+        skip(TAU);
+        bytes memory b = _rec(0, M.encodeB64(3025e18, 18), 1e4, 5, ts - 1); // older sourceTs
+        vm.expectRevert(Err.InvalidInput.selector);
+        ext.batchPushSigned(b, _sign(NXR_PK, b));
+    }
+
+    // ─── one-per-block ───
+
+    function test_reject_sameBlockRepush() public {
+        skip(TAU);
+        bytes memory a = _rec(0, M.encodeB64(3020e18, 18), 1e4, 5, _srcTs());
+        ext.batchPushSigned(a, _sign(NXR_PK, a));
+        // same block, fresher sourceTs → one-per-block guard trips (CooldownActive)
+        bytes memory b = _rec(0, M.encodeB64(3021e18, 18), 1e4, 5, _srcTs() + 1);
+        vm.expectRevert(abi.encodeWithSelector(Err.CooldownActive.selector, uint256(1)));
+        ext.batchPushSigned(b, _sign(NXR_PK, b));
+    }
+
+    // ─── deviation band (backstops a compromised NXR key) ───
+
+    function test_reject_outOfBand() public {
+        address da = address(0xDA5E);
+        address db = address(0xDB5E);
+        ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // 5% band, idx=1
+        skip(10);
+        bytes memory blob = _rec(1, M.encodeB64(110e18, 18), 1e4, 5, _srcTs()); // +10% ≫ 5%
+        vm.expectRevert(abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(501)));
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    }
+
+    // ─── malformed calldata ───
+
+    function test_reject_badBlobLength() public {
+        skip(TAU);
+        bytes memory blob = hex"deadbeef"; // 4 B, not a multiple of 24
+        vm.expectRevert(Err.InvalidInput.selector);
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    }
+
+    function test_reject_oobIndex() public {
+        skip(TAU);
+        bytes memory blob = _rec(99, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs()); // idx 99 ≫ feedIds.length
+        vm.expectRevert(); // feedIds[99] out of bounds
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    }
+
+    // ─── multi-feed batch + gas ───
+
+    function _addFeeds(uint256 n) internal returns (bytes32[] memory ids) {
+        return _addFeedsFrom(n, 0);
+    }
+
+    function _addFeedsFrom(uint256 n, uint256 off) internal returns (bytes32[] memory ids) {
+        ids = new bytes32[](n);
+        for (uint256 i; i < n; ++i) {
+            address b = address(uint160(0x10000 + off + i));
+            address q = address(uint160(0x20000 + off + i));
+            ext.addFeed(b, q, M.encodeB64(1000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600);
+            ids[i] = keccak256(abi.encodePacked(b, q));
+        }
+    }
+
+    function test_batchPushSigned_multiFeed() public {
+        uint256 n = 10;
+        bytes32[] memory ids = _addFeeds(n); // idx 1..10 (idx 0 is the setUp feed)
+        skip(TAU);
+        uint64 ts = _srcTs();
+        bytes memory blob;
+        for (uint16 i; i < n; ++i) {
+            blob = bytes.concat(blob, _rec(uint16(i + 1), M.encodeB64(1010e18, 18), 2e4, 6, ts));
+        }
+        ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+        for (uint256 i; i < n; ++i) {
+            IOracle.FeedData memory f = ext.getFeed(ids[i]);
+            assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 1010e18, 0.001e18, "feed committed");
+            assertEq(f.sigmaEma, 2e4, "direct sigma");
+        }
+    }
+
+    /// Gas: signed (packed, no event, direct σ) vs legacy batchPush, N=10, COLD-vs-COLD (disjoint feed
+    /// sets so neither path warms the other's slots). Execution-only (forge gasleft() excludes the 21k
+    /// base tx + L1 calldata). Reduction here is the on-chain execution delta; total-fee delta is smaller
+    /// once the shared 21k base is amortized in. See ORACLE_SIGNED_PUSH_SPEC.md.
+    function test_gas_signed_vs_legacy() public {
+        uint256 n = 10;
+        bytes32[] memory legacyIds = _addFeedsFrom(n, 0); // idx 1..10, addr 0x10000..
+        _addFeedsFrom(n, 0x1000); // idx 11..20, disjoint addr 0x11000.. (both cold)
+        skip(TAU);
+
+        // legacy batchPush(10) on legacyIds (cold)
+        uint64[] memory prices = new uint64[](n);
+        uint32[] memory sigmas = new uint32[](n);
+        uint16[] memory confs = new uint16[](n);
+        for (uint256 i; i < n; ++i) { prices[i] = M.encodeB64(1005e18, 18); sigmas[i] = 1e4; confs[i] = 5; }
+        uint256 g0 = gasleft();
+        ext.batchPush(legacyIds, prices, sigmas, confs);
+        uint256 legacy = g0 - gasleft();
+
+        // signed batchPushSigned(10) on the DISJOINT signedIds (also cold)
+        uint64 ts = _srcTs();
+        bytes memory blob;
+        for (uint16 i; i < n; ++i) {
+            blob = bytes.concat(blob, _rec(uint16(i + 1 + n), M.encodeB64(1010e18, 18), 2e4, 6, ts)); // idx 11..20
+        }
+        bytes memory sig = _sign(NXR_PK, blob);
+        uint256 g1 = gasleft();
+        ext.batchPushSigned(blob, sig);
+        uint256 signed = g1 - gasleft();
+
+        emit log_named_uint("legacy batchPush(10) exec gas", legacy);
+        emit log_named_uint("  legacy per-feed", legacy / n);
+        emit log_named_uint("signed batchPushSigned(10) exec gas", signed);
+        emit log_named_uint("  signed per-feed", signed / n);
+        if (signed < legacy) emit log_named_uint("exec reduction pct x100", (legacy - signed) * 10000 / legacy);
+        assertLt(signed, legacy, "signed path must be cheaper than legacy");
+    }
+}
