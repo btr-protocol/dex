@@ -9,11 +9,13 @@ import {IOracle} from "../../src/interfaces/IOracle.sol";
 /// @notice Minimal mock AccessControl exposing owner / keeper / guardian / riskSteward.
 contract MockAC {
     address public owner;
+    address public treasuryOwner;
     mapping(address => bool) public isKeeper;
     mapping(address => bool) public isGuardian;
     mapping(address => bool) public isRiskSteward;
-    constructor(address o) { owner = o; }
+    constructor(address o) { owner = o; treasuryOwner = o; }
     function rotate(address newOwner) external { owner = newOwner; }
+    function rotateTreasuryOwner(address t) external { treasuryOwner = t; }
     function setKeeper(address k, bool s) external { isKeeper[k] = s; }
     function setGuardian(address g, bool s) external { isGuardian[g] = s; }
     function setRiskSteward(address s, bool ok) external { isRiskSteward[s] = ok; }

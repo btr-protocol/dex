@@ -6,7 +6,7 @@ import {Deploy} from "../../script/Deploy.s.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {PoolFactory} from "../../src/PoolFactory.sol";
 import {Pool} from "../../src/Pool.sol";
-import {Treasury} from "@btr-shared/Treasury.sol";
+import {GovTreasury} from "@btr-shared/GovTreasury.sol";
 import {Bridge} from "@btr-shared/Bridge.sol";
 import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -53,18 +53,18 @@ contract DeployScriptTest is Test {
         assertEq(GovToken(a.govToken).TREASURY(), a.treasuryProxy, "govToken.TREASURY");
 
         // ── post-deploy wiring (G13) ──
-        assertTrue(Treasury(payable(a.treasuryProxy)).distributor() != address(0), "treasury.distributor unset");
-        assertEq(Treasury(payable(a.treasuryProxy)).distributor(), a.distributor, "treasury.distributor mismatch");
-        assertTrue(Treasury(payable(a.treasuryProxy)).bridge() != address(0), "treasury.bridge unset");
-        assertEq(Treasury(payable(a.treasuryProxy)).bridge(), a.bridgeProxy, "treasury.bridge mismatch");
-        assertEq(Treasury(payable(a.treasuryProxy)).getBridge(), a.bridgeProxy, "treasury.getBridge mismatch");
+        assertTrue(GovTreasury(payable(a.treasuryProxy)).distributor() != address(0), "treasury.distributor unset");
+        assertEq(GovTreasury(payable(a.treasuryProxy)).distributor(), a.distributor, "treasury.distributor mismatch");
+        assertTrue(GovTreasury(payable(a.treasuryProxy)).bridge() != address(0), "treasury.bridge unset");
+        assertEq(GovTreasury(payable(a.treasuryProxy)).bridge(), a.bridgeProxy, "treasury.bridge mismatch");
+        assertEq(GovTreasury(payable(a.treasuryProxy)).getBridge(), a.bridgeProxy, "treasury.getBridge mismatch");
         // PoolFactory ownership funnels through AC.owner() via AC-singleton modifier
         // (Track-B Phase-1: PoolFactory dropped Solady Ownable; auth resolves via AC.owner()).
         assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC != ac");
 
         // Treasury / Bridge proxies initialized → second initialize reverts.
         vm.expectRevert();
-        Treasury(payable(a.treasuryProxy)).initialize(a.govToken);
+        GovTreasury(payable(a.treasuryProxy)).initialize(a.govToken);
         vm.expectRevert();
         Bridge(payable(a.bridgeProxy)).initialize();
 
@@ -82,7 +82,7 @@ contract DeployScriptTest is Test {
         Deploy.Addrs memory b = script.run();
         assertEq(b.bridgeProxy, address(0), "bridgeProxy should be unset");
         assertEq(b.bridgeImpl, address(0), "bridgeImpl should be unset");
-        assertEq(Treasury(payable(b.treasuryProxy)).bridge(), address(0), "treasury.bridge should be unset");
+        assertEq(GovTreasury(payable(b.treasuryProxy)).bridge(), address(0), "treasury.bridge should be unset");
         assertTrue(b.poolFactory != address(0), "core still deployed");
     }
 }

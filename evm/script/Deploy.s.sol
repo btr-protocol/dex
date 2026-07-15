@@ -14,7 +14,7 @@ import {Flash} from "../src/Flash.sol";
 import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
-import {Treasury} from "@btr-shared/Treasury.sol";
+import {GovTreasury} from "@btr-shared/GovTreasury.sol";
 import {Bridge} from "@btr-shared/Bridge.sol";
 import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 
@@ -92,14 +92,14 @@ contract Deploy is DeployBase {
 
         // 4. Treasury impl + proxy (UUPS). Track-B Phase-1b: deploy order is now
         //    Treasury proxy → GovToken (immutable TREASURY) → Treasury.initialize(govToken).
-        a.treasuryImpl = address(new Treasury(a.ac));
+        a.treasuryImpl = address(new GovTreasury(a.ac));
         a.treasuryProxy = LibClone.deployERC1967(a.treasuryImpl);
 
         // 5. GovToken w/ immutable TREASURY = treasuryProxy.
         a.govToken = address(new GovToken(a.treasuryProxy, govName, govSymbol));
 
         // 6. Wire Treasury <- govToken via initialize (write-once).
-        Treasury(payable(a.treasuryProxy)).initialize(a.govToken);
+        GovTreasury(payable(a.treasuryProxy)).initialize(a.govToken);
 
         // 7. Bridge (UUPS). Skipped entirely under ALLOW_NO_LZ — no dead endpoint deployed.
         if (!allowNoLz) {
@@ -115,8 +115,8 @@ contract Deploy is DeployBase {
         //    - PoolFactory ownership → AC.owner() so factory governance follows the same
         //      multisig as protocol-wide AccessControl. (deployer initially owns factory
         //      via _initializeOwner(msg.sender) in its constructor.)
-        Treasury(payable(a.treasuryProxy)).setDistributor(a.distributor);
-        if (a.bridgeProxy != address(0)) Treasury(payable(a.treasuryProxy)).setBridge(a.bridgeProxy);
+        GovTreasury(payable(a.treasuryProxy)).setDistributor(a.distributor);
+        if (a.bridgeProxy != address(0)) GovTreasury(payable(a.treasuryProxy)).setBridge(a.bridgeProxy);
         // PoolFactory migrated to AC-singleton (Track-B Phase-1): ownership funnels
         // through AC.owner() automatically; no separate transferOwnership call needed.
 
