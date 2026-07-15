@@ -15,6 +15,7 @@ import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
 import {PoolFactory} from "../src/PoolFactory.sol";
 import {GovTreasury} from "@btr-shared/GovTreasury.sol";
+import {OpsTreasury} from "@btr-shared/OpsTreasury.sol";
 import {Bridge} from "@btr-shared/Bridge.sol";
 import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 
@@ -42,6 +43,8 @@ contract Deploy is DeployBase {
         address govToken;
         address treasuryImpl;
         address treasuryProxy;
+        address opsTreasuryImpl;
+        address opsTreasuryProxy;
         address bridgeImpl;
         address bridgeProxy;
     }
@@ -98,8 +101,14 @@ contract Deploy is DeployBase {
         // 5. GovToken w/ immutable TREASURY = treasuryProxy.
         a.govToken = address(new GovToken(a.treasuryProxy, govName, govSymbol));
 
-        // 6. Wire Treasury <- govToken via initialize (write-once).
+        // 6. Wire GovTreasury <- govToken via initialize (write-once).
         GovTreasury(payable(a.treasuryProxy)).initialize(a.govToken);
+
+        // 6b. OpsTreasury impl + proxy (UUPS). Operational treasury = pools' `treasury()` sink for
+        //     protocol-fee / incentive custody; funds the Distributor singleton. No initialize (AC
+        //     is immutable); `distributor` wired post-deploy below. Distinct from GovTreasury.
+        a.opsTreasuryImpl = address(new OpsTreasury(a.ac));
+        a.opsTreasuryProxy = LibClone.deployERC1967(a.opsTreasuryImpl);
 
         // 7. Bridge (UUPS). Skipped entirely under ALLOW_NO_LZ — no dead endpoint deployed.
         if (!allowNoLz) {
@@ -117,6 +126,11 @@ contract Deploy is DeployBase {
         //      via _initializeOwner(msg.sender) in its constructor.)
         GovTreasury(payable(a.treasuryProxy)).setDistributor(a.distributor);
         if (a.bridgeProxy != address(0)) GovTreasury(payable(a.treasuryProxy)).setBridge(a.bridgeProxy);
+        //    - OpsTreasury.distributor MUST be set so `fundDistributor` can push incentive tokens
+        //      to the Distributor singleton. Pools' `treasury()` is wired to opsTreasuryProxy in the
+        //      per-chain pool-seed scripts (Pool.initialize leaves treasury=0 → sweepIncentives
+        //      reverts ZeroAddr until wired via Admin.requestTreasuryUpdate→executeTreasuryUpdate).
+        OpsTreasury(payable(a.opsTreasuryProxy)).setDistributor(a.distributor);
         // PoolFactory migrated to AC-singleton (Track-B Phase-1): ownership funnels
         // through AC.owner() automatically; no separate transferOwnership call needed.
 
@@ -138,6 +152,7 @@ contract Deploy is DeployBase {
         console2.log("PoolFactory:      ", a.poolFactory);
         console2.log("GovToken:         ", a.govToken);
         console2.log("Treasury (proxy): ", a.treasuryProxy);
+        console2.log("OpsTreasury(prox):", a.opsTreasuryProxy);
         console2.log("Bridge (proxy):   ", a.bridgeProxy);
 
         string memory k = "btr_deploy";
@@ -154,6 +169,8 @@ contract Deploy is DeployBase {
         vm.serializeAddress(k, "govToken", a.govToken);
         vm.serializeAddress(k, "treasuryImpl", a.treasuryImpl);
         vm.serializeAddress(k, "treasuryProxy", a.treasuryProxy);
+        vm.serializeAddress(k, "opsTreasuryImpl", a.opsTreasuryImpl);
+        vm.serializeAddress(k, "opsTreasuryProxy", a.opsTreasuryProxy);
         vm.serializeAddress(k, "bridgeImpl", a.bridgeImpl);
         string memory json = vm.serializeAddress(k, "bridgeProxy", a.bridgeProxy);
 
