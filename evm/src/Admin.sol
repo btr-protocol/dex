@@ -336,7 +336,7 @@ contract Admin is IAdmin {
     }
 
     function cancelUpdateProfile(address pool, address token) external {
-        _onlyAdmin();
+        _onlyGuardianOrAdmin();
         _cancel(pool, _keyToken(pool, OP_UPDATE_PROFILE, token), uint8(IPool.OpType.UPDATE_PROFILE));
     }
 
@@ -408,17 +408,17 @@ contract Admin is IAdmin {
     }
 
     function cancelOracleUpdate(address pool, address token) external {
-        _onlyAdmin();
+        _onlyGuardianOrAdmin();
         _cancel(pool, _keyToken(pool, OP_UPDATE_ORACLE, token), uint8(IPool.OpType.UPDATE_ORACLE));
     }
 
     function cancelAddAsset(address pool, address token) external {
-        _onlyAdmin();
+        _onlyGuardianOrAdmin();
         _cancel(pool, _keyToken(pool, OP_ADD_ASSET, token), uint8(IPool.OpType.ADD_ASSET));
     }
 
     function cancelUpdateRiskConfig(address pool, address token) external {
-        _onlyAdmin();
+        _onlyGuardianOrAdmin();
         _cancel(pool, _keyToken(pool, OP_UPDATE_RISK, token), uint8(IPool.OpType.UPDATE_RISK));
     }
 
@@ -433,7 +433,7 @@ contract Admin is IAdmin {
     }
 
     function cancelSetAssetHook(address pool, address token) external {
-        _onlyAdmin();
+        _onlyGuardianOrAdmin();
         AH.cancel(pendingOps, pendingData, pool, token);
     }
 
@@ -444,7 +444,7 @@ contract Admin is IAdmin {
     }
 
     function cancelTimelock(address pool, uint8 opType) external {
-        _onlyAdmin();
+        _onlyGuardianOrAdmin();
         bytes32 key;
         if (opType == uint8(IPool.OpType.MIGRATE_BASE_TOKEN)) key = _key(pool, OP_BASE_MIGRATION);
         else if (opType == uint8(IPool.OpType.UPDATE_BRIDGE)) key = _key(pool, OP_UPDATE_BRIDGE);

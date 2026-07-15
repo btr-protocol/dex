@@ -203,6 +203,67 @@ contract PoolLifecycleTest is Test {
         admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Unpause);
     }
 
+    /// Guardian fast-veto: may CANCEL a pending timelocked op inside its window (kill a coerced/
+    /// mis-clicked queue), but may never START (request) nor APPLY (execute) one. Owner keeps both.
+    function test_guardian_can_cancel_pending_op_but_not_request_or_execute() public {
+        address g = makeAddr("guardian");
+        ac.setGuardian(g, true);
+        IPool.RiskConfig memory cfg = _defaultRisk();
+
+        // Guardian cannot START a timelocked op.
+        vm.prank(g);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        admin.requestUpdateRiskConfig(address(pool), address(quote), cfg);
+
+        // Owner queues; guardian vetoes it inside the window.
+        vm.prank(OWNER);
+        admin.requestUpdateRiskConfig(address(pool), address(quote), cfg);
+        vm.prank(g);
+        admin.cancelUpdateRiskConfig(address(pool), address(quote));
+
+        // Cleared: re-cancel reverts InvalidState, and execute past the delay reverts NotReady.
+        vm.prank(g);
+        vm.expectRevert(Err.InvalidState.selector);
+        admin.cancelUpdateRiskConfig(address(pool), address(quote));
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(OWNER);
+        vm.expectRevert(Err.NotReady.selector);
+        admin.executeUpdateRiskConfig(address(pool), address(quote));
+
+        // Guardian cannot APPLY a fresh pending op either.
+        vm.prank(OWNER);
+        admin.requestUpdateRiskConfig(address(pool), address(quote), cfg);
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(g);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        admin.executeUpdateRiskConfig(address(pool), address(quote));
+
+        // Owner can still cancel.
+        vm.prank(OWNER);
+        admin.cancelUpdateRiskConfig(address(pool), address(quote));
+    }
+
+    /// Guardian veto also covers the generic `cancelTimelock` lever (bridge/treasury/fees/base).
+    function test_guardian_can_cancelTimelock_pending_bridge() public {
+        address g = makeAddr("guardian");
+        ac.setGuardian(g, true);
+
+        // Guardian cannot START the bridge update.
+        vm.prank(g);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        admin.requestBridgeUpdate(address(pool), makeAddr("bridge"));
+
+        // Owner queues; guardian vetoes via cancelTimelock.
+        vm.prank(OWNER);
+        admin.requestBridgeUpdate(address(pool), makeAddr("bridge"));
+        vm.prank(g);
+        admin.cancelTimelock(address(pool), uint8(IPool.OpType.UPDATE_BRIDGE));
+
+        vm.prank(g);
+        vm.expectRevert(Err.InvalidState.selector);
+        admin.cancelTimelock(address(pool), uint8(IPool.OpType.UPDATE_BRIDGE));
+    }
+
     function test_steward_bounded_tighten_ok_riskup_clamped() public {
         address s = makeAddr("steward");
         ac.setRiskSteward(s, true);
