@@ -37,5 +37,6 @@ interface IPoolFactory {
     event PoolDeregistered(address indexed pool);
     event ReferencePoolUpgradeRequested(address indexed oldImplementation, address indexed newImplementation, uint256 executeAt);
     event ReferencePoolUpgraded(address indexed oldImplementation, address indexed newImplementation);
+    event ReferencePoolUpgradeCancelled(address indexed canceller, address indexed cancelledImplementation);
     event ProtocolDeployerUpdated(address indexed oldDeployer, address indexed newDeployer);
 }
