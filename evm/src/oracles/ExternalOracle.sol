@@ -20,6 +20,11 @@ contract ExternalOracle is IOracle, EIP712 {
     address public immutable AC;
     uint32 public constant MAX_VOLATILITY = C.MAX_SIGMA_PBPS;
     uint16 public constant MAX_DEV_THRESHOLD = 65_000;
+    /// @dev Clock-skew allowance (s) for the signed-path future-dated bound. A signed blob whose sourceTs
+    ///      leads wall-clock by more than this is rejected — an unbounded far-future sourceTs would clear
+    ///      the monotonic guard and then permanently freeze the feed (no honest near-now push could ever
+    ///      exceed it again; no reset path). Ostium "future-dated report" vector.
+    uint32 public constant SOURCE_TS_FUTURE_SKEW_S = 300;
 
     /// @dev EIP-712 typehash for a signed batch. The signature commits to `keccak256(blob)` — the exact
     ///      packed calldata (24 B/feed, idx-based). See ORACLE_SIGNED_PUSH_SPEC.md.
@@ -221,6 +226,9 @@ contract ExternalOracle is IOracle, EIP712 {
         uint256 minSourceTsMs;
         uint32 lag = maxRelayLagSecs;
         if (lag != 0 && block.timestamp > lag) minSourceTsMs = (block.timestamp - lag) * 1000;
+        // Future-dated bound (ms), read ONCE. Rejects a compromised-signer far-future sourceTs that would
+        // clear the monotonic guard and then permanently freeze the feed. See SOURCE_TS_FUTURE_SKEW_S.
+        uint256 maxSourceTsMs = (block.timestamp + SOURCE_TS_FUTURE_SKEW_S) * 1000;
 
         uint256 n = len / RECORD_BYTES;
         uint256 base;
@@ -241,7 +249,7 @@ contract ExternalOracle is IOracle, EIP712 {
                 conf := and(shr(128, w), 0xFFFF)
                 sourceTs := and(shr(64, w), 0xFFFFFFFFFFFFFFFF)
             }
-            _pushSignedInternal(feedIds[idx], price, sigma, conf, sourceTs, minSourceTsMs); // OOB idx reverts
+            _pushSignedInternal(feedIds[idx], price, sigma, conf, sourceTs, minSourceTsMs, maxSourceTsMs); // OOB idx reverts
             unchecked { ++i; }
         }
     }
@@ -327,17 +335,19 @@ contract ExternalOracle is IOracle, EIP712 {
         emit Pushed(feedId, newPriceB64, sigmaSample, sigmaEma, newConfidence, msg.sender);
     }
 
-    /// @dev Signed-path writer. Differs from `_pushInternal`: (1) monotonic `sourceTs` replay guard,
-    ///      (2) stores the NXR-signed σ DIRECTLY (no on-chain updateSigmaEma — the smoothing moves to
-    ///      source, -800 gas), (3) no event (observability = getFeed() state polling). Same slot, same
-    ///      one-per-block + deviation-band + validate guards. Auth already checked by the caller.
+    /// @dev Signed-path writer. Differs from `_pushInternal`: (1) monotonic `sourceTs` replay guard + a
+    ///      future-dated bound, (2) stores the NXR-signed σ DIRECTLY (no on-chain updateSigmaEma — the
+    ///      smoothing moves to source, -800 gas) but FLOORED at |Δmark|/mark (compromised-signer backstop),
+    ///      (3) no event (observability = getFeed() state polling). Same slot, same one-per-block +
+    ///      deviation-band + validate guards. Auth already checked by the caller.
     function _pushSignedInternal(
         bytes32 feedId,
         uint64 newPriceB64,
         uint32 sigma,
         uint16 conf,
         uint64 sourceTs,
-        uint256 minSourceTsMs
+        uint256 minSourceTsMs,
+        uint256 maxSourceTsMs
     ) internal {
         FeedData storage feed = feeds[feedId];
         uint256 slot;
@@ -353,6 +363,9 @@ contract ExternalOracle is IOracle, EIP712 {
         // (same sourceTs) or a stale/reordered relay fails closed here — the timestamp IS the nonce.
         uint256 prevSourceTs = (word >> 208) & 0xFFFFFFFFFFFF;
         if (sourceTs <= prevSourceTs || sourceTs >= (1 << 48)) revert Err.InvalidInput();
+        // Future-dated reject: a far-future sourceTs clears the monotonic guard once, then poisons it —
+        // every honest near-now push fails the strictly-advancing check forever (feed-freeze DoS).
+        if (sourceTs > maxSourceTsMs) revert Err.InvalidInput();
         // Absolute freshness bound (fail-closed): a withheld older-but-monotonic blob would otherwise
         // land and stamp updatedAt=now, reading fresh downstream. minSourceTsMs==0 → disabled.
         if (minSourceTsMs != 0 && sourceTs < minSourceTsMs) revert Err.FeedStale();
@@ -367,10 +380,21 @@ contract ExternalOracle is IOracle, EIP712 {
         uint16 ttl = uint16((word >> 128) & 0xFFFF);
         _checkDeviation(prevMark1e18, mark1e18, dt, ttl, uint16((word >> 192) & 0xFFFF));
 
+        // σ floor (economic circuit-breaker vs a compromised signer). The signature authorizes the
+        // AUTHENTICITY of the mark, NOT the volatility — a signer signing σ=0 would collapse the pricing
+        // spread to the minFee floor and make a mark-then-self-swap round trip spread-free. Floor the
+        // stored σ at the realized |Δmark|/mark so any mark move (even within the deviation band) forces a
+        // proportional spread → the round trip is spread-NEGATIVE. Mirrors the legacy path's mark-move
+        // floor in Oracle.updateSigmaEma, minus the EMA (signed path keeps its direct-σ, no-smoothing
+        // design). markMovePbps caps at MAX_SIGMA_PBPS == MAX_VOLATILITY and sigma is already _validate'd
+        // ≤ MAX_VOLATILITY, so sigmaStored stays within the validated σ invariant (no extra cap needed).
+        uint32 moveFloor = Oracle.markMovePbps(prevMark1e18, mark1e18);
+        uint32 sigmaStored = sigma > moveFloor ? sigma : moveFloor;
+
         // Preserve config fields (ttl/conf-slot/tau/tauSigma/maxDev) from the slot; overwrite mark, σ (direct),
-        // updatedAt, confidence, sourceTs. sigmaEma[64:96) := signed σ (no EMA on the signed path).
+        // updatedAt, confidence, sourceTs. sigmaEma[64:96) := floored signed σ (no EMA on the signed path).
         uint256 newWord = uint256(newPriceB64)
-            | (uint256(sigma) << 64)
+            | (uint256(sigmaStored) << 64)
             | (uint256(uint32(block.timestamp)) << 96)
             | (word & (uint256(0xFFFF) << 128)) // ttl
             | (uint256(conf) << 144)

@@ -47,7 +47,7 @@ library Oracle {
     ) internal pure returns (uint32) {
         if (dt == 0 && tauSigma != 0) return sigmaEma;
 
-        uint32 movePbps = _markMovePbps(prevMark1e18, mark1e18);
+        uint32 movePbps = markMovePbps(prevMark1e18, mark1e18);
         uint32 sample = sigmaSample > movePbps ? sigmaSample : movePbps;
         if (sample > C.MAX_SIGMA_PBPS) sample = C.MAX_SIGMA_PBPS;
 
@@ -76,7 +76,9 @@ library Oracle {
         return uint32(next);
     }
 
-    function _markMovePbps(uint256 prev1e18, uint256 mark1e18) private pure returns (uint32) {
+    /// @notice Realized mark move |Δmark|/mark in PBPS, capped at MAX_SIGMA_PBPS. `internal` so the signed
+    ///         oracle path can floor its attested σ at this same magnitude (economic circuit-breaker).
+    function markMovePbps(uint256 prev1e18, uint256 mark1e18) internal pure returns (uint32) {
         if (prev1e18 == 0) return 0;
         uint256 diff = mark1e18 > prev1e18 ? mark1e18 - prev1e18 : prev1e18 - mark1e18;
         uint256 pbps = (diff * SC.PBPS) / prev1e18;
