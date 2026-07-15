@@ -18,7 +18,7 @@ import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 
 /// @title PoolLifecycleTest
 /// @notice Pool lifecycle sanity -Pool is standalone (no proxy, no modules, no ERC-7201).
-///         Each pool instance is an EIP-1167 minimal-proxy clone deployed by PoolFactory.
+///         Each pool instance is an ERC1967 beacon proxy deployed by PoolFactory.
 contract PoolLifecycleTest is Test {
     PoolFactory factory;
     Pool poolImpl;

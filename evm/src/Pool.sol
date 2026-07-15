@@ -13,7 +13,7 @@ import {PoolSwap} from "./libraries/PoolSwap.sol";
 import {PoolView} from "./libraries/PoolView.sol";
 import {PoolIO} from "./libraries/PoolIO.sol";
 
-/// @title Pool — standalone AIMM (EIP-1167 clone; cold paths → PoolAux).
+/// @title Pool — standalone AIMM (ERC1967 beacon proxy; cold paths → PoolAux).
 /// @dev `$` at slot 0; PoolAux mirrors the same layout for DELEGATECALL.
 contract Pool is ReentrancyGuardTransient {
     // ────────────────────────────────────────────────────────────────

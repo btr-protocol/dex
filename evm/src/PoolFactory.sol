@@ -8,10 +8,13 @@ import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
+import {UpgradeableBeacon} from "solady/utils/UpgradeableBeacon.sol";
 
 /// @title PoolFactory
-/// @notice Phase 42H.B.3d -non-upgradeable factory deploying EIP-1167 minimal-proxy clones
-///         of the Pool impl. PoolProxy is gone; each clone IS a Pool with its own storage.
+/// @notice Non-upgradeable factory deploying deterministic ERC1967 beacon proxies of the Pool
+///         impl (Solady `UpgradeableBeacon` fleet). Each proxy IS a Pool with its own storage;
+///         all proxies read impl from one beacon, so `executeReferenceUpgrade` swaps the impl
+///         for the ENTIRE live fleet atomically (was: re-point future clones only).
 contract PoolFactory is IPoolFactory {
     using SafeTransferLib for address;
 
@@ -47,6 +50,12 @@ contract PoolFactory is IPoolFactory {
     ///      by this factory. Module impls hold their own immutable AC; this is informational.
     address public immutable AC;
 
+    /// @notice Solady UpgradeableBeacon owning the shared Pool impl for the whole proxy fleet.
+    /// @dev Factory is the beacon owner, so the timelocked `executeReferenceUpgrade` drives
+    ///      `beacon.upgradeTo(newImpl)` = atomic upgrade of every live pool. `referencePool`
+    ///      storage mirrors `beacon.implementation()` (kept for the IPoolFactory ABI + events).
+    address public immutable override beacon;
+
     address[] public override allPools;
     mapping(address => bool) public override isPool;
     address[] public override officialPools;
@@ -75,6 +84,8 @@ contract PoolFactory is IPoolFactory {
         referencePool = referencePool_;
         protocolDeployer = protocolDeployer_;
         AC = ac_;
+        // Factory owns the beacon → timelocked fleet upgrades funnel through it.
+        beacon = address(new UpgradeableBeacon(address(this), referencePool_));
     }
 
     /// @notice AC-singleton ownership gate. Mirrors Distributor.sol:40 pattern.
@@ -94,7 +105,7 @@ contract PoolFactory is IPoolFactory {
         if (tokens.length == 0) revert Err.InvalidInput();
 
         bytes32 salt = keccak256(abi.encodePacked(msg.sender, baseToken, keccak256(abi.encode(tokens)), block.chainid));
-        pool = LibClone.cloneDeterministic(referencePool, salt);
+        pool = LibClone.deployDeterministicERC1967BeaconProxy(beacon, salt);
         if (pool == address(0)) revert Err.DeploymentFailed();
 
         (bool success, ) = pool.call(initdata);
@@ -281,6 +292,8 @@ contract PoolFactory is IPoolFactory {
         referencePool = pendingReferencePool;
         delete pendingReferencePool;
         delete upgradeTimelock;
+        // Atomic fleet upgrade: every live beacon proxy now points at the new impl.
+        UpgradeableBeacon(beacon).upgradeTo(referencePool);
         emit ReferencePoolUpgraded(oldImpl, referencePool);
     }
 
