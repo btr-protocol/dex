@@ -9,12 +9,13 @@ import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
 import {Bridge} from "@btr-shared/Bridge.sol";
-import {Treasury} from "@btr-shared/Treasury.sol";
+import {GovTreasury} from "@btr-shared/GovTreasury.sol";
+import {OpsTreasury} from "@btr-shared/OpsTreasury.sol";
 import {Distributor} from "@btr-shared/Distributor.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IDistributor} from "@btr-shared/interfaces/IDistributor.sol";
 import {IBridge} from "@btr-shared/interfaces/IBridge.sol";
-import {ITreasury} from "@btr-shared/interfaces/ITreasury.sol";
+import {IOpsTreasury} from "@btr-shared/interfaces/IOpsTreasury.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {Maths as M} from "../src/libraries/Maths.sol";
 import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
@@ -174,7 +175,7 @@ contract DistributorBridgeIntegrationTest is Test {
         // Deploy a GovToken owned by a fresh Treasury.
         // Treasury constructor takes govToken. Use a placeholder address; we won't mint here.
         MockAC localAC = new MockAC(address(this));
-        Treasury tr = new Treasury(address(localAC));
+        GovTreasury tr = new GovTreasury(address(localAC));
         MockERC20 placeholder = new MockERC20("G","G",18);
         tr.initialize(address(placeholder));
 
@@ -195,7 +196,7 @@ contract DistributorBridgeIntegrationTest is Test {
     function test_R15_executeEmissionsCap_revalidates_floor() public {
         // Treasury w/ minimal scaffolding.
         MockAC localAC = new MockAC(address(this));
-        Treasury tr = new Treasury(address(localAC));
+        GovTreasury tr = new GovTreasury(address(localAC));
         MockERC20 placeholder = new MockERC20("G","G",18);
         tr.initialize(address(placeholder));
         tr.initializeEmissions(1_000e18);
@@ -224,14 +225,12 @@ contract DistributorBridgeIntegrationTest is Test {
 
     // ─── Salvage ───
 
-    /// @notice Treasury.salvage owner-only ERC20 sweep + Salvaged event.
+    /// @notice OpsTreasury.salvage admin-only ERC20 sweep + Salvaged event.
     function test_salvage_treasury_owner_only() public {
         MockAC localAC = new MockAC(address(this));
-        Treasury tr = new Treasury(address(localAC));
-        MockERC20 placeholder = new MockERC20("G","G",18);
-        tr.initialize(address(placeholder));
+        OpsTreasury tr = new OpsTreasury(address(localAC));
 
-        // Drop stuck tokens into Treasury.
+        // Drop stuck tokens into OpsTreasury.
         MockERC20 stuck = new MockERC20("S","S",18);
         stuck.mint(address(tr), 1_000e18);
 
@@ -248,20 +247,18 @@ contract DistributorBridgeIntegrationTest is Test {
     /// @notice Salvage emits Salvaged event with correct args.
     function test_salvage_treasury_emits_event() public {
         MockAC localAC = new MockAC(address(this));
-        Treasury tr = new Treasury(address(localAC));
-        MockERC20 placeholder = new MockERC20("G","G",18);
-        tr.initialize(address(placeholder));
+        OpsTreasury tr = new OpsTreasury(address(localAC));
         MockERC20 stuck = new MockERC20("S","S",18);
         stuck.mint(address(tr), 500e18);
         vm.expectEmit(true, true, false, true);
-        emit ITreasury.Salvaged(address(stuck), USER, 500e18);
+        emit IOpsTreasury.Salvaged(address(stuck), USER, 500e18);
         tr.salvage(address(stuck), USER, 500e18);
     }
 
     /// @notice R15: requestEmissionsCapChange floor -newCap < claimed reverts at request.
     function test_R15_requestEmissionsCap_floor() public {
         MockAC localAC = new MockAC(address(this));
-        Treasury tr = new Treasury(address(localAC));
+        GovTreasury tr = new GovTreasury(address(localAC));
         MockERC20 placeholder = new MockERC20("G","G",18);
         tr.initialize(address(placeholder));
         tr.initializeEmissions(1_000e18);
