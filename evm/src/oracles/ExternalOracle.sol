@@ -12,10 +12,10 @@ import {EIP712} from "solady/utils/EIP712.sol";
 import {ECDSA} from "solady/utils/ECDSA.sol";
 
 /// @title ExternalOracle
-/// @notice Push-based external oracle. Keeper pushes mark + Parkinson σ sample + mark CI; chain
-///         maintains the rate-clamped σ-EMA. Quote = `lastPriceB64`; pricing σ = `sigmaEma`.
-/// @dev Pusher is any `grantOracle` address — testnet EOA, mainnet Gnosis Safe (2-of-3). No threshold
-///      logic on-chain; multisig is `msg.sender` after `execTransaction`.
+/// @notice Push-based external oracle. NXR attests mark + σ + mark CI, signs the batch; any relayer lands
+///         it via `batchPushSigned`. Quote = `lastPriceB64`; pricing σ = `sigmaEma`.
+/// @dev Price authority = `ecrecover(digest) ∈ signers` (grantSigner), decoupled from the relayer
+///      (`msg.sender`, unpermissioned). No signature-less/`msg.sender`-trusting push path exists.
 contract ExternalOracle is IOracle, EIP712 {
     address public immutable AC;
     uint32 public constant MAX_VOLATILITY = C.MAX_SIGMA_PBPS;
@@ -31,7 +31,6 @@ contract ExternalOracle is IOracle, EIP712 {
     bytes32 private constant BATCH_TYPEHASH = keccak256("BatchQuote(bytes32 blobHash)");
     uint256 private constant RECORD_BYTES = 24;
 
-    mapping(address => bool) public oracles;
     mapping(bytes32 => FeedData) private feeds;
     bytes32[] public feedIds;
     /// @notice NXR attester keys. A signed quote is authorized iff `ecrecover(digest) ∈ signers` — the
@@ -56,36 +55,18 @@ contract ExternalOracle is IOracle, EIP712 {
         uint16 maxDeviation
     );
     event FeedUpdated(bytes32 indexed feedId, uint16 maxDeviation, uint16 ttl);
-    event Pushed(
-        bytes32 indexed feedId,
-        uint64 price,
-        uint32 sigmaSample,
-        uint32 sigmaEma,
-        uint16 confidence,
-        address indexed pusher
-    );
-    event BatchPushed(uint256 count, address indexed pusher);
-    event OracleGranted(address indexed oracle);
-    event OracleRevoked(address indexed oracle);
     event SignerGranted(address indexed signer);
     event SignerRevoked(address indexed signer);
     event MaxRelayLagSet(uint32 secs);
-
-    modifier onlyOracle() {
-        if (!oracles[msg.sender]) revert Err.NotAuth();
-        _;
-    }
 
     modifier onlyAdmin() {
         if (msg.sender != AccessControl(AC).owner()) revert Err.NotAuth();
         _;
     }
 
-    constructor(address ac_, address oracle_) {
-        if (ac_ == address(0) || oracle_ == address(0)) revert Err.ZeroValue();
+    constructor(address ac_) {
+        if (ac_ == address(0)) revert Err.ZeroValue();
         AC = ac_;
-        oracles[oracle_] = true;
-        emit OracleGranted(oracle_);
     }
 
     function addFeed(
@@ -132,17 +113,6 @@ contract ExternalOracle is IOracle, EIP712 {
         emit FeedUpdated(feedId, maxDeviation, ttl);
     }
 
-    function grantOracle(address oracle) external onlyAdmin {
-        if (oracle == address(0)) revert Err.ZeroValue();
-        oracles[oracle] = true;
-        emit OracleGranted(oracle);
-    }
-
-    function revokeOracle(address oracle) external onlyAdmin {
-        oracles[oracle] = false;
-        emit OracleRevoked(oracle);
-    }
-
     function grantSigner(address signer) external onlyAdmin {
         if (signer == address(0)) revert Err.ZeroValue();
         signers[signer] = true;
@@ -163,45 +133,6 @@ contract ExternalOracle is IOracle, EIP712 {
     /// @dev solady EIP712 domain. Fixed name/version; solady binds chainId + address(this), fork-safe.
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         return ("BTR ExternalOracle", "1");
-    }
-
-    function pushFeed(bytes32 feedId, uint64 newPriceB64, uint32 sigmaSample, uint16 newConfidence)
-        external onlyOracle
-    {
-        // OBS-01: `Pushed` is emitted inside `_pushInternal` now, so batchPush legs are observable too.
-        _pushInternal(feedId, newPriceB64, sigmaSample, newConfidence);
-    }
-
-    function batchPush(
-        bytes32[] calldata _feedIds,
-        uint64[] calldata prices,
-        uint32[] calldata sigmas,
-        uint16[] calldata confidences
-    ) external onlyOracle {
-        uint256 length = _feedIds.length;
-        if (
-            length == 0 ||
-            prices.length != length ||
-            sigmas.length != length ||
-            confidences.length != length
-        ) revert Err.InvalidInput();
-
-        for (uint256 i; i < length;) {
-            bytes32 id;
-            uint256 p;
-            uint256 s;
-            uint256 c;
-            assembly ("memory-safe") {
-                let w := shl(5, i)
-                id := calldataload(add(_feedIds.offset, w))
-                p := calldataload(add(prices.offset, w))
-                s := calldataload(add(sigmas.offset, w))
-                c := calldataload(add(confidences.offset, w))
-            }
-            _pushInternal(id, uint64(p), uint32(s), uint16(c));
-            unchecked { ++i; }
-        }
-        emit BatchPushed(length, msg.sender);
     }
 
     /// @notice Relay an NXR-signed batch of quotes. Auth = `ecrecover(digest) ∈ signers`; the relayer
@@ -259,10 +190,9 @@ contract ExternalOracle is IOracle, EIP712 {
         if (sigmaSample > MAX_VOLATILITY) revert Err.ThresholdViolation(sigmaSample, MAX_VOLATILITY);
     }
 
-    /// @dev Per-push mark-move clamp (D1/H-2), shared by legacy + signed paths. Band grows linearly with
-    ///      staleness: maxDeviation·(1 + dt/ttl), hard-capped at MAX_DEV_THRESHOLD. Fail-closed on out-of-band
-    ///      and on maxDev==0. Signature (signed path) authorizes AUTHENTICITY, not MAGNITUDE — this backstops
-    ///      a compromised NXR key exactly as it backstops a compromised keeper EOA on the legacy path.
+    /// @dev Per-push mark-move clamp (D1/H-2). Band grows linearly with staleness: maxDeviation·(1 + dt/ttl),
+    ///      hard-capped at MAX_DEV_THRESHOLD. Fail-closed on out-of-band and on maxDev==0. The signature
+    ///      authorizes AUTHENTICITY, not MAGNITUDE — this clamp backstops a compromised NXR signer key.
     function _checkDeviation(uint256 prevMark1e18, uint256 mark1e18, uint256 dt, uint16 ttl, uint16 maxDev)
         internal pure
     {
@@ -274,72 +204,15 @@ contract ExternalOracle is IOracle, EIP712 {
         if (devBps > allowed) revert Err.ThresholdViolation(devBps, allowed);
     }
 
-    /// @dev One feed-slot SLOAD + one SSTORE. maxDeviation for the push clamp now lives IN the slot
-    ///      (no separate cold mapping — ORA-02). Slot layout (low→high bits):
+    /// @dev Sole feed writer. One feed-slot SLOAD + one SSTORE. maxDeviation for the push clamp lives IN
+    ///      the slot (no separate cold mapping — ORA-02). Slot layout (low→high bits):
     ///      lastPriceB64[0:64) | sigmaEma[64:96) | updatedAt[96:128) | ttl[128:144)
     ///      | confidence[144:160) | tau[160:176) | tauSigma[176:192) | maxDeviation[192:208)
-    ///      | sourceTs[208:256) (uint48 ms, signed-path monotonic guard; 0 on legacy-only feeds).
-    function _pushInternal(bytes32 feedId, uint64 newPriceB64, uint32 sigmaSample, uint16 newConfidence)
-        internal
-    {
-        FeedData storage feed = feeds[feedId];
-        uint256 slot;
-        uint256 word;
-        assembly ("memory-safe") {
-            slot := feed.slot
-            word := sload(slot)
-        }
-        uint32 prevAt = uint32((word >> 96) & 0xFFFFFFFF);
-        if (prevAt == 0) revert Err.FeedNotFound(feedId);
-
-        uint64 prevMarkB64 = uint64(word);
-        uint256 prevMark1e18 = M.b64To1e18(prevMarkB64);
-        uint256 mark1e18 = _validate(newPriceB64, sigmaSample);
-
-        uint256 dt;
-        unchecked { dt = block.timestamp - prevAt; }
-        // One mark update per feed per block. The per-push clamp below bounds a move against the
-        // PREVIOUS push's mark; within a single block dt==0 so the band never grows, and N pushes
-        // (looped pushFeed, or a feedId repeated inside one batchPush) would each pass the band yet
-        // compound geometrically to an unbounded one-tx move — exactly the drain P4/H-2 claim to
-        // prevent. Rejecting a same-block re-push bounds the per-BLOCK move to a single band step and
-        // makes a duplicate feedId in a batch fail-closed. Honest keepers push once per feed per tick
-        // (≥ poll interval ≫ 1 block), so this never bites them.
-        if (dt == 0) revert Err.CooldownActive(1);
-
-        uint16 ttl = uint16((word >> 128) & 0xFFFF);
-        // Per-feed push clamp (D1). The pool QUOTES off the raw mark (lastPriceB64), not the rate-clamped
-        // EMA, so an unbounded push = mark-to-arbitrary + self-swap-drain. The allowed band grows LINEARLY
-        // with staleness — maxDeviation·(1 + dt/ttl), hard-capped at MAX_DEV_THRESHOLD — so a legitimate
-        // post-downtime re-sync (larger move accumulated while quiet) passes, but a compromised key can no
-        // longer buy an UNBOUNDED jump by inducing staleness (H-2): the band is time-proportional and
-        // monitorable, never infinite. In normal operation the keeper heartbeats < ttl so dt ≈ 0 and the
-        // band ≈ maxDeviation. maxDeviation is mandatory-nonzero (addFeed/updateFeed); a 0 would fail
-        // CLOSED here (band 0 rejects any move) — the safe direction. Fail-closed: REJECT out-of-band.
-        _checkDeviation(prevMark1e18, mark1e18, dt, ttl, uint16((word >> 192) & 0xFFFF));
-
-        uint16 tau = uint16((word >> 160) & 0xFFFF);
-        uint16 tauSigma = uint16((word >> 176) & 0xFFFF);
-        uint32 prevSigmaEma = uint32((word >> 64) & 0xFFFFFFFF);
-        uint16 maxDev = uint16((word >> 192) & 0xFFFF);
-
-        uint32 sigmaEma = Oracle.updateSigmaEma(prevSigmaEma, sigmaSample, prevMark1e18, mark1e18, dt, tauSigma);
-
-        uint256 newWord = uint256(newPriceB64) | (uint256(sigmaEma) << 64)
-            | (uint256(uint32(block.timestamp)) << 96) | (uint256(ttl) << 128) | (uint256(newConfidence) << 144)
-            | (uint256(tau) << 160) | (uint256(tauSigma) << 176) | (uint256(maxDev) << 192)
-            | (word & (uint256(0xFFFFFFFFFFFF) << 208)); // preserve sourceTs[208:256) (untouched by legacy path)
-        assembly ("memory-safe") { sstore(slot, newWord) }
-        // OBS-01: per-feed event on EVERY push (single or batch leg) — indexers/keeper-drift monitors get
-        // a full per-feed mark history, not just an opaque BatchPushed(count).
-        emit Pushed(feedId, newPriceB64, sigmaSample, sigmaEma, newConfidence, msg.sender);
-    }
-
-    /// @dev Signed-path writer. Differs from `_pushInternal`: (1) monotonic `sourceTs` replay guard + a
-    ///      future-dated bound, (2) stores the NXR-signed σ DIRECTLY (no on-chain updateSigmaEma — the
-    ///      smoothing moves to source, -800 gas) but FLOORED at |Δmark|/mark (compromised-signer backstop),
-    ///      (3) no event (observability = getFeed() state polling). Same slot, same one-per-block +
-    ///      deviation-band + validate guards. Auth already checked by the caller.
+    ///      | sourceTs[208:256) (uint48 ms, monotonic replay guard; 0 until first signed push).
+    ///      Guards: (1) monotonic `sourceTs` replay guard + a future-dated bound, (2) stores the NXR-signed
+    ///      σ DIRECTLY (no on-chain EMA — smoothing moves to source) FLOORED at |Δmark|/mark
+    ///      (compromised-signer backstop), (3) no event (observability = getFeed() state polling). Same
+    ///      one-per-block + deviation-band + validate guards. Auth already checked by the caller.
     function _pushSignedInternal(
         bytes32 feedId,
         uint64 newPriceB64,
@@ -384,9 +257,8 @@ contract ExternalOracle is IOracle, EIP712 {
         // AUTHENTICITY of the mark, NOT the volatility — a signer signing σ=0 would collapse the pricing
         // spread to the minFee floor and make a mark-then-self-swap round trip spread-free. Floor the
         // stored σ at the realized |Δmark|/mark so any mark move (even within the deviation band) forces a
-        // proportional spread → the round trip is spread-NEGATIVE. Mirrors the legacy path's mark-move
-        // floor in Oracle.updateSigmaEma, minus the EMA (signed path keeps its direct-σ, no-smoothing
-        // design). markMovePbps caps at MAX_SIGMA_PBPS == MAX_VOLATILITY and sigma is already _validate'd
+        // proportional spread → the round trip is spread-NEGATIVE. Direct-σ, no on-chain smoothing.
+        // markMovePbps caps at MAX_SIGMA_PBPS == MAX_VOLATILITY and sigma is already _validate'd
         // ≤ MAX_VOLATILITY, so sigmaStored stays within the validated σ invariant (no extra cap needed).
         uint32 moveFloor = Oracle.markMovePbps(prevMark1e18, mark1e18);
         uint32 sigmaStored = sigma > moveFloor ? sigma : moveFloor;
