@@ -7,6 +7,7 @@ import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {PoolFactory} from "../../src/PoolFactory.sol";
 import {Pool} from "../../src/Pool.sol";
 import {GovTreasury} from "@btr-shared/GovTreasury.sol";
+import {OpsTreasury} from "@btr-shared/OpsTreasury.sol";
 import {Bridge} from "@btr-shared/Bridge.sol";
 import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -58,6 +59,9 @@ contract DeployScriptTest is Test {
         assertTrue(GovTreasury(payable(a.treasuryProxy)).bridge() != address(0), "treasury.bridge unset");
         assertEq(GovTreasury(payable(a.treasuryProxy)).bridge(), a.bridgeProxy, "treasury.bridge mismatch");
         assertEq(GovTreasury(payable(a.treasuryProxy)).getBridge(), a.bridgeProxy, "treasury.getBridge mismatch");
+        // OpsTreasury deployed + distributor wired (pools' treasury() sink + Distributor funding path).
+        assertTrue(a.opsTreasuryProxy != address(0), "opsTreasuryProxy");
+        assertEq(OpsTreasury(payable(a.opsTreasuryProxy)).distributor(), a.distributor, "opsTreasury.distributor mismatch");
         // PoolFactory ownership funnels through AC.owner() via AC-singleton modifier
         // (Track-B Phase-1: PoolFactory dropped Solady Ownable; auth resolves via AC.owner()).
         assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC != ac");
