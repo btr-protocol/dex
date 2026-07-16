@@ -89,15 +89,22 @@ pub struct Report {
     pub cov_max_dev: f64,  // max |c-1| over the run (excursion)
     pub cov_mean_dev: f64, // time-average |c-1| (how far off-peg it sits on average)
     // downsampled trajectories for the UI (~200 pts): pool value vs HODL, and token coverage
-    pub traj_value: Vec<f64>,  // pool TVL / TVL0 (LP equity, HODL-relative context via traj_hodl)
-    pub traj_hodl: Vec<f64>,   // HODL value / TVL0 at the same steps
-    pub traj_cov: Vec<f64>,    // token coverage c=R/L
+    pub traj_value: Vec<f64>, // pool TVL / TVL0 (LP equity, HODL-relative context via traj_hodl)
+    pub traj_hodl: Vec<f64>,  // HODL value / TVL0 at the same steps
+    pub traj_cov: Vec<f64>,   // token coverage c=R/L
 }
 
 /// Ornstein-Uhlenbeck (mean-reverting) price path around `p0`: `n` prices, reversion `theta`
 /// per step, vol `annual_vol`. Models an asset that oscillates around a level — the regime where
 /// inventory re-peg SHOULD drive coverage back to 1 (vs a pure trend, where no passive AMM pegs).
-pub fn ou_path(p0: f64, n: usize, annual_vol: f64, theta: f64, steps_per_year: f64, seed: u64) -> Vec<f64> {
+pub fn ou_path(
+    p0: f64,
+    n: usize,
+    annual_vol: f64,
+    theta: f64,
+    steps_per_year: f64,
+    seed: u64,
+) -> Vec<f64> {
     let mut rng = Rng(seed | 1);
     let dt = 1.0 / steps_per_year;
     let sig = annual_vol * dt.sqrt();
@@ -281,7 +288,11 @@ pub fn run(amm: &mut dyn Amm, prices: &[f64], cfg: &SimCfg, days: f64) -> Report
         tvl0,
         cov_final: amm.coverage(1),
         cov_max_dev,
-        cov_mean_dev: if steps > 0 { cov_dev_sum / steps as f64 } else { 0.0 },
+        cov_mean_dev: if steps > 0 {
+            cov_dev_sum / steps as f64
+        } else {
+            0.0
+        },
         traj_value,
         traj_hodl,
         traj_cov,

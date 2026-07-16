@@ -13,8 +13,8 @@
 //! LVR, more LP revenue = the A-S edge). In the hub-spoke it also keeps the capital-efficiency win.
 //! ⇒ tight (trader) + LVR-resistant (curvature + fee) + capital-efficient (hub) + A-S-optimal fee.
 
-use super::curve;
 use super::Amm;
+use super::curve;
 
 #[derive(Debug, Clone)]
 pub struct AimmCi {
@@ -23,9 +23,9 @@ pub struct AimmCi {
     pub a_y: f64, // base asset (idx 0)
     pub l_y: f64, // base liability
     pub k: f64,   // curvature ∈(0,1) in D=ΣL(c−k/c). term''(c)=−2k/c³ ⇒ LOW k = FLAT/constant-sum
-                  // (tight center, but arb-size unbounded → needs the convex wall); HIGH k = MORE
-                  // curved (bounds arb size). Stables: LOW k + wall. Volatiles: HIGHER k. (Comment
-                  // was previously INVERTED — verified k→0 returns out=amt exactly = zero slippage.)
+    // (tight center, but arb-size unbounded → needs the convex wall); HIGH k = MORE
+    // curved (bounds arb size). Stables: LOW k + wall. Volatiles: HIGHER k. (Comment
+    // was previously INVERTED — verified k→0 returns out=amt exactly = zero slippage.)
     pub price: f64, // oracle scale (base per token); reprices token into value space (volatile pools)
     // Vol-INDEPENDENT convex coverage wall (the stable/anti-drain defense): the A-S surcharge is ∝σ
     // and vanishes for pegged assets, so a flat stable book has NO adverse-selection protection. This
@@ -50,9 +50,9 @@ pub struct AimmCi {
     pub crypto: Option<curve::CurveCrypto>,
     lp_surplus: f64,
     // Avellaneda-Stoikov dynamic fee (fractions):
-    pub base_fee: f64,  // intensity/floor half-spread (e.g. 0.0001 = 1 bp)
-    pub vega: f64,      // vol sensitivity of the spread
-    pub lambda: f64,    // adverse-selection surcharge weight on coverage-worsening flow
+    pub base_fee: f64,   // intensity/floor half-spread (e.g. 0.0001 = 1 bp)
+    pub vega: f64,       // vol sensitivity of the spread
+    pub lambda: f64,     // adverse-selection surcharge weight on coverage-worsening flow
     pub cov_rebate: f64, // fraction of the surcharge still charged on coverage-IMPROVING flow (floor)
     /// Internal-oracle mode: for STABLES the peg is known (~1), so the invariant IS the oracle — the
     /// price scale is pinned and the curve discovers the small depegs via arbitrage (Curve-style, no
@@ -69,13 +69,26 @@ impl AimmCi {
         let a_y = base_value / 2.0;
         let a_x = (base_value / 2.0) / price;
         Self {
-            a_x, l_x: a_x, a_y, l_y: a_y, k, price,
+            a_x,
+            l_x: a_x,
+            a_y,
+            l_y: a_y,
+            k,
+            price,
             amp: None,
-            crypto: None, lp_surplus: 0.0,
-            kappa_cov: 0.0, prem_cap: 0.01, repeg_alpha: 1.0,
-            base_fee: 0.0001, vega: 0.5, lambda: 3.0, cov_rebate: 0.5,
+            crypto: None,
+            lp_surplus: 0.0,
+            kappa_cov: 0.0,
+            prem_cap: 0.01,
+            repeg_alpha: 1.0,
+            base_fee: 0.0001,
+            vega: 0.5,
+            lambda: 3.0,
+            cov_rebate: 0.5,
             internal_oracle: false,
-            sigma: 0.0, vol_alpha: 0.06, last_ext: price,
+            sigma: 0.0,
+            vol_alpha: 0.06,
+            last_ext: price,
         }
     }
     /// Volatile-asset config: HIGHER curvature (k=0.5) bounds arb size → lower LVR (the LP metric),
@@ -107,7 +120,11 @@ impl AimmCi {
     /// the core's value-space imbalance (out-asset balance vs D/2). `gross` is in out-asset units.
     fn crypto_fee(&self, tin: usize, gross: f64) -> f64 {
         let c = self.crypto.as_ref().unwrap();
-        let (out_bal, out_px) = if tin == 1 { (c.bal0, 1.0) } else { (c.bal1, c.price_scale) };
+        let (out_bal, out_px) = if tin == 1 {
+            (c.bal0, 1.0)
+        } else {
+            (c.bal1, c.price_scale)
+        };
         let half = (c.d / 2.0).max(1e-9);
         let r0 = out_bal * out_px / half;
         let r1 = (out_bal - gross).max(0.0) * out_px / half;
@@ -134,9 +151,13 @@ impl AimmCi {
     }
 
     #[inline]
-    fn term(r: f64, k: f64) -> f64 { r - k / r }
+    fn term(r: f64, k: f64) -> f64 {
+        r - k / r
+    }
     #[inline]
-    fn inv_term(m: f64, k: f64) -> f64 { (m + (m * m + 4.0 * k).sqrt()) / 2.0 }
+    fn inv_term(m: f64, k: f64) -> f64 {
+        (m + (m * m + 4.0 * k).sqrt()) / 2.0
+    }
 
     /// GROSS out (pre-fee) for selling `amt` of `tin`. StableSwap core (Curve flat-center shape) when
     /// `amp` is set — for stables (price ≡ 1, native units); else the coverage invariant (value space).
@@ -152,7 +173,12 @@ impl AimmCi {
             let gross = (out_a - out_new).max(0.0);
             return (gross, out_a / out_l, out_new / out_l);
         }
-        let (vxa, vxl, vya, vyl) = (self.a_x * self.price, self.l_x * self.price, self.a_y, self.l_y);
+        let (vxa, vxl, vya, vyl) = (
+            self.a_x * self.price,
+            self.l_x * self.price,
+            self.a_y,
+            self.l_y,
+        );
         let (in_a, in_l, out_a, out_l, amt_v) = if tin == 1 {
             (vxa, vxl, vya, vyl, amt * self.price)
         } else {
@@ -238,7 +264,11 @@ impl Amm for AimmCi {
             let fee = self.crypto_fee(tin, gross);
             let out_core = self.crypto.as_mut().unwrap().swap(tin, tout, amount_in);
             let out = out_core * (1.0 - fee);
-            let out_px = if tout == 0 { 1.0 } else { self.crypto.as_ref().unwrap().price_scale };
+            let out_px = if tout == 0 {
+                1.0
+            } else {
+                self.crypto.as_ref().unwrap().price_scale
+            };
             self.lp_surplus += (out_core - out) * out_px;
             return out;
         }
@@ -270,7 +300,11 @@ impl Amm for AimmCi {
         if let Some(ref c) = self.crypto {
             return c.coverage(i);
         }
-        if i == 1 { self.a_x / self.l_x } else { self.a_y / self.l_y }
+        if i == 1 {
+            self.a_x / self.l_x
+        } else {
+            self.a_y / self.l_y
+        }
     }
     fn tvl(&self, prices: &[f64]) -> f64 {
         if let Some(ref c) = self.crypto {

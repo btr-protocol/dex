@@ -127,14 +127,25 @@ fn arb_pool(amm: &mut dyn Amm, p_ext: f64, thresh: f64, lvr: &mut f64) -> bool {
 
 /// Run a field of AMMs (same pair, ideally same TVL) under organic + arb flow, either competitively
 /// routed (best execution wins each trade) or naively (every venue gets every trade).
-pub fn run_competitive(amms: &mut [Box<dyn Amm>], prices: &[f64], cfg: &RouterCfg, days: f64) -> Vec<CompReport> {
+pub fn run_competitive(
+    amms: &mut [Box<dyn Amm>],
+    prices: &[f64],
+    cfg: &RouterCfg,
+    days: f64,
+) -> Vec<CompReport> {
     run_competitive_vol(amms, prices, None, cfg, days)
 }
 
 /// As [`run_competitive`], but if `bar_vol` is `Some` (per-INPUT-bar organic base notional, e.g. the
 /// real vbid+vask from NX-Rates), organic flow is driven by REAL volume instead of `daily_turnover`.
 /// Each coarse bar's volume is spread evenly across its sub-steps and its `trades_per_step` trades.
-pub fn run_competitive_vol(amms: &mut [Box<dyn Amm>], prices: &[f64], bar_vol: Option<&[f64]>, cfg: &RouterCfg, days: f64) -> Vec<CompReport> {
+pub fn run_competitive_vol(
+    amms: &mut [Box<dyn Amm>],
+    prices: &[f64],
+    bar_vol: Option<&[f64]>,
+    cfg: &RouterCfg,
+    days: f64,
+) -> Vec<CompReport> {
     let n = amms.len();
     let sub = cfg.substeps.max(1);
     let path = fine_path(prices, sub);
@@ -170,16 +181,31 @@ pub fn run_competitive_vol(amms: &mut [Box<dyn Amm>], prices: &[f64], bar_vol: O
     let push_every = cfg.push_every.max(1);
 
     // record an executed fill's trader cost (all-in, vs the true price p_ext).
-    let record = |i: usize, size_base: f64, out: f64, buy_token: bool, p_ext: f64,
-                      vol_won: &mut [f64], n_won: &mut [u64], cost_wsum: &mut [f64], cost_w: &mut [f64]| {
+    let record = |i: usize,
+                  size_base: f64,
+                  out: f64,
+                  buy_token: bool,
+                  p_ext: f64,
+                  vol_won: &mut [f64],
+                  n_won: &mut [u64],
+                  cost_wsum: &mut [f64],
+                  cost_w: &mut [f64]| {
         // cost = fraction of fair value the trader loses to fee+slippage+spread.
         let cost = if buy_token {
             let fair_tok = size_base / p_ext;
-            if fair_tok > 0.0 { (fair_tok - out) / fair_tok } else { 0.0 }
+            if fair_tok > 0.0 {
+                (fair_tok - out) / fair_tok
+            } else {
+                0.0
+            }
         } else {
             // sell: size_base here is the token notional's base value; out is base received.
             let fair_base = size_base;
-            if fair_base > 0.0 { (fair_base - out) / fair_base } else { 0.0 }
+            if fair_base > 0.0 {
+                (fair_base - out) / fair_base
+            } else {
+                0.0
+            }
         };
         vol_won[i] += size_base;
         n_won[i] += 1;
@@ -249,7 +275,17 @@ pub fn run_competitive_vol(amms: &mut [Box<dyn Amm>], prices: &[f64], bar_vol: O
                     } else {
                         amms[best_i].swap(1, 0, slice_base / p_ext)
                     };
-                    record(best_i, slice_base, out, buy_token, p_ext, &mut vol_won, &mut n_won, &mut cost_wsum, &mut cost_w);
+                    record(
+                        best_i,
+                        slice_base,
+                        out,
+                        buy_token,
+                        p_ext,
+                        &mut vol_won,
+                        &mut n_won,
+                        &mut cost_wsum,
+                        &mut cost_w,
+                    );
                 }
             } else {
                 // naive: every venue independently gets the same trade.
@@ -260,7 +296,17 @@ pub fn run_competitive_vol(amms: &mut [Box<dyn Amm>], prices: &[f64], bar_vol: O
                         amms[i].swap(1, 0, size_base / p_ext)
                     };
                     if out > 0.0 {
-                        record(i, size_base, out, buy_token, p_ext, &mut vol_won, &mut n_won, &mut cost_wsum, &mut cost_w);
+                        record(
+                            i,
+                            size_base,
+                            out,
+                            buy_token,
+                            p_ext,
+                            &mut vol_won,
+                            &mut n_won,
+                            &mut cost_wsum,
+                            &mut cost_w,
+                        );
                     }
                 }
             }
@@ -293,13 +339,29 @@ pub fn run_competitive_vol(amms: &mut [Box<dyn Amm>], prices: &[f64], bar_vol: O
             CompReport {
                 name: amms[i].name().to_string(),
                 tvl0: tvl0[i],
-                net_apr_hodl: if tvl0[i] > 0.0 { (tvl_final - hodl) / tvl0[i] * yr } else { 0.0 },
-                net_apr_cm: if tvl0[i] > 0.0 { (tvl_final - cm_final) / tvl0[i] * yr } else { 0.0 },
-                lvr_apr: if tvl0[i] > 0.0 { lvr[i] / tvl0[i] * yr } else { 0.0 },
+                net_apr_hodl: if tvl0[i] > 0.0 {
+                    (tvl_final - hodl) / tvl0[i] * yr
+                } else {
+                    0.0
+                },
+                net_apr_cm: if tvl0[i] > 0.0 {
+                    (tvl_final - cm_final) / tvl0[i] * yr
+                } else {
+                    0.0
+                },
+                lvr_apr: if tvl0[i] > 0.0 {
+                    lvr[i] / tvl0[i] * yr
+                } else {
+                    0.0
+                },
                 volume_won: vol_won[i],
                 won_share: vol_won[i] / total_vol,
                 n_won: n_won[i],
-                trader_cost_bps: if cost_w[i] > 0.0 { cost_wsum[i] / cost_w[i] } else { 0.0 },
+                trader_cost_bps: if cost_w[i] > 0.0 {
+                    cost_wsum[i] / cost_w[i]
+                } else {
+                    0.0
+                },
             }
         })
         .collect()

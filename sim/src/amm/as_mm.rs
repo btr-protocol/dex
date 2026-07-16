@@ -28,8 +28,8 @@ pub struct AsMM {
     mark: f64,     // external oracle mark, base per token (updated on_step)
     // A-S parameters, expressed as PRICE FRACTIONS (the classic formulas are in absolute price
     // units; here they are normalized so the dealer quotes realistic bps spreads on any asset).
-    base_spread: f64,   // δ0: intensity/fee-floor half-spread (fraction), ~ (1/γ)ln(1+γ/k) normalized
-    inv_aversion: f64,  // η: reservation shift per unit fractional inventory (the γσ²·H skew, normalized)
+    base_spread: f64, // δ0: intensity/fee-floor half-spread (fraction), ~ (1/γ)ln(1+γ/k) normalized
+    inv_aversion: f64, // η: reservation shift per unit fractional inventory (the γσ²·H skew, normalized)
     // adaptive volatility (per-step |log-return| EMA) widens the spread and stiffens the skew (A-S ∝σ²)
     sigma: f64,
     vol_alpha: f64,
@@ -145,18 +145,10 @@ impl Amm for AsMM {
     fn spot(&self, tin: usize, _tout: usize) -> f64 {
         // marginal fair price = reservation mid (spread deters arb inside δ, which is the point).
         let r = self.reservation();
-        if tin == 0 {
-            r
-        } else {
-            1.0 / r
-        }
+        if tin == 0 { r } else { 1.0 / r }
     }
     fn reserve(&self, i: usize) -> f64 {
-        if i == 1 {
-            self.x
-        } else {
-            self.y
-        }
+        if i == 1 { self.x } else { self.y }
     }
     /// Inventory ratio vs the neutral target — the A-S analog of coverage (skews price to
     /// mean-revert it, rather than pegging it via a coverage wall). Populates the re-peg chart

@@ -1,8 +1,8 @@
 //! Deterministic evaluator for BTR oracle-price policies on cached NXR 30-second bars.
 //! No fitting occurs here: every run is fully parameterized and emits one JSON record.
 
-use aimm_sim::amm::aimm::{Aimm, AimmParams, OracleMode};
 use aimm_sim::amm::Amm;
+use aimm_sim::amm::aimm::{Aimm, AimmParams, OracleMode};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -55,11 +55,15 @@ fn args() -> HashMap<String, String> {
 }
 
 fn get<T: std::str::FromStr>(args: &HashMap<String, String>, key: &str, default: T) -> T {
-    args.get(key).and_then(|value| value.parse().ok()).unwrap_or(default)
+    args.get(key)
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
 }
 
 fn get_string(args: &HashMap<String, String>, key: &str, default: &str) -> String {
-    args.get(key).cloned().unwrap_or_else(|| default.to_string())
+    args.get(key)
+        .cloned()
+        .unwrap_or_else(|| default.to_string())
 }
 
 fn decode_confidence(encoded: f64) -> f64 {
@@ -166,7 +170,10 @@ fn policy_mode(args: &HashMap<String, String>, timeframe_s: usize) -> OracleMode
     let heartbeat_s = get(args, "heartbeat-s", 300usize);
     let heartbeat = (heartbeat_s / timeframe_s).max(1);
     match policy.as_str() {
-        "hard" => OracleMode::Deviation { threshold: theta, heartbeat },
+        "hard" => OracleMode::Deviation {
+            threshold: theta,
+            heartbeat,
+        },
         "smooth" => {
             let half_life_s = get(args, "smooth-half-life-s", 60.0);
             let decay = half_life_decay(timeframe_s as f64, half_life_s);
@@ -181,10 +188,7 @@ fn policy_mode(args: &HashMap<String, String>, timeframe_s: usize) -> OracleMode
             threshold: theta,
             heartbeat,
             gain: get(args, "offset-gain", 0.5),
-            decay: half_life_decay(
-                timeframe_s as f64,
-                get(args, "offset-half-life-s", 150.0),
-            ),
+            decay: half_life_decay(timeframe_s as f64, get(args, "offset-half-life-s", 150.0)),
             max_offset: get(args, "offset-cap-bp", 10.0) / BPS,
         },
         "adaptive" => OracleMode::Adaptive {
@@ -311,15 +315,19 @@ fn annualized_volatility(bars: &[Bar], timeframe_s: f64) -> f64 {
         return 0.0;
     }
     let avg = mean(&returns);
-    let variance =
-        returns.iter().map(|value| (value - avg).powi(2)).sum::<f64>() / (returns.len() - 1) as f64;
+    let variance = returns
+        .iter()
+        .map(|value| (value - avg).powi(2))
+        .sum::<f64>()
+        / (returns.len() - 1) as f64;
     variance.sqrt() * (365.0 * 86_400.0 / timeframe_s).sqrt()
 }
 
 fn calibrate() {
-    let mut params = AimmParams::default();
-    params.lambda = 0.0;
-    params.min_fee = 1.0;
+    let params = AimmParams {
+        min_fee: 1.0,
+        ..AimmParams::default()
+    };
     let mut amm = Aimm::new(params, 100.0, 5_000_000.0).with_mode(OracleMode::Deviation {
         threshold: 0.001,
         heartbeat: 10,
@@ -375,8 +383,7 @@ fn main() {
     } else {
         HashMap::new()
     };
-    let (all_bars, rejected_bars) =
-        load_bars(&data, max_return_bps, &flow_source, &flows);
+    let (all_bars, rejected_bars) = load_bars(&data, max_return_bps, &flow_source, &flows);
     let segment_name = get_string(&args, "segment", "train");
     let embargo = (get(&args, "embargo-s", 3_600usize) / timeframe_s).max(1);
     let bars = segment(&all_bars, &segment_name, embargo);
@@ -394,13 +401,14 @@ fn main() {
     let inclusion_latency_s = get(&args, "inclusion-latency-s", 12usize);
     let inclusion_lag = inclusion_latency_s.div_ceil(timeframe_s);
     let p0 = bars[0].close;
-    let mut params = AimmParams::default();
-    params.lambda = 0.0; // deleted from production
-    params.min_fee = get(&args, "min-fee-bp", 0.01) * PBPS_PER_BP;
-    params.max_fee = get(&args, "max-fee-bp", 100.0) * PBPS_PER_BP;
-    params.min_disp = get(&args, "min-disp-pbps", 1_000.0);
-    params.max_disp = get(&args, "max-disp-pbps", 100_000.0);
-    params.stale_z = 0.0;
+    let params = AimmParams {
+        min_fee: get(&args, "min-fee-bp", 0.01) * PBPS_PER_BP,
+        max_fee: get(&args, "max-fee-bp", 100.0) * PBPS_PER_BP,
+        min_disp: get(&args, "min-disp-pbps", 1_000.0),
+        max_disp: get(&args, "max-disp-pbps", 100_000.0),
+        stale_z: 0.0,
+        ..AimmParams::default()
+    };
     let mode = policy_mode(&args, timeframe_s);
     let mut amm = Aimm::new(params, p0, tvl / 2.0).with_mode(mode);
     let tvl0 = amm.tvl(&[1.0, p0]);
@@ -451,7 +459,11 @@ fn main() {
         }
 
         let total_flow = bar.vbid + bar.vask;
-        let raw_buy_share = if total_flow > 0.0 { bar.vask / total_flow } else { 0.5 };
+        let raw_buy_share = if total_flow > 0.0 {
+            bar.vask / total_flow
+        } else {
+            0.5
+        };
         let buy_share = if flow_sign >= 0.0 {
             raw_buy_share
         } else {

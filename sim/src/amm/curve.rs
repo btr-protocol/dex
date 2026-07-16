@@ -86,7 +86,12 @@ pub struct CurveStable {
 impl CurveStable {
     /// `amp` = amplification A. Seed 50/50 by value at `price`.
     pub fn new(price: f64, base_value: f64, amp: f64, fee: f64) -> Self {
-        Self { x: (base_value / 2.0) / price, y: base_value / 2.0, amp, fee }
+        Self {
+            x: (base_value / 2.0) / price,
+            y: base_value / 2.0,
+            amp,
+            fee,
+        }
     }
     /// out (net of fee) for selling `amt` of `tin`. NB: StableSwap treats balances 1:1, so a
     /// non-unity price pair must be pre-scaled by the caller; here used for near-peg stable/stable.
@@ -131,18 +136,10 @@ impl Amm for CurveStable {
         // marginal price via a small probe
         let probe = self.reserve(tin) * 1e-7;
         let o = self.quote(tin, tout, probe);
-        if o > 0.0 {
-            probe / o
-        } else {
-            0.0
-        }
+        if o > 0.0 { probe / o } else { 0.0 }
     }
     fn reserve(&self, i: usize) -> f64 {
-        if i == 1 {
-            self.x
-        } else {
-            self.y
-        }
+        if i == 1 { self.x } else { self.y }
     }
     fn tvl(&self, prices: &[f64]) -> f64 {
         self.x * prices[1] + self.y * prices[0]
@@ -185,7 +182,11 @@ fn cx_newton_d(ann: f64, gamma: f64, x0: f64, x1: f64) -> Option<f64> {
         } else {
             d_minus -= d * (mul1 / neg_fprime) * (k0 - 1.0) / k0;
         }
-        d = if d_plus > d_minus { d_plus - d_minus } else { (d_minus - d_plus) * 0.5 };
+        d = if d_plus > d_minus {
+            d_plus - d_minus
+        } else {
+            (d_minus - d_plus) * 0.5
+        };
         if !d.is_finite() {
             return None;
         }
@@ -227,7 +228,11 @@ fn cx_newton_y(ann: f64, gamma: f64, x: [f64; 2], d: f64, i: usize) -> Option<f6
         let mut y_minus = mul1 / fprime;
         let y_plus = (yfprime + d) / fprime + y_minus / k0;
         y_minus += ssum / fprime;
-        y = if y_plus < y_minus { y_prev * 0.5 } else { y_plus - y_minus };
+        y = if y_plus < y_minus {
+            y_prev * 0.5
+        } else {
+            y_plus - y_minus
+        };
         if !y.is_finite() {
             return None;
         }
@@ -245,23 +250,23 @@ fn cx_newton_y(ann: f64, gamma: f64, x: [f64; 2], d: f64, i: usize) -> Option<f6
 /// CFMM: reprices via arbitrage, `on_step` is a no-op.
 #[derive(Debug, Clone)]
 pub struct CurveCrypto {
-    pub bal0: f64,        // base reserve (idx 0, numeraire, price 1.0)
-    pub bal1: f64,        // volatile token reserve (idx 1)
-    pub price_scale: f64, // internal repeg price (base per token)
-    pub d: f64,           // cached invariant D (consistent with current balances + price_scale)
-    pub price_oracle: f64, // internal EMA of the pool's realized spot
-    pub last_prices: f64,  // pool spot after the last trade (feeds the EMA)
-    pub xcp_profit: f64,   // cumulative pool growth measure (Curve's no-loss ledger; never decreases)
+    pub bal0: f64,          // base reserve (idx 0, numeraire, price 1.0)
+    pub bal1: f64,          // volatile token reserve (idx 1)
+    pub price_scale: f64,   // internal repeg price (base per token)
+    pub d: f64,             // cached invariant D (consistent with current balances + price_scale)
+    pub price_oracle: f64,  // internal EMA of the pool's realized spot
+    pub last_prices: f64,   // pool spot after the last trade (feeds the EMA)
+    pub xcp_profit: f64, // cumulative pool growth measure (Curve's no-loss ledger; never decreases)
     pub virtual_price: f64, // xcp / total_supply (LP share value; may dip only at a funded repeg)
     pub total_supply: f64, // fixed at the initial xcp so virtual_price starts at 1.0
-    pub ann: f64,          // A·N^N·A_MULTIPLIER
+    pub ann: f64,        // A·N^N·A_MULTIPLIER
     pub gamma: f64,
-    pub mid_fee: f64,             // fee near balance (fraction)
-    pub out_fee: f64,             // fee when imbalanced (fraction)
-    pub fee_gamma: f64,           // controls how fast fee ramps mid→out with imbalance
+    pub mid_fee: f64,              // fee near balance (fraction)
+    pub out_fee: f64,              // fee when imbalanced (fraction)
+    pub fee_gamma: f64,            // controls how fast fee ramps mid→out with imbalance
     pub allowed_extra_profit: f64, // repeg margin (prevents dust rebalances)
-    pub adjustment_step: f64,     // min price_scale move per repeg
-    pub ema_alpha: f64,           // EMA weight on the OLD oracle per trade (∈(0,1), larger = slower)
+    pub adjustment_step: f64,      // min price_scale move per repeg
+    pub ema_alpha: f64, // EMA weight on the OLD oracle per trade (∈(0,1), larger = slower)
 }
 
 impl CurveCrypto {
@@ -315,7 +320,11 @@ impl CurveCrypto {
         let b = 4.0 * xp[0] * xp[1] / (sum * sum);
         // reduce the slope with fee_gamma: g = fg·b / (fg·b + 1 − b)
         let denom = self.fee_gamma * b + 1.0 - b;
-        let g = if denom > 0.0 { self.fee_gamma * b / denom } else { 0.0 };
+        let g = if denom > 0.0 {
+            self.fee_gamma * b / denom
+        } else {
+            0.0
+        };
         self.mid_fee * g + self.out_fee * (1.0 - g)
     }
 
@@ -414,7 +423,11 @@ impl CurveCrypto {
         let old_vp = self.virtual_price;
         let xcp = new_d / (2.0 * self.price_scale.sqrt());
         let vp = xcp / self.total_supply;
-        let xcp_profit = if old_vp > 0.0 { self.xcp_profit * vp / old_vp } else { self.xcp_profit };
+        let xcp_profit = if old_vp > 0.0 {
+            self.xcp_profit * vp / old_vp
+        } else {
+            self.xcp_profit
+        };
         self.xcp_profit = xcp_profit;
 
         // Rebalance only if there's enough banked profit: (vp − allowed_extra_profit)² > xcp_profit.
@@ -456,7 +469,9 @@ impl Amm for CurveCrypto {
         if tin == tout {
             return 0.0;
         }
-        self.dy_and_balances(tin, amount_in).map(|(dy, _, _)| dy).unwrap_or(0.0)
+        self.dy_and_balances(tin, amount_in)
+            .map(|(dy, _, _)| dy)
+            .unwrap_or(0.0)
     }
     fn swap(&mut self, tin: usize, tout: usize, amount_in: f64) -> f64 {
         if tin == tout {
@@ -478,11 +493,7 @@ impl Amm for CurveCrypto {
         }
     }
     fn reserve(&self, i: usize) -> f64 {
-        if i == 1 {
-            self.bal1
-        } else {
-            self.bal0
-        }
+        if i == 1 { self.bal1 } else { self.bal0 }
     }
     fn tvl(&self, prices: &[f64]) -> f64 {
         self.bal1 * prices[1] + self.bal0 * prices[0]

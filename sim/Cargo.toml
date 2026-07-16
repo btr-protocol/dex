@@ -3,7 +3,7 @@ name = "aimm-sim"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Rust reference model / simulation harness for the BTR DEX AIMM (evm/src/libraries/Pricing.sol)."
+description = "Production-settlement reference and research simulation harness for the BTR DEX AIMM."
 
 [lib]
 name = "aimm_sim"

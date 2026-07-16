@@ -1,7 +1,9 @@
-//! BTR AIMM pricer (f64) — research superset of `dex/evm/src/libraries/Pricing.sol`, NOT a 1:1 mirror
-//! since the feed rework. Production quotes off a FRESH external keeper mark (external-mark primary);
-//! this sim retains the OracleMode axis (incl. the legacy internal dual-EMA lagging mark) to MEASURE
-//! the LVR that external-mark quoting removes. Two terms here are sim-only and dropped on-chain:
+//! BTR AIMM pricer (f64). Its quote settlement order mirrors
+//! `dex/evm/src/libraries/Pricing.sol`: gross output -> output-side coverage toll -> path spread.
+//! The oracle experiments remain a deliberately separate research superset, not a 1:1 feed model.
+//! Production quotes off a FRESH external keeper mark (external-mark primary); this sim retains the
+//! OracleMode axis (incl. the legacy internal dual-EMA lagging mark) to MEASURE the LVR that
+//! external-mark quoting removes. Two signals here are sim-only and dropped on-chain:
 //!   · the Δ/U deviation (toxic-flow) surcharge — dropped from Pricing.sol (directional=RW + no-deferred);
 //!     kept here to study the fees-paper Z-Hawkes trend-widening question (keep/port is an open design call).
 //!   · the dual fast/slow vol EMA — on-chain feed collapsed to a single pushed σ.
@@ -73,12 +75,15 @@ const PBPS: f64 = 1e6; // 0.0001%  (fees, offsets, dispersion)
 const ORACLE_PBPS: f64 = 1e7; // 0.00001% (oracle offsets)
 const WEIGHT_SUM: f64 = 200.0;
 
-/// Per-asset AIMM parameters (token leg). Defaults match the Foundry test fixture.
+/// Per-asset AIMM parameters (token leg). Default numeric controls match the common fixture; all
+/// research-only switches default off and the production convex wall shape defaults on.
 #[derive(Debug, Clone)]
 pub struct AimmParams {
-    pub gamma: f64,    // inventory sensitivity, BPS (10000 = 1x)
-    pub vega: f64,     // volatility sensitivity, BPS
-    pub lambda: f64,   // deviation sensitivity, BPS
+    pub gamma: f64, // inventory sensitivity, BPS (10000 = 1x)
+    pub vega: f64,  // volatility sensitivity, BPS
+    /// Research-only trend/deviation surcharge sensitivity. Production has no equivalent; the
+    /// production-aligned default is zero and non-zero values label the model `AIMM-Research`.
+    pub lambda: f64,
     pub min_fee: f64,  // PBPS
     pub max_fee: f64,  // PBPS
     pub min_disp: f64, // PBPS
@@ -94,17 +99,13 @@ pub struct AimmParams {
     /// Fast/slow price-EMA smoothing for the internal mark offsets (per-swap activity EMA).
     pub fast_px_alpha: f64,
     pub slow_px_alpha: f64,
-    /// Coverage-convergence gain (vol-INDEPENDENT). Shifts the quoted mark for an under-covered
-    /// asset so corrective flow re-pegs it. 0 = disabled (legacy skew-only). Per-asset: strong for
-    /// stables, ~0 for volatiles (a volatile's coverage floats with inventory; forcing it = LVR).
+    /// Charge-only output coverage-wall strength as a fraction (100 on-chain bps = 0.01 here).
+    /// It prevents further drain below peg but deliberately does not pay restoring-flow rebates.
+    /// Production uses it for protected stable legs and leaves it zero for volatile legs.
     pub kappa_cov: f64,
-    /// Shape of the coverage premium. false = linear `kappa·(1−c)` (bounded, for volatiles).
-    /// true = convex `kappa·(1/c−1)` which DIVERGES as c→0 — the Wombat-grade hard no-drain wall
-    /// (for stables / the peg anchor). Linear is a spring; convex is a wall.
+    /// Coverage-potential shape. Production uses convex=true. false retains the old bounded linear
+    /// spring strictly for research comparisons and labels the model `AIMM-Research` when enabled.
     pub kappa_convex: bool,
-    /// Upper clamp on the coverage premium (fractional, e.g. 0.05 = +5% max). Required: without it a
-    /// high-kappa/low-c convex quote is unbounded. Also the stabilizing actuator saturation.
-    pub prem_cap: f64,
     /// Staleness-premium coefficient (Avellaneda-Stoikov σ√τ spread). A keeper-pushed mark is only
     /// fresh AT a push; between pushes the true price drifts and the deep book is picked off. The
     /// pool cannot OBSERVE the unseen true price, but it CAN observe elapsed steps since the last
@@ -120,7 +121,7 @@ impl Default for AimmParams {
         Self {
             gamma: 10_000.0,
             vega: 10_000.0,
-            lambda: 10_000.0,
+            lambda: 0.0,
             min_fee: 1_000.0,
             max_fee: 10_000.0,
             min_disp: 1_000.0,
@@ -135,8 +136,7 @@ impl Default for AimmParams {
             fast_px_alpha: 0.125,
             slow_px_alpha: 0.025,
             kappa_cov: 0.0,
-            kappa_convex: false,
-            prem_cap: 0.05,
+            kappa_convex: true,
             stale_z: 0.0,
         }
     }
@@ -160,15 +160,11 @@ pub struct Aimm {
     pub slow_vol: f64,
     confidence_bps: f64,         // last pushed 1σ CI, in bps
     pending_confidence_bps: f64, // latest external observation, committed on push
-    last_ext: f64, // previous external sample (for realized-vol on the feed)
-    cur_step: usize,       // current sim step (set by tick(); on-chain ≙ block.timestamp)
-    last_push_step: usize, // step of the last keeper mark push (on-chain ≙ lastPushTimestamp)
-    pushes: usize,         // # keeper mark pushes performed (keeper-tx / gas-cost accounting)
-    trade_offset: f64,     // experimental bounded log-price residual around the keeper mark
-    /// Coverage-toll surplus (base units), banked OUTSIDE reserves so coverage c=R/L evolves only by
-    /// gross trade amounts (⇒ the Q-difference toll telescopes exactly). Rebates are capped at this
-    /// balance, so an improve-then-worsen round trip cannot extract more than was previously tolled.
-    lp_surplus: f64,
+    last_ext: f64,               // previous external sample (for realized-vol on the feed)
+    cur_step: usize,             // current sim step (set by tick(); on-chain ≙ block.timestamp)
+    last_push_step: usize,       // step of the last keeper mark push (on-chain ≙ lastPushTimestamp)
+    pushes: usize,               // # keeper mark pushes performed (keeper-tx / gas-cost accounting)
+    trade_offset: f64,           // experimental bounded log-price residual around the keeper mark
 }
 
 impl Aimm {
@@ -197,7 +193,6 @@ impl Aimm {
             last_push_step: 0,
             pushes: 0,
             trade_offset: 0.0,
-            lp_surplus: 0.0,
         }
     }
 
@@ -273,15 +268,15 @@ impl Aimm {
         }
         let under = c < 1.0;
         let numer = if under { 1.0 - c } else { c - 1.0 };
-        let denom = if under { 1.0 - crit_min } else { crit_max - 1.0 };
+        let denom = if under {
+            1.0 - crit_min
+        } else {
+            crit_max - 1.0
+        };
         let progress = numer / denom;
         let s = (self.p.gamma / BPS) * 100.0 * progress;
         let s = s.min(100.0);
-        if under {
-            s
-        } else {
-            -s
-        }
+        if under { s } else { -s }
     }
 
     /// Dispersion κ in PBPS. Quiet floor = min_disp; σ·vega widens above it. (`Pricing._calculateDispersion`)
@@ -310,7 +305,9 @@ impl Aimm {
         let progress = (c - floor) / (1.0 - floor);
         let exponent = PBPS / (PBPS + 2.0 * self.p.depth_amp);
         let cp = progress.powf(exponent);
-        (r + (self.p.depth_amp * (l - r) * cp) / PBPS).min(l).max(1.0)
+        (r + (self.p.depth_amp * (l - r) * cp) / PBPS)
+            .min(l)
+            .max(1.0)
     }
 
     /// Spline control points (x = cumulative depth 0..10000, y = offset in PBPS).
@@ -329,12 +326,28 @@ impl Aimm {
     /// Average price (base per token) over a traded volume, by traversing the spline depth band.
     /// `selling` = the trader sells the token into the pool. (`Pricing._traverseSplineByVolume`,
     /// BUG-2 fix: integrate over the ordered band so the mean offset keeps its true sign.)
-    fn traverse(&self, twap: f64, disp: f64, skew: f64, amount_in_tok: f64, depth: f64, selling: bool) -> f64 {
+    fn traverse(
+        &self,
+        twap: f64,
+        disp: f64,
+        skew: f64,
+        amount_in_tok: f64,
+        depth: f64,
+        selling: bool,
+    ) -> f64 {
         let pts = self.spline_points(disp);
         let start = 5000.0 + skew * 50.0;
         let vf = ((amount_in_tok * BPS) / depth).min(BPS);
-        let end = if selling { (start - vf).max(0.0) } else { (start + vf).min(BPS) };
-        let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
+        let end = if selling {
+            (start - vf).max(0.0)
+        } else {
+            (start + vf).min(BPS)
+        };
+        let (lo, hi) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
         let width = hi - lo;
         let avg_off = if width == 0.0 {
             eval_spline(&pts, start)
@@ -393,9 +406,8 @@ impl Aimm {
         }
     }
 
-    /// Coverage potential Q(c) (≤0, max 0 at c=1, strictly concave). The coverage re-peg is charged
-    /// as the finite difference Q(c_before)−Q(c_after) of this potential (see `swap`), which
-    /// telescopes to zero over any closed reserve loop → round-trip-neutral by construction (unlike
+    /// Coverage potential Q(c) (≤0, max 0 at c=1, strictly concave). Production charges the positive
+    /// finite difference Q(c_before)−Q(c_after) when a swap drains the configured output leg (unlike
     /// the old uniform mark shift `1+κ·(1−c)`, which was round-trip-extractable, PoolRepegExploit).
     /// Convex `ln c − c + 1` diverges as c→0 (the no-drain WALL for stables — deliberately NOT
     /// capped); linear `−½(c−1)²` is the bounded spring for volatiles.
@@ -408,11 +420,27 @@ impl Aimm {
         }
     }
 
+    /// Production-ordered, charge-only output-side coverage toll. The Solidity pool configures the
+    /// wall per output asset; this two-leg model only has token-leg parameters, so base output is
+    /// never tolled. `gross_out` is deliberately the pre-spread amount, matching `_settleQuote`.
+    fn coverage_toll(&self, tout: usize, gross_out: f64) -> f64 {
+        if tout != 1 || self.p.kappa_cov <= 0.0 || self.tok_liab <= 0.0 || gross_out <= 0.0 {
+            return 0.0;
+        }
+        if gross_out >= self.tok_res {
+            return gross_out;
+        }
+        let c0 = (self.tok_res / self.tok_liab).clamp(1e-9, 1.0);
+        let c1 = ((self.tok_res - gross_out) / self.tok_liab).clamp(1e-9, 1.0);
+        let dq = (self.cov_q(c0) - self.cov_q(c1)).max(0.0);
+        (dq * self.p.kappa_cov * self.tok_liab).min(gross_out)
+    }
+
     /// Gross fill (pre-fee) for selling `amount_in` of `tin` → `tout`.
     fn gross_fill(&self, tin: usize, amount_in: f64) -> (f64, f64) {
-        // Mark = the lagging internal EMA. The coverage re-peg is NOT applied here as a mark shift
-        // (that uniform form is non-conservative / round-trip-extractable); it is charged in `swap`
-        // as a path-integrated potential toll skimmed to LP surplus. See `cov_q`.
+        // Mark = the lagging internal EMA. Coverage is NOT applied as a mark shift (that uniform
+        // form is non-conservative / round-trip-extractable); `fill` later deducts the production
+        // charge-only output toll before spread. See `coverage_toll`.
         let twap = self.quote_mark().max(1e-18);
         let disp = self.dispersion();
         let skew = self.skew(self.tok_res, self.tok_liab);
@@ -439,20 +467,30 @@ impl Aimm {
             return Fill::default();
         }
         let (gross_out, _exec_price_bpt) = self.gross_fill(tin, amount_in);
-        let out_res = if tout == 1 { self.tok_res } else { self.base_res };
+        let out_res = if tout == 1 {
+            self.tok_res
+        } else {
+            self.base_res
+        };
         let gross_out = gross_out.min(out_res * 0.999); // can't drain the leg
         if gross_out <= 0.0 {
             return Fill::default();
         }
+        // Production `_settleQuote` applies the output-side coverage toll BEFORE charging half the
+        // full path spread. Keeping this entire preview in `fill` makes quote and swap identical.
+        let after_toll = gross_out - self.coverage_toll(tout, gross_out);
         let spread = self.spread(); // U keys on Δ, not coverage direction (see spread())
-        // Production `_settleQuote` charges half the full path spread on amount-out.
-        let net_out = gross_out * (1.0 - spread / (2.0 * PBPS));
-        let fee = gross_out - net_out;
+        let fee = after_toll * spread / (2.0 * PBPS);
+        let net_out = after_toll - fee;
         Fill {
             amount_in,
             amount_out: net_out,
             fee,
-            exec_price: if net_out > 0.0 { amount_in / net_out } else { 0.0 },
+            exec_price: if net_out > 0.0 {
+                amount_in / net_out
+            } else {
+                0.0
+            },
         }
     }
 
@@ -472,7 +510,21 @@ impl Aimm {
 
 impl Amm for Aimm {
     fn name(&self) -> &str {
-        "AIMM"
+        if self.p.lambda != 0.0
+            || !self.p.kappa_convex
+            || matches!(
+                self.mode,
+                OracleMode::Internal
+                    | OracleMode::Hybrid { .. }
+                    | OracleMode::Smoothing { .. }
+                    | OracleMode::TradeOffset { .. }
+                    | OracleMode::Adaptive { .. }
+            )
+        {
+            "AIMM-Research"
+        } else {
+            "AIMM"
+        }
     }
 
     fn on_step(&mut self, ext_px: f64, step: usize) {
@@ -506,9 +558,16 @@ impl Amm for Aimm {
                     self.confidence_bps = self.pending_confidence_bps;
                 }
             }
-            OracleMode::Deviation { threshold, heartbeat } => {
+            OracleMode::Deviation {
+                threshold,
+                heartbeat,
+            } => {
                 self.update_vol_from_ext(ext_px); // vol always fresh off the feed
-                let drift = if self.mark > 0.0 { (ext_px / self.mark - 1.0).abs() } else { 1.0 };
+                let drift = if self.mark > 0.0 {
+                    (ext_px / self.mark - 1.0).abs()
+                } else {
+                    1.0
+                };
                 let stale = heartbeat > 0 && step.saturating_sub(self.last_push_step) >= heartbeat;
                 if drift > threshold || stale {
                     self.slow_ema += 0.2 * (ext_px - self.slow_ema);
@@ -520,9 +579,18 @@ impl Amm for Aimm {
                     self.pushes += 1;
                 }
             }
-            OracleMode::Smoothing { threshold, heartbeat, alpha, breaker } => {
+            OracleMode::Smoothing {
+                threshold,
+                heartbeat,
+                alpha,
+                breaker,
+            } => {
                 self.update_vol_from_ext(ext_px);
-                let drift = if self.mark > 0.0 { (ext_px / self.mark - 1.0).abs() } else { 1.0 };
+                let drift = if self.mark > 0.0 {
+                    (ext_px / self.mark - 1.0).abs()
+                } else {
+                    1.0
+                };
                 let stale = heartbeat > 0 && step.saturating_sub(self.last_push_step) >= heartbeat;
                 if drift > threshold || stale {
                     self.slow_ema += 0.2 * (ext_px - self.slow_ema);
@@ -538,10 +606,19 @@ impl Amm for Aimm {
                     self.target_mark = ext_px;
                 }
             }
-            OracleMode::TradeOffset { threshold, heartbeat, decay, .. } => {
+            OracleMode::TradeOffset {
+                threshold,
+                heartbeat,
+                decay,
+                ..
+            } => {
                 self.update_vol_from_ext(ext_px);
                 self.trade_offset *= decay.clamp(0.0, 1.0);
-                let drift = if self.mark > 0.0 { (ext_px / self.mark - 1.0).abs() } else { 1.0 };
+                let drift = if self.mark > 0.0 {
+                    (ext_px / self.mark - 1.0).abs()
+                } else {
+                    1.0
+                };
                 let stale = heartbeat > 0 && step.saturating_sub(self.last_push_step) >= heartbeat;
                 if drift > threshold || stale {
                     self.slow_ema += 0.2 * (ext_px - self.slow_ema);
@@ -564,7 +641,11 @@ impl Amm for Aimm {
                 ..
             } => {
                 self.update_vol_from_ext(ext_px);
-                let drift = if self.mark > 0.0 { (ext_px / self.mark - 1.0).abs() } else { 1.0 };
+                let drift = if self.mark > 0.0 {
+                    (ext_px / self.mark - 1.0).abs()
+                } else {
+                    1.0
+                };
                 let spread = self.effective_spread_fraction();
                 let depth_base = (self.depth() * self.mark).max(1e-18);
                 let gas_gap = (2.0 * gas_cost_base.max(0.0) / depth_base).sqrt();
@@ -604,33 +685,8 @@ impl Amm for Aimm {
         if f.amount_out <= 0.0 {
             return 0.0;
         }
-        let gross = f.amount_out;
-        // Path-integrated coverage toll = Q(c_before) − Q(c_after) of the potential (see cov_q).
-        // >0 ⇒ the trade WORSENS token coverage → charge (retained in reserves = the no-drain wall);
-        // <0 ⇒ improves → rebate, but CAPPED at the banked surplus ledger so an improve-then-worsen
-        // round trip cannot extract more than was previously tolled (round-trip-neutral, not a spring).
-        let l = self.tok_liab;
         let twap = self.quote_mark().max(1e-18);
-        let mut out = gross;
-        if self.p.kappa_cov > 0.0 && l > 0.0 {
-            // Clamp coverage to the peg (min(c,1)) before differencing the potential: Q peaks at c=1
-            // and falls on both sides, so an unclamped diff lets a drain that STARTS over-covered cross
-            // the peg toll-free (dQ≤0) — the wall would be bypassable from c>1. Mirrors Pricing.sol.
-            let c_before = (self.tok_res / l).clamp(1e-9, 1.0);
-            let tok_after = if tin == 1 { self.tok_res + amount_in } else { self.tok_res - gross };
-            let c_after = (tok_after.max(0.0) / l).clamp(1e-9, 1.0);
-            let toll_base = twap * l * self.p.kappa_cov * (self.cov_q(c_before) - self.cov_q(c_after));
-            let toll_out = if tout == 0 { toll_base } else { toll_base / twap };
-            if toll_out >= 0.0 {
-                out = (gross - toll_out).max(0.0); // charge: retained in the output reserve
-                self.lp_surplus += (gross - out) * if tout == 0 { 1.0 } else { twap };
-            } else {
-                let want_base = -toll_base;
-                let give_base = want_base.min(self.lp_surplus.max(0.0)); // rebate ≤ banked
-                out = gross + if tout == 0 { give_base } else { give_base / twap };
-                self.lp_surplus -= give_base;
-            }
-        }
+        let out = f.amount_out;
         if tin == 1 {
             self.tok_res += amount_in;
             self.base_res -= out;
@@ -638,19 +694,30 @@ impl Amm for Aimm {
             self.base_res += amount_in;
             self.tok_res -= out;
         }
-        if let OracleMode::TradeOffset { gain, max_offset, .. } = self.mode {
+        if let OracleMode::TradeOffset {
+            gain, max_offset, ..
+        } = self.mode
+        {
             // Buy token => positive information; sell token => negative. The trader executes against
             // the PRE-update quote, so the residual can only affect subsequent flow. Normalizing by
             // post-trade TVL makes the response depth-aware and comparable across pool sizes.
-            let signed_base = if tin == 0 { amount_in } else { -amount_in * twap };
+            let signed_base = if tin == 0 {
+                amount_in
+            } else {
+                -amount_in * twap
+            };
             let tvl = (self.base_res + self.tok_res * twap).max(1e-18);
-            self.trade_offset =
-                (self.trade_offset + gain * signed_base / tvl).clamp(-max_offset.abs(), max_offset.abs());
+            self.trade_offset = (self.trade_offset + gain * signed_base / tvl)
+                .clamp(-max_offset.abs(), max_offset.abs());
         }
         // Only the Internal oracle walks its mark from executed fills. In External/Hybrid the mark
         // is controlled by on_step (keeper push / recenter), so fills don't move it.
         if self.mode == OracleMode::Internal {
-            let exec_bpt = if tin == 1 { f.exec_price.recip() } else { f.exec_price };
+            let exec_bpt = if tin == 1 {
+                f.exec_price.recip()
+            } else {
+                f.exec_price
+            };
             self.push_mark(exec_bpt);
         }
         out
@@ -658,30 +725,26 @@ impl Amm for Aimm {
 
     fn spot(&self, tin: usize, _tout: usize) -> f64 {
         // marginal price as input-per-output, from a vanishingly small quote
-        let probe = (if tin == 1 { self.tok_res } else { self.base_res }) * 1e-6;
-        let out = self.quote(tin, 1 - tin, probe);
-        if out > 0.0 {
-            probe / out
-        } else {
-            0.0
-        }
-    }
-
-    fn reserve(&self, i: usize) -> f64 {
-        if i == 1 {
+        let probe = (if tin == 1 {
             self.tok_res
         } else {
             self.base_res
-        }
+        }) * 1e-6;
+        let out = self.quote(tin, 1 - tin, probe);
+        if out > 0.0 { probe / out } else { 0.0 }
+    }
+
+    fn reserve(&self, i: usize) -> f64 {
+        if i == 1 { self.tok_res } else { self.base_res }
     }
 
     fn coverage(&self, i: usize) -> f64 {
-        let (r, l) = if i == 1 { (self.tok_res, self.tok_liab) } else { (self.base_res, self.base_liab) };
-        if l > 0.0 {
-            r / l
+        let (r, l) = if i == 1 {
+            (self.tok_res, self.tok_liab)
         } else {
-            1.0
-        }
+            (self.base_res, self.base_liab)
+        };
+        if l > 0.0 { r / l } else { 1.0 }
     }
 
     fn tvl(&self, prices: &[f64]) -> f64 {
@@ -702,7 +765,7 @@ fn search_spline(pts: &[(f64, f64)], x: f64, n: usize) -> usize {
     let mut low = 0usize;
     let mut high = n - 2;
     while low < high {
-        let mid = (low + high + 1) / 2;
+        let mid = (low + high).div_ceil(2);
         if x < pts[mid].0 {
             high = mid - 1;
         } else {
@@ -837,9 +900,5 @@ fn area_spline(pts: &[(f64, f64)], x1: f64, x2: f64) -> f64 {
         x1 = seg_end;
         i += 1;
     }
-    if inv {
-        -res
-    } else {
-        res
-    }
+    if inv { -res } else { res }
 }

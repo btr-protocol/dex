@@ -9,9 +9,9 @@
 //! *dynamic* fee + inventory skew that only acts on actual flow hitting its quote function, so
 //! the σ²/8 closed form cannot represent it. Every trade must be quoted against live state.
 //!
-//! Fidelity: pricing is `f64` mirroring the *fixed* `dex/evm/src/libraries/Pricing.sol` formulas
-//! (post BUG-1/2/3 fixes). This is the standard basis for an economic backtest; bit-exact
-//! integer/rounding fidelity is validated separately by the Foundry suite, not re-derived here.
+//! Fidelity: production-mode pricing is `f64` mirroring the settlement formulas and ordering in
+//! `dex/evm/src/libraries/Pricing.sol`. Experimental oracle modes and the optional trend surcharge
+//! identify themselves as `AIMM-Research`; bit-exact integer/rounding fidelity remains in Foundry.
 
 pub mod aimm;
 pub mod aimm_ci;
@@ -98,7 +98,11 @@ pub trait Amm {
             let o1 = self.quote(tin, tout, mid);
             let o2 = self.quote(tin, tout, mid + eps);
             // marginal input-per-output at cumulative size `mid`
-            let marg = if o2 > o1 { eps / (o2 - o1) } else { f64::INFINITY };
+            let marg = if o2 > o1 {
+                eps / (o2 - o1)
+            } else {
+                f64::INFINITY
+            };
             if marg < external_price {
                 lo = mid;
             } else {

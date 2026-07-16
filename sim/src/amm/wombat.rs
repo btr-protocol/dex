@@ -10,12 +10,12 @@ use super::Amm;
 
 #[derive(Debug, Clone)]
 pub struct Wombat {
-    pub a_x: f64, // token asset (idx 1), native units
-    pub l_x: f64, // token liability
-    pub a_y: f64, // base asset (idx 0)
-    pub l_y: f64, // base liability
-    pub k: f64,   // amplification (0,1)
-    pub fee: f64, // haircut
+    pub a_x: f64,   // token asset (idx 1), native units
+    pub l_x: f64,   // token liability
+    pub a_y: f64,   // base asset (idx 0)
+    pub l_y: f64,   // base liability
+    pub k: f64,     // amplification (0,1)
+    pub fee: f64,   // haircut
     pub price: f64, // external oracle price (base per token); scales token into value space
 }
 
@@ -23,7 +23,15 @@ impl Wombat {
     pub fn new(price: f64, base_value: f64, k: f64, fee: f64) -> Self {
         let a_y = base_value / 2.0;
         let a_x = (base_value / 2.0) / price;
-        Self { a_x, l_x: a_x, a_y, l_y: a_y, k, fee, price }
+        Self {
+            a_x,
+            l_x: a_x,
+            a_y,
+            l_y: a_y,
+            k,
+            fee,
+            price,
+        }
     }
 
     /// r − k/r for coverage r.
@@ -39,7 +47,12 @@ impl Wombat {
 
     /// Value-space balances (token scaled by price): (vx_asset, vx_liab, vy_asset, vy_liab).
     fn vspace(&self) -> (f64, f64, f64, f64) {
-        (self.a_x * self.price, self.l_x * self.price, self.a_y, self.l_y)
+        (
+            self.a_x * self.price,
+            self.l_x * self.price,
+            self.a_y,
+            self.l_y,
+        )
     }
 
     /// out (net of haircut) for selling `amt` of `tin`. Works in value space, converts back.
@@ -94,18 +107,10 @@ impl Amm for Wombat {
     fn spot(&self, tin: usize, tout: usize) -> f64 {
         let probe = self.reserve(tin) * 1e-7;
         let o = self.quote(tin, tout, probe);
-        if o > 0.0 {
-            probe / o
-        } else {
-            0.0
-        }
+        if o > 0.0 { probe / o } else { 0.0 }
     }
     fn reserve(&self, i: usize) -> f64 {
-        if i == 1 {
-            self.a_x
-        } else {
-            self.a_y
-        }
+        if i == 1 { self.a_x } else { self.a_y }
     }
     fn coverage(&self, i: usize) -> f64 {
         if i == 1 {

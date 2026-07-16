@@ -14,7 +14,11 @@ impl UniV2 {
     /// Seed with `base_value` total TVL at `price` (base per token), 50/50 by value.
     pub fn new(price: f64, base_value: f64, fee: f64) -> Self {
         let y = base_value / 2.0;
-        Self { x: (base_value / 2.0) / price, y, fee }
+        Self {
+            x: (base_value / 2.0) / price,
+            y,
+            fee,
+        }
     }
     fn out(&self, tin: usize, amt_in: f64) -> f64 {
         let a = amt_in * (1.0 - self.fee);
@@ -58,11 +62,7 @@ impl Amm for UniV2 {
         }
     }
     fn reserve(&self, i: usize) -> f64 {
-        if i == 1 {
-            self.x
-        } else {
-            self.y
-        }
+        if i == 1 { self.x } else { self.y }
     }
     fn tvl(&self, prices: &[f64]) -> f64 {
         self.x * prices[1] + self.y * prices[0]

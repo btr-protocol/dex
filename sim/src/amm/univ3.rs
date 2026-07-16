@@ -22,7 +22,13 @@ impl UniV3 {
         let (sp, spa, spb) = (price.sqrt(), pa.sqrt(), pb.sqrt());
         // value(L) at p0 = x·p + y = L[(1/√p − 1/√pb)·p + (√p − √pa)] = base_value
         let val_per_l = (1.0 / sp - 1.0 / spb) * price + (sp - spa);
-        Self { sqrt_p: sp, sqrt_pa: spa, sqrt_pb: spb, liquidity: base_value / val_per_l, fee }
+        Self {
+            sqrt_p: sp,
+            sqrt_pa: spa,
+            sqrt_pb: spb,
+            liquidity: base_value / val_per_l,
+            fee,
+        }
     }
 
     #[inline]
@@ -52,7 +58,10 @@ impl UniV3 {
         } else {
             // base in → price up
             let sp2 = (self.sqrt_p + amt / self.liquidity).min(self.sqrt_pb);
-            ((self.liquidity * (1.0 / self.sqrt_p - 1.0 / sp2)).max(0.0), sp2)
+            (
+                (self.liquidity * (1.0 / self.sqrt_p - 1.0 / sp2)).max(0.0),
+                sp2,
+            )
         }
     }
 }
@@ -77,18 +86,10 @@ impl Amm for UniV3 {
     }
     fn spot(&self, tin: usize, _tout: usize) -> f64 {
         let p = self.price();
-        if tin == 1 {
-            1.0 / p
-        } else {
-            p
-        }
+        if tin == 1 { 1.0 / p } else { p }
     }
     fn reserve(&self, i: usize) -> f64 {
-        if i == 1 {
-            self.x()
-        } else {
-            self.y()
-        }
+        if i == 1 { self.x() } else { self.y() }
     }
     fn tvl(&self, prices: &[f64]) -> f64 {
         self.x() * prices[1] + self.y() * prices[0]
