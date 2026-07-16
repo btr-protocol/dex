@@ -261,9 +261,11 @@ contract PoolFactory is IPoolFactory {
     pools = new address[](count);
     uint256 idx;
     for (uint256 i; i < nA;) {
-      if (_officialTokenInPool[tokenB][poolsA[i]]) pools[idx] = poolsA[i];
-      unchecked {
-        ++idx;
+      if (_officialTokenInPool[tokenB][poolsA[i]]) {
+        pools[idx] = poolsA[i];
+        unchecked {
+          ++idx;
+        }
       }
       unchecked {
         ++i;

@@ -153,6 +153,54 @@ contract PoolFactoryRegistrySaturationRegressionTest is Test {
   }
 }
 
+/// @notice REG (unaudited surface, challenge pass 2026-07-16): getCommonPools fill-loop must
+///         increment the write index ONLY on a match. The prior code bumped it every iteration, so
+///         when a non-common pool preceded a common one in tokenA's official array, the match wrote
+///         past the `count`-sized result array → OOB revert = permanent route-discovery DoS for that
+///         pair, reachable by permissionless createPool ordering.
+contract PoolFactoryCommonRouteRegressionTest is Test {
+  PoolFactory internal factory;
+
+  function setUp() public {
+    MockAC ac = new MockAC(address(this));
+    Admin admin = new Admin(address(ac));
+    Flash flash = new Flash();
+    PoolAux aux = new PoolAux(address(ac), address(admin), address(flash));
+    Pool implementation = new Pool(address(ac), address(admin), address(flash), address(aux));
+    factory = new PoolFactory(address(implementation), address(this), address(ac));
+  }
+
+  // Official pool with base `base` listing [base, other]; address(this) == protocolDeployer ⇒ official.
+  function _official(address base, address other) internal returns (address pool) {
+    address[] memory tokens = new address[](2);
+    tokens[0] = base;
+    tokens[1] = other;
+    IPool.FeeParams memory fees = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    bytes memory initdata =
+      abi.encodeWithSelector(Pool.initialize.selector, base, address(0xCAFE), fees);
+    pool = factory.createPool(base, tokens, initdata);
+  }
+
+  function test_common_route_with_noncommon_pool_first_no_oob() public {
+    address a = address(new MockERC20("A", "A", 18));
+    address b = address(new MockERC20("B", "B", 18));
+    address x = address(new MockERC20("X", "X", 18));
+    address y = address(new MockERC20("Y", "Y", 18));
+
+    // A's official array in creation order = [pAX (NOT common with B), pAB (common with B)].
+    address pAX = _official(a, x);
+    address pAB = _official(a, b);
+    // Give B a second pool so neither array is shorter ⇒ no swap ⇒ A stays the iterated array.
+    _official(b, y);
+
+    // Pre-fix: writes pAB at index 1 in a length-1 array → OOB revert. Post-fix: returns [pAB].
+    address[] memory route = factory.getCommonPools(a, b);
+    assertEq(route.length, 1, "exactly one common pool");
+    assertEq(route[0], pAB, "the common pool, not the leading non-common one");
+    assertTrue(route[0] != pAX, "non-common pool excluded");
+  }
+}
+
 /// @notice Regression coverage for profile positivity and canonical base-oracle governance.
 contract PoolConfigurationRegressionTest is Test {
   uint256 private constant ORACLE_CONFIGS_SLOT = 5;

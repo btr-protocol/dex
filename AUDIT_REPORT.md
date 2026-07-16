@@ -159,16 +159,16 @@ Method: 4 primary cohorts (AMM / oracle / access / gas-lean) on distinct models 
 | ID | Initial | Final | Reason |
 |---|---|---|---|
 | B-01 UniPoolOracle spot | HIGH | INFO / deploy invariant | Chapel piggyback only; never prod primary |
-| B-03 single signer | HIGH | INFO / accepted trust | Documented; maxDeviation + σ floor + 1/block |
+| ~~B-03 single signer~~ | HIGH | **HIGH (re-rated 2026-07-16)** | ⚠ downgrade REVERSED. maxDeviation/σ-floor/1-per-block are per-BLOCK RATE limits, NOT a cumulative loss bound: a compromised signer walks the mark ~maxDev/block (prod 500bps @ TTL 600s), compounding `1.05^N` → ~10× true price in ~48 blocks (~2.5 min BSC), each block's σ-floor still only the per-block move so spread stays ~5% while extracting the cumulative ~90% mispricing = full drain. refBand=0 on volatile assets + refFeedId co-signed by the same key ⇒ no cumulative cap; only backstop = manual guardian revokeSigner (too slow). **k-of-n signing is NOT optional — it is the fix.** See residual #1 (now MANDATORY pre-mainnet) + [[oracle-ostium-hardening]]. |
 | F-02 rebasing | MED | INFO | Listing policy |
 | Hook `requireNoFlash` | LOW | REJECTED | `pull` + `nonReentrant` already cover |
 | Transient cache TOCTOU | LOW | INFO | Mid-tx pause needs guardian |
 
 ### Residual backlog (pre-mainnet)
 
-1. Optional 2-of-N oracle; never wire `UniPoolOracle` as primary (enforce in deploy validation).
-2. F-01 admin force write-down / hook eviction if venue NAV view reverts.
-3. M-INT-03 base-oracle re-pin → timelock when replacing nonzero→nonzero.
+1. ⚠ **MANDATORY (not optional): k-of-n oracle signing** — single-key compromise = full drain via mark-walk (see re-rated B-03). Also: never wire `UniPoolOracle` as primary (no on-chain check; enforce in deploy validation).
+2. F-01 admin force write-down / hook eviction if venue NAV view reverts (unguarded call `PoolHooks.sol:48`; live DoS surface on a bad ERC4626 venue).
+3. ~~M-INT-03 base-oracle re-pin timelock~~ **DONE / CLOSED (2026-07-16)** — the only writer of `OracleConfig.primary/feedId` is `PoolAux.adminSetOracleConfig` (onlyAdmin=immutable `admin`), reachable only via `requestOracleUpdate`→`executeOracleUpdate` gated by `BASE_TIMELOCK` (2d prod). Nonzero→nonzero re-pin is already timelocked; only open question is duration (2d vs 7d).
 4. ~~Storage pack: drop `uint8[]` pads~~ **DONE this cycle** — Asset pads + `baseTokenOracle`/`baseTokenFeedId` removed ⇒ **layout break vs live Chapel fleet**: the current Chapel beacon MUST NOT be upgraded in place (would misread `assetHooks`/`invested`/`factory` slots + Asset packing); next Chapel push = full fleet **redeploy** (planned testnet redeploy anyway).
 5. Deviation band growth still uses landing `dt` (not source-time); old-first relay grief.
 6. ERC4626 99.99% floor (`MAX_DEPOSIT_LOSS_BPS = 1`) + strict `reportedShares == mintedShares`: venue share-price rounding / entry fees → deposit DoS (preferable to silent loss; allowlist venues).
