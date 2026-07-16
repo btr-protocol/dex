@@ -16,55 +16,55 @@ import {IPool} from "../src/interfaces/IPool.sol";
 ///   # after ≥5m:
 ///   forge script ... --sig executeProfiles --rpc-url chapel --broadcast --with-gas-price 100000000
 contract ChapelWidenVolatileDisp is Script {
-    address constant ADMIN = 0x71ad34866B2bB0E99478297DA735E9b94922B7Fb;
-    address constant VOLATILE = 0x88d5EC4C0c83391a9C84Bc196911084D7179AA40;
+  address constant ADMIN = 0x71ad34866B2bB0E99478297DA735E9b94922B7Fb;
+  address constant VOLATILE = 0x88d5EC4C0c83391a9C84Bc196911084D7179AA40;
 
-    address constant USDC = 0x6dF80a290E0585dad752c25f2808E83b5624290d;
-    address constant USDT = 0xB7b7722369Ab72cb044DE6bb511A4586F3a7dD64;
-    address constant BTCB = 0xd719319e853670ac938e426fbdB70CFdb34c11Fa;
-    address constant ETH = 0x24Ff1aCD4e8fdBFEBee2e7e63ad36B1E72821189;
-    address constant WBNB = 0x31B7DCA9e901F7D34fb4a3Ee07eD2994de16685D;
-    address constant CAKE = 0xa7E62dd82789346bEb48a80227B5d926c6403400;
-    address constant XAUT = 0xd384aC4696FA230c9049F6534Fc35aC3af586073;
+  address constant USDC = 0x6dF80a290E0585dad752c25f2808E83b5624290d;
+  address constant USDT = 0xB7b7722369Ab72cb044DE6bb511A4586F3a7dD64;
+  address constant BTCB = 0xd719319e853670ac938e426fbdB70CFdb34c11Fa;
+  address constant ETH = 0x24Ff1aCD4e8fdBFEBee2e7e63ad36B1E72821189;
+  address constant WBNB = 0x31B7DCA9e901F7D34fb4a3Ee07eD2994de16685D;
+  address constant CAKE = 0xa7E62dd82789346bEb48a80227B5d926c6403400;
+  address constant XAUT = 0xd384aC4696FA230c9049F6534Fc35aC3af586073;
 
-    uint32 constant MIN_DISP = 50_000;
-    uint32 constant MAX_DISP = 500_000;
+  uint32 constant MIN_DISP = 50_000;
+  uint32 constant MAX_DISP = 500_000;
 
-    function run() external {
-        uint256 pk = vm.envUint("DEPLOYER_PK");
-        Admin admin = Admin(ADMIN);
-        address[7] memory toks = [USDC, USDT, BTCB, ETH, WBNB, CAKE, XAUT];
+  function run() external {
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    Admin admin = Admin(ADMIN);
+    address[7] memory toks = [USDC, USDT, BTCB, ETH, WBNB, CAKE, XAUT];
 
-        vm.startBroadcast(pk);
-        for (uint256 i = 0; i < toks.length; i++) {
-            admin.requestUpdateProfile(VOLATILE, toks[i], _profile(), MIN_DISP, MAX_DISP);
-            console2.log("queued profile", toks[i]);
-        }
-        vm.stopBroadcast();
-        console2.log("profile ETA ~5m - then run executeProfiles()");
+    vm.startBroadcast(pk);
+    for (uint256 i = 0; i < toks.length; i++) {
+      admin.requestUpdateProfile(VOLATILE, toks[i], _profile(), MIN_DISP, MAX_DISP);
+      console2.log("queued profile", toks[i]);
     }
+    vm.stopBroadcast();
+    console2.log("profile ETA ~5m - then run executeProfiles()");
+  }
 
-    function executeProfiles() external {
-        uint256 pk = vm.envUint("DEPLOYER_PK");
-        Admin admin = Admin(ADMIN);
-        address[7] memory toks = [USDC, USDT, BTCB, ETH, WBNB, CAKE, XAUT];
-        vm.startBroadcast(pk);
-        for (uint256 i = 0; i < toks.length; i++) {
-            admin.executeUpdateProfile(VOLATILE, toks[i]);
-            console2.log("profile ok", toks[i]);
-        }
-        vm.stopBroadcast();
+  function executeProfiles() external {
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    Admin admin = Admin(ADMIN);
+    address[7] memory toks = [USDC, USDT, BTCB, ETH, WBNB, CAKE, XAUT];
+    vm.startBroadcast(pk);
+    for (uint256 i = 0; i < toks.length; i++) {
+      admin.executeUpdateProfile(VOLATILE, toks[i]);
+      console2.log("profile ok", toks[i]);
     }
+    vm.stopBroadcast();
+  }
 
-    function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-        p.weights[0] = 50;
-        p.weights[1] = 50;
-        p.weights[2] = 50;
-        p.weights[3] = 50;
-        p.knots[0] = -50;
-        p.knots[1] = -25;
-        p.knots[2] = 0;
-        p.knots[3] = 25;
-        p.knots[4] = 50;
-    }
+  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
+    p.weights[0] = 50;
+    p.weights[1] = 50;
+    p.weights[2] = 50;
+    p.weights[3] = 50;
+    p.knots[0] = -50;
+    p.knots[1] = -25;
+    p.knots[2] = 0;
+    p.knots[3] = 25;
+    p.knots[4] = 50;
+  }
 }

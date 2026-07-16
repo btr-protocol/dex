@@ -22,110 +22,114 @@ import {Constants as C} from "../src/libraries/Constants.sol";
 ///   # 3) after ≥15m: execute oracles
 ///   forge script ... --sig executeOracles --rpc-url chapel --broadcast --with-gas-price 100000000
 contract ChapelApplyStableParams is Script {
-    address constant ADMIN = 0x71ad34866B2bB0E99478297DA735E9b94922B7Fb;
-    address constant STABLE = 0xC954A27E69ae7C9d10a136c4f7F3910b38F09324;
-    address constant ORACLE = 0xD91712c9F4037D0010041691Df191AB45994F2bF;
-    bytes32 constant USDC_FEED = 0xdacab87341ef44905f4cfdb16cbfbd61ad65accd449f2df15ae6fb26f53ba17d;
+  address constant ADMIN = 0x71ad34866B2bB0E99478297DA735E9b94922B7Fb;
+  address constant STABLE = 0xC954A27E69ae7C9d10a136c4f7F3910b38F09324;
+  address constant ORACLE = 0xD91712c9F4037D0010041691Df191AB45994F2bF;
+  bytes32 constant USDC_FEED = 0xdacab87341ef44905f4cfdb16cbfbd61ad65accd449f2df15ae6fb26f53ba17d;
 
-    address constant USDC = 0x6dF80a290E0585dad752c25f2808E83b5624290d;
-    address constant USDT = 0xB7b7722369Ab72cb044DE6bb511A4586F3a7dD64;
-    address constant USD1 = 0xC28bE4D407096E771F932c202F13D866B4d6BA07;
-    address constant USDE = 0xebF751546832ec77a039083E9FDd8158B21c0172;
-    address constant FDUSD = 0x4Aa480f3dc3a1f08c24472E083fBDBE919b8BdFc;
+  address constant USDC = 0x6dF80a290E0585dad752c25f2808E83b5624290d;
+  address constant USDT = 0xB7b7722369Ab72cb044DE6bb511A4586F3a7dD64;
+  address constant USD1 = 0xC28bE4D407096E771F932c202F13D866B4d6BA07;
+  address constant USDE = 0xebF751546832ec77a039083E9FDd8158B21c0172;
+  address constant FDUSD = 0x4Aa480f3dc3a1f08c24472E083fBDBE919b8BdFc;
 
-    function run() external {
-        uint256 pk = vm.envUint("DEPLOYER_PK");
-        Admin admin = Admin(ADMIN);
-        address[5] memory toks = [USDC, USDT, USD1, USDE, FDUSD];
+  function run() external {
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    Admin admin = Admin(ADMIN);
+    address[5] memory toks = [USDC, USDT, USD1, USDE, FDUSD];
 
-        vm.startBroadcast(pk);
-        for (uint256 i = 0; i < toks.length; i++) {
-            address tok = toks[i];
-            (uint16 minFee, uint32 minDisp, uint32 maxDisp, uint16 refBand) = _params(tok);
-            // gamma=20000 (2× inventory skew), vega=1×, haircutSuppressor=10000
-            admin.setAssetParams(STABLE, tok, 0, minFee, 2000, 20_000, 10_000, 10_000, 0, 0);
-            admin.setRiskFences(STABLE, tok, _fences(tok));
-            admin.requestUpdateProfile(STABLE, tok, _profile(), minDisp, maxDisp);
-            admin.requestOracleUpdate(STABLE, tok, _oracle(tok, refBand));
-            console2.log("queued", tok, minFee, refBand);
-        }
-        vm.stopBroadcast();
-        console2.log("setAssetParams+fences done; profile ETA ~5m; oracle ETA ~15m");
+    vm.startBroadcast(pk);
+    for (uint256 i = 0; i < toks.length; i++) {
+      address tok = toks[i];
+      (uint16 minFee, uint32 minDisp, uint32 maxDisp, uint16 refBand) = _params(tok);
+      // gamma=20000 (2× inventory skew), vega=1×, haircutSuppressor=10000
+      admin.setAssetParams(STABLE, tok, 0, minFee, 2000, 20_000, 10_000, 10_000, 0, 0);
+      admin.setRiskFences(STABLE, tok, _fences(tok));
+      admin.requestUpdateProfile(STABLE, tok, _profile(), minDisp, maxDisp);
+      admin.requestOracleUpdate(STABLE, tok, _oracle(tok, refBand));
+      console2.log("queued", tok, minFee, refBand);
     }
+    vm.stopBroadcast();
+    console2.log("setAssetParams+fences done; profile ETA ~5m; oracle ETA ~15m");
+  }
 
-    function executeProfiles() external {
-        uint256 pk = vm.envUint("DEPLOYER_PK");
-        Admin admin = Admin(ADMIN);
-        address[5] memory toks = [USDC, USDT, USD1, USDE, FDUSD];
-        vm.startBroadcast(pk);
-        for (uint256 i = 0; i < toks.length; i++) {
-            admin.executeUpdateProfile(STABLE, toks[i]);
-            console2.log("profile ok", toks[i]);
-        }
-        vm.stopBroadcast();
+  function executeProfiles() external {
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    Admin admin = Admin(ADMIN);
+    address[5] memory toks = [USDC, USDT, USD1, USDE, FDUSD];
+    vm.startBroadcast(pk);
+    for (uint256 i = 0; i < toks.length; i++) {
+      admin.executeUpdateProfile(STABLE, toks[i]);
+      console2.log("profile ok", toks[i]);
     }
+    vm.stopBroadcast();
+  }
 
-    function executeOracles() external {
-        uint256 pk = vm.envUint("DEPLOYER_PK");
-        Admin admin = Admin(ADMIN);
-        address[5] memory toks = [USDC, USDT, USD1, USDE, FDUSD];
-        vm.startBroadcast(pk);
-        for (uint256 i = 0; i < toks.length; i++) {
-            admin.executeOracleUpdate(STABLE, toks[i]);
-            console2.log("oracle ok", toks[i]);
-        }
-        vm.stopBroadcast();
+  function executeOracles() external {
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    Admin admin = Admin(ADMIN);
+    address[5] memory toks = [USDC, USDT, USD1, USDE, FDUSD];
+    vm.startBroadcast(pk);
+    for (uint256 i = 0; i < toks.length; i++) {
+      admin.executeOracleUpdate(STABLE, toks[i]);
+      console2.log("oracle ok", toks[i]);
     }
+    vm.stopBroadcast();
+  }
 
-    function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-        // Milder center bump (post 2026-07-12): knots [-50,-12,12,50] · weights [50,100,50]
-        p.weights[0] = 50;
-        p.weights[1] = 100;
-        p.weights[2] = 50;
-        p.knots[0] = -50;
-        p.knots[1] = -12;
-        p.knots[2] = 12;
-        p.knots[3] = 50;
-    }
+  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
+    // Milder center bump (post 2026-07-12): knots [-50,-12,12,50] · weights [50,100,50]
+    p.weights[0] = 50;
+    p.weights[1] = 100;
+    p.weights[2] = 50;
+    p.knots[0] = -50;
+    p.knots[1] = -12;
+    p.knots[2] = 12;
+    p.knots[3] = 50;
+  }
 
-    function _params(address tok)
-        internal
-        pure
-        returns (uint16 minFee, uint32 minDisp, uint32 maxDisp, uint16 refBand)
-    {
-        // minFee PBPS (100=1bp). refBand: ±1% depeg vs USDC for every non-base stable.
-        if (tok == USDC) return (50, 200, 2000, 0);
-        if (tok == USDT) return (50, 600, 6000, 100);
-        if (tok == USD1) return (50, 500, 5000, 100);
-        if (tok == USDE) return (75, 800, 5000, 100);
-        if (tok == FDUSD) return (100, 1000, 8000, 100);
-        revert("unknown");
-    }
+  function _params(address tok)
+    internal
+    pure
+    returns (uint16 minFee, uint32 minDisp, uint32 maxDisp, uint16 refBand)
+  {
+    // minFee PBPS (100=1bp). refBand: ±1% depeg vs USDC for every non-base stable.
+    if (tok == USDC) return (50, 200, 2000, 0);
+    if (tok == USDT) return (50, 600, 6000, 100);
+    if (tok == USD1) return (50, 500, 5000, 100);
+    if (tok == USDE) return (75, 800, 5000, 100);
+    if (tok == FDUSD) return (100, 1000, 8000, 100);
+    revert("unknown");
+  }
 
-    function _oracle(address tok, uint16 refBand) internal pure returns (IPool.OracleConfig memory o) {
-        o.primary = ORACLE;
-        o.feedId = tok == USDC ? USDC_FEED : keccak256(abi.encodePacked(tok, USDC));
-        // All non-base stables: USDC refFeed + refBand (±1%). USDC itself: no self-ref.
-        if (tok != USDC && refBand != 0) {
-            o.refFeedId = USDC_FEED;
-            o.refBandBps = refBand;
-        } else {
-            o.refFeedId = bytes32(0);
-            o.refBandBps = 0;
-        }
-        o.mode = 0; // EXTERNAL
+  function _oracle(address tok, uint16 refBand)
+    internal
+    pure
+    returns (IPool.OracleConfig memory o)
+  {
+    o.primary = ORACLE;
+    o.feedId = tok == USDC ? USDC_FEED : keccak256(abi.encodePacked(tok, USDC));
+    // All non-base stables: USDC refFeed + refBand (±1%). USDC itself: no self-ref.
+    if (tok != USDC && refBand != 0) {
+      o.refFeedId = USDC_FEED;
+      o.refBandBps = refBand;
+    } else {
+      o.refFeedId = bytes32(0);
+      o.refBandBps = 0;
     }
+    o.mode = 0; // EXTERNAL
+  }
 
-    /// @dev Steward-lite fences: hard band + ±25% risk-up. Tighten is clamp-exempt on-chain.
-    function _fences(address tok) internal pure returns (IAdmin.RiskFences memory f) {
-        f.minFeeHardMin = tok == FDUSD ? 50 : 25;
-        f.minFeeHardMax = 2_000;
-        f.maxFeeHardMax = 10_000;
-        f.gammaHardMin = 5_000;
-        f.gammaHardMax = 40_000;
-        f.vegaHardMin = 5_000;
-        f.vegaHardMax = 20_000;
-        f.haircutHardMax = 10_000;
-        f.maxDeltaBps = 2_500;
-    }
+  /// @dev Steward-lite fences: hard band + ±25% risk-up. Tighten is clamp-exempt on-chain.
+  function _fences(address tok) internal pure returns (IAdmin.RiskFences memory f) {
+    f.minFeeHardMin = tok == FDUSD ? 50 : 25;
+    f.minFeeHardMax = 2_000;
+    f.maxFeeHardMax = 10_000;
+    f.gammaHardMin = 5_000;
+    f.gammaHardMax = 40_000;
+    f.vegaHardMin = 5_000;
+    f.vegaHardMax = 20_000;
+    f.haircutHardMax = 10_000;
+    f.maxDeltaBps = 2_500;
+  }
 }

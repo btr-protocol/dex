@@ -302,7 +302,7 @@ contract CoverageProofsTest is CoverageProofsBase {
       return;
     }
     try pool.swap(address(base), address(tok), baseOut, 0, ATK) {}
-      catch {
+    catch {
       vm.stopPrank();
       return;
     }
