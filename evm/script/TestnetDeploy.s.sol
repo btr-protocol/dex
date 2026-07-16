@@ -75,7 +75,7 @@ contract TestnetDeploy is Deploy {
         out.tok = _deployTokens();
         out.faucet = new TestnetFaucet(deployer);
         _configureFaucet(out);
-        out.oracle = new ExternalOracle(out.core.ac);
+        out.oracle = new ExternalOracle(out.core.ac, 120);
         out.oracle.grantSigner(attester);
 
         out.usdcFeedId = _seedFeeds(out.oracle, out.tok);
@@ -199,8 +199,7 @@ contract TestnetDeploy is Deploy {
         uint256 seedUsdc,
         bool stable
     ) internal returns (address poolAddr) {
-        uint8[29] memory pad;
-        IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100, _pad: pad});
+        IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100});
         bytes memory initdata =
             abi.encodeWithSelector(Pool.initialize.selector, tokens[0], wnative, fp);
         poolAddr = PoolFactory(payable(ctx.core.poolFactory)).createPool(tokens[0], tokens, initdata);
@@ -216,8 +215,7 @@ contract TestnetDeploy is Deploy {
             admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, 1000, 100_000, 10_000, 10_000);
         }
 
-        // Pin base oracle for depeg halt; seal bootstrap so later listings require timelock.
-        admin.setBaseTokenOracle(poolAddr, address(ctx.oracle), ctx.usdcFeedId);
+        // The listed base asset's OracleConfig is its depeg breaker.
         admin.sealBootstrap(poolAddr);
 
         _seedPool(pool, ctx.tok, tokens, seedUsdc);

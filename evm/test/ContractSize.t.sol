@@ -18,63 +18,80 @@ import {MockERC4626} from "../src/hooks/MockERC4626.sol";
 import {MockMorphoBlue} from "../src/hooks/MockMorphoBlue.sol";
 import {MockAaveV4Spoke} from "../src/hooks/MockAaveV4Spoke.sol";
 import {IMorphoBlue} from "../src/interfaces/external/IMorphoBlue.sol";
+import {MockAC} from "./fixtures/BaseTestSetup.sol";
 
 /// @notice EIP-170 runtime bytecode cap (24 576 bytes).
 contract ContractSizeTest is Test {
-    uint256 internal constant EIP170_MAX = 24_576;
+  uint256 internal constant EIP170_MAX = 24_576;
 
-    function test_runtime_under_eip170() public {
-        assertLe(address(new Pool(address(1), address(2), address(3), address(4))).code.length, EIP170_MAX, "Pool");
-        assertLe(address(new PoolAux(address(1), address(2), address(3))).code.length, EIP170_MAX, "PoolAux");
-        assertLe(address(new Admin(address(1))).code.length, EIP170_MAX, "Admin");
-        assertLe(address(new Flash()).code.length, EIP170_MAX, "Flash");
+  function test_runtime_under_eip170() public {
+    MockAC ac = new MockAC(address(this));
+    Admin admin = new Admin(address(ac));
+    Flash flash = new Flash();
+    PoolAux poolAux = new PoolAux(address(ac), address(admin), address(flash));
+    assertLe(
+      address(new Pool(address(ac), address(admin), address(flash), address(poolAux))).code.length,
+      EIP170_MAX,
+      "Pool"
+    );
+    assertLe(address(poolAux).code.length, EIP170_MAX, "PoolAux");
+    assertLe(address(admin).code.length, EIP170_MAX, "Admin");
+    assertLe(address(flash).code.length, EIP170_MAX, "Flash");
 
-        MockERC20 tok = new MockERC20("T", "T", 18);
-        MockVenus v = new MockVenus(address(tok));
-        assertLe(
-            address(new CompoundV2YieldHook(address(1), address(2), address(tok), address(v), address(0), bytes4(0))).code.length,
-            EIP170_MAX,
-            "CompoundV2YieldHook"
-        );
+    MockERC20 tok = new MockERC20("T", "T", 18);
+    MockVenus v = new MockVenus(address(tok));
+    assertLe(
+      address(
+          new CompoundV2YieldHook(
+            address(1), address(2), address(tok), address(v), address(0), bytes4(0)
+          )
+        ).code.length,
+      EIP170_MAX,
+      "CompoundV2YieldHook"
+    );
 
-        MockAavePool aave = new MockAavePool();
-        MockAToken aTok = new MockAToken(address(tok));
-        aave.setAToken(address(tok), address(aTok));
-        assertLe(
-            address(new AaveV3YieldHook(address(1), address(2), address(tok), address(aave), address(0))).code.length,
-            EIP170_MAX,
-            "AaveV3YieldHook"
-        );
+    MockAavePool aave = new MockAavePool();
+    MockAToken aTok = new MockAToken(address(tok));
+    aave.setAToken(address(tok), address(aTok));
+    assertLe(
+      address(new AaveV3YieldHook(address(1), address(2), address(tok), address(aave), address(0)))
+        .code.length,
+      EIP170_MAX,
+      "AaveV3YieldHook"
+    );
 
-        MockERC4626 vault = new MockERC4626(address(tok));
-        assertLe(
-            address(new ERC4626YieldHook(address(1), address(2), address(tok), address(vault))).code.length,
-            EIP170_MAX,
-            "ERC4626YieldHook"
-        );
+    MockERC4626 vault = new MockERC4626(address(tok));
+    assertLe(
+      address(new ERC4626YieldHook(address(1), address(2), address(tok), address(vault))).code
+        .length,
+      EIP170_MAX,
+      "ERC4626YieldHook"
+    );
 
-        MockMorphoBlue morpho = new MockMorphoBlue();
-        IMorphoBlue.MarketParams memory mp = IMorphoBlue.MarketParams({
-            loanToken: address(tok),
-            collateralToken: address(3),
-            oracle: address(4),
-            irm: address(5),
-            lltv: 0.8e18
-        });
-        morpho.setMarket(mp);
-        assertLe(
-            address(new MorphoBlueYieldHook(address(1), address(2), address(tok), address(morpho), mp)).code.length,
-            EIP170_MAX,
-            "MorphoBlueYieldHook"
-        );
+    MockMorphoBlue morpho = new MockMorphoBlue();
+    IMorphoBlue.MarketParams memory mp = IMorphoBlue.MarketParams({
+      loanToken: address(tok),
+      collateralToken: address(3),
+      oracle: address(4),
+      irm: address(5),
+      lltv: 0.8e18
+    });
+    morpho.setMarket(mp);
+    assertLe(
+      address(new MorphoBlueYieldHook(address(1), address(2), address(tok), address(morpho), mp))
+        .code.length,
+      EIP170_MAX,
+      "MorphoBlueYieldHook"
+    );
 
-        MockAaveV4Spoke spoke = new MockAaveV4Spoke();
-        spoke.setReserve(1, address(tok));
-        assertLe(
-            address(new AaveV4YieldHook(address(1), address(2), address(tok), address(spoke), 1, address(0))).code
-                .length,
-            EIP170_MAX,
-            "AaveV4YieldHook"
-        );
-    }
+    MockAaveV4Spoke spoke = new MockAaveV4Spoke();
+    spoke.setReserve(1, address(tok));
+    assertLe(
+      address(
+          new AaveV4YieldHook(address(1), address(2), address(tok), address(spoke), 1, address(0))
+        ).code.length,
+      EIP170_MAX,
+      "AaveV4YieldHook"
+    );
+  }
 }

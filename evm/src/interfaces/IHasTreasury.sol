@@ -6,5 +6,5 @@ pragma solidity =0.8.35;
 ///         to the pool's configured treasury — the implementing contract is the Pool, not the
 ///         Treasury itself, so the new name reads more accurately at call-sites.
 interface IHasTreasury {
-    function treasury() external view returns (address);
+  function treasury() external view returns (address);
 }

@@ -107,8 +107,7 @@ contract ChapelEnableSwaps is Script {
         uint256 seedUsdc,
         bool stable
     ) internal returns (address poolAddr) {
-        uint8[29] memory pad;
-        IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100, _pad: pad});
+        IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100});
         bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], WNATIVE, fp);
         poolAddr = factory.createPool(tokens[0], tokens, initdata);
 
@@ -130,7 +129,6 @@ contract ChapelEnableSwaps is Script {
             admin.setRiskFences(poolAddr, tok, _fences(tok, stable));
         }
 
-        admin.setBaseTokenOracle(poolAddr, ORACLE, USDC_FEED);
         admin.sealBootstrap(poolAddr);
         _seedPool(Pool(payable(poolAddr)), tokens, seedUsdc);
     }

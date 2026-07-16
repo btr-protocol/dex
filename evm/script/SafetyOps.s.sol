@@ -21,7 +21,7 @@ import {IAdmin} from "../src/interfaces/IAdmin.sol";
 ///   forge script script/SafetyOps.s.sol:SafetyOps --sig "pauseAsset(address)" 0xTOKEN --rpc-url $RPC --broadcast
 ///   forge script script/SafetyOps.s.sol:SafetyOps --sig "preview()"             --rpc-url $RPC   # dry-run, no broadcast
 ///
-/// ⚠ NOTE: reaches only pools whose clone was deployed from an impl carrying PROTOCOL_PAUSED_BIT
+/// ⚠ NOTE: reaches only pools whose clone was deployed from an impl carrying ASSET_PAUSED_BIT
 /// (pause ops) — freeze ops work on all live clones. See project_dex_pause_admin_design memory.
 /// // ponytail: single batch call; for a very large fleet paginate under the block gas limit
 /// (add pauseRange(start,end)) — officialPools is append-only today.

@@ -176,3 +176,6 @@ research/**/output_v2/
 research/**/__pycache__/
 research/**/.venv/
 research/**/node_modules/
+
+# Audit working artifacts (per-cycle scratch, never committed)
+scratch/

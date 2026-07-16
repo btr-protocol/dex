@@ -1,6 +1,6 @@
 # BTR DEX — EVM Contracts
 
-Solidity (Foundry) implementation of the BTR adaptive multi-asset AMM: hub-and-spoke routing, dynamic fees, keeper-pushed external-mark oracle, internal non-transferable LP ledger (`lpBalances` mapping + liquidity index — not an ERC-1155/ERC-20 token), piecewise bonding curve. Flat-`Pool` architecture: **no Diamond, no proxy indirection, no ERC-7201 storage namespacing**. EIP-1167 minimal-proxy clones via `PoolFactory`.
+Solidity (Foundry) implementation of the BTR adaptive multi-asset AMM: hub-and-spoke routing, dynamic fees, NXR-signed external-mark oracle, internal non-transferable LP ledger (`lpBalances` mapping + liquidity index — not an ERC-1155/ERC-20 token), and piecewise bonding curve. A lean `Pool` implementation serves deterministic ERC-1967 beacon proxies; cold paths delegate to `PoolAux`. There is no Diamond or ERC-7201 namespacing.
 
 Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under `.deps/solady/`.
 
@@ -8,7 +8,7 @@ Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under
 
 - **Multi-asset hub-and-spoke** — All swaps route through a base token.
 - **Dynamic fees** — Multi-factor adaptive fees driven by volatility, inventory, divergence.
-- **Keeper-pushed external-mark oracle** — A keeper (`onlyOracle`, Safe multisig in prod) pushes a fresh mark per feed on a deviation-θ + heartbeat schedule. Swaps quote off that fresh mark (`lastPriceB64`), not a lagging internal EMA — this is what kills LVR. The contract folds an on-chain σ-EMA (pricing vol) + a servable price EMA (reference only). Between pushes the mark is fixed but the quoted price drifts with order flow via the inventory skew. No Chainlink in the quote path.
+- **Signed external-mark oracle** — Any relayer may submit an EIP-712 batch signed by an authorized NXR source. Swaps quote off `lastPriceB64`; signed σ is floored by realized mark movement. Authenticated source time, an immutable relay-lag bound, monotonic replay protection, TTL/confidence gates, and per-push deviation limits fail closed. No Chainlink or price EMA is in the quote path.
 - **Rebasing LP accounting** — Auto-compounding internal LP shares (per-user `lpBalances` mapping, non-transferable) scaled by a per-asset liquidity index.
 - **Piecewise bonding curve** — Adaptive liquidity distribution with volatility-based breadth.
 - **Protocol fees** — Configurable split between LPs and treasury.
@@ -39,7 +39,15 @@ slot 4  assets          mapping
 slot 5  oracleConfigs   mapping
 slot 6  riskConfigs     mapping
 slot 7  profiles        mapping
-…
+slot 8  lpBalances      mapping
+slot 9  protocolFees    mapping
+slot 10 feeParams
+slot 11 flowCooldownSeconds
+slot 12 lastDepositTime mapping
+slot 13 lastLPStakeTime mapping
+slot 14 factory
+slot 15 assetHooks      mapping
+slot 16 invested        mapping
 ```
 
 Mapping entry base = `keccak256(abi.encode(token, mappingSlot))`. Do not reorder fields
@@ -52,14 +60,13 @@ src/
 ├── Pool.sol              # Flat AMM pool. Hot paths: swap, deposit, withdraw, fast views.
 ├── PoolAux.sol           # Singleton cold-path dispatcher (admin setters + flash send/account).
 │                         #   Pool fallback DELEGATECALLs PoolAux.
-├── PoolFactory.sol       # EIP-1167 minimal-proxy pool deployer (CREATE2 cloneDeterministic).
+├── PoolFactory.sol       # Deterministic ERC-1967 beacon proxies + timelocked fleet upgrades.
 ├── Admin.sol             # Per-chain singleton: protocol-fee collection, risk/fee curation.
 ├── Flash.sol             # ERC-3156 flash-loan singleton (loans pool reserves; no minting).
-├── Router.sol            # Hub-and-spoke swap router (batch + multi-leg).
-├── interfaces/           # IPool, IPoolFactory, IPoolHooks, IAdmin, IFlash, IRouter, IOracle, …
+├── interfaces/           # IPool, IPoolFactory, IPoolHooks, IAdmin, IFlash, IOracle, …
 ├── hooks/                # BasePoolHook, VenusHook, MockVenus, VenusAddresses (BSC Core pins)
 ├── oracles/
-│   └── ExternalOracle.sol  # Keeper-push external oracle (onlyOracle); fresh pushed mark = quote source.
+│   └── ExternalOracle.sol  # Permissionless relay of authenticated NXR-signed mark batches.
 └── libraries/            # AdminTimelock, AdminHooks, AdminRisk, AnchorTree, Constants, Maths, Oracle,
                           # PoolAdmin, PoolAdminWrite, PoolBatch, PoolHooks, PoolIO, PoolDecay, PoolEdge,
                           # PoolLiquidity, PoolSwap, PoolView, Pricing, Spline, TransientCache.
@@ -80,10 +87,10 @@ Shared cross-cutting singletons live in `~/Work/btr/shared/evm/src/` and are con
 Authority is centralized in the shared `AccessControl` singleton (one per chain).
 
 - **Owner** — adds/removes assets, configures fee curves and circuit breakers, queues timelocked upgrades on the shared `Treasury` / `Bridge` / `AccessControl` (UUPS), updates pool-side admin parameters via `Admin` and `PoolAux`.
-- **Keeper (oracle pusher)** — `grantOracle`'d addresses on `ExternalOracle` push mark + σ sample + confidence. That is the keeper's ONLY on-chain authority; fee curves, freezes, and risk flags are owner-only via `Admin`.
+- **Oracle signer / relayer** — Authorized signers authenticate mark + σ + confidence + source time. Relayers are permissionless and have no pricing authority. Operational keepers may relay and hold only their separately assigned `AccessControl` keeper permissions.
 - **Treasury** — collects protocol fees; address resolved through `AccessControl`.
 
-Pools themselves are not UUPS — they are EIP-1167 clones deployed by `PoolFactory`. UUPS upgradeability is reserved for the shared singletons.
+Pools are ERC-1967 beacon proxies deployed by `PoolFactory`; the owner can request a fleet-wide implementation upgrade, subject to a 7-day delay and a 7-day execution window. Shared singletons may use their own UUPS mechanisms.
 
 ## Quick Start
 
@@ -107,7 +114,8 @@ slither . --filter-paths 'test|.deps'
 - Safe transfers: Solady `SafeTransferLib`.
 - Overflow protection: Solidity 0.8 checked arithmetic + explicit range checks/casts.
 - Access control: role-based via shared `AccessControl`.
-- Circuit breakers: manual owner-only freeze/pause via `Admin` (`freezeAsset`/`pauseAsset`/`batchRiskOp`); automatic gates = feed TTL staleness halt, confidence halt, depeg bands, opt-in per-feed push deviation clamp on `ExternalOracle`. Hook invested NAV: no on-chain breaker — harvest SLA / pause is ops control for stale book.
+- Circuit breakers: manual owner-only freeze/pause via `Admin` (`freezeAsset`/`pauseAsset`/`batchRiskOp`); automatic gates = feed TTL staleness halt, confidence halt, depeg bands, and mandatory non-zero per-feed push deviation clamps on `ExternalOracle`. Hook invested NAV: no on-chain breaker — harvest SLA / pause is ops control for stale book.
+- Token compatibility: list only standard, non-rebasing ERC-20s without sender/receiver transfer taxes. Output delivery deliberately avoids balance-delta calls on the hot path.
 - All compiled artifacts ≪ 24 576-byte EIP-170 cap (`forge build --sizes`; `ContractSizeTest` asserts Pool / PoolAux / Admin / Flash / YieldHook adapters).
 
 ## License

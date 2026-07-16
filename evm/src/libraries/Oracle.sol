@@ -10,54 +10,76 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 /// @title Oracle -pure feed math (mark decode, σ-EMA).
 /// @dev Keeper attests mark + Parkinson σ sample + confidence; chain attests the σ-EMA step.
 library Oracle {
-    /// @notice Quote source: the fresh keeper mark in 1e18. Quoting off this (not the EMA) kills LVR.
-    function mark(IOracle.FeedData memory feed) internal pure returns (uint256) {
-        return M.b64To1e18(feed.lastPriceB64);
-    }
+  /// @notice Quote source: the fresh keeper mark in 1e18. Quoting off this (not the EMA) kills LVR.
+  function mark(IOracle.FeedData memory feed) internal pure returns (uint256) {
+    return M.b64To1e18(feed.lastPriceB64);
+  }
 
-    /// @notice ORC-10: fail-closed safety gate for ANY feed consumed for pricing OR as a depeg breaker.
-    ///         Reverts on STALE (age > ttl), DEAD (mark == 0) or UNCERTAIN (confidence > MAX_CONFIDENCE_
-    ///         HALT_BPS). Centralizes the triad so every safety path (external primary, base mark, INTERNAL
-    ///         gate feed, refFeed) halts on the same conditions — an uncertain safety feed must never
-    ///         silently permit execution. Returns the decoded 1e18 mark. `view` (reads block.timestamp).
-    function gate(IOracle.FeedData memory feed) internal view returns (uint256 mark1e18) {
-        // Guardian fast-freeze (fail-closed): a paused feed must revert even if it still reads fresh —
-        // a paused-but-fresh feed is the whole footgun. bit0 of flags = paused. See IOracle.FeedData.
-        if (feed.flags & 1 != 0) revert Err.FeedPaused();
-        uint256 age = block.timestamp >= feed.updatedAt ? block.timestamp - feed.updatedAt : type(uint32).max;
-        if (age > feed.ttl) revert Err.StaleData(age > type(uint32).max ? type(uint32).max : uint32(age), feed.ttl);
-        mark1e18 = M.b64To1e18(feed.lastPriceB64);
-        if (mark1e18 == 0) revert Err.ZeroValue();
-        if (feed.confidence > C.MAX_CONFIDENCE_HALT_BPS) {
-            revert Err.ThresholdViolation(feed.confidence, C.MAX_CONFIDENCE_HALT_BPS);
-        }
+  /// @notice Observation clock for freshness. Prefer authenticated `sourceTs` (ms→s, capped at the
+  ///         relay landing timestamp)
+  ///         when set by the signed path; else landing `updatedAt`. Closes withheld-blob relabeling
+  ///         where relay stamps `updatedAt=now` on an old signed quote (H-INT-01 / B-02).
+  function observedAt(IOracle.FeedData memory feed) internal view returns (uint32) {
+    if (feed.sourceTs != 0) {
+      uint256 srcSec = uint256(feed.sourceTs) / 1000;
+      // The signed path permits small positive clock skew. Capping to `block.timestamp` would
+      // move this observation forward every block until source time catches up, extending TTL.
+      if (srcSec > feed.updatedAt) srcSec = feed.updatedAt;
+      return uint32(srcSec);
     }
+    return feed.updatedAt;
+  }
 
-    /// @notice Pricing σ (PBPS). On-chain σ-EMA — never the raw keeper sample.
-    function getSigma(IOracle.FeedData memory feed) internal pure returns (uint32) {
-        return feed.sigmaEma;
+  /// @notice ORC-10: fail-closed safety gate for ANY feed consumed for pricing OR as a depeg breaker.
+  ///         Reverts on STALE (age > ttl), DEAD (mark == 0) or UNCERTAIN (confidence > MAX_CONFIDENCE_
+  ///         HALT_BPS). Centralizes the triad so every safety path (external primary, base mark, INTERNAL
+  ///         gate feed, refFeed) halts on the same conditions: an uncertain safety feed must never
+  ///         silently permit execution. Returns the decoded 1e18 mark. `view` (reads block.timestamp).
+  function gate(IOracle.FeedData memory feed) internal view returns (uint256 mark1e18) {
+    // Guardian fast-freeze (fail-closed): a paused feed must revert even if it still reads fresh.
+    // bit0 of flags = paused. See IOracle.FeedData.
+    if (feed.flags & 1 != 0) revert Err.FeedPaused();
+    uint32 obs = observedAt(feed);
+    uint256 age = block.timestamp >= obs ? block.timestamp - obs : type(uint32).max;
+    if (age > feed.ttl) {
+      revert Err.StaleData(age > type(uint32).max ? type(uint32).max : uint32(age), feed.ttl);
     }
+    mark1e18 = M.b64To1e18(feed.lastPriceB64);
+    if (mark1e18 == 0) revert Err.ZeroValue();
+    if (feed.confidence > C.MAX_CONFIDENCE_HALT_BPS) {
+      revert Err.ThresholdViolation(feed.confidence, C.MAX_CONFIDENCE_HALT_BPS);
+    }
+  }
 
-    /// @notice Realized mark move |Δmark|/mark in PBPS, capped at MAX_SIGMA_PBPS. `internal` so the signed
-    ///         oracle path can floor its attested σ at this same magnitude (economic circuit-breaker).
-    function markMovePbps(uint256 prev1e18, uint256 mark1e18) internal pure returns (uint32) {
-        if (prev1e18 == 0) return 0;
-        uint256 diff = mark1e18 > prev1e18 ? mark1e18 - prev1e18 : prev1e18 - mark1e18;
-        uint256 pbps = (diff * SC.PBPS) / prev1e18;
-        return pbps > C.MAX_SIGMA_PBPS ? C.MAX_SIGMA_PBPS : uint32(pbps);
-    }
+  /// @notice Pricing σ (PBPS). On-chain σ-EMA — never the raw keeper sample.
+  function getSigma(IOracle.FeedData memory feed) internal pure returns (uint32) {
+    return feed.sigmaEma;
+  }
 
-    function getPegFeed(uint64 pegB64, uint32 sigmaEma) internal view returns (IOracle.FeedData memory feed) {
-        feed = IOracle.FeedData({
-            lastPriceB64: pegB64,
-            sigmaEma: sigmaEma,
-            updatedAt: uint32(block.timestamp),
-            ttl: type(uint16).max,
-            confidence: 0,
-            flags: 0,
-            tauSigma: 0,
-            maxDeviation: 0,
-            sourceTs: 0
-        });
-    }
+  /// @notice Realized mark move |Δmark|/mark in PBPS, capped at MAX_SIGMA_PBPS. `internal` so the signed
+  ///         oracle path can floor its attested σ at this same magnitude (economic circuit-breaker).
+  function markMovePbps(uint256 prev1e18, uint256 mark1e18) internal pure returns (uint32) {
+    if (prev1e18 == 0) return 0;
+    uint256 diff = mark1e18 > prev1e18 ? mark1e18 - prev1e18 : prev1e18 - mark1e18;
+    uint256 pbps = (diff * SC.PBPS) / prev1e18;
+    return pbps > C.MAX_SIGMA_PBPS ? C.MAX_SIGMA_PBPS : uint32(pbps);
+  }
+
+  function getPegFeed(uint64 pegB64, uint32 sigmaEma)
+    internal
+    view
+    returns (IOracle.FeedData memory feed)
+  {
+    feed = IOracle.FeedData({
+      lastPriceB64: pegB64,
+      sigmaEma: sigmaEma,
+      updatedAt: uint32(block.timestamp),
+      ttl: type(uint16).max,
+      confidence: 0,
+      flags: 0,
+      tauSigma: 0,
+      maxDeviation: 0,
+      sourceTs: 0
+    });
+  }
 }

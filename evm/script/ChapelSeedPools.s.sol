@@ -89,8 +89,7 @@ contract ChapelSeedPools is Script {
         uint256 seedUsdc,
         bool stable
     ) internal returns (address poolAddr) {
-        uint8[29] memory pad;
-        IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100, _pad: pad});
+        IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100});
         bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], WNATIVE, fp);
         poolAddr = factory.createPool(tokens[0], tokens, initdata);
 
@@ -101,7 +100,6 @@ contract ChapelSeedPools is Script {
             (uint16 minFee, uint16 refBand) = _assetParams(tok, stable);
             admin.addAsset(poolAddr, tok, _oracleCfg(tok, tokens[0], refBand), rc, pf, minFee, 18, 1000, 100_000, 10_000, 10_000);
         }
-        admin.setBaseTokenOracle(poolAddr, ORACLE, USDC_FEED);
         admin.sealBootstrap(poolAddr);
         _seedPool(Pool(payable(poolAddr)), tokens, seedUsdc);
     }

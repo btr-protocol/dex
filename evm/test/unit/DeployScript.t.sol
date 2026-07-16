@@ -18,75 +18,96 @@ import {Ownable} from "solady/auth/Ownable.sol";
 ///         Treasury, PoolFactory.referencePool == poolImpl, AC owner == deployer), and
 ///         that proxies are initialized (calling initialize again must revert).
 contract DeployScriptTest is Test {
-    Deploy script;
+  Deploy script;
 
-    function setUp() public {
-        script = new Deploy();
-        // Self-contained env, fully reset before EACH test (vm.setEnv is process-global — avoid bleed).
-        vm.setEnv("DEPLOYER_PK", "0x0000000000000000000000000000000000000000000000000000000000000001");
-        vm.setEnv("LZ_ENDPOINT", vm.toString(address(this))); // test contract has code
-        vm.setEnv("ALLOW_NO_LZ", "false");
-    }
+  function setUp() public {
+    script = new Deploy();
+    // Self-contained env, fully reset before EACH test (vm.setEnv is process-global — avoid bleed).
+    vm.setEnv("DEPLOYER_PK", "0x0000000000000000000000000000000000000000000000000000000000000001");
+    vm.setEnv("LZ_ENDPOINT", vm.toString(address(this))); // test contract has code
+    vm.setEnv("ALLOW_NO_LZ", "false");
+  }
 
-    function test_deploy_e2e_wiring() public {
-        Deploy.Addrs memory a = script.run();
+  function test_deploy_e2e_wiring() public {
+    Deploy.Addrs memory a = script.run();
 
-        // ── non-zero addrs ──
-        assertTrue(a.ac != address(0), "ac");
-        assertTrue(a.admin != address(0), "admin");
-        assertTrue(a.staking != address(0), "staking");
-        assertTrue(a.distributor != address(0), "distributor");
-        assertTrue(a.flash != address(0), "flash");
-        assertTrue(a.poolImpl != address(0), "poolImpl");
-        assertTrue(a.poolFactory != address(0), "poolFactory");
-        assertTrue(a.govToken != address(0), "govToken");
-        assertTrue(a.treasuryProxy != address(0), "treasuryProxy");
-        assertTrue(a.bridgeProxy != address(0), "bridgeProxy");
+    // ── non-zero addrs ──
+    assertTrue(a.ac != address(0), "ac");
+    assertTrue(a.admin != address(0), "admin");
+    assertTrue(a.staking != address(0), "staking");
+    assertTrue(a.distributor != address(0), "distributor");
+    assertTrue(a.flash != address(0), "flash");
+    assertTrue(a.poolImpl != address(0), "poolImpl");
+    assertTrue(a.poolFactory != address(0), "poolFactory");
+    assertTrue(a.govToken != address(0), "govToken");
+    assertTrue(a.treasuryProxy != address(0), "treasuryProxy");
+    assertTrue(a.bridgeProxy != address(0), "bridgeProxy");
 
-        // ── core wiring ──
-        assertEq(PoolFactory(payable(a.poolFactory)).referencePool(), a.poolImpl, "factory.refPool");
-        assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC");
-        assertEq(Pool(payable(a.poolImpl)).AC(), a.ac, "poolImpl.AC");
-        assertEq(Pool(payable(a.poolImpl)).admin(), a.admin, "poolImpl.admin");
-        assertEq(Pool(payable(a.poolImpl)).flash(), a.flash, "poolImpl.flash");
+    // ── core wiring ──
+    assertEq(PoolFactory(payable(a.poolFactory)).referencePool(), a.poolImpl, "factory.refPool");
+    assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC");
+    assertEq(Pool(payable(a.poolImpl)).AC(), a.ac, "poolImpl.AC");
+    assertEq(Pool(payable(a.poolImpl)).admin(), a.admin, "poolImpl.admin");
+    assertEq(Pool(payable(a.poolImpl)).flash(), a.flash, "poolImpl.flash");
 
-        // Track-B Phase-1b: GovToken has immutable TREASURY = treasuryProxy (no Ownable).
-        assertEq(GovToken(a.govToken).TREASURY(), a.treasuryProxy, "govToken.TREASURY");
+    // Track-B Phase-1b: GovToken has immutable TREASURY = treasuryProxy (no Ownable).
+    assertEq(GovToken(a.govToken).TREASURY(), a.treasuryProxy, "govToken.TREASURY");
 
-        // ── post-deploy wiring (G13) ──
-        assertTrue(GovTreasury(payable(a.treasuryProxy)).distributor() != address(0), "treasury.distributor unset");
-        assertEq(GovTreasury(payable(a.treasuryProxy)).distributor(), a.distributor, "treasury.distributor mismatch");
-        assertTrue(GovTreasury(payable(a.treasuryProxy)).bridge() != address(0), "treasury.bridge unset");
-        assertEq(GovTreasury(payable(a.treasuryProxy)).bridge(), a.bridgeProxy, "treasury.bridge mismatch");
-        assertEq(GovTreasury(payable(a.treasuryProxy)).getBridge(), a.bridgeProxy, "treasury.getBridge mismatch");
-        // OpsTreasury deployed + distributor wired (pools' treasury() sink + Distributor funding path).
-        assertTrue(a.opsTreasuryProxy != address(0), "opsTreasuryProxy");
-        assertEq(OpsTreasury(payable(a.opsTreasuryProxy)).distributor(), a.distributor, "opsTreasury.distributor mismatch");
-        // PoolFactory ownership funnels through AC.owner() via AC-singleton modifier
-        // (Track-B Phase-1: PoolFactory dropped Solady Ownable; auth resolves via AC.owner()).
-        assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC != ac");
+    // ── post-deploy wiring (G13) ──
+    assertTrue(
+      GovTreasury(payable(a.treasuryProxy)).distributor() != address(0),
+      "treasury.distributor unset"
+    );
+    assertEq(
+      GovTreasury(payable(a.treasuryProxy)).distributor(),
+      a.distributor,
+      "treasury.distributor mismatch"
+    );
+    assertTrue(
+      GovTreasury(payable(a.treasuryProxy)).bridge() != address(0), "treasury.bridge unset"
+    );
+    assertEq(
+      GovTreasury(payable(a.treasuryProxy)).bridge(), a.bridgeProxy, "treasury.bridge mismatch"
+    );
+    assertEq(
+      GovTreasury(payable(a.treasuryProxy)).getBridge(),
+      a.bridgeProxy,
+      "treasury.getBridge mismatch"
+    );
+    // OpsTreasury deployed + distributor wired (pools' treasury() sink + Distributor funding path).
+    assertTrue(a.opsTreasuryProxy != address(0), "opsTreasuryProxy");
+    assertEq(
+      OpsTreasury(payable(a.opsTreasuryProxy)).distributor(),
+      a.distributor,
+      "opsTreasury.distributor mismatch"
+    );
+    // PoolFactory ownership funnels through AC.owner() via AC-singleton modifier
+    // (Track-B Phase-1: PoolFactory dropped Solady Ownable; auth resolves via AC.owner()).
+    assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC != ac");
 
-        // Treasury / Bridge proxies initialized → second initialize reverts.
-        vm.expectRevert();
-        GovTreasury(payable(a.treasuryProxy)).initialize(a.govToken);
-        vm.expectRevert();
-        Bridge(payable(a.bridgeProxy)).initialize();
+    // Treasury / Bridge proxies initialized → second initialize reverts.
+    vm.expectRevert();
+    GovTreasury(payable(a.treasuryProxy)).initialize(a.govToken);
+    vm.expectRevert();
+    Bridge(payable(a.bridgeProxy)).initialize();
 
-        // BRG-01 negatives — kept in ONE test (vm.setEnv is process-global; forge runs
-        // separate test fns concurrently, so isolating these avoids env-var races).
+    // BRG-01 negatives — kept in ONE test (vm.setEnv is process-global; forge runs
+    // separate test fns concurrently, so isolating these avoids env-var races).
 
-        // (a) EOA (no code) LZ endpoint must abort the deploy, not wire a dead bridge.
-        vm.setEnv("LZ_ENDPOINT", vm.toString(address(0xBEEF))); // no code
-        vm.expectRevert(bytes("LZ endpoint not a contract"));
-        script.run();
-        vm.setEnv("LZ_ENDPOINT", vm.toString(address(this)));
+    // (a) EOA (no code) LZ endpoint must abort the deploy, not wire a dead bridge.
+    vm.setEnv("LZ_ENDPOINT", vm.toString(address(0xBEEF))); // no code
+    vm.expectRevert(bytes("LZ endpoint not a contract"));
+    script.run();
+    vm.setEnv("LZ_ENDPOINT", vm.toString(address(this)));
 
-        // (b) ALLOW_NO_LZ=true opt-out deploys core with NO bridge (no dead endpoint at all).
-        vm.setEnv("ALLOW_NO_LZ", "true");
-        Deploy.Addrs memory b = script.run();
-        assertEq(b.bridgeProxy, address(0), "bridgeProxy should be unset");
-        assertEq(b.bridgeImpl, address(0), "bridgeImpl should be unset");
-        assertEq(GovTreasury(payable(b.treasuryProxy)).bridge(), address(0), "treasury.bridge should be unset");
-        assertTrue(b.poolFactory != address(0), "core still deployed");
-    }
+    // (b) ALLOW_NO_LZ=true opt-out deploys core with NO bridge (no dead endpoint at all).
+    vm.setEnv("ALLOW_NO_LZ", "true");
+    Deploy.Addrs memory b = script.run();
+    assertEq(b.bridgeProxy, address(0), "bridgeProxy should be unset");
+    assertEq(b.bridgeImpl, address(0), "bridgeImpl should be unset");
+    assertEq(
+      GovTreasury(payable(b.treasuryProxy)).bridge(), address(0), "treasury.bridge should be unset"
+    );
+    assertTrue(b.poolFactory != address(0), "core still deployed");
+  }
 }

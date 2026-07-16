@@ -11,15 +11,15 @@ import {RangeCLPool} from "./RangeCLPool.sol";
 /// @dev Do NOT vendor Bunni; their LDF/withdraw path was exploited (2025). We only reuse
 ///      the "shift range when drift exceeds threshold" idea.
 contract RecenterHook is IRecenterHook {
-    uint256 public constant RANGE_BPS = 1_000; // ±10%
-    uint256 public constant DRIFT_BPS = 500; // 5%
+  uint256 public constant RANGE_BPS = 1_000; // ±10%
+  uint256 public constant DRIFT_BPS = 500; // 5%
 
-    /// @inheritdoc IRecenterHook
-    function afterSwap(address pool) external {
-        // Only the pool itself may trigger (RangeCLPool calls with msg.sender == pool).
-        if (msg.sender != pool) revert NotPool();
-        RangeCLPool(pool).recenterIfNeeded(RANGE_BPS, DRIFT_BPS);
-    }
+  /// @inheritdoc IRecenterHook
+  function afterSwap(address pool) external {
+    // Only the pool itself may trigger (RangeCLPool calls with msg.sender == pool).
+    if (msg.sender != pool) revert NotPool();
+    RangeCLPool(pool).recenterIfNeeded(RANGE_BPS, DRIFT_BPS);
+  }
 
-    error NotPool();
+  error NotPool();
 }
