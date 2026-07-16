@@ -141,7 +141,7 @@ sub-toll dust grinding is bounded by 1 wei per op and costs gas ≫ value. ∎
 | 0.90 | 90 000 | **✗ — exceeds uint16** |
 
 **Finding (P2):** `kappaCovBps` as `uint16` caps the provable floor at ≈ 0.868. If the stable-core
-wants a 0.90+ hard floor, widen the field (there is `_pad` room in `RiskConfig`) or accept 0.868
+wants a 0.90+ hard floor, widen the packed field in a predeploy ABI break or accept 0.868
 plus the economic defenses of §6. The wall is *not* the only defense — spread, skew premium and
 `minLiquidity` (PoolSwap.sol:43) stack on top — but 0.868 is the honest ceiling of *this*
 theorem today.
@@ -150,15 +150,16 @@ theorem today.
 (PoolAdmin.sol:46); (ii) base asset un-walled — currently a convention (Pricing.sol:427 comment),
 see finding P3 in §8; (iii) `haircutSuppressor = 0` on walled assets (Lemma B).
 
-## 5. Theorem 2 — no round-trip extraction (single block)
+## 5. Bounded assurance claim — immediate round-trip non-extraction
 
-**Statement.** Within one block (mark `m`, σ, confidence frozen; skew/reserves live), no finite
-sequence of swaps that returns the attacker's portfolio to its initial composition ends with more
-of every asset; the attacker's loss is at least the fees paid, and the toll only adds to it.
+**Scoped statement.** Within one block (mark `m`, σ, confidence frozen; skew/reserves live), the
+tested two-swap cycle `token → base → token` does not profit over the bounded states and sizes in
+`test_fuzz_roundtrip_never_profits`. This is strong regression evidence, not a proof for every finite
+multi-asset sequence or every uint256 state.
 
-**Proof sketch (continuous limit) + discrete anchor.**
+**Continuous argument + discrete regression anchor.**
 1. *Charge-only toll can only hurt the trader.* `T ≥ 0` is subtracted from output and retained in
-   reserves; there is no rebate path (Pricing.sol:664), so removing the toll upper-bounds the
+   reserves; there is no rebate path (Pricing.sol:627), so removing the toll upper-bounds the
    attacker. It therefore suffices to show the κ=0 pricer is non-extractable.
 2. *The κ=0 pricer integrates one monotone curve both ways.* Execution price is the exact
    Hermite-spline VWAP over the depth band the trade traverses (`_traverseSplineByVolume`,
@@ -167,15 +168,14 @@ of every asset; the attacker's loss is at least the fees paid, and the toll only
    interpolant monotone — no overshoot. A sell traverses the band downward (discount side); the
    buy-back traverses the same monotone curve upward. In the continuous re-anchoring limit the
    two VWAPs are equal and the round trip loses exactly `2 × spread/2 + tolls ≥ minFee`.
-3. *Discretization favors the pool.* Skew is computed pre-trade and re-anchored between trades
+3. *Observed discretization favors the pool in the tested domain.* Skew is computed pre-trade and re-anchored between trades
    (Pricing.sol:565). Splitting a sell into n parts re-anchors each part at a *more adverse*
    band position (selling raises the sold asset's coverage → skew falls → next part starts lower
-   on the curve); symmetrically for buys. So the single-shot round trip is the attacker's best
-   case, and the band-coordinate mismatch between volume-fraction and coverage-progress is
-   fuzz-verified rather than assumed: `test_fuzz_roundtrip_never_profits` sweeps size × coverage ×
-   κ × dispersion (§9). Any counterexample found there is a real finding, not a proof caveat.
+   on the curve); symmetrically for buys. The regression fuzzes a pre-drain up to `SEED/2` and an
+   attacker size from `1e12` through `SEED/4` at the fixture's fixed κ/profile/dispersion. It does
+   not sweep arbitrary κ, dispersion, route length, or multi-asset cycles.
 4. Fees are strictly positive (`minFeeBps ≥ MIN_FEE_PBPS = 1` enforced at config) and the
-   haircut is ≥ 0. ∎
+   haircut is ≥ 0. A universal discrete no-cycle theorem remains open (P5).
 
 Caveats: 1-wei rounding dust per op (gas-dominated); cross-asset cycles through the base hub
 inherit the same argument per leg because the base leg is the numeraire (`p ≡ 1`,
@@ -255,16 +255,17 @@ regime 1.
 
 ## 8. What is NOT proven (honest gaps, ranked)
 
-- **P1 — restoration to c = 1 exactly, for stables, by the wall alone.** The charge-only port
-  deliberately dropped the sim's surplus-funded rebate; the wall *prevents* drain (Thm 1) but
-  pays no one to restore. Restoration relies on Lemma A (deposits) + §6(b) arb band (c ≥ ~0.90
-  at launch params). The sim's `c → 0.9885` convergence claim applied to the rebate variant and
-  is NOT claimed here; the `Pricing.sol:650` "sim-validated" citation should say "sim-validated
-  *wall*; rebate variant unported". If tighter stable re-peg is wanted later: port the
-  surplus-capped rebate (extra state; extraction surface re-opens — needs its own proof).
+- **P1 — restoration to c = 1 exactly, for stables, by the wall alone.** Charge-only everywhere:
+  the surplus-funded rebate was removed from the sim as well this cycle (`aimm.rs` `lp_surplus`
+  deleted; the re-peg regression is charge-only), so no rebate variant exists anywhere in-tree.
+  The wall *prevents* drain (Thm 1) but pays no one to restore; restoration relies on Lemma A
+  (deposits) + §6(b) arb band (c ≥ ~0.90 at launch params). The historical `c → 0.9885`
+  convergence figure belonged to the deleted rebate variant and is NOT claimed. If tighter stable
+  re-peg is wanted later: re-build a surplus-capped rebate from scratch (extra state; extraction
+  surface re-opens — needs its own proof).
 - **P2 — uint16 κ ceiling** caps the provable floor at c* ≈ 0.868 (§4).
 - **P3 — CLOSED.** Base `kappaCovBps == 0` is now enforced at `addAsset`/`setRiskConfig`
-  (PoolAdminWrite.sol) — a walled base reverts `BadConfig`. Theorem 2's cross-leg assumption is
+  (PoolAdminWrite.sol) — a walled base reverts `BadConfig`. the §5 bounded-assurance claim's cross-leg assumption is
   code-backed. (Skew-neutral base still holds by the base being the numeraire priced via
   `_readBasePriceOrHalt`, not the spline.)
 - **P4 — single oracle key, now BOUNDED.** All economic theorems condition on an honest mark
@@ -278,7 +279,7 @@ regime 1.
   monitorable, one-band-per-block walk, and the confidence/TTL halts still fire. Full defeat still
   needs multisig compromise; **2-of-N pusher quorum remains recommended mainnet hardening**
   (defense-in-depth), no longer a single-point drain.
-- **P5 — discrete decomposition gap** in Theorem 2 step 3 is fuzz-anchored, not closed-form.
+- **P5 — discrete decomposition gap** in §5 step 3 is fuzz-anchored, not closed-form.
 - **P6 — sim numeric transfer.** Sim charges the full spread where the chain charges half
   (aimm.rs:371 vs Pricing.sol:363) and composes the fee floor differently — sim-tuned fee/vega
   values are structurally right but numerically ~2× optimistic on-chain; re-tune from chain
@@ -296,7 +297,7 @@ regime 1.
 | split ≥ single (no split discount) | `test_fuzz_toll_split_no_discount` |
 | Thm 1 floor, single swap, pool boundary | `test_fuzz_coverage_floor_single_swap` |
 | Thm 1 floor, op sequences (handler invariant) | `invariant_coverage_floor` (CoverageFloorHandler) |
-| Thm 2 round trip loses, sweep size × c × κ | `test_fuzz_roundtrip_never_profits` |
+| Immediate round trip loses in fixture domain (pre-drain ≤ SEED/2; size ≤ SEED/4; fixed κ/profile) | `test_fuzz_roundtrip_never_profits` |
 | Lemma B: s=0 withdraw coverage-neutral | `test_withdraw_coverage_neutral_when_suppressor_zero` |
 | Lemma B cross-path: haircut not escapable via cross exit | `test_cross_withdraw_cannot_escape_coverage_haircut`, `test_swapLiability_cannot_escape_coverage_haircut` |
 | Lemma A: deposit restores toward 1 | `test_deposit_restores_coverage` |
@@ -305,8 +306,8 @@ regime 1.
 ## 10. Full formal verification — feasibility verdict
 
 Full-protocol FV (Certora/Halmos over every entrypoint + storage aliasing) is a multi-week,
-tool-licensed effort and is **not** required to answer the depletion objection — §§1–7 close it
-analytically against exact code, with fuzz anchoring the two discrete gaps. The `lnWad`/`powWad`
+tool-licensed effort and is **not** replaced by this document — §§1–4 give analytical coverage-wall
+results, while §5 and several composition claims remain bounded fuzz/invariant assurance. The `lnWad`/`powWad`
 transcendentals make SMT-based tools time out on precisely the interesting lemmas, so the
 practical mainnet-grade path is: (1) this document + the fuzz/invariant suite now; (2) a scoped
 Certora engagement pre-mainnet on `Pricing._covToll`/`_settleQuote`, `PoolLiquidity`, and the

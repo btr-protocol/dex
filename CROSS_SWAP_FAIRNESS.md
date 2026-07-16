@@ -74,7 +74,7 @@ stable): the base is a *unit of account*, never a priced leg.
 
 ### 2b. Settlement is endpoint-only ⇒ base reserves don't move ⇒ no transient base coverage change
 
-`PoolSwapQuote.processSwap` settles via `PoolIO.exec($, tk[0], tk[1], …)` with `tk[0] = tokenIn (X)`,
+`PoolSwap.swap` settles via `PoolIO.exec($, tk[0], tk[1], …)` (PoolSwap.sol:47, inlined post-C1) with `tk[0] = tokenIn (X)`,
 `tk[1] = tokenOut (Y)` — the two **endpoints** — and `PoolIO.exec` mutates only:
 
 ```solidity

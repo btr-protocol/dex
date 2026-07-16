@@ -139,3 +139,42 @@ Gas/Lean: G4-1/G4-2 overstated by challenger (≤350, deferred). Lean deletes co
 Combined Security+Gas+Lean auditor + independent challenger → **CONVERGED** (0 Fix-now BUG/SECURITY/GAS≥200).
 
 INFO residuals unchanged: batch hub decay, stranded accidental ETH, unbounded `flashFeeBps`.
+
+---
+
+## Cycle 6 (2026-07-16) — multi-model cohort campaign
+
+Method: 4 primary cohorts (AMM / oracle / access / gas-lean) on distinct models → 2 adversarial challengers → engineer fixes → go-hard delta re-audit → patch follow-ups.
+
+### Headline after Cycle 6
+
+- **0 CRITICAL** permissionless fund-loss in production `ExternalOracle` + Pool path.
+- **H-INT-01 / B-02 FIXED** (withheld signed quote relabel): `Oracle.observedAt` ages off `sourceTs`; `maxRelayLagSecs` is an **immutable ctor param** (nonzero + ≤`MAX_RELAY_LAG_SECS` (1d), no setter — loosening requires oracle redeploy + timelocked `requestOracleUpdate` per asset, so pick the prod value generously); `isFeedFresh` aligned; TestnetDeploy sets lag=120. ⚠ ttl/lag coupling: a feed with `ttl ≤ maxRelayLagSecs` can land already-stale (aged from `sourceTs`) — `addFeed`/`updateFeed` now enforce `ttl > maxRelayLagSecs`.
+- **H-INT-02 FIXED**: ERC4626 `_venueDeposit` requires `reportedShares == mintedShares` (strict equality — fee-on-deposit/nonstandard-accounting vaults revert) and `convertToAssets ≥ 99.99%` of assets (`MAX_DEPOSIT_LOSS_BPS = 1`).
+- **N-1 FIXED**: `priceBandGuard` gates every cache miss.
+- **A-02 FIXED**: `PoolSwap` + `PoolBatch` revert on `amountOut==0`.
+
+### Challenger downgrades (not Fix-now)
+
+| ID | Initial | Final | Reason |
+|---|---|---|---|
+| B-01 UniPoolOracle spot | HIGH | INFO / deploy invariant | Chapel piggyback only; never prod primary |
+| B-03 single signer | HIGH | INFO / accepted trust | Documented; maxDeviation + σ floor + 1/block |
+| F-02 rebasing | MED | INFO | Listing policy |
+| Hook `requireNoFlash` | LOW | REJECTED | `pull` + `nonReentrant` already cover |
+| Transient cache TOCTOU | LOW | INFO | Mid-tx pause needs guardian |
+
+### Residual backlog (pre-mainnet)
+
+1. Optional 2-of-N oracle; never wire `UniPoolOracle` as primary (enforce in deploy validation).
+2. F-01 admin force write-down / hook eviction if venue NAV view reverts.
+3. M-INT-03 base-oracle re-pin → timelock when replacing nonzero→nonzero.
+4. ~~Storage pack: drop `uint8[]` pads~~ **DONE this cycle** — Asset pads + `baseTokenOracle`/`baseTokenFeedId` removed ⇒ **layout break vs live Chapel fleet**: the current Chapel beacon MUST NOT be upgraded in place (would misread `assetHooks`/`invested`/`factory` slots + Asset packing); next Chapel push = full fleet **redeploy** (planned testnet redeploy anyway).
+5. Deviation band growth still uses landing `dt` (not source-time); old-first relay grief.
+6. ERC4626 99.99% floor (`MAX_DEPOSIT_LOSS_BPS = 1`) + strict `reportedShares == mintedShares`: venue share-price rounding / entry fees → deposit DoS (preferable to silent loss; allowlist venues).
+
+### Tests
+
+`ExternalOracle*` 45 green (incl. `test_gate_agesOffSourceTs_notLandingTime`). Core pool/hooks/coverage/invariants suite green.
+
+_Method: multi-model cohorts + cross-challenge; not a substitute for a professional firm engagement._

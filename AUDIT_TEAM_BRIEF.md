@@ -212,7 +212,7 @@ forge build --sizes 2>&1 | rg 'PoolSwap|Pool '
 - [ ] Decay off → swap does not SSTORE `lastUpdate` (gas / storage)
 - [ ] Decay off→on via `setRiskConfig` does not dump full deficit in one block
 - [ ] `getSwapQuote` still returns hop arrays; `swap` path does not need them
-- [ ] No import of `PoolSwapQuote` / `IExchange` left in SDK/front (grep)
+- [x] No import of `PoolSwapQuote` / `IExchange` left in SDK/front (grep — docs swept 2026-07-16)
 
 ```bash
 rg -n 'PoolSwapQuote|IExchange' ~/Work/btr/dex ~/Work/btr/sdk ~/Work/btr/front

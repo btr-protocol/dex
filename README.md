@@ -1,6 +1,6 @@
 # BTR DEX
 
-Adaptive multi-asset AMM with hub-and-spoke routing, dynamic fees, a keeper-pushed external-mark oracle, an internal non-transferable LP ledger (per-user `lpBalances` mapping + liquidity index — not an ERC-1155/ERC-20 token), and a piecewise bonding curve. Flat-`Pool` architecture: no Diamond, no proxy indirection, no ERC-7201 storage namespacing. EIP-1167 minimal-proxy clones via `PoolFactory`.
+Adaptive multi-asset AMM with hub-and-spoke routing, dynamic fees, a keeper-relayed external-mark oracle, an internal non-transferable LP ledger (per-user `lpBalances` mapping + liquidity index — not an ERC-1155/ERC-20 token), and a piecewise bonding curve. The lean `Pool` implementation is shared by ERC-1967 beacon proxies; cold paths delegate to `PoolAux`. There is no Diamond or ERC-7201 namespacing.
 
 ## Repo scope
 
@@ -28,10 +28,10 @@ Local layout:
 |---|---|
 | `Pool.sol` | Flat AMM pool. Hot-path entries (swap, deposit, withdraw, fast views); cold paths dispatched via `fallback` -> `PoolAux`. |
 | `PoolAux.sol` | Singleton cold-path dispatcher (admin setters + flash send/account). DELEGATECALL'd by every Pool clone via `fallback`. |
-| `PoolFactory.sol` | EIP-1167 minimal-proxy pool deployer via CREATE2 `cloneDeterministic` (CREATE3 is used for the singletons, not the clones). |
+| `PoolFactory.sol` | Deterministic ERC-1967 beacon-proxy deployer. A 7-day timelock upgrades the entire pool fleet atomically after immutable-wiring validation. |
 | `Admin.sol` | Per-chain singleton: protocol-fee collection, risk-flag/fee curation, pool-side admin setters. |
 | `Flash.sol` | ERC-3156-style (postFlashLoan variant) flash-loan singleton — loans a pool's reserves (no minting); repay by raising the pool's token balance. |
-| `oracles/ExternalOracle.sol` | Keeper-push external oracle (`onlyOracle`); the fresh pushed mark (`lastPriceB64`) is the quote source. Quoting off the fresh mark — not a lagging internal EMA — is what kills LVR. Also folds an on-chain σ-EMA + a servable price EMA (reference only, never the quote). No Chainlink in the quote path. |
+| `oracles/ExternalOracle.sol` | Permissionless relay of EIP-712 NXR-signed mark/σ/confidence records. Authenticated source time, immutable relay-lag ceiling, monotonic replay protection, deviation clamps, and TTL gates fail closed. No Chainlink or lagging price EMA is in the quote path. |
 
 On-chain `Router` was retired (see `AUDIT_REPORT.md` cycle 4) — routing is off-chain by design: route-finding in `sdk/src/amm` (`rankSwap`, direct + 2-hop routes across BTR's own pools) + execution calldata in `sdk/src/router` (`planToLegs` + `buildSwapCalls`).
 
@@ -70,6 +70,8 @@ Salt files: `salts/b712_b712.txt` (Pool Zero / Stable / Treasury / Bridge); `sal
 ## Security
 
 `DEPLOYER_PK` controls all CREATE3 deploys across chains. Never commit. Use `.env.local` (gitignored) or a secret manager. `.env.example` is the template.
+
+Only standard, non-rebasing ERC-20s without sender/receiver transfer taxes may be listed. Inflow accounting supports received-amount tokens, but output minimums and reserve debits intentionally use nominal amounts to keep the swap hot path lean.
 
 ## Troubleshooting
 

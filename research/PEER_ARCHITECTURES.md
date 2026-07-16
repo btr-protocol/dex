@@ -157,8 +157,8 @@ own**. This holds regardless of the base's price level (works for a WETH base to
 stable) — the base is a *unit of account*, not a priced leg.
 
 **(b) Settlement is endpoint-only ⇒ base reserves don't move ⇒ no transient base coverage change.**
-`PoolSwapQuote.processSwap` settles via `PoolIO.exec($, tk[0], tk[1], actualIn, q)`
-(`PoolSwapQuote.sol:55`) with `tk[0]=tokenIn (X)`, `tk[1]=tokenOut (Y)` — the two **endpoints**.
+`PoolSwap.swap` settles via `PoolIO.exec($, tk[0], tk[1], actualIn, q, …)`
+(`PoolSwap.sol:47`, inlined post-C1) with `tk[0]=tokenIn (X)`, `tk[1]=tokenOut (Y)` — the two **endpoints**.
 `PoolIO.exec` (`PoolIO.sol:88-109`) does only:
 ```solidity
 aIn.reserves  += amtIn;                    // X += amountIn
@@ -225,7 +225,7 @@ structural difference is **1 joint impact (Curve) vs 2 half-impacts (BTR spokes)
 ## Sources
 
 **BTR (code, this repo):** `dex/evm/src/libraries/Pricing.sol`, `Oracle.sol`, `AnchorTree.sol`,
-`PoolIO.sol`, `PoolSwap.sol`, `PoolSwapQuote.sol`, `Spline.sol`; `dex/evm/src/interfaces/IPool.sol`;
+`PoolIO.sol`, `PoolSwap.sol`, `Spline.sol`; `dex/evm/src/interfaces/IPool.sol`;
 `prime/crates/ml/src/amm/aimm.rs`. Memory: `project_stable_core_study`, `project_aimm_paper_validation`.
 
 **DoDo (PMM):** DODO Docs — PMM Algorithm <https://docs.dodoex.io/en/product/pmm-algorithm>;
