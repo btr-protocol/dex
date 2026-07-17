@@ -355,7 +355,17 @@ contract ExternalOracle is IOracle, EIP712 {
     // idx-based bytes; safe because feedIds is append-only (idx never remaps).
     // SECURITY: replay defense is the per-feed monotonic sourceTs (_pushSignedInternal), NEVER signature
     // uniqueness — recoverCalldata does not reject a malleable s. Never key any state on the sig bytes.
-    bytes32 digest = _hashTypedData(keccak256(abi.encode(BATCH_TYPEHASH, keccak256(blob))));
+    // structHash = keccak256(abi.encode(BATCH_TYPEHASH, keccak256(blob))) via reserved scratch
+    // (identical bytes to abi.encode of two bytes32; avoids the memory alloc/copy).
+    bytes32 blobHash = keccak256(blob);
+    bytes32 typehash = BATCH_TYPEHASH;
+    bytes32 structHash;
+    assembly ("memory-safe") {
+      mstore(0x00, typehash)
+      mstore(0x20, blobHash)
+      structHash := keccak256(0x00, 0x40)
+    }
+    bytes32 digest = _hashTypedData(structHash);
     address prev;
     for (uint256 i; i < k;) {
       uint256 off;
@@ -433,9 +443,14 @@ contract ExternalOracle is IOracle, EIP712 {
   ) internal pure {
     uint256 diff = mark1e18 > prevMark1e18 ? mark1e18 - prevMark1e18 : prevMark1e18 - mark1e18;
     uint256 devBps = (diff * SC.BPS) / prevMark1e18;
-    uint256 allowed = uint256(maxDev)
-      + (DEV_SIGMA_Z * uint256(prevSigmaPbps) * FixedPointMathLib.sqrt(dt * 1e6 / SIGMA_INTERVAL_S))
-      / 1e5;
+    // σ√dt term is provably 0 when σ=0 or dt=0 (first push, or sub-second source delta) — skip the
+    // sqrt (a full Newton routine) in those hot cases; band stays exactly the maxDev floor.
+    uint256 allowed = uint256(maxDev);
+    if (prevSigmaPbps != 0 && dt != 0) {
+      allowed += (DEV_SIGMA_Z
+          * uint256(prevSigmaPbps)
+          * FixedPointMathLib.sqrt(dt * 1e6 / SIGMA_INTERVAL_S)) / 1e5;
+    }
     if (allowed > MAX_DEV_THRESHOLD) allowed = MAX_DEV_THRESHOLD;
     if (devBps > allowed) revert Err.ThresholdViolation(devBps, allowed);
   }
