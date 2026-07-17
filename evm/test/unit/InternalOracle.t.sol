@@ -23,6 +23,7 @@ contract InternalOracleTest is Test {
   Flash flashSingleton;
   MockAC ac;
   MockOracle oracle;
+  MockOracle refOracle;
 
   Pool pool;
   MockERC20 base;
@@ -62,7 +63,7 @@ contract InternalOracleTest is Test {
     o.feedId = bytes32(uint256(uint160(address(stable))));
     o.refFeedId = REF_ID;
     o.refBandBps = C.MAX_STABLE_DEPEG_BAND_BPS;
-    o.refPrimary = address(oracle);
+    o.refPrimary = address(refOracle);
     o.mode = C.ORACLE_MODE_INTERNAL;
   }
 
@@ -86,11 +87,12 @@ contract InternalOracleTest is Test {
     pool = Pool(payable(factory.createPool(address(base), toks, initdata)));
 
     oracle = new MockOracle();
+    refOracle = new MockOracle();
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setFeed(
       bytes32(uint256(uint160(address(stable)))), M.encodeB64(1e18, 18), C.STABLE_SIGMA, 0, 3600
     );
-    oracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA, 0, 3600);
+    refOracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA, 0, 3600);
 
     vm.startPrank(OWNER);
     admin.addAsset(
@@ -133,7 +135,7 @@ contract InternalOracleTest is Test {
     oracle.setFeed(
       bytes32(uint256(uint160(address(stable)))), M.encodeB64(995e15, 18), C.STABLE_SIGMA, 0, 3600
     );
-    oracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA, 0, 3600);
+    refOracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA, 0, 3600);
 
     uint256 amtIn = 10_000e18;
     IPool.SwapQuote memory q = pool.getSwapQuote(address(base), address(stable), amtIn);

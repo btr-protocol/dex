@@ -36,6 +36,8 @@ contract ChapelApplyStableParams is Script {
   function run() external {
     uint256 pk = vm.envUint("DEPLOYER_PK");
     Admin admin = Admin(ADMIN);
+    address refOracle = vm.envAddress("REF_ORACLE");
+    require(refOracle != address(0) && refOracle != ORACLE, "independent REF_ORACLE required");
     address[5] memory toks = [USDC, USDT, USD1, USDE, FDUSD];
 
     vm.startBroadcast(pk);
@@ -46,7 +48,7 @@ contract ChapelApplyStableParams is Script {
       admin.setAssetParams(STABLE, tok, 0, minFee, 2000, 20_000, 10_000, 10_000, 0, 0);
       admin.setRiskFences(STABLE, tok, _fences(tok));
       admin.requestUpdateProfile(STABLE, tok, _profile(), minDisp, maxDisp);
-      admin.requestOracleUpdate(STABLE, tok, _oracle(tok, refBand));
+      admin.requestOracleUpdate(STABLE, tok, _oracle(tok, refBand, refOracle));
       console2.log("queued", tok, minFee, refBand);
     }
     vm.stopBroadcast();
@@ -102,7 +104,7 @@ contract ChapelApplyStableParams is Script {
     revert("unknown");
   }
 
-  function _oracle(address tok, uint16 refBand)
+  function _oracle(address tok, uint16 refBand, address refOracle)
     internal
     pure
     returns (IPool.OracleConfig memory o)
@@ -113,8 +115,7 @@ contract ChapelApplyStableParams is Script {
     if (tok != USDC && refBand != 0) {
       o.refFeedId = USDC_FEED;
       o.refBandBps = refBand;
-      // Testnet self-ref. Mainnet volatiles MUST pin an INDEPENDENT refPrimary (separate signer set).
-      o.refPrimary = ORACLE;
+      o.refPrimary = refOracle;
     } else {
       o.refFeedId = bytes32(0);
       o.refBandBps = 0;

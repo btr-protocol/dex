@@ -21,11 +21,15 @@ contract ExternalOracle is IOracle, EIP712 {
   address public immutable AC;
   uint32 public constant MAX_VOLATILITY = C.MAX_SIGMA_PBPS;
   uint16 public constant MAX_DEV_THRESHOLD = 65_000;
+  uint8 public constant MAX_SIGNERS = 6;
   /// @dev Clock-skew allowance (s) for the signed-path future-dated bound. A signed blob whose sourceTs
   ///      leads wall-clock by more than this is rejected — an unbounded far-future sourceTs would clear
   ///      the monotonic guard and then permanently freeze the feed (no honest near-now push could ever
   ///      exceed it again; no reset path). Ostium "future-dated report" vector.
-  uint32 public constant SOURCE_TS_FUTURE_SKEW_S = 300;
+  /// @dev NXR's off-chain quorum target is <50 ms. Five seconds leaves two orders of magnitude for
+  ///      NTP drift, scheduler/network jitter, and block-timestamp granularity without granting a
+  ///      compromised quorum a multi-minute nonce lead over honest signers.
+  uint32 public constant SOURCE_TS_FUTURE_SKEW_S = 5;
 
   /// @dev EIP-712 typehash for a signed batch. The signature commits to `keccak256(blob)` — the exact
   ///      packed calldata (24 B/feed, idx-based). See ORACLE_SIGNED_PUSH_SPEC.md.
@@ -40,15 +44,13 @@ contract ExternalOracle is IOracle, EIP712 {
   ///         signers signed the batch digest — the relayer (`msg.sender`) is unpermissioned.
   ///         Decouples price-authority from push-liveness.
   mapping(address => bool) public signers;
-  /// @notice k-of-n signature threshold for `batchPushSigned` (Ostium single-key hardening). Deploy
-  ///         default 1; owner raises after granting the signer set. Revoking signers BELOW the
-  ///         threshold is deliberately allowed — it halts pushing, the fail-safe compromise response.
+  /// @notice k-of-n signature threshold for `batchPushSigned` (Ostium single-key hardening).
+  ///         Initialized atomically to at least 2-of-3. Revoking signers BELOW the threshold is
+  ///         deliberately allowed — it halts pushing, the fail-safe compromise response.
   uint8 public signerThreshold;
   /// @notice Live granted-signer count (grantSigner/revokeSigner bookkeeping; caps setSignerThreshold).
-  uint256 public signerCount;
-
-  /// @dev Deployment-time ceiling for authenticated source age.
-  uint32 public constant MAX_RELAY_LAG_SECS = 1 days;
+  /// @dev uint8 is sufficient under MAX_SIGNERS and packs with signerThreshold in the same slot.
+  uint8 public signerCount;
 
   /// @notice Immutable absolute freshness bound for the signed path (seconds).
   uint32 public immutable maxRelayLagSecs;
@@ -85,20 +87,38 @@ contract ExternalOracle is IOracle, EIP712 {
     if (msg.sender != ac_.owner() && !ac_.isGuardian(msg.sender)) revert Err.NotAuth();
   }
 
-  constructor(address ac_, uint32 maxRelayLagSecs_) {
+  constructor(
+    address ac_,
+    uint32 maxRelayLagSecs_,
+    address[] memory initialSigners_,
+    uint8 signerThreshold_
+  ) {
     if (ac_ == address(0)) revert Err.ZeroValue();
     if (ac_.code.length == 0) revert Err.NotCode();
     // Upper bound < uint16 max: feeds require ttl > maxRelayLagSecs and ttl is uint16, so a larger
-    // lag would make every addFeed revert (no addable feed). Immutable — loosening under duress is a
-    // deliberate non-goal; remediation for structural relay lag = redeploy + timelocked oracle re-pin.
-    if (
-      maxRelayLagSecs_ == 0 || maxRelayLagSecs_ > MAX_RELAY_LAG_SECS
-        || maxRelayLagSecs_ >= type(uint16).max
-    ) revert Err.InvalidInput();
+    // lag would make every addFeed revert (no addable feed) — the uint16 ceiling (65534s) IS the
+    // structural cap. Immutable — loosening under duress is a deliberate non-goal; remediation for
+    // structural relay lag = redeploy + timelocked oracle re-pin.
+    if (maxRelayLagSecs_ == 0 || maxRelayLagSecs_ >= type(uint16).max) revert Err.InvalidInput();
+    uint256 count = initialSigners_.length;
+    if (count < 3 || count > MAX_SIGNERS || signerThreshold_ < 2 || signerThreshold_ > count) {
+      revert Err.InvalidInput();
+    }
     AC = ac_;
     maxRelayLagSecs = maxRelayLagSecs_;
-    // Bootstrap threshold: 1 (deploy grants the signer set, then raises via setSignerThreshold).
-    signerThreshold = 1;
+    for (uint256 i; i < count;) {
+      address signer = initialSigners_[i];
+      if (signer == address(0)) revert Err.ZeroValue();
+      if (signers[signer]) revert Err.InvalidInput();
+      signers[signer] = true;
+      emit SignerGranted(signer);
+      unchecked {
+        ++i;
+      }
+    }
+    signerCount = uint8(count);
+    signerThreshold = signerThreshold_;
+    emit SignerThresholdSet(signerThreshold_);
   }
 
   function addFeed(
@@ -155,6 +175,7 @@ contract ExternalOracle is IOracle, EIP712 {
   function grantSigner(address signer) external onlyAdmin {
     if (signer == address(0)) revert Err.ZeroValue();
     if (!signers[signer]) {
+      if (signerCount >= MAX_SIGNERS) revert Err.InvalidInput();
       signers[signer] = true;
       ++signerCount;
       emit SignerGranted(signer);
@@ -178,7 +199,7 @@ contract ExternalOracle is IOracle, EIP712 {
   ///         loosening — never a guardian power). Bounded to the live signer set so an unreachable
   ///         threshold cannot be configured directly; reaching it via revokeSigner is the intended halt.
   function setSignerThreshold(uint8 t) external onlyAdmin {
-    if (t == 0 || t > signerCount) revert Err.InvalidInput();
+    if (t < 2 || t > signerCount) revert Err.InvalidInput();
     signerThreshold = t;
     emit SignerThresholdSet(t);
   }
@@ -375,11 +396,13 @@ contract ExternalOracle is IOracle, EIP712 {
     uint16 ttl = uint16((word >> 128) & 0xFFFF);
     // Deviation band scales with ATTESTED source-time delta (chain-agnostic), not block time — see
     // _checkDeviation. sourceTs > prevSourceTs already enforced (monotonic guard) so unchecked is
-    // safe. prevSourceTs==0 (first signed push after addFeed) yields a huge delta → band caps at
-    // MAX_DEV_THRESHOLD, same as a long-stale re-sync.
+    // safe. The first signed push has no authenticated prior source-time interval: use dt=0 so it
+    // receives exactly the configured maxDeviation instead of an epoch-sized/wide-cap exception.
     uint256 dtSourceSecs;
-    unchecked {
-      dtSourceSecs = (sourceTs - prevSourceTs) / 1000;
+    if (prevSourceTs != 0) {
+      unchecked {
+        dtSourceSecs = (sourceTs - prevSourceTs) / 1000;
+      }
     }
     _checkDeviation(prevMark1e18, mark1e18, dtSourceSecs, ttl, uint16((word >> 192) & 0xFFFF));
 

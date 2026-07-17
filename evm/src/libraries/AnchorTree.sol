@@ -11,8 +11,6 @@ import {Err} from "@btr-shared/Errors.sol";
 ///      marks all BTC-wrappers as one BTC-USDT feed (ratio ≡ 1.0), so a tight 1.0 spline would short-vol
 ///      the wrapper-solvency tail. Per-spoke coverage-skew vs base is the depeg circuit-breaker instead.
 library AnchorTree {
-  uint8 public constant MAX_DEPTH = 1; // base = 0, every spoke = 1 (direct-to-base star)
-
   /// @notice Validate anchor: base anchors to nothing; every other asset anchors to base (depth 1).
   function validateAnchor(IPool.PoolStorage storage $, address asset, address anchor)
     internal

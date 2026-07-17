@@ -49,8 +49,8 @@ interface IPool is IOracle {
     bytes32 feedId; // mark feed id on `primary`
     // Depeg guard: halt swaps if this asset's mark leaves refBandBps of the REFERENCE feed's price
     // (e.g. WBTC vs the BTC feed, XAUT vs a gold feed). refFeedId is the on-chain feed id
-    // keccak256(base,quote) on `primary` (same scheme as `feedId`). 0 = disabled (use the absolute
-    // reservationPrice band instead).
+    // keccak256(base,quote) on `refPrimary` (same scheme as `feedId`). 0 = disabled (use the
+    // absolute reservationPrice band instead).
     bytes32 refFeedId;
     address primary; // external mark source; IOracle.getFeed(feedId) = fresh quote mark
     uint16 refBandBps; // symmetric tolerance in BPS (200 = ±2%); 0 = disabled
@@ -59,11 +59,11 @@ interface IPool is IOracle {
     // refBandBps STAY populated — the external feed is the depeg breaker (gate), not the price
     // source. Eligibility: fixed-peg assets ONLY (see setOracleConfig validation).
     uint8 mode;
-    // Oracle instance serving refFeedId — MAY differ from `primary`. An INDEPENDENT signer set here
-    // makes the refBand a true CUMULATIVE bound on a compromised push quorum (a ref feed co-signed
-    // by the same keys is moot). 0 = fall back to `primary` (legacy/self-ref); validation requires
-    // it non-zero whenever refBandBps != 0. Stables MAY self-ref (refPrimary == primary); volatile
-    // deploy configs MUST pin an independent refPrimary. Appended last: own slot, prior packing kept.
+    // Oracle instance serving refFeedId — MUST differ from `primary` whenever refBandBps != 0.
+    // Distinct addresses are enforced on-chain; independent signer/admin failure domains remain a
+    // deployment invariant (two instances sharing keys can still be walked together). 0 remains a
+    // read-time fallback for legacy stored state, but new/updated armed configs reject it.
+    // Appended last: own slot, prior packing kept.
     address refPrimary;
   }
 

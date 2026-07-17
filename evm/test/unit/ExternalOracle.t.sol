@@ -22,7 +22,11 @@ contract ExternalOracleTest is Test {
 
   function setUp() public {
     ac = new MockAC(address(this));
-    ext = new ExternalOracle(address(ac), 600);
+    address[] memory initialSigners = new address[](3);
+    initialSigners[0] = address(0xA11CE);
+    initialSigners[1] = address(0xB0B);
+    initialSigners[2] = address(0xCA401);
+    ext = new ExternalOracle(address(ac), 600, initialSigners, 2);
     vm.warp(1_700_000_000);
     ext.addFeed(
       BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600

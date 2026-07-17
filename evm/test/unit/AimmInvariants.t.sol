@@ -274,13 +274,14 @@ contract AimmInvariantsTest is Test {
   /// anchor the band to a corpse price (pass/halt against dead data).
   function test_refBand_stale_reference_feed_fails_closed() public {
     bytes32 refId = bytes32(uint256(0xB7C));
-    oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 100); // short ttl → rots during timelock
+    MockOracle refOracle = new MockOracle();
+    refOracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 100); // short ttl → rots during timelock
     IPool.OracleConfig memory oc;
     oc.primary = address(oracle);
     oc.feedId = _feedId(address(tok));
     oc.refFeedId = refId;
     oc.refBandBps = 500;
-    oc.refPrimary = address(oracle); // self-ref (independence covered in the refPrimary tests)
+    oc.refPrimary = address(refOracle);
     vm.startPrank(OWNER);
     admin.requestOracleUpdate(address(pool), address(tok), oc);
     vm.warp(block.timestamp + 2 days + 1); // BASE_TIMELOCK
@@ -297,7 +298,7 @@ contract AimmInvariantsTest is Test {
     pool.swap(address(base), address(tok), 3_000e18, 0, USER);
 
     // Fresh reference at parity → band passes, swap resumes.
-    oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 3600);
+    refOracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 3600);
     uint256 out = pool.swap(address(base), address(tok), 3_000e18, 0, USER);
     assertGt(out, 0, "swap resumes once the reference feed is fresh");
     vm.stopPrank();
@@ -379,13 +380,14 @@ contract AimmInvariantsTest is Test {
   /// Feed-relative band on cross-withdraw: stale refFeedId must fail-closed exactly like swap.
   function test_refBand_stale_reference_feed_halts_cross_withdraw() public {
     bytes32 refId = bytes32(uint256(0xB7D));
-    oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 100);
+    MockOracle refOracle = new MockOracle();
+    refOracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 100);
     IPool.OracleConfig memory oc;
     oc.primary = address(oracle);
     oc.feedId = _feedId(address(tok));
     oc.refFeedId = refId;
     oc.refBandBps = 500;
-    oc.refPrimary = address(oracle); // self-ref (independence covered in the refPrimary tests)
+    oc.refPrimary = address(refOracle);
     vm.startPrank(OWNER);
     admin.requestOracleUpdate(address(pool), address(tok), oc);
     vm.warp(block.timestamp + 2 days + 1);
@@ -445,8 +447,10 @@ contract AimmInvariantsTest is Test {
   /// explicit refPrimary, so the zero is written straight to storage to simulate pre-upgrade state).
   function test_refPrimary_zero_falls_back_to_primary() public {
     bytes32 refId = bytes32(uint256(0xB7F));
+    MockOracle refOracle = new MockOracle();
+    refOracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, type(uint16).max);
     oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, type(uint16).max);
-    _armRefBand(address(oracle), refId);
+    _armRefBand(address(refOracle), refId);
     oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, type(uint16).max); // refresh post-warp
     // Zero the refPrimary slot (OracleConfig slot 3: feedId=0, refFeedId=1, packed=2, refPrimary=3).
     bytes32 base_ = keccak256(abi.encode(address(tok), uint256(5))); // oracleConfigs mapping @ slot 5

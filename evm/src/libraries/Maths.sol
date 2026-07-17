@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Err} from "@btr-shared/Errors.sol";
 import {B64} from "@btr-shared/libs/B64.sol";
 
 /// @title Maths -B64 (52/5/7) float ops + helpers.

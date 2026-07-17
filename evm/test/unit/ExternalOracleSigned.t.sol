@@ -21,20 +21,22 @@ contract ExternalOracleSignedTest is Test {
 
   uint16 constant TAU = 100;
   uint256 constant NXR_PK = 0xA11CE;
+  uint256 constant NXR_PK2 = 0xB0B;
+  uint256 constant NXR_PK3 = 0xCA401;
   address nxr;
 
   bytes32 constant BATCH_TYPEHASH = keccak256("BatchQuote(bytes32 blobHash)");
 
   function setUp() public {
     ac = new MockAC(address(this));
-    ext = new ExternalOracle(address(ac), 600);
+    address[] memory initialSigners = _initialSigners();
+    ext = new ExternalOracle(address(ac), 600, initialSigners, 2);
     vm.warp(1_700_000_000);
     ext.addFeed(
       BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600
     );
     feedId = keccak256(abi.encodePacked(BASE, QUOTE)); // feedIds[0], idx = 0
     nxr = vm.addr(NXR_PK);
-    ext.grantSigner(nxr);
   }
 
   // ─── helpers ───
@@ -61,11 +63,32 @@ contract ExternalOracleSignedTest is Test {
     );
   }
 
-  function _sign(uint256 pk, bytes memory blob) internal view returns (bytes memory) {
+  function _signOne(uint256 pk, bytes memory blob) internal view returns (bytes memory) {
     bytes32 structHash = keccak256(abi.encode(BATCH_TYPEHASH, keccak256(blob)));
     bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSep(), structHash));
     (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
     return abi.encodePacked(r, s, v);
+  }
+
+  /// @dev Default test helper satisfies the constructor's 2-of-3 quorum. Tests that exercise
+  ///      below-threshold or duplicate input call `_signOne` explicitly.
+  function _sign(uint256 pk, bytes memory blob) internal view returns (bytes memory) {
+    if (pk == NXR_PK) return _multiSign(_pks2(), blob);
+    return _signOne(pk, blob);
+  }
+
+  function _initialSigners() internal view returns (address[] memory initialSigners) {
+    initialSigners = new address[](3);
+    initialSigners[0] = vm.addr(NXR_PK);
+    initialSigners[1] = vm.addr(NXR_PK2);
+    initialSigners[2] = vm.addr(NXR_PK3);
+  }
+
+  function _addressSigners(uint256 count) internal pure returns (address[] memory initialSigners) {
+    initialSigners = new address[](count);
+    for (uint256 i; i < count; ++i) {
+      initialSigners[i] = address(uint160(0x1000 + i));
+    }
   }
 
   function _srcTs() internal view returns (uint64) {
@@ -104,7 +127,10 @@ contract ExternalOracleSignedTest is Test {
   function test_reject_unknownSigner() public {
     skip(TAU);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
-    bytes memory sig = _sign(0xBADBAD, blob); // not a granted signer
+    uint256[] memory pks = new uint256[](2);
+    pks[0] = NXR_PK;
+    pks[1] = 0xBADBAD; // not a granted signer; length still satisfies k=2
+    bytes memory sig = _multiSign(pks, blob);
     vm.expectRevert(Err.NotAuth.selector);
     ext.batchPushSigned(blob, sig);
   }
@@ -163,8 +189,8 @@ contract ExternalOracleSignedTest is Test {
 
   // ─── deviation band (backstops a compromised push quorum; SOURCE-time-driven) ───
 
-  /// @dev Adds a 5%-band feed (idx 1) and lands a first signed push to seed sourceTs — the band is
-  ///      source-time-driven, and a prevSourceTs of 0 (fresh addFeed) caps it at MAX_DEV_THRESHOLD.
+  /// @dev Adds a 5%-band feed (idx 1) and lands a first signed push to seed sourceTs. With no prior
+  ///      authenticated source interval, the first push receives exactly the configured 5% band.
   function _seedBandedFeed() internal returns (bytes32 id) {
     address da = address(0xDA5E);
     address db = address(0xDB5E);
@@ -245,18 +271,23 @@ contract ExternalOracleSignedTest is Test {
     ext.batchPushSigned(a, _sign(NXR_PK, a));
   }
 
-  /// First signed push after addFeed (prevSourceTs == 0): the source delta is epoch-sized, so the
-  /// band caps at MAX_DEV_THRESHOLD — same policy as a long-stale re-sync.
-  function test_firstSignedPush_bandCapsAtMaxThreshold() public {
+  /// First signed push after addFeed must not get an epoch-sized bootstrap exemption.
+  function test_firstSignedPush_usesConfiguredMaxDeviation() public {
     address da = address(0xDA11);
     address db = address(0xDB11);
     ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // idx=1
     bytes32 id = keccak256(abi.encodePacked(da, db));
     skip(TAU);
-    bytes memory blob = _rec(1, M.encodeB64(300e18, 18), 1e4, 5, _srcTs()); // +200% < 650% cap
-    ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    bytes memory bad = _rec(1, M.encodeB64(106e18, 18), 1e4, 5, _srcTs()); // +6% > configured 5%
+    vm.expectRevert(
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(600), uint256(500))
+    );
+    ext.batchPushSigned(bad, _sign(NXR_PK, bad));
+
+    bytes memory ok = _rec(1, M.encodeB64(104.9e18, 18), 1e4, 5, _srcTs()); // +4.9% lands
+    ext.batchPushSigned(ok, _sign(NXR_PK, ok));
     assertApproxEqRel(
-      M.b64To1e18(ext.getFeed(id).lastPriceB64), 300e18, 0.001e18, "first push capped-band commit"
+      M.b64To1e18(ext.getFeed(id).lastPriceB64), 104.9e18, 0.001e18, "first push normal-band commit"
     );
   }
 
@@ -279,11 +310,10 @@ contract ExternalOracleSignedTest is Test {
   // ─── absolute freshness bound (fix #6) + sourceTs surfacing (fix #7) ───
 
   function test_reject_beyondRelayLag() public {
-    ext = new ExternalOracle(address(ac), 60);
+    ext = new ExternalOracle(address(ac), 60, _initialSigners(), 2);
     ext.addFeed(
       BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600
     );
-    ext.grantSigner(nxr);
     skip(TAU);
     // sourceTs 2 minutes behind wall clock (still monotonic > 0, but stale beyond the 60s bound)
     uint64 stale = uint64((block.timestamp - 120) * 1000);
@@ -307,18 +337,57 @@ contract ExternalOracleSignedTest is Test {
 
   function test_constructor_zeroRelayLagRejected() public {
     vm.expectRevert(Err.InvalidInput.selector);
-    new ExternalOracle(address(ac), 0);
+    new ExternalOracle(address(ac), 0, _initialSigners(), 2);
   }
 
   function test_constructor_codelessAccessControlRejected() public {
     vm.expectRevert(Err.NotCode.selector);
-    new ExternalOracle(address(0xAC), 60);
+    new ExternalOracle(address(0xAC), 60, _initialSigners(), 2);
   }
 
   function test_constructor_relayLagAboveCeilingRejected() public {
-    uint32 ceil = ext.MAX_RELAY_LAG_SECS();
+    // The structural ceiling is the uint16 max (feed ttl is uint16 and must exceed the lag).
+    uint32 ceil = uint32(type(uint16).max);
     vm.expectRevert(Err.InvalidInput.selector);
-    new ExternalOracle(address(ac), ceil + 1);
+    new ExternalOracle(address(ac), ceil, _initialSigners(), 2);
+  }
+
+  function test_constructor_atomicallyInitializesQuorum() public view {
+    assertEq(ext.signerCount(), 3);
+    assertEq(ext.signerThreshold(), 2);
+    assertTrue(ext.signers(vm.addr(NXR_PK)));
+    assertTrue(ext.signers(vm.addr(NXR_PK2)));
+    assertTrue(ext.signers(vm.addr(NXR_PK3)));
+  }
+
+  function test_constructor_rejectsInvalidSignerSets() public {
+    vm.expectRevert(Err.InvalidInput.selector);
+    new ExternalOracle(address(ac), 60, _addressSigners(2), 2);
+    vm.expectRevert(Err.InvalidInput.selector);
+    new ExternalOracle(address(ac), 60, _addressSigners(7), 2);
+
+    address[] memory zeroSigner = _addressSigners(3);
+    zeroSigner[1] = address(0);
+    vm.expectRevert(Err.ZeroValue.selector);
+    new ExternalOracle(address(ac), 60, zeroSigner, 2);
+
+    address[] memory duplicate = _addressSigners(3);
+    duplicate[2] = duplicate[0];
+    vm.expectRevert(Err.InvalidInput.selector);
+    new ExternalOracle(address(ac), 60, duplicate, 2);
+  }
+
+  function test_constructor_rejectsSingleOrUnreachableThreshold() public {
+    vm.expectRevert(Err.InvalidInput.selector);
+    new ExternalOracle(address(ac), 60, _addressSigners(3), 1);
+    vm.expectRevert(Err.InvalidInput.selector);
+    new ExternalOracle(address(ac), 60, _addressSigners(3), 4);
+  }
+
+  function test_constructor_acceptsSixOfSixCeiling() public {
+    ExternalOracle six = new ExternalOracle(address(ac), 60, _addressSigners(6), 6);
+    assertEq(six.signerCount(), 6);
+    assertEq(six.signerThreshold(), 6);
   }
 
   /// H-INT-01: Oracle.gate ages off authenticated sourceTs, not relay landing time.
@@ -372,9 +441,9 @@ contract ExternalOracleSignedTest is Test {
 
   function test_reject_futureDatedSourceTs() public {
     skip(TAU);
-    // sourceTs 10 min ahead of wall-clock ≫ 300s skew → an unbounded far-future ts would clear the
+    // Any sourceTs more than 5s ahead exceeds the tight skew. An unbounded far-future ts would clear the
     // monotonic guard once, then permanently freeze the feed (no honest near-now push could exceed it).
-    uint64 future = uint64((block.timestamp + 600) * 1000);
+    uint64 future = uint64((block.timestamp + ext.SOURCE_TS_FUTURE_SKEW_S()) * 1000 + 1);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, future);
     vm.expectRevert(Err.InvalidInput.selector);
     ext.batchPushSigned(blob, _sign(NXR_PK, blob));
@@ -382,7 +451,7 @@ contract ExternalOracleSignedTest is Test {
 
   function test_accept_withinFutureSkew() public {
     skip(TAU);
-    uint64 near = uint64((block.timestamp + 240) * 1000); // 4 min ahead, within the 300s skew
+    uint64 near = uint64((block.timestamp + ext.SOURCE_TS_FUTURE_SKEW_S()) * 1000);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, near);
     ext.batchPushSigned(blob, _sign(NXR_PK, blob));
     assertEq(uint256(ext.getFeed(feedId).sourceTs), near, "within-skew future ts lands");
@@ -481,9 +550,6 @@ contract ExternalOracleSignedTest is Test {
 
   // ─── k-of-n multi-ECDSA (Ostium single-key hardening) ───
 
-  uint256 constant NXR_PK2 = 0xB0B;
-  uint256 constant NXR_PK3 = 0xCA401;
-
   /// @dev Concatenated 65-byte sigs sorted by recovered signer address ascending (the contract
   ///      enforces strictly-increasing recovered addresses as the distinctness check).
   function _multiSign(uint256[] memory pks, bytes memory blob)
@@ -497,7 +563,7 @@ contract ExternalOracleSignedTest is Test {
       }
     }
     for (uint256 i; i < pks.length; ++i) {
-      sigs = bytes.concat(sigs, _sign(pks[i], blob));
+      sigs = bytes.concat(sigs, _signOne(pks[i], blob));
     }
   }
 
@@ -507,23 +573,14 @@ contract ExternalOracleSignedTest is Test {
     pks[1] = NXR_PK2;
   }
 
-  /// @dev Grants signers 2+3 (3 total) and raises the threshold to 2 (the default 2-of-3 config).
-  function _setup2of3() internal {
-    ext.grantSigner(vm.addr(NXR_PK2));
-    ext.grantSigner(vm.addr(NXR_PK3));
-    ext.setSignerThreshold(2);
-  }
-
   function test_kofn_belowThresholdRejected() public {
-    _setup2of3();
     skip(TAU);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
     vm.expectRevert(Err.InvalidInput.selector); // k=1 < threshold 2
-    ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    ext.batchPushSigned(blob, _signOne(NXR_PK, blob));
   }
 
   function test_kofn_exactThresholdPasses() public {
-    _setup2of3();
     skip(TAU);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
     ext.batchPushSigned(blob, _multiSign(_pks2(), blob));
@@ -533,7 +590,6 @@ contract ExternalOracleSignedTest is Test {
   }
 
   function test_kofn_aboveThresholdPasses() public {
-    _setup2of3();
     skip(TAU);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
     uint256[] memory pks = new uint256[](3);
@@ -547,16 +603,14 @@ contract ExternalOracleSignedTest is Test {
   }
 
   function test_kofn_duplicateSignerRejected() public {
-    _setup2of3();
     skip(TAU);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
-    bytes memory one = _sign(NXR_PK, blob);
+    bytes memory one = _signOne(NXR_PK, blob);
     vm.expectRevert(Err.NotAuth.selector); // same key twice: rec == prev fails strict ordering
     ext.batchPushSigned(blob, bytes.concat(one, one));
   }
 
   function test_kofn_unsortedSigsRejected() public {
-    _setup2of3();
     skip(TAU);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
     bytes memory sorted = _multiSign(_pks2(), blob);
@@ -571,7 +625,6 @@ contract ExternalOracleSignedTest is Test {
   }
 
   function test_kofn_nonSignerSigRejected() public {
-    _setup2of3();
     skip(TAU);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
     uint256[] memory pks = new uint256[](2);
@@ -582,7 +635,6 @@ contract ExternalOracleSignedTest is Test {
   }
 
   function test_kofn_raggedSigsLengthRejected() public {
-    _setup2of3();
     skip(TAU);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
     bytes memory sigs = _multiSign(_pks2(), blob);
@@ -598,7 +650,6 @@ contract ExternalOracleSignedTest is Test {
   /// Revoking below the threshold HALTS pushing (fail-safe compromise response) — the remaining
   /// honest signer alone cannot clear k=2, and the revoked key is rejected outright.
   function test_kofn_revokeBelowThreshold_haltsPushing() public {
-    _setup2of3();
     ext.revokeSigner(vm.addr(NXR_PK2));
     ext.revokeSigner(vm.addr(NXR_PK3));
     assertEq(ext.signerCount(), 1, "2 revoked");
@@ -606,35 +657,47 @@ contract ExternalOracleSignedTest is Test {
     skip(TAU);
     bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
     vm.expectRevert(Err.InvalidInput.selector); // k=1 < 2
-    ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    ext.batchPushSigned(blob, _signOne(NXR_PK, blob));
     vm.expectRevert(Err.NotAuth.selector); // 2 sigs, but one signer is revoked
     ext.batchPushSigned(blob, _multiSign(_pks2(), blob));
   }
 
   function test_setSignerThreshold_bounds() public {
-    assertEq(ext.signerCount(), 1, "setUp granted one signer");
+    assertEq(ext.signerCount(), 3, "constructor installed three signers");
     vm.expectRevert(Err.InvalidInput.selector); // t=0
     ext.setSignerThreshold(0);
+    vm.expectRevert(Err.InvalidInput.selector); // t=1 would recreate single-key authority
+    ext.setSignerThreshold(1);
     vm.expectRevert(Err.InvalidInput.selector); // t > signerCount
-    ext.setSignerThreshold(2);
-    ext.grantSigner(vm.addr(NXR_PK2));
+    ext.setSignerThreshold(4);
+    ext.setSignerThreshold(3);
+    assertEq(ext.signerThreshold(), 3);
     ext.setSignerThreshold(2);
     assertEq(ext.signerThreshold(), 2);
   }
 
   function test_setSignerThreshold_onlyAdmin() public {
-    ext.grantSigner(vm.addr(NXR_PK2));
     vm.prank(address(0xDEAD));
     vm.expectRevert(Err.NotAuth.selector);
-    ext.setSignerThreshold(2);
+    ext.setSignerThreshold(3);
   }
 
   function test_signerCount_idempotentGrantRevoke() public {
     ext.grantSigner(nxr); // re-grant existing signer
-    assertEq(ext.signerCount(), 1, "double grant does not double count");
+    assertEq(ext.signerCount(), 3, "double grant does not double count");
     ext.revokeSigner(address(0xDEAD)); // revoke a never-granted address
-    assertEq(ext.signerCount(), 1, "no-op revoke does not underflow");
+    assertEq(ext.signerCount(), 3, "no-op revoke does not underflow");
     ext.revokeSigner(nxr);
-    assertEq(ext.signerCount(), 0, "revoke decrements");
+    assertEq(ext.signerCount(), 2, "revoke decrements");
+  }
+
+  function test_grantSigner_capsSetAtSix() public {
+    ext.grantSigner(address(0x4444));
+    ext.grantSigner(address(0x5555));
+    ext.grantSigner(address(0x6666));
+    assertEq(ext.signerCount(), ext.MAX_SIGNERS());
+    ext.grantSigner(address(0x4444)); // idempotent even when already at the cap
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.grantSigner(address(0x7777));
   }
 }

@@ -21,12 +21,11 @@ Sim YAML references JSON for fee floors; it does not duplicate the full asset ta
 
 Spread at σ=0 equals `minFeePath` (max of leg minFee values). σ, confidence, and staleness widen above this floor.
 
-## Oracle trust (v2)
+## Oracle trust
 
-- Keeper pushes: mark + Parkinson σ **sample** + mark **confidence** (decoupled from σ).
-- Chain: price EMA + **σ-EMA** (asymmetric bands + mark-move evidence floor).
-- Pricing reads: `lastPriceB64` (quote), `sigmaEma` (spread/dispersion/staleness).
-- **Pusher:** testnet = single EOA via `grantOracle`; mainnet = Gnosis Safe 2-of-3 as oracle address (no contract fork).
+- NXR replicas sign one EIP-712 batch; unpermissioned keepers only relay it.
+- `ExternalOracle` atomically deploys with 3–6 distinct signers and `k >= 2`; no 1-of-1 bootstrap state exists.
+- Pricing reads `lastPriceB64` for the mark and the signed/floored `sigmaEma` for risk pricing.
 
 See `docs/dex/1. AIMM/1.2. Modules/1.2.2. Internal Oracle.md`.
 
@@ -55,7 +54,25 @@ Benchmarks: `evm/test/unit/ExternalOracleGas.t.sol` — warm slots, non-zero→n
 ```bash
 cd evm
 export DEPLOYER_PK=0x...          # funded chapel key
-export ORACLE_PUSHER=0x...        # optional; defaults to deployer (grantOracle on deploy)
+export ORACLE_SIGNER_0=0x...      # required: three distinct NXR attesters
+export ORACLE_SIGNER_1=0x...
+export ORACLE_SIGNER_2=0x...      # constructor atomically installs 2-of-3
+export REF_ORACLE=0x...           # independent oracle serving the USDC/USDC reference
+export XAUT_REF_ORACLE=0x...      # independent oracle serving XAUT/USDC
+export XAUT_REF_FEED_ID=0x...     # keccak256(abi.encodePacked(XAUT,USDC)); 32-byte hex
+# Required fresh NXR-derived token/USDC feed seeds, all in 1e18 fixed point. The script validates
+# every value before deploying anything and uses the same marks to size initial liquidity.
+# USDC/USDC is the identity feed and therefore must be exactly 1e18 (not USDC's market USD price).
+export ORACLE_SEED_USDC_1E18=1000000000000000000
+export ORACLE_SEED_USDT_1E18=...
+export ORACLE_SEED_USD1_1E18=...
+export ORACLE_SEED_USDE_1E18=...
+export ORACLE_SEED_FDUSD_1E18=...
+export ORACLE_SEED_BTCB_1E18=...
+export ORACLE_SEED_ETH_1E18=...
+export ORACLE_SEED_WBNB_1E18=...
+export ORACLE_SEED_CAKE_1E18=...
+export ORACLE_SEED_XAUT_1E18=...
 forge script script/TestnetDeploy.s.sol:TestnetDeploy \
   --sig deployTestnet \
   --rpc-url chapel \

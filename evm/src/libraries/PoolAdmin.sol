@@ -104,9 +104,10 @@ library PoolAdmin {
   }
 
   /// @notice Validate oracle config: primary set + reachable; an armed ref band (refBandBps != 0)
-  ///         requires refFeedId AND an explicit, reachable refPrimary. refPrimary MAY equal primary
-  ///         (stable self-ref); volatile deploy configs MUST pin an INDEPENDENT signer set there —
-  ///         a ref co-signed by the compromised quorum bounds nothing (deploy policy, not enforced).
+  ///         requires refFeedId AND an explicit, reachable refPrimary distinct from primary. A
+  ///         same-address reference cannot bound a walked primary mark. Separate signer/admin
+  ///         failure domains are additionally required at deployment; address inequality alone
+  ///         cannot prove operational independence.
   function validateOracleConfig(IPool.OracleConfig memory cfg) internal view {
     if (cfg.primary == address(0)) revert Err.InvalidInput();
     try IOracle(cfg.primary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {}
@@ -114,7 +115,9 @@ library PoolAdmin {
       revert Err.InvalidInput();
     }
     if (cfg.refBandBps != 0) {
-      if (cfg.refFeedId == bytes32(0) || cfg.refPrimary == address(0)) revert Err.InvalidInput();
+      if (
+        cfg.refFeedId == bytes32(0) || cfg.refPrimary == address(0) || cfg.refPrimary == cfg.primary
+      ) revert Err.InvalidInput();
       try IOracle(cfg.refPrimary).getFeed(cfg.refFeedId) returns (IOracle.FeedData memory) {}
       catch {
         revert Err.InvalidInput();

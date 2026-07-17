@@ -13,7 +13,8 @@ import {Constants as C} from "../src/libraries/Constants.sol";
 import {ChapelSeedAmounts} from "./ChapelSeedAmounts.sol";
 
 /// @notice Seed Chapel pools on an already-deployed Admin+Factory (SWAP flags at listing).
-/// @dev Env: DEPLOYER_PK, ADMIN, FACTORY. Optional SEED_USDC (default 50_000e18).
+/// @dev Env: DEPLOYER_PK, ADMIN, FACTORY, REF_ORACLE, XAUT_REF_ORACLE,
+///      XAUT_REF_FEED_ID. Optional SEED_USDC (default 50_000e18).
 contract ChapelSeedPools is Script {
   address constant ORACLE = 0xD91712c9F4037D0010041691Df191AB45994F2bF;
   address constant FAUCET = 0x6a901982CE6cD2561F677217e012A33b8a88EF27;
@@ -36,11 +37,25 @@ contract ChapelSeedPools is Script {
     uint256 pk = vm.envUint("DEPLOYER_PK");
     Admin admin = Admin(vm.envAddress("ADMIN"));
     PoolFactory factory = PoolFactory(payable(vm.envAddress("FACTORY")));
+    address refOracle = vm.envAddress("REF_ORACLE");
+    address xautRefOracle = vm.envAddress("XAUT_REF_ORACLE");
+    bytes32 xautRefFeedId = vm.envBytes32("XAUT_REF_FEED_ID");
+    require(refOracle != address(0) && refOracle != ORACLE, "independent REF_ORACLE required");
+    require(
+      xautRefOracle != address(0) && xautRefOracle != ORACLE, "independent XAUT_REF_ORACLE required"
+    );
+    require(
+      xautRefFeedId == keccak256(abi.encodePacked(XAUT, USDC)), "XAUT_REF_FEED_ID must be XAUT/USDC"
+    );
     uint256 seedUsdc = vm.envOr("SEED_USDC", uint256(50_000 ether));
 
     vm.startBroadcast(pk);
-    address stable = _createPool(admin, factory, _stableList(), seedUsdc, true);
-    address vol = _createPool(admin, factory, _volatileList(), seedUsdc, false);
+    address stable = _createPool(
+      admin, factory, _stableList(), seedUsdc, true, refOracle, xautRefOracle, xautRefFeedId
+    );
+    address vol = _createPool(
+      admin, factory, _volatileList(), seedUsdc, false, refOracle, xautRefOracle, xautRefFeedId
+    );
     vm.stopBroadcast();
 
     console2.log("stablePool", stable);
@@ -96,7 +111,10 @@ contract ChapelSeedPools is Script {
     PoolFactory factory,
     address[] memory tokens,
     uint256 seedUsdc,
-    bool stable
+    bool stable,
+    address refOracle,
+    address xautRefOracle,
+    bytes32 xautRefFeedId
   ) internal returns (address poolAddr) {
     IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100});
     bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], WNATIVE, fp);
@@ -110,7 +128,7 @@ contract ChapelSeedPools is Script {
       admin.addAsset(
         poolAddr,
         tok,
-        _oracleCfg(tok, tokens[0], refBand),
+        _oracleCfg(tok, tokens[0], refBand, refOracle, xautRefOracle, xautRefFeedId),
         rc,
         pf,
         minFee,
@@ -156,17 +174,22 @@ contract ChapelSeedPools is Script {
     else if (!stable && tok == XAUT) refBand = 200;
   }
 
-  function _oracleCfg(address asset, address base, uint16 refBandBps)
-    internal
-    pure
-    returns (IPool.OracleConfig memory o)
-  {
+  function _oracleCfg(
+    address asset,
+    address base,
+    uint16 refBandBps,
+    address refOracle,
+    address xautRefOracle,
+    bytes32 xautRefFeedId
+  ) internal pure returns (IPool.OracleConfig memory o) {
     o.primary = ORACLE;
     o.feedId = keccak256(abi.encodePacked(asset, base));
-    o.refFeedId = refBandBps > 0 ? USDC_FEED : bytes32(0);
-    o.refBandBps = refBandBps;
-    // Testnet self-ref. Mainnet volatiles MUST pin an INDEPENDENT refPrimary (separate signer set).
-    o.refPrimary = refBandBps > 0 ? ORACLE : address(0);
+    if (refBandBps != 0) {
+      bool isXaut = asset == XAUT;
+      o.refFeedId = isXaut ? xautRefFeedId : USDC_FEED;
+      o.refBandBps = refBandBps;
+      o.refPrimary = isXaut ? xautRefOracle : refOracle;
+    }
   }
 
   function _seedAmount(address tok, uint256 seedUsdc) internal view returns (uint256) {

@@ -93,7 +93,7 @@
         "ETH": { "minFeeBps": 1000, "gamma": 20000 },
         "WBNB": { "minFeeBps": 1000, "gamma": 20000 },
         "CAKE": { "minFeeBps": 1000, "gamma": 20000 },
-        "XAUT": { "minFeeBps": 1000, "gamma": 20000, "refBandBps": 0 }
+        "XAUT": { "minFeeBps": 1000, "gamma": 20000, "refBandBps": 200, "refFeedId": "XAUT/USDC", "refPrimary": "XAUT_REF_ORACLE", "_refNote": "Independent XAUT/USDC oracle; halt outside ±2% of the signed primary mark." }
       }
     }
   },

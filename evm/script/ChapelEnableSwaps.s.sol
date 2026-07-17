@@ -21,6 +21,7 @@ import {ChapelSeedAmounts} from "./ChapelSeedAmounts.sol";
 /// @notice Bakes `deploy/testnet-asset-params.json` (2026-07-12b): stable κ wall, γ=2×, refs, fees.
 ///         New AccessControl so Steward-lite `isGuardian` / `isRiskSteward` exist. ExternalOracle
 ///         stays on incumbent AC (same owner EOA) — pusher grants unchanged.
+/// @dev Required env: DEPLOYER_PK, REF_ORACLE, XAUT_REF_ORACLE, XAUT_REF_FEED_ID.
 /// @dev Run:
 ///   forge script script/ChapelEnableSwaps.s.sol:ChapelEnableSwaps --sig run \
 ///     --rpc-url chapel --broadcast --with-gas-price 100000000
@@ -48,6 +49,16 @@ contract ChapelEnableSwaps is Script {
   function run() external {
     uint256 pk = vm.envUint("DEPLOYER_PK");
     address deployer = vm.addr(pk);
+    address refOracle = vm.envAddress("REF_ORACLE");
+    address xautRefOracle = vm.envAddress("XAUT_REF_ORACLE");
+    bytes32 xautRefFeedId = vm.envBytes32("XAUT_REF_FEED_ID");
+    require(refOracle != address(0) && refOracle != ORACLE, "independent REF_ORACLE required");
+    require(
+      xautRefOracle != address(0) && xautRefOracle != ORACLE, "independent XAUT_REF_ORACLE required"
+    );
+    require(
+      xautRefFeedId == keccak256(abi.encodePacked(XAUT, USDC)), "XAUT_REF_FEED_ID must be XAUT/USDC"
+    );
     uint256 seedUsdc = vm.envOr("SEED_USDC", uint256(50_000 ether));
 
     vm.startBroadcast(pk);
@@ -61,8 +72,12 @@ contract ChapelEnableSwaps is Script {
     Pool poolImpl = new Pool(address(ac), address(admin), address(flash), address(poolAux));
     PoolFactory factory = new PoolFactory(address(poolImpl), deployer, address(ac));
 
-    address stable = _createPool(admin, factory, _stableList(), seedUsdc, true);
-    address vol = _createPool(admin, factory, _volatileList(), seedUsdc, false);
+    address stable = _createPool(
+      admin, factory, _stableList(), seedUsdc, true, refOracle, xautRefOracle, xautRefFeedId
+    );
+    address vol = _createPool(
+      admin, factory, _volatileList(), seedUsdc, false, refOracle, xautRefOracle, xautRefFeedId
+    );
 
     vm.stopBroadcast();
 
@@ -105,7 +120,10 @@ contract ChapelEnableSwaps is Script {
     PoolFactory factory,
     address[] memory tokens,
     uint256 seedUsdc,
-    bool stable
+    bool stable,
+    address refOracle,
+    address xautRefOracle,
+    bytes32 xautRefFeedId
   ) internal returns (address poolAddr) {
     IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100});
     bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], WNATIVE, fp);
@@ -118,7 +136,8 @@ contract ChapelEnableSwaps is Script {
     for (uint256 i = 0; i < tokens.length; i++) {
       address tok = tokens[i];
       (uint16 minFee, uint16 refBand, uint32 minDisp, uint32 maxDisp) = _assetParams(tok, stable);
-      IPool.OracleConfig memory oc = _oracleCfg(tok, tokens[0], refBand);
+      IPool.OracleConfig memory oc =
+        _oracleCfg(tok, tokens[0], refBand, refOracle, xautRefOracle, xautRefFeedId);
       // Base numeraire forbids κ wall (PoolAdminWrite); spokes use stable κ=100.
       IPool.RiskConfig memory rc = (tok == tokens[0]) ? rcBase : rcSpoke;
       admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, minDisp, maxDisp, GAMMA, VEGA);
@@ -241,23 +260,28 @@ contract ChapelEnableSwaps is Script {
     minFee = 1000;
     minDisp = 50_000;
     maxDisp = 500_000;
-    refBand = tok == USDT ? 100 : 0;
+    if (tok == USDT) refBand = 100;
+    else if (tok == XAUT) refBand = 200;
   }
 
-  function _oracleCfg(address asset, address base, uint16 refBandBps)
-    internal
-    pure
-    returns (IPool.OracleConfig memory o)
-  {
+  function _oracleCfg(
+    address asset,
+    address base,
+    uint16 refBandBps,
+    address refOracle,
+    address xautRefOracle,
+    bytes32 xautRefFeedId
+  ) internal pure returns (IPool.OracleConfig memory o) {
     o.primary = ORACLE;
     o.feedId = asset == USDC ? USDC_FEED : keccak256(abi.encodePacked(asset, base));
-    // Non-base assets with refBand pin USDC as depeg ref (stable legs + volatile USDT).
+    // Stable legs + volatile USDT use the independent USDC ref. XAUT must use
+    // an independent XAUT/USDC mark; comparing it to the unit-price USDC feed
+    // would halt permanently and provide no meaningful manipulation bound.
     if (asset != USDC && refBandBps != 0) {
-      o.refFeedId = USDC_FEED;
+      bool isXaut = asset == XAUT;
+      o.refFeedId = isXaut ? xautRefFeedId : USDC_FEED;
       o.refBandBps = refBandBps;
-      // Testnet self-ref (same oracle instance). Mainnet volatiles MUST pin an INDEPENDENT
-      // refPrimary (separate signer set) — see validateOracleConfig.
-      o.refPrimary = ORACLE;
+      o.refPrimary = isXaut ? xautRefOracle : refOracle;
     } else {
       o.refFeedId = bytes32(0);
       o.refBandBps = 0;

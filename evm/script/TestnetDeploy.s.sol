@@ -17,7 +17,9 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 /// @title TestnetDeploy — chapel (chainId 97) full demo stack.
 /// @notice Extends singleton deploy with mock ERC20s, Faucet, ExternalOracle, two pools,
 ///         feeds (params aligned with deploy/testnet-asset-params.json), and seed liquidity.
-/// @dev Env: DEPLOYER_PK (required). Optional: ORACLE_PUSHER, WNATIVE (default 0xCAFE stub),
+/// @dev Env: DEPLOYER_PK, ORACLE_SIGNER_0/1/2, REF_ORACLE, XAUT_REF_ORACLE,
+///         XAUT_REF_FEED_ID, and ORACLE_SEED_<SYMBOL>_1E18 for every listed feed (required).
+///         Optional: WNATIVE (default 0xCAFE stub),
 ///         SEED_USDC (default 2_000_000e18 per pool side), DEPLOY_OUT.
 /// @dev Run: forge script script/TestnetDeploy.s.sol:TestnetDeploy --sig deployTestnet --rpc-url chapel --broadcast
 contract TestnetDeploy is Deploy {
@@ -49,6 +51,19 @@ contract TestnetDeploy is Deploy {
     TestnetERC20 xaut;
   }
 
+  struct SeedMarks {
+    uint256 usdc;
+    uint256 usdt;
+    uint256 usd1;
+    uint256 usde;
+    uint256 fdusd;
+    uint256 btcb;
+    uint256 eth;
+    uint256 wbnb;
+    uint256 cake;
+    uint256 xaut;
+  }
+
   struct TestnetAddrs {
     Deploy.Addrs core;
     ExternalOracle oracle;
@@ -60,28 +75,71 @@ contract TestnetDeploy is Deploy {
   }
 
   function deployTestnet() external returns (TestnetAddrs memory out) {
+    address signer0 = vm.envAddress("ORACLE_SIGNER_0");
+    address signer1 = vm.envAddress("ORACLE_SIGNER_1");
+    address signer2 = vm.envAddress("ORACLE_SIGNER_2");
+    require(
+      signer0 != address(0) && signer1 != address(0) && signer2 != address(0),
+      "three nonzero oracle signers required"
+    );
+    require(signer0 != signer1 && signer0 != signer2 && signer1 != signer2, "signers must differ");
+    address refOracle = vm.envAddress("REF_ORACLE");
+    address xautRefOracle = vm.envAddress("XAUT_REF_ORACLE");
+    bytes32 xautRefFeedId = vm.envBytes32("XAUT_REF_FEED_ID");
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    SeedMarks memory seedMarks = _loadSeedMarks();
+
     out.core = _broadcastDeploy();
     address deployer = out.core.deployer;
-    // NXR attester (signed-push authority). Deploy MUST grant it or the feed can never be updated
-    // post-seed — the only write path is batchPushSigned (ecrecover ∈ signers). Defaults to deployer
-    // for a self-signed bring-up; set ORACLE_PUSHER to the real NXR attester key for a live deploy.
-    address attester = vm.envOr("ORACLE_PUSHER", deployer);
     address wnative = vm.envOr("WNATIVE", address(0xCAFE));
     uint256 seedUsdc = vm.envOr("SEED_USDC", uint256(2_000_000 ether));
-    uint256 pk = vm.envUint("DEPLOYER_PK");
 
     vm.startBroadcast(pk);
 
     out.tok = _deployTokens();
     out.faucet = new TestnetFaucet(deployer);
     _configureFaucet(out);
-    out.oracle = new ExternalOracle(out.core.ac, 120);
-    out.oracle.grantSigner(attester);
+    address[] memory initialSigners = new address[](3);
+    initialSigners[0] = signer0;
+    initialSigners[1] = signer1;
+    initialSigners[2] = signer2;
+    out.oracle = new ExternalOracle(out.core.ac, 120, initialSigners, 2);
+    require(
+      refOracle != address(0) && refOracle != address(out.oracle), "independent REF_ORACLE required"
+    );
+    require(
+      xautRefOracle != address(0) && xautRefOracle != address(out.oracle),
+      "independent XAUT_REF_ORACLE required"
+    );
+    require(
+      xautRefFeedId == keccak256(abi.encodePacked(address(out.tok.xaut), address(out.tok.usdc))),
+      "XAUT_REF_FEED_ID must be XAUT/USDC"
+    );
 
-    out.usdcFeedId = _seedFeeds(out.oracle, out.tok);
+    out.usdcFeedId = _seedFeeds(out.oracle, out.tok, seedMarks);
 
-    out.stablePool = _createPool(out, wnative, _stableList(out.tok), seedUsdc, true);
-    out.volatilePool = _createPool(out, wnative, _volatileList(out.tok), seedUsdc, false);
+    out.stablePool = _createPool(
+      out,
+      wnative,
+      _stableList(out.tok),
+      seedUsdc,
+      true,
+      refOracle,
+      xautRefOracle,
+      xautRefFeedId,
+      seedMarks
+    );
+    out.volatilePool = _createPool(
+      out,
+      wnative,
+      _volatileList(out.tok),
+      seedUsdc,
+      false,
+      refOracle,
+      xautRefOracle,
+      xautRefFeedId,
+      seedMarks
+    );
 
     _fundFaucet(out);
 
@@ -143,33 +201,66 @@ contract TestnetDeploy is Deploy {
     ctx.faucet.setCaps(tokens, caps);
   }
 
-  function _seedFeeds(ExternalOracle oracle, Tokens memory t) internal returns (bytes32 usdcFeed) {
+  function _loadSeedMarks() internal view returns (SeedMarks memory m) {
+    m.usdc = _seedMark("ORACLE_SEED_USDC_1E18");
+    // This feed is keyed as USDC/USDC, so its mark is an identity by construction. Accepting a
+    // market USD price here would seed a dimensionally-invalid reference and can either halt every
+    // ref-banded stable or strand the first signed push behind the tight bootstrap deviation band.
+    require(m.usdc == 1e18, "USDC/USDC seed must equal 1e18");
+    m.usdt = _seedMark("ORACLE_SEED_USDT_1E18");
+    m.usd1 = _seedMark("ORACLE_SEED_USD1_1E18");
+    m.usde = _seedMark("ORACLE_SEED_USDE_1E18");
+    m.fdusd = _seedMark("ORACLE_SEED_FDUSD_1E18");
+    m.btcb = _seedMark("ORACLE_SEED_BTCB_1E18");
+    m.eth = _seedMark("ORACLE_SEED_ETH_1E18");
+    m.wbnb = _seedMark("ORACLE_SEED_WBNB_1E18");
+    m.cake = _seedMark("ORACLE_SEED_CAKE_1E18");
+    m.xaut = _seedMark("ORACLE_SEED_XAUT_1E18");
+  }
+
+  function _seedMark(string memory envName) internal view returns (uint256 mark1e18) {
+    mark1e18 = vm.envUint(envName);
+    require(mark1e18 != 0 && M.encodeB64(mark1e18, 18) != 0, "invalid oracle seed mark");
+  }
+
+  function _seedFeeds(ExternalOracle oracle, Tokens memory t, SeedMarks memory m)
+    internal
+    returns (bytes32 usdcFeed)
+  {
     address usdc = address(t.usdc);
     usdcFeed = keccak256(abi.encodePacked(usdc, usdc));
     oracle.addFeed(
-      usdc, usdc, M.encodeB64(1e18, 18), SIGMA_SEED, CONF_SEED, TAU, TAU, STABLE_MAXDEV, STABLE_TTL
+      usdc,
+      usdc,
+      M.encodeB64(m.usdc, 18),
+      SIGMA_SEED,
+      CONF_SEED,
+      TAU,
+      TAU,
+      STABLE_MAXDEV,
+      STABLE_TTL
     );
 
-    _addPairFeed(oracle, address(t.usdt), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
-    _addPairFeed(oracle, address(t.usd1), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
-    _addPairFeed(oracle, address(t.usde), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
-    _addPairFeed(oracle, address(t.fdusd), usdc, M.encodeB64(1e18, 18), STABLE_MAXDEV, STABLE_TTL);
-
-    // Seed marks ≈ mid-2026 Chapel NXR levels — keep within maxDeviation of live keeper catch-up.
+    _addPairFeed(oracle, address(t.usdt), usdc, M.encodeB64(m.usdt, 18), STABLE_MAXDEV, STABLE_TTL);
+    _addPairFeed(oracle, address(t.usd1), usdc, M.encodeB64(m.usd1, 18), STABLE_MAXDEV, STABLE_TTL);
+    _addPairFeed(oracle, address(t.usde), usdc, M.encodeB64(m.usde, 18), STABLE_MAXDEV, STABLE_TTL);
     _addPairFeed(
-      oracle, address(t.btcb), usdc, M.encodeB64(64_300e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL
+      oracle, address(t.fdusd), usdc, M.encodeB64(m.fdusd, 18), STABLE_MAXDEV, STABLE_TTL
     );
     _addPairFeed(
-      oracle, address(t.eth), usdc, M.encodeB64(1_795e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL
+      oracle, address(t.btcb), usdc, M.encodeB64(m.btcb, 18), VOLATILE_MAXDEV, VOLATILE_TTL
     );
     _addPairFeed(
-      oracle, address(t.wbnb), usdc, M.encodeB64(574e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL
+      oracle, address(t.eth), usdc, M.encodeB64(m.eth, 18), VOLATILE_MAXDEV, VOLATILE_TTL
     );
     _addPairFeed(
-      oracle, address(t.cake), usdc, M.encodeB64(1.39e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL
+      oracle, address(t.wbnb), usdc, M.encodeB64(m.wbnb, 18), VOLATILE_MAXDEV, VOLATILE_TTL
     );
     _addPairFeed(
-      oracle, address(t.xaut), usdc, M.encodeB64(4_090e18, 18), VOLATILE_MAXDEV, VOLATILE_TTL
+      oracle, address(t.cake), usdc, M.encodeB64(m.cake, 18), VOLATILE_MAXDEV, VOLATILE_TTL
+    );
+    _addPairFeed(
+      oracle, address(t.xaut), usdc, M.encodeB64(m.xaut, 18), VOLATILE_MAXDEV, VOLATILE_TTL
     );
   }
 
@@ -209,7 +300,11 @@ contract TestnetDeploy is Deploy {
     address wnative,
     address[] memory tokens,
     uint256 seedUsdc,
-    bool stable
+    bool stable,
+    address refOracle,
+    address xautRefOracle,
+    bytes32 xautRefFeedId,
+    SeedMarks memory seedMarks
   ) internal returns (address poolAddr) {
     IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100});
     bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], wnative, fp);
@@ -222,15 +317,24 @@ contract TestnetDeploy is Deploy {
     for (uint256 i = 0; i < tokens.length; i++) {
       address tok = tokens[i];
       (uint16 minFee, uint16 refBand) = _assetParams(tok, ctx.tok, stable);
-      IPool.OracleConfig memory oc =
-        _oracleCfg(address(ctx.oracle), tok, tokens[0], ctx.usdcFeedId, refBand);
+      IPool.OracleConfig memory oc = _oracleCfg(
+        address(ctx.oracle),
+        tok,
+        tokens[0],
+        address(ctx.tok.xaut),
+        ctx.usdcFeedId,
+        refBand,
+        refOracle,
+        xautRefOracle,
+        xautRefFeedId
+      );
       admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, 1000, 100_000, 10_000, 10_000);
     }
 
     // The listed base asset's OracleConfig is its depeg breaker.
     admin.sealBootstrap(poolAddr);
 
-    _seedPool(pool, ctx.tok, tokens, seedUsdc);
+    _seedPool(pool, ctx.tok, tokens, seedUsdc, seedMarks);
   }
 
   function _assetParams(address tok, Tokens memory t, bool stable)
@@ -249,15 +353,21 @@ contract TestnetDeploy is Deploy {
     address oracle,
     address asset,
     address base,
+    address xaut,
     bytes32 usdcFeedId,
-    uint16 refBandBps
+    uint16 refBandBps,
+    address refOracle,
+    address xautRefOracle,
+    bytes32 xautRefFeedId
   ) internal pure returns (IPool.OracleConfig memory o) {
     o.primary = oracle;
     o.feedId = keccak256(abi.encodePacked(asset, base));
-    o.refFeedId = refBandBps > 0 ? usdcFeedId : bytes32(0);
-    o.refBandBps = refBandBps;
-    // Testnet self-ref. Mainnet volatiles MUST pin an INDEPENDENT refPrimary (separate signer set).
-    o.refPrimary = refBandBps > 0 ? oracle : address(0);
+    if (refBandBps != 0) {
+      bool isXaut = asset == xaut;
+      o.refFeedId = isXaut ? xautRefFeedId : usdcFeedId;
+      o.refBandBps = refBandBps;
+      o.refPrimary = isXaut ? xautRefOracle : refOracle;
+    }
     o.mode = 0;
   }
 
@@ -282,35 +392,40 @@ contract TestnetDeploy is Deploy {
     p.knots[4] = 50;
   }
 
-  function _seedPool(Pool pool, Tokens memory t, address[] memory tokens, uint256 seedUsdc)
-    internal
-  {
+  function _seedPool(
+    Pool pool,
+    Tokens memory t,
+    address[] memory tokens,
+    uint256 seedUsdc,
+    SeedMarks memory seedMarks
+  ) internal {
     for (uint256 i = 0; i < tokens.length; i++) {
       address tok = tokens[i];
-      uint256 amt = _seedAmount(tok, t, seedUsdc);
+      uint256 amt = _seedAmount(tok, t, seedUsdc, seedMarks);
       TestnetERC20(tok).mint(msg.sender, amt);
       IERC20(tok).approve(address(pool), type(uint256).max);
       pool.deposit(tok, amt);
     }
   }
 
-  function _seedAmount(address tok, Tokens memory t, uint256 seedUsdc)
+  function _seedAmount(address tok, Tokens memory t, uint256 seedUsdc, SeedMarks memory m)
     internal
     pure
     returns (uint256)
   {
-    if (
-      tok == address(t.usdc) || tok == address(t.usdt) || tok == address(t.usd1)
-        || tok == address(t.usde) || tok == address(t.fdusd)
-    ) {
-      return seedUsdc;
-    }
-    if (tok == address(t.btcb)) return seedUsdc * 1e18 / 64_300e18;
-    if (tok == address(t.eth)) return seedUsdc * 1e18 / 1_795e18;
-    if (tok == address(t.wbnb)) return seedUsdc * 1e18 / 574e18;
-    if (tok == address(t.cake)) return seedUsdc * 1e18 / 1.39e18;
-    if (tok == address(t.xaut)) return seedUsdc * 1e18 / 4_090e18;
-    return seedUsdc;
+    if (tok == address(t.usdc)) return seedUsdc;
+    uint256 mark;
+    if (tok == address(t.usdt)) mark = m.usdt;
+    else if (tok == address(t.usd1)) mark = m.usd1;
+    else if (tok == address(t.usde)) mark = m.usde;
+    else if (tok == address(t.fdusd)) mark = m.fdusd;
+    else if (tok == address(t.btcb)) mark = m.btcb;
+    else if (tok == address(t.eth)) mark = m.eth;
+    else if (tok == address(t.wbnb)) mark = m.wbnb;
+    else if (tok == address(t.cake)) mark = m.cake;
+    else if (tok == address(t.xaut)) mark = m.xaut;
+    else revert("unknown seed token");
+    return seedUsdc * 1e18 / mark;
   }
 
   function _fundFaucet(TestnetAddrs memory ctx) internal {

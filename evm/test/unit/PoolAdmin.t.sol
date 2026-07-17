@@ -189,9 +189,16 @@ contract PoolAdminTest is Test {
     h.callValidateOracleConfig(cfg);
   }
 
-  function test_validateOracle_refBandWithRefPrimaryPasses() public view {
+  function test_validateOracle_refBandWithIndependentRefPrimaryPasses() public {
     IPool.OracleConfig memory cfg = _refBandCfg();
-    cfg.refPrimary = address(mock); // self-ref allowed (stables); independence = deploy policy
+    cfg.refPrimary = address(new MockOracle());
+    h.callValidateOracleConfig(cfg);
+  }
+
+  function test_validateOracle_refBandWithSamePrimaryRejected() public {
+    IPool.OracleConfig memory cfg = _refBandCfg();
+    cfg.refPrimary = cfg.primary;
+    vm.expectRevert(Err.InvalidInput.selector);
     h.callValidateOracleConfig(cfg);
   }
 

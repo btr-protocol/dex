@@ -20,19 +20,24 @@ contract ExternalOracleGuardianTest is Test {
   address constant OUTSIDER = address(0xDEAD);
   uint16 constant TAU = 100;
   uint256 constant NXR_PK = 0xA11CE;
+  uint256 constant NXR_PK2 = 0xB0B;
+  uint256 constant NXR_PK3 = 0xCA401;
   bytes32 feedId;
   address nxr;
   uint16 startDev;
 
   function setUp() public {
     ac = new MockAC(address(this)); // this test contract = owner
-    ext = new ExternalOracle(address(ac), 600);
+    address[] memory initialSigners = new address[](3);
+    initialSigners[0] = vm.addr(NXR_PK);
+    initialSigners[1] = vm.addr(NXR_PK2);
+    initialSigners[2] = vm.addr(NXR_PK3);
+    ext = new ExternalOracle(address(ac), 600, initialSigners, 2);
     vm.warp(1_700_000_000);
     startDev = ext.MAX_DEV_THRESHOLD();
     ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, startDev, 3600);
     feedId = keccak256(abi.encodePacked(BASE, QUOTE));
     nxr = vm.addr(NXR_PK);
-    ext.grantSigner(nxr);
     ac.setGuardian(GUARDIAN, true);
   }
 
