@@ -64,6 +64,10 @@ library PoolIO {
       return amount;
     }
 
+    // Payable entrypoints exist solely for the native sentinel. Accepting ETH alongside an ERC-20
+    // pull would leave that value outside every reserve/protocol-fee ledger with no recovery path.
+    if (msg.value != 0) revert Err.InvalidInput();
+
     uint256 balBefore = _balanceOf(token);
     SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
     return _balanceOf(token) - balBefore;

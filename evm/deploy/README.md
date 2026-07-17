@@ -58,8 +58,17 @@ export ORACLE_SIGNER_0=0x...      # required: three distinct NXR attesters
 export ORACLE_SIGNER_1=0x...
 export ORACLE_SIGNER_2=0x...      # constructor atomically installs 2-of-3
 export REF_ORACLE=0x...           # independent oracle serving the USDC/USDC reference
+export REF_ORACLE_SIGNER_0=0x...  # exact three live signers on REF_ORACLE
+export REF_ORACLE_SIGNER_1=0x...  # must be disjoint from both other oracle sets
+export REF_ORACLE_SIGNER_2=0x...
 export XAUT_REF_ORACLE=0x...      # independent oracle serving XAUT/USDC
+export XAUT_REF_ORACLE_SIGNER_0=0x... # exact three live signers on XAUT_REF_ORACLE
+export XAUT_REF_ORACLE_SIGNER_1=0x...
+export XAUT_REF_ORACLE_SIGNER_2=0x...
 export XAUT_REF_FEED_ID=0x...     # keccak256(abi.encodePacked(XAUT,USDC)); 32-byte hex
+# The script rejects signer overlap, shared oracle/AC addresses, shared governance owners,
+# non-3-signer reference registries, pending reference threshold decreases, and old reference
+# implementations without signer-governance timelocks.
 # Required fresh NXR-derived token/USDC feed seeds, all in 1e18 fixed point. The script validates
 # every value before deploying anything and uses the same marks to size initial liquidity.
 # USDC/USDC is the identity feed and therefore must be exactly 1e18 (not USDC's market USD price).

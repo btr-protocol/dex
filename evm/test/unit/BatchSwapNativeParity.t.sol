@@ -143,6 +143,34 @@ contract BatchSwapNativeParityTest is Test {
     assertEq(weth.balanceOf(USER), wethBefore + outs[0], "must deliver WETH ERC-20");
   }
 
+  function test_erc20_deposit_rejects_stray_native_value() public {
+    vm.deal(USER, 1 ether);
+    vm.prank(USER);
+    vm.expectRevert(Err.InvalidInput.selector);
+    pool.deposit{value: 1 ether}(address(usdc), 100e18);
+
+    assertEq(address(pool).balance, 0, "stray ETH must not enter the pool");
+  }
+
+  function test_batchSwap_rejects_stray_native_value() public {
+    bytes memory inputs = abi.encodePacked(
+      bytes32((uint256(uint160(address(usdc))) << 96) | (uint256(M.encodeB64(100e18, 18)) << 32))
+    );
+    bytes memory outputs = abi.encodePacked(
+      bytes32(
+        (uint256(uint160(address(weth))) << 96) | (uint256(10_000) << 80)
+          | uint256(M.encodeB64(1, 18))
+      )
+    );
+
+    vm.deal(USER, 1 ether);
+    vm.prank(USER);
+    vm.expectRevert(Err.InvalidInput.selector);
+    pool.batchSwap{value: 1 ether}(inputs, outputs, USER);
+
+    assertEq(address(pool).balance, 0, "stray ETH must not enter the pool");
+  }
+
   function test_batchSwap_zero_input_leg_cannot_hide_behind_direct_base_input() public {
     skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1);
     uint256 baseLp = pool.getLPBalance(address(this), address(usdc));

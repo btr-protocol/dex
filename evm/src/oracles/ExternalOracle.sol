@@ -5,6 +5,7 @@ import {IOracle} from "../interfaces/IOracle.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
+import {Timelock as TL} from "@btr-shared/Timelock.sol";
 import {Constants as C} from "../libraries/Constants.sol";
 import {Oracle} from "../libraries/Oracle.sol";
 import {Maths as M} from "../libraries/Maths.sol";
@@ -14,14 +15,17 @@ import {ECDSA} from "solady/utils/ECDSA.sol";
 /// @title ExternalOracle
 /// @notice Push-based external oracle. NXR attests mark + σ + mark CI, signs the batch; any relayer lands
 ///         it via `batchPushSigned`. Quote = `lastPriceB64`; pricing σ = `sigmaEma`.
-/// @dev Price authority = k-of-n distinct granted signers over one EIP-712 digest (grantSigner +
-///      setSignerThreshold), decoupled from the relayer (`msg.sender`, unpermissioned). No
+/// @dev Price authority = k-of-n distinct granted signers over one EIP-712 digest, decoupled from
+///      the relayer (`msg.sender`, unpermissioned). Signer additions and threshold decreases are
+///      timelocked; emergency revocation and threshold increases remain immediate. No
 ///      signature-less/`msg.sender`-trusting push path exists.
 contract ExternalOracle is IOracle, EIP712 {
   address public immutable AC;
   uint32 public constant MAX_VOLATILITY = C.MAX_SIGMA_PBPS;
   uint16 public constant MAX_DEV_THRESHOLD = 65_000;
   uint8 public constant MAX_SIGNERS = 6;
+  uint48 public constant SIGNER_GOV_TIMELOCK = SC.BASE_TIMELOCK;
+  uint48 public constant SIGNER_GOV_GRACE = SC.GRACE_PERIOD;
   /// @dev Clock-skew allowance (s) for the signed-path future-dated bound. A signed blob whose sourceTs
   ///      leads wall-clock by more than this is rejected — an unbounded far-future sourceTs would clear
   ///      the monotonic guard and then permanently freeze the feed (no honest near-now push could ever
@@ -48,9 +52,16 @@ contract ExternalOracle is IOracle, EIP712 {
   ///         Initialized atomically to at least 2-of-3. Revoking signers BELOW the threshold is
   ///         deliberately allowed — it halts pushing, the fail-safe compromise response.
   uint8 public signerThreshold;
-  /// @notice Live granted-signer count (grantSigner/revokeSigner bookkeeping; caps setSignerThreshold).
+  /// @notice Live granted-signer count (executeSignerGrant/revokeSigner bookkeeping).
   /// @dev uint8 is sufficient under MAX_SIGNERS and packs with signerThreshold in the same slot.
   uint8 public signerCount;
+  /// @dev Pending threshold decrease and its grace-bearing timelock pack into the signer config slot.
+  uint8 public pendingSignerThreshold;
+  uint96 public pendingSignerThresholdOp;
+  /// @dev One pending signer grant at a time. Address + uint96 op exactly fill one slot and prevent a
+  ///      compromised owner from queue-farming many candidates that guardians must veto individually.
+  address public pendingSigner;
+  uint96 public pendingSignerGrantOp;
 
   /// @notice Immutable absolute freshness bound for the signed path (seconds).
   uint32 public immutable maxRelayLagSecs;
@@ -68,8 +79,12 @@ contract ExternalOracle is IOracle, EIP712 {
   );
   event FeedUpdated(bytes32 indexed feedId, uint16 maxDeviation, uint16 ttl);
   event SignerGranted(address indexed signer);
+  event SignerGrantRequested(address indexed signer, uint48 eta);
+  event SignerGrantCancelled(address indexed signer);
   event SignerRevoked(address indexed signer);
   event SignerThresholdSet(uint8 threshold);
+  event SignerThresholdDecreaseRequested(uint8 threshold, uint48 eta);
+  event SignerThresholdDecreaseCancelled(uint8 threshold);
   event FeedPaused(bytes32 indexed feedId);
   event FeedUnpaused(bytes32 indexed feedId);
   event MaxDeviationNarrowed(bytes32 indexed feedId, uint16 newMaxDeviation);
@@ -80,7 +95,7 @@ contract ExternalOracle is IOracle, EIP712 {
   }
 
   /// @dev Guardian gate: owner OR AC.isGuardian. Guardian may only HALT/TIGHTEN/CANCEL — every reverse
-  ///      (grantSigner, unpauseFeed, widen via updateFeed) stays owner-only. Guardian is owner-set +
+  ///      (requestSignerGrant, unpauseFeed, widen via updateFeed) stays owner-only. Guardian is owner-set +
   ///      instant-revocable (AC.isGuardian), the rogue-guardian bound. Mirrors Admin._onlyGuardianOrAdmin.
   function _onlyGuardianOrAdmin() internal view {
     AccessControl ac_ = AccessControl(AC);
@@ -172,18 +187,48 @@ contract ExternalOracle is IOracle, EIP712 {
     emit FeedUpdated(feedId, maxDeviation, ttl);
   }
 
-  function grantSigner(address signer) external onlyAdmin {
+  /// @notice Queue a signer addition. Adding price authority is a loosening and therefore cannot
+  ///         take effect in the same transaction (or block) as a compromised-owner request.
+  function requestSignerGrant(address signer) external onlyAdmin {
     if (signer == address(0)) revert Err.ZeroValue();
-    if (!signers[signer]) {
-      if (signerCount >= MAX_SIGNERS) revert Err.InvalidInput();
-      signers[signer] = true;
-      ++signerCount;
-      emit SignerGranted(signer);
+    if (signers[signer] || signerCount >= MAX_SIGNERS) revert Err.InvalidInput();
+    if (pendingSignerGrantOp != 0) revert Err.PendingTimelock(uint48(block.timestamp));
+    uint48 delay = SC.govDelay(SIGNER_GOV_TIMELOCK);
+    pendingSigner = signer;
+    pendingSignerGrantOp = TL.pack(delay, SIGNER_GOV_GRACE);
+    emit SignerGrantRequested(signer, uint48(block.timestamp) + delay);
+  }
+
+  /// @notice Execute a matured signer addition during its bounded grace window. Revalidates both
+  ///         membership and the hard signer cap because emergency revocations/other grants may have
+  ///         changed the live set while this request waited.
+  function executeSignerGrant() external onlyAdmin {
+    uint96 op = pendingSignerGrantOp;
+    if (op == 0) revert Err.InvalidState();
+    TL.validate(op);
+    address signer = pendingSigner;
+    if (signer == address(0) || signers[signer] || signerCount >= MAX_SIGNERS) {
+      revert Err.InvalidInput();
     }
+    delete pendingSigner;
+    delete pendingSignerGrantOp;
+    signers[signer] = true;
+    ++signerCount;
+    emit SignerGranted(signer);
+  }
+
+  /// @notice Guardian or owner may veto a pending authority addition, including an expired request.
+  function cancelSignerGrant() external {
+    _onlyGuardianOrAdmin();
+    if (pendingSignerGrantOp == 0) revert Err.InvalidState();
+    address signer = pendingSigner;
+    delete pendingSigner;
+    delete pendingSignerGrantOp;
+    emit SignerGrantCancelled(signer);
   }
 
   /// @notice Guardian OR owner may revoke a signer (fast removal of a leaked NXR key). Asymmetric with
-  ///         grantSigner (owner-only): worst rogue-guardian case = revoke all signers → feeds go stale →
+  ///         requestSignerGrant (owner-only): worst rogue-guardian case = revoke all signers → feeds go stale →
   ///         pool fail-closes = a safe halt, never a loosening. Revoking BELOW signerThreshold is
   ///         deliberately unblocked: dropping under k halts pushing (fail-safe), never loosens.
   function revokeSigner(address signer) external {
@@ -195,13 +240,48 @@ contract ExternalOracle is IOracle, EIP712 {
     }
   }
 
-  /// @notice Set the k-of-n signature threshold. Owner-only (raising is a hardening, lowering is a
-  ///         loosening — never a guardian power). Bounded to the live signer set so an unreachable
-  ///         threshold cannot be configured directly; reaching it via revokeSigner is the intended halt.
+  /// @notice Immediately RAISE the k-of-n threshold (hardening). Decreases must use the timelocked
+  ///         request/execute path below. Bounded to the live signer set so governance cannot directly
+  ///         configure an unreachable threshold; emergency revocation may still deliberately halt.
   function setSignerThreshold(uint8 t) external onlyAdmin {
-    if (t < 2 || t > signerCount) revert Err.InvalidInput();
+    if (t <= signerThreshold || t > signerCount) revert Err.InvalidInput();
     signerThreshold = t;
     emit SignerThresholdSet(t);
+  }
+
+  /// @notice Queue a quorum decrease. Only one decrease may be pending; it expires after the grace
+  ///         window and must then be explicitly cancelled before another request can be queued.
+  function requestSignerThresholdDecrease(uint8 t) external onlyAdmin {
+    if (t < 2 || t >= signerThreshold || t > signerCount) revert Err.InvalidInput();
+    if (pendingSignerThresholdOp != 0) revert Err.PendingTimelock(uint48(block.timestamp));
+    uint48 delay = SC.govDelay(SIGNER_GOV_TIMELOCK);
+    pendingSignerThreshold = t;
+    pendingSignerThresholdOp = TL.pack(delay, SIGNER_GOV_GRACE);
+    emit SignerThresholdDecreaseRequested(t, uint48(block.timestamp) + delay);
+  }
+
+  /// @notice Execute a matured quorum decrease. The target must still be a strict decrease and
+  ///         reachable by the live signer set at execution time.
+  function executeSignerThresholdDecrease() external onlyAdmin {
+    uint96 op = pendingSignerThresholdOp;
+    if (op == 0) revert Err.InvalidState();
+    TL.validate(op);
+    uint8 t = pendingSignerThreshold;
+    if (t < 2 || t >= signerThreshold || t > signerCount) revert Err.InvalidInput();
+    delete pendingSignerThreshold;
+    delete pendingSignerThresholdOp;
+    signerThreshold = t;
+    emit SignerThresholdSet(t);
+  }
+
+  /// @notice Guardian or owner may veto a pending quorum decrease, including an expired request.
+  function cancelSignerThresholdDecrease() external {
+    _onlyGuardianOrAdmin();
+    if (pendingSignerThresholdOp == 0) revert Err.InvalidState();
+    uint8 cancelled = pendingSignerThreshold;
+    delete pendingSignerThreshold;
+    delete pendingSignerThresholdOp;
+    emit SignerThresholdDecreaseCancelled(cancelled);
   }
 
   /// @notice Guardian OR owner may pause a feed (fast-freeze). Fail-closed: a paused feed reverts in

@@ -68,10 +68,17 @@ contract ExternalOracleGuardianTest is Test {
 
   // ─── guardian CANNOT unhalt / loosen / grant (reverse powers = owner-only) ───
 
-  function test_guardian_cannotGrantSigner() public {
+  function test_guardian_cannotRequestSignerGrant() public {
     vm.prank(GUARDIAN);
     vm.expectRevert(Err.NotAuth.selector);
-    ext.grantSigner(OUTSIDER);
+    ext.requestSignerGrant(OUTSIDER);
+  }
+
+  function test_guardian_canCancelSignerGrant() public {
+    ext.requestSignerGrant(OUTSIDER);
+    vm.prank(GUARDIAN);
+    ext.cancelSignerGrant();
+    assertEq(ext.pendingSignerGrantOp(), 0);
   }
 
   function test_guardian_cannotUnpauseFeed() public {

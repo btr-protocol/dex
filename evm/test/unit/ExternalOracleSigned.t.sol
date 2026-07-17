@@ -664,7 +664,7 @@ contract ExternalOracleSignedTest is Test {
 
   function test_setSignerThreshold_bounds() public {
     assertEq(ext.signerCount(), 3, "constructor installed three signers");
-    vm.expectRevert(Err.InvalidInput.selector); // t=0
+    vm.expectRevert(Err.InvalidInput.selector); // t=0 is not a raise
     ext.setSignerThreshold(0);
     vm.expectRevert(Err.InvalidInput.selector); // t=1 would recreate single-key authority
     ext.setSignerThreshold(1);
@@ -672,7 +672,13 @@ contract ExternalOracleSignedTest is Test {
     ext.setSignerThreshold(4);
     ext.setSignerThreshold(3);
     assertEq(ext.signerThreshold(), 3);
+    vm.expectRevert(Err.InvalidInput.selector); // decreases cannot bypass the timelock
     ext.setSignerThreshold(2);
+    ext.requestSignerThresholdDecrease(2);
+    vm.expectRevert(Err.NotReady.selector);
+    ext.executeSignerThresholdDecrease();
+    skip(ext.SIGNER_GOV_TIMELOCK());
+    ext.executeSignerThresholdDecrease();
     assertEq(ext.signerThreshold(), 2);
   }
 
@@ -680,24 +686,101 @@ contract ExternalOracleSignedTest is Test {
     vm.prank(address(0xDEAD));
     vm.expectRevert(Err.NotAuth.selector);
     ext.setSignerThreshold(3);
+
+    ext.setSignerThreshold(3);
+    vm.prank(address(0xDEAD));
+    vm.expectRevert(Err.NotAuth.selector);
+    ext.requestSignerThresholdDecrease(2);
   }
 
-  function test_signerCount_idempotentGrantRevoke() public {
-    ext.grantSigner(nxr); // re-grant existing signer
-    assertEq(ext.signerCount(), 3, "double grant does not double count");
+  function test_signerCount_rejectsExistingGrant_noopRevoke() public {
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.requestSignerGrant(nxr);
     ext.revokeSigner(address(0xDEAD)); // revoke a never-granted address
     assertEq(ext.signerCount(), 3, "no-op revoke does not underflow");
     ext.revokeSigner(nxr);
     assertEq(ext.signerCount(), 2, "revoke decrements");
   }
 
-  function test_grantSigner_capsSetAtSix() public {
-    ext.grantSigner(address(0x4444));
-    ext.grantSigner(address(0x5555));
-    ext.grantSigner(address(0x6666));
+  function test_grantSigner_timelockAndCapAtSix() public {
+    ext.requestSignerGrant(address(0x4444));
+    vm.expectRevert(Err.NotReady.selector);
+    ext.executeSignerGrant();
+    skip(ext.SIGNER_GOV_TIMELOCK());
+    ext.executeSignerGrant();
+    ext.requestSignerGrant(address(0x5555));
+    skip(ext.SIGNER_GOV_TIMELOCK());
+    ext.executeSignerGrant();
+    ext.requestSignerGrant(address(0x6666));
+    skip(ext.SIGNER_GOV_TIMELOCK());
+    ext.executeSignerGrant();
     assertEq(ext.signerCount(), ext.MAX_SIGNERS());
-    ext.grantSigner(address(0x4444)); // idempotent even when already at the cap
     vm.expectRevert(Err.InvalidInput.selector);
-    ext.grantSigner(address(0x7777));
+    ext.requestSignerGrant(address(0x7777));
+  }
+
+  function test_pendingSignerGrant_guardianCancelsAndExpiredCannotExecute() public {
+    address proposed = address(0x4444);
+    ext.requestSignerGrant(proposed);
+    ac.setGuardian(address(0xBEEF), true);
+    vm.prank(address(0xBEEF));
+    ext.cancelSignerGrant();
+    assertEq(ext.pendingSignerGrantOp(), 0);
+
+    ext.requestSignerGrant(proposed);
+    skip(ext.SIGNER_GOV_TIMELOCK() + ext.SIGNER_GOV_GRACE() + 1);
+    vm.expectRevert(Err.Expired.selector);
+    ext.executeSignerGrant();
+    ext.cancelSignerGrant(); // expired requests are explicitly clearable
+    assertEq(ext.pendingSignerGrantOp(), 0);
+  }
+
+  function test_pendingThresholdDecrease_guardianCanVeto() public {
+    ext.setSignerThreshold(3);
+    ext.requestSignerThresholdDecrease(2);
+    ac.setGuardian(address(0xBEEF), true);
+    vm.prank(address(0xBEEF));
+    ext.cancelSignerThresholdDecrease();
+    assertEq(ext.pendingSignerThresholdOp(), 0);
+    skip(ext.SIGNER_GOV_TIMELOCK());
+    vm.expectRevert(Err.InvalidState.selector);
+    ext.executeSignerThresholdDecrease();
+    assertEq(ext.signerThreshold(), 3);
+  }
+
+  function test_pendingThresholdDecrease_expiresAndCanBeCleared() public {
+    ext.setSignerThreshold(3);
+    ext.requestSignerThresholdDecrease(2);
+    skip(ext.SIGNER_GOV_TIMELOCK() + ext.SIGNER_GOV_GRACE() + 1);
+    vm.expectRevert(Err.Expired.selector);
+    ext.executeSignerThresholdDecrease();
+    ext.cancelSignerThresholdDecrease();
+    assertEq(ext.pendingSignerThresholdOp(), 0);
+    assertEq(ext.signerThreshold(), 3);
+  }
+
+  function test_pendingThresholdDecrease_revalidatesReachability() public {
+    ext.setSignerThreshold(3);
+    ext.requestSignerThresholdDecrease(2);
+    ext.revokeSigner(vm.addr(NXR_PK2));
+    ext.revokeSigner(vm.addr(NXR_PK3));
+    skip(ext.SIGNER_GOV_TIMELOCK());
+    vm.expectRevert(Err.InvalidInput.selector); // requested 2-of-1 is no longer reachable
+    ext.executeSignerThresholdDecrease();
+    assertEq(ext.signerThreshold(), 3);
+  }
+
+  function test_compromisedOwner_cannotReplaceQuorumWithoutDelay() public {
+    address attacker1 = address(0x4444);
+    address attacker2 = address(0x5555);
+    ext.revokeSigner(vm.addr(NXR_PK2));
+    ext.revokeSigner(vm.addr(NXR_PK3));
+    ext.requestSignerGrant(attacker1);
+    vm.expectRevert(abi.encodeWithSelector(Err.PendingTimelock.selector, uint48(block.timestamp)));
+    ext.requestSignerGrant(attacker2); // only one candidate can be farmed per delay window
+    vm.expectRevert(Err.NotReady.selector);
+    ext.executeSignerGrant();
+    assertFalse(ext.signers(attacker1));
+    assertFalse(ext.signers(attacker2));
   }
 }

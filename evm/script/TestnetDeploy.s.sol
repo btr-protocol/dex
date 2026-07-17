@@ -13,11 +13,13 @@ import {Maths as M} from "../src/libraries/Maths.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {console2} from "forge-std/Script.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 
 /// @title TestnetDeploy — chapel (chainId 97) full demo stack.
 /// @notice Extends singleton deploy with mock ERC20s, Faucet, ExternalOracle, two pools,
 ///         feeds (params aligned with deploy/testnet-asset-params.json), and seed liquidity.
-/// @dev Env: DEPLOYER_PK, ORACLE_SIGNER_0/1/2, REF_ORACLE, XAUT_REF_ORACLE,
+/// @dev Env: DEPLOYER_PK, ORACLE_SIGNER_0/1/2, REF_ORACLE + REF_ORACLE_SIGNER_0/1/2,
+///         XAUT_REF_ORACLE + XAUT_REF_ORACLE_SIGNER_0/1/2,
 ///         XAUT_REF_FEED_ID, and ORACLE_SEED_<SYMBOL>_1E18 for every listed feed (required).
 ///         Optional: WNATIVE (default 0xCAFE stub),
 ///         SEED_USDC (default 2_000_000e18 per pool side), DEPLOY_OUT.
@@ -64,6 +66,12 @@ contract TestnetDeploy is Deploy {
     uint256 xaut;
   }
 
+  struct SignerSets {
+    address[3] primary;
+    address[3] stableReference;
+    address[3] xautReference;
+  }
+
   struct TestnetAddrs {
     Deploy.Addrs core;
     ExternalOracle oracle;
@@ -75,22 +83,17 @@ contract TestnetDeploy is Deploy {
   }
 
   function deployTestnet() external returns (TestnetAddrs memory out) {
-    address signer0 = vm.envAddress("ORACLE_SIGNER_0");
-    address signer1 = vm.envAddress("ORACLE_SIGNER_1");
-    address signer2 = vm.envAddress("ORACLE_SIGNER_2");
-    require(
-      signer0 != address(0) && signer1 != address(0) && signer2 != address(0),
-      "three nonzero oracle signers required"
-    );
-    require(signer0 != signer1 && signer0 != signer2 && signer1 != signer2, "signers must differ");
+    SignerSets memory signerSets = _loadSignerSets();
     address refOracle = vm.envAddress("REF_ORACLE");
     address xautRefOracle = vm.envAddress("XAUT_REF_ORACLE");
     bytes32 xautRefFeedId = vm.envBytes32("XAUT_REF_FEED_ID");
     uint256 pk = vm.envUint("DEPLOYER_PK");
+    address deployer = vm.addr(pk);
+    _validateReferenceOracles(refOracle, xautRefOracle, signerSets, deployer);
     SeedMarks memory seedMarks = _loadSeedMarks();
 
     out.core = _broadcastDeploy();
-    address deployer = out.core.deployer;
+    require(out.core.deployer == deployer, "unexpected core deployer");
     address wnative = vm.envOr("WNATIVE", address(0xCAFE));
     uint256 seedUsdc = vm.envOr("SEED_USDC", uint256(2_000_000 ether));
 
@@ -100,9 +103,9 @@ contract TestnetDeploy is Deploy {
     out.faucet = new TestnetFaucet(deployer);
     _configureFaucet(out);
     address[] memory initialSigners = new address[](3);
-    initialSigners[0] = signer0;
-    initialSigners[1] = signer1;
-    initialSigners[2] = signer2;
+    initialSigners[0] = signerSets.primary[0];
+    initialSigners[1] = signerSets.primary[1];
+    initialSigners[2] = signerSets.primary[2];
     out.oracle = new ExternalOracle(out.core.ac, 120, initialSigners, 2);
     require(
       refOracle != address(0) && refOracle != address(out.oracle), "independent REF_ORACLE required"
@@ -216,6 +219,78 @@ contract TestnetDeploy is Deploy {
     m.wbnb = _seedMark("ORACLE_SEED_WBNB_1E18");
     m.cake = _seedMark("ORACLE_SEED_CAKE_1E18");
     m.xaut = _seedMark("ORACLE_SEED_XAUT_1E18");
+  }
+
+  function _loadSignerSets() internal view returns (SignerSets memory s) {
+    s.primary[0] = vm.envAddress("ORACLE_SIGNER_0");
+    s.primary[1] = vm.envAddress("ORACLE_SIGNER_1");
+    s.primary[2] = vm.envAddress("ORACLE_SIGNER_2");
+    s.stableReference[0] = vm.envAddress("REF_ORACLE_SIGNER_0");
+    s.stableReference[1] = vm.envAddress("REF_ORACLE_SIGNER_1");
+    s.stableReference[2] = vm.envAddress("REF_ORACLE_SIGNER_2");
+    s.xautReference[0] = vm.envAddress("XAUT_REF_ORACLE_SIGNER_0");
+    s.xautReference[1] = vm.envAddress("XAUT_REF_ORACLE_SIGNER_1");
+    s.xautReference[2] = vm.envAddress("XAUT_REF_ORACLE_SIGNER_2");
+
+    _validateSignerSets(s);
+  }
+
+  function _validateSignerSets(SignerSets memory s) internal pure {
+    address[] memory all = new address[](9);
+    for (uint256 i; i < 3; ++i) {
+      all[i] = s.primary[i];
+      all[i + 3] = s.stableReference[i];
+      all[i + 6] = s.xautReference[i];
+    }
+    for (uint256 i; i < all.length; ++i) {
+      require(all[i] != address(0), "nine nonzero oracle signers required");
+      for (uint256 j; j < i; ++j) {
+        require(all[i] != all[j], "oracle signer sets must be disjoint");
+      }
+    }
+  }
+
+  function _validateReferenceOracles(
+    address refOracle,
+    address xautRefOracle,
+    SignerSets memory s,
+    address primaryOwner
+  ) internal view {
+    require(
+      refOracle != address(0) && xautRefOracle != address(0) && refOracle != xautRefOracle,
+      "distinct reference oracles required"
+    );
+    (address refAc, address refOwner) =
+      _validateReferenceOracle(refOracle, s.stableReference, "invalid REF_ORACLE signer set");
+    (address xautRefAc, address xautRefOwner) =
+      _validateReferenceOracle(xautRefOracle, s.xautReference, "invalid XAUT_REF_ORACLE signer set");
+    require(refAc != xautRefAc, "reference oracle ACs must differ");
+    require(
+      refOwner != primaryOwner && xautRefOwner != primaryOwner && refOwner != xautRefOwner,
+      "oracle governance owners must differ"
+    );
+  }
+
+  function _validateReferenceOracle(
+    address oracle,
+    address[3] memory expectedSigners,
+    string memory errorMessage
+  ) internal view returns (address acAddr, address owner) {
+    require(oracle.code.length != 0, errorMessage);
+    ExternalOracle ref = ExternalOracle(oracle);
+    require(
+      ref.signerCount() == 3 && ref.signerThreshold() >= 2 && ref.pendingSignerGrantOp() == 0
+        && ref.pendingSignerThresholdOp() == 0 && ref.SIGNER_GOV_TIMELOCK() == 2 days
+        && ref.SIGNER_GOV_GRACE() == 7 days,
+      errorMessage
+    );
+    for (uint256 i; i < expectedSigners.length; ++i) {
+      require(ref.signers(expectedSigners[i]), errorMessage);
+    }
+    acAddr = ref.AC();
+    require(acAddr.code.length != 0, errorMessage);
+    owner = AccessControl(acAddr).owner();
+    require(owner != address(0), errorMessage);
   }
 
   function _seedMark(string memory envName) internal view returns (uint256 mark1e18) {
