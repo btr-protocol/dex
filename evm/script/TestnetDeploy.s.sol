@@ -32,8 +32,11 @@ contract TestnetDeploy is Deploy {
   uint16 internal constant CONF_SEED = 25; // bps interim
   // Per-push mark-move clamp (bps at zero staleness); grows linearly with staleness on re-sync.
   // Bounds a compromised pusher key. Stables barely move ⇒ tight; volatiles need headroom per push.
-  uint16 internal constant STABLE_MAXDEV = 100; // 1%
-  uint16 internal constant VOLATILE_MAXDEV = 500; // 5%
+  // maxDeviation is now the microstructure FLOOR of a volatility-adaptive band
+  // (allowed = floor + Z·σ·√(dtSource/interval)); σ drives the dynamic component, so the floor is
+  // kept small and the ticker's own volatility sets the real per-push allowance.
+  uint16 internal constant STABLE_MAXDEV = 50; // 0.5% floor (σ≈0 for pegged units)
+  uint16 internal constant VOLATILE_MAXDEV = 100; // 1% floor (σ scales this up per ticker)
 
   struct Tokens {
     TestnetERC20 usdc;

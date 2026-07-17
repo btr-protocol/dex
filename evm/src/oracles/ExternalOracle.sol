@@ -11,6 +11,7 @@ import {Oracle} from "../libraries/Oracle.sol";
 import {Maths as M} from "../libraries/Maths.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 import {ECDSA} from "solady/utils/ECDSA.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title ExternalOracle
 /// @notice Push-based external oracle. NXR attests mark + σ + mark CI, signs the batch; any relayer lands
@@ -24,6 +25,15 @@ contract ExternalOracle is IOracle, EIP712 {
   uint32 public constant MAX_VOLATILITY = C.MAX_SIGMA_PBPS;
   uint16 public constant MAX_DEV_THRESHOLD = 65_000;
   uint8 public constant MAX_SIGNERS = 6;
+  /// @dev Per-push deviation band = maxDeviation floor + DEV_SIGMA_Z·σ·√(dtSource/SIGMA_INTERVAL_S).
+  ///      The band is VOLATILITY-ADAPTIVE: a legitimate move over dtSource seconds for a ticker with
+  ///      per-interval volatility σ is ~ Z·σ·√(dtSource/interval) (Brownian). maxDeviation degrades to
+  ///      a microstructure/discretization FLOOR; σ (the STORED prior σ, never the incoming push's own —
+  ///      that would let a signer inflate its own band) is the adaptive term. SIGMA_INTERVAL_S matches
+  ///      NXR's 30-min Parkinson σ window. Z=6 ⇒ a 6σ sanity cap (per-push authenticity backstop; the
+  ///      CUMULATIVE bound on a compromised quorum is the independent refPrimary band, not this).
+  uint256 private constant DEV_SIGMA_Z = 6;
+  uint256 private constant SIGMA_INTERVAL_S = 1800;
   uint48 public constant SIGNER_GOV_TIMELOCK = SC.BASE_TIMELOCK;
   uint48 public constant SIGNER_GOV_GRACE = SC.GRACE_PERIOD;
   /// @dev Clock-skew allowance (s) for the signed-path future-dated bound. A signed blob whose sourceTs
@@ -409,17 +419,23 @@ contract ExternalOracle is IOracle, EIP712 {
   ///      authorizes AUTHENTICITY, not MAGNITUDE — this clamp backstops a compromised push quorum
   ///      per push; the CUMULATIVE bound is the independent refPrimary band (PoolIO.priceBandGuard),
   ///      not this.
+  /// @dev Volatility-adaptive per-push band. `allowed = maxDev + Z·σ·√(dt/interval)`, where σ is the
+  ///      STORED prior volatility (PBPS). σ_bps = σ_pbps/100; √(dt/interval) = √(dt·1e6/interval)/1000
+  ///      (integer). So the σ term in bps = Z·σ_pbps·√(dt·1e6/interval)/1e5. dt=0 (first push) ⇒ band =
+  ///      maxDev floor. Capped at MAX_DEV_THRESHOLD. prevSigma is trusted (already on-chain, floored
+  ///      each push at |Δmark|/mark) — a signer cannot widen THIS push's band with THIS push's σ.
   function _checkDeviation(
     uint256 prevMark1e18,
     uint256 mark1e18,
     uint256 dt,
-    uint16 ttl,
-    uint16 maxDev
+    uint16 maxDev,
+    uint32 prevSigmaPbps
   ) internal pure {
     uint256 diff = mark1e18 > prevMark1e18 ? mark1e18 - prevMark1e18 : prevMark1e18 - mark1e18;
     uint256 devBps = (diff * SC.BPS) / prevMark1e18;
-    uint256 allowed = uint256(maxDev);
-    allowed += (allowed * dt) / ttl;
+    uint256 allowed = uint256(maxDev)
+      + (DEV_SIGMA_Z * uint256(prevSigmaPbps) * FixedPointMathLib.sqrt(dt * 1e6 / SIGMA_INTERVAL_S))
+      / 1e5;
     if (allowed > MAX_DEV_THRESHOLD) allowed = MAX_DEV_THRESHOLD;
     if (devBps > allowed) revert Err.ThresholdViolation(devBps, allowed);
   }
@@ -473,18 +489,24 @@ contract ExternalOracle is IOracle, EIP712 {
     }
     if (dt == 0) revert Err.CooldownActive(1); // one mark/feed/block; duplicate idx in a batch fails closed
 
-    uint16 ttl = uint16((word >> 128) & 0xFFFF);
-    // Deviation band scales with ATTESTED source-time delta (chain-agnostic), not block time — see
-    // _checkDeviation. sourceTs > prevSourceTs already enforced (monotonic guard) so unchecked is
-    // safe. The first signed push has no authenticated prior source-time interval: use dt=0 so it
-    // receives exactly the configured maxDeviation instead of an epoch-sized/wide-cap exception.
+    // Deviation band is VOLATILITY-ADAPTIVE and scales with ATTESTED source-time delta (chain-agnostic,
+    // not block time) — floor + Z·σ·√(dtSource/interval), see _checkDeviation. sourceTs > prevSourceTs
+    // already enforced (monotonic guard) so unchecked is safe. The first signed push has no
+    // authenticated prior source-time interval: dt=0 ⇒ the band is exactly the maxDeviation floor (σ√dt
+    // term vanishes), never an epoch-sized wide-cap exemption.
     uint256 dtSourceSecs;
     if (prevSourceTs != 0) {
       unchecked {
         dtSourceSecs = (sourceTs - prevSourceTs) / 1000;
       }
     }
-    _checkDeviation(prevMark1e18, mark1e18, dtSourceSecs, ttl, uint16((word >> 192) & 0xFFFF));
+    _checkDeviation(
+      prevMark1e18,
+      mark1e18,
+      dtSourceSecs,
+      uint16((word >> 192) & 0xFFFF), // maxDeviation floor
+      uint32((word >> 64) & 0xFFFFFFFF) // stored σ (PBPS) drives the adaptive band
+    );
 
     // σ floor (economic circuit-breaker vs a compromised signer). The signature authorizes the
     // AUTHENTICITY of the mark, NOT the volatility — a signer signing σ=0 would collapse the pricing

@@ -189,12 +189,12 @@ contract ExternalOracleSignedTest is Test {
 
   // ─── deviation band (backstops a compromised push quorum; SOURCE-time-driven) ───
 
-  /// @dev Adds a 5%-band feed (idx 1) and lands a first signed push to seed sourceTs. With no prior
-  ///      authenticated source interval, the first push receives exactly the configured 5% band.
+  /// @dev Adds a feed (idx 1) with a 500-bps floor + σ=1e4 (1%/30min) and lands a first push to seed
+  ///      sourceTs. dt=0 on the first push ⇒ band = the maxDeviation floor (σ√dt term is 0).
   function _seedBandedFeed() internal returns (bytes32 id) {
     address da = address(0xDA5E);
     address db = address(0xDB5E);
-    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // 5% band, ttl 3600, idx=1
+    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // 500-bps floor, σ=1e4, idx=1
     id = keccak256(abi.encodePacked(da, db));
     skip(TAU);
     bytes memory seed = _rec(1, M.encodeB64(100e18, 18), 1e4, 5, _srcTs());
@@ -203,28 +203,29 @@ contract ExternalOracleSignedTest is Test {
 
   function test_reject_outOfBand() public {
     _seedBandedFeed();
-    skip(10); // source delta 10s → band = 500·(1+10/3600) = 501
-    bytes memory blob = _rec(1, M.encodeB64(110e18, 18), 1e4, 5, _srcTs()); // +10% ≫ 5%
+    // dtSource=10s, σ=1e4: band = 500 + 6·1e4·√(10·1e6/1800)/1e5 = 500 + 44 = 544 bps.
+    skip(10);
+    bytes memory blob = _rec(1, M.encodeB64(110e18, 18), 1e4, 5, _srcTs()); // +10% ≫ band
     vm.expectRevert(
-      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(501))
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(544))
     );
     ext.batchPushSigned(blob, _sign(NXR_PK, blob));
   }
 
-  /// H-2: the band grows LINEARLY with SOURCE staleness — maxDev·(1+dtSource/ttl) — so a legit
-  /// post-gap re-sync passes but an arbitrary jump bought by inducing staleness stays bounded.
-  /// At dtSource=ttl the band doubles.
+  /// H-2: the band grows with √(SOURCE staleness)·σ (Brownian) — floor + Z·σ·√(dtSource/interval) —
+  /// so a legit post-gap re-sync of a volatile feed passes, but an arbitrary jump bought by inducing
+  /// staleness stays bounded and NEVER exempts (no post-ttl free jump).
   function test_deviationBand_scalesWithSourceStaleness() public {
     bytes32 id = _seedBandedFeed();
-    skip(3600); // source delta = ttl → band = 500·(1+1) = 1000 bps (10%)
-    // A +200% jump is REJECTED even fully stale (was allowed under the old dt>=ttl exemption).
-    bytes memory j = _rec(1, M.encodeB64(300e18, 18), 1e4, 5, _srcTs());
+    // dtSource=3600s, σ=1e4: band = 500 + 6·1e4·√(3600·1e6/1800)/1e5 = 500 + 848 = 1348 bps.
+    skip(3600);
+    bytes memory j = _rec(1, M.encodeB64(300e18, 18), 1e4, 5, _srcTs()); // +200% REJECTED even fully stale
     vm.expectRevert(
-      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(20000), uint256(1000))
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(20000), uint256(1348))
     );
     ext.batchPushSigned(j, _sign(NXR_PK, j));
-    // A move within the doubled band commits (legit post-downtime drift).
-    bytes memory ok = _rec(1, M.encodeB64(108e18, 18), 1e4, 5, _srcTs()); // +8% < 10%
+    // A move within the vol-scaled band commits (legit post-downtime drift).
+    bytes memory ok = _rec(1, M.encodeB64(108e18, 18), 1e4, 5, _srcTs()); // +8% < 13.48%
     ext.batchPushSigned(ok, _sign(NXR_PK, ok));
     assertApproxEqRel(
       M.b64To1e18(ext.getFeed(id).lastPriceB64), 108e18, 0.001e18, "in-band re-sync committed"
@@ -255,18 +256,61 @@ contract ExternalOracleSignedTest is Test {
     );
   }
 
+  /// The band is VOLATILITY-ADAPTIVE: for the SAME source-time delta, a higher stored σ earns a wider
+  /// band and a lower σ a tighter one (band = floor + Z·σ·√(dt/interval)). A move that a high-vol
+  /// ticker clears is rejected on an otherwise-identical low-vol ticker.
+  function test_deviationBand_scalesWithTickerVolatility() public {
+    // Low-vol feed (idx 1): σ = 2e3 (0.2%/30min). High-vol feed (idx 2): σ = 5e4 (5%/30min).
+    address la = address(0x10A);
+    address lb = address(0x10B);
+    address ha = address(0x40A);
+    address hb = address(0x40B);
+    ext.addFeed(la, lb, M.encodeB64(100e18, 18), 2e3, 5, TAU, TAU, 100, 3600); // 100-bps floor, idx=1
+    ext.addFeed(ha, hb, M.encodeB64(100e18, 18), 5e4, 5, TAU, TAU, 100, 3600); // 100-bps floor, idx=2
+    bytes32 lid = keccak256(abi.encodePacked(la, lb));
+    bytes32 hid = keccak256(abi.encodePacked(ha, hb));
+    skip(TAU);
+    bytes memory ls = _rec(1, M.encodeB64(100e18, 18), 2e3, 5, _srcTs());
+    ext.batchPushSigned(ls, _sign(NXR_PK, ls));
+    bytes memory hs = _rec(2, M.encodeB64(100e18, 18), 5e4, 5, _srcTs());
+    ext.batchPushSigned(hs, _sign(NXR_PK, hs));
+
+    // Same dtSource=900s. Low-vol band = 100 + 6·2e3·√(900e6/1800)/1e5 = 100 + 84 = 184 bps.
+    // High-vol band = 100 + 6·5e4·√(900e6/1800)/1e5 = 100 + 2121 = 2221 bps.
+    skip(900);
+    // A +10% (1000 bps) move: REJECTED on the low-vol feed (> 184)...
+    bytes memory lbad = _rec(1, M.encodeB64(110e18, 18), 2e3, 5, _srcTs());
+    vm.expectRevert(
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(184))
+    );
+    ext.batchPushSigned(lbad, _sign(NXR_PK, lbad));
+    // ...but ACCEPTED on the high-vol feed (< 2221), same elapsed source time.
+    bytes memory hok = _rec(2, M.encodeB64(110e18, 18), 5e4, 5, _srcTs());
+    ext.batchPushSigned(hok, _sign(NXR_PK, hok));
+    assertApproxEqRel(
+      M.b64To1e18(ext.getFeed(hid).lastPriceB64), 110e18, 0.001e18, "high-vol move within its band"
+    );
+    assertApproxEqRel(
+      M.b64To1e18(ext.getFeed(lid).lastPriceB64),
+      100e18,
+      0.001e18,
+      "low-vol feed unchanged (rejected)"
+    );
+  }
+
   /// Wall-clock staleness no longer widens the band: a 1-hour block gap with a 1-second source
   /// delta keeps the flat band (the attacker cannot buy allowance by waiting out blocks), while
   /// the one-per-block cooldown stays block-time-based.
   function test_sourceTimeBand_wallGapWithoutSourceGapStaysFlat() public {
     _seedBandedFeed();
     uint64 ts = _srcTs();
-    // 500s WALL gap (within the 600s relay lag), 1s SOURCE gap. Block-time scaling would allow
-    // 500·(1+500/3600) = 569 bps; source-time keeps the band flat at 500 → +5.5% is rejected.
+    // 500s WALL gap (within the 600s relay lag), 1s SOURCE gap. Block-time scaling would inflate the
+    // band; source-time keeps it driven by the 1s SOURCE delta: band = 500 + 6·1e4·√(1e6/1800)/1e5 =
+    // 513 bps → +5.5% is rejected.
     skip(500);
-    bytes memory a = _rec(1, M.encodeB64(105_5e17, 18), 1e4, 5, ts + 1000); // +5.5% > flat 5%
+    bytes memory a = _rec(1, M.encodeB64(105_5e17, 18), 1e4, 5, ts + 1000); // +5.5% > band
     vm.expectRevert(
-      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(550), uint256(500))
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(550), uint256(513))
     );
     ext.batchPushSigned(a, _sign(NXR_PK, a));
   }
