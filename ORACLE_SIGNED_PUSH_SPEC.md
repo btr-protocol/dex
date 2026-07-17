@@ -60,7 +60,8 @@ Store σ directly (no `updateSigmaEma`). No event emitted (observability = `getF
 
 ## Migration
 - Legacy `pushFeed`/`batchPush` (onlyOracle, σ-EMA, `Pushed` event) kept during cutover. Deprecate once keeper relays signed quotes. Do NOT mix legacy + signed on the same feed (σ semantics differ: EMA vs direct).
-- Off-chain order (deferred, blocked on NXR dirty tree + integration): NXR signer service (sign DEX subset @200ms, stream via WS `kind:"signed"`) -> keeper subscribes stream, holds freshest, relays on local θ/heartbeat trigger -> zero round-trip, next-block. Move keeper off 12s REST poll.
+- NXR quorum (BUILT, nx-rates `core/src/server/signed.rs`): each replica holds its own `NXR_SIGNER_KEY`; `/v1/quote/signed` self-signs + fans the blob to `peers` (`POST /v1/quote/cosign`, internal-only); a peer countersigns ONLY after re-validating every record vs its OWN live view (price tolerance bps, sourceTs skew, σ/CI understatement guards); sigs deduped by recovered attester; `< quorum` fails the quote closed (503). Response = `{blob, sigs[]}`; keeper sorts by recovered address + concatenates (`sort_and_concat_sigs`).
+- Still deferred: WS `kind:"signed"` stream (keeper on 12s REST poll today; poll works for testnet, stream = latency optimization).
 
 ## Gas targets (to be MEASURED by ExternalOracleSigned.t.sol gas report)
 | | legacy batchPush(10)/feed | signed batchPushSigned(10)/feed |
