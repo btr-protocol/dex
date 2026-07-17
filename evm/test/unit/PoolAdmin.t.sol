@@ -167,6 +167,50 @@ contract PoolAdminTest is Test {
     h.callValidateOracleConfig(cfg);
   }
 
+  // ─── Layer-3 (Ostium hardening): armed ref band requires an explicit, reachable refPrimary ───
+
+  function _refBandCfg() internal view returns (IPool.OracleConfig memory cfg) {
+    cfg.primary = address(mock);
+    cfg.refFeedId = bytes32(uint256(1));
+    cfg.refBandBps = 100;
+  }
+
+  function test_validateOracle_refBandWithoutRefPrimaryRejected() public {
+    IPool.OracleConfig memory cfg = _refBandCfg();
+    vm.expectRevert(Err.InvalidInput.selector); // refPrimary == 0 with an armed band
+    h.callValidateOracleConfig(cfg);
+  }
+
+  function test_validateOracle_refBandWithoutRefFeedIdRejected() public {
+    IPool.OracleConfig memory cfg = _refBandCfg();
+    cfg.refFeedId = bytes32(0);
+    cfg.refPrimary = address(mock);
+    vm.expectRevert(Err.InvalidInput.selector);
+    h.callValidateOracleConfig(cfg);
+  }
+
+  function test_validateOracle_refBandWithRefPrimaryPasses() public view {
+    IPool.OracleConfig memory cfg = _refBandCfg();
+    cfg.refPrimary = address(mock); // self-ref allowed (stables); independence = deploy policy
+    h.callValidateOracleConfig(cfg);
+  }
+
+  function test_validateOracle_unreachableRefPrimaryRejected() public {
+    MockOracle dead = new MockOracle();
+    dead.setRevert(true);
+    IPool.OracleConfig memory cfg = _refBandCfg();
+    cfg.refPrimary = address(dead);
+    vm.expectRevert(Err.InvalidInput.selector);
+    h.callValidateOracleConfig(cfg);
+  }
+
+  function test_validateOracle_disarmedBandSkipsRefChecks() public view {
+    IPool.OracleConfig memory cfg;
+    cfg.primary = address(mock);
+    cfg.refFeedId = bytes32(uint256(1)); // id set but band 0 → no ref validation
+    h.callValidateOracleConfig(cfg);
+  }
+
   // ─── initAsset ───
 
   function test_initAsset_baseTokenHasNoAnchor() public {

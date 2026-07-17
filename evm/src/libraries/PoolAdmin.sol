@@ -103,12 +103,22 @@ library PoolAdmin {
     if (refBand && cfg.refBandBps > C.MAX_STABLE_DEPEG_BAND_BPS) revert Err.BadConfig();
   }
 
-  /// @notice Validate oracle config: primary set + reachable.
+  /// @notice Validate oracle config: primary set + reachable; an armed ref band (refBandBps != 0)
+  ///         requires refFeedId AND an explicit, reachable refPrimary. refPrimary MAY equal primary
+  ///         (stable self-ref); volatile deploy configs MUST pin an INDEPENDENT signer set there —
+  ///         a ref co-signed by the compromised quorum bounds nothing (deploy policy, not enforced).
   function validateOracleConfig(IPool.OracleConfig memory cfg) internal view {
     if (cfg.primary == address(0)) revert Err.InvalidInput();
     try IOracle(cfg.primary).getFeed(cfg.feedId) returns (IOracle.FeedData memory) {}
     catch {
       revert Err.InvalidInput();
+    }
+    if (cfg.refBandBps != 0) {
+      if (cfg.refFeedId == bytes32(0) || cfg.refPrimary == address(0)) revert Err.InvalidInput();
+      try IOracle(cfg.refPrimary).getFeed(cfg.refFeedId) returns (IOracle.FeedData memory) {}
+      catch {
+        revert Err.InvalidInput();
+      }
     }
   }
 

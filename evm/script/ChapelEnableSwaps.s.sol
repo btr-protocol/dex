@@ -255,6 +255,9 @@ contract ChapelEnableSwaps is Script {
     if (asset != USDC && refBandBps != 0) {
       o.refFeedId = USDC_FEED;
       o.refBandBps = refBandBps;
+      // Testnet self-ref (same oracle instance). Mainnet volatiles MUST pin an INDEPENDENT
+      // refPrimary (separate signer set) — see validateOracleConfig.
+      o.refPrimary = ORACLE;
     } else {
       o.refFeedId = bytes32(0);
       o.refBandBps = 0;

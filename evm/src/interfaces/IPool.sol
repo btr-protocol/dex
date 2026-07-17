@@ -59,6 +59,12 @@ interface IPool is IOracle {
     // refBandBps STAY populated — the external feed is the depeg breaker (gate), not the price
     // source. Eligibility: fixed-peg assets ONLY (see setOracleConfig validation).
     uint8 mode;
+    // Oracle instance serving refFeedId — MAY differ from `primary`. An INDEPENDENT signer set here
+    // makes the refBand a true CUMULATIVE bound on a compromised push quorum (a ref feed co-signed
+    // by the same keys is moot). 0 = fall back to `primary` (legacy/self-ref); validation requires
+    // it non-zero whenever refBandBps != 0. Stables MAY self-ref (refPrimary == primary); volatile
+    // deploy configs MUST pin an independent refPrimary. Appended last: own slot, prior packing kept.
+    address refPrimary;
   }
 
   struct FeeParams {

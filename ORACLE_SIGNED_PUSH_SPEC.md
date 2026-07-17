@@ -33,8 +33,10 @@ byte 16-23  sourceTs   uint64   ms since epoch. MUST be < 2^48 (fits slot). stri
 - `blobHash = keccak256(blob)` — the exact packed calldata bytes (idx-based). Safe because feedIds is append-only (idx never remaps); a feed added between sign and land leaves lower indices unchanged.
 - `structHash = keccak256(abi.encode(BATCH_TYPEHASH, blobHash))`.
 - `digest = _hashTypedDataV4(structHash)`.
-- `signer = ECDSA.recoverCalldata(digest, sig)` (solady). NOTE: `recoverCalldata` does NOT reject a malleable `s`/`v` (~4 valid encodings per logical sig). Safe here because replay defense is the on-chain monotonic `sourceTs`, NEVER signature uniqueness. Do not add any state keyed on signature bytes.
-- One signature over the whole batch. Relay `msg.sender` is unpermissioned.
+- `sigs` = k CONCATENATED 65-byte ECDSA signatures (`r||s||v`, fixed stride, no EIP-2098) over the SAME digest. `sigs.length % 65 == 0`, `k = sigs.length / 65 >= signerThreshold`.
+- Each sig recovers via `ECDSA.recoverCalldata(digest, sigs[i*65:(i+1)*65])`; every recovered address must be a granted signer AND strictly greater than the previous one. Strictly-increasing recovered addresses = the distinctness check: rejects duplicates and unsorted input, so relays MUST sort sigs by recovered signer address ascending.
+- NOTE: `recoverCalldata` does NOT reject a malleable `s`/`v` (~4 valid encodings per logical sig). Safe here because replay defense is the on-chain monotonic `sourceTs`, NEVER signature uniqueness. Do not add any state keyed on signature bytes.
+- k signatures over the whole batch, all verified before any state write. Relay `msg.sender` is unpermissioned.
 
 ## Known tradeoffs (audit cohorts A+B, 0 CRIT / 0 HIGH)
 - **Permissionless-relay grief (F-2, LOW/MED)**: any address may relay. An attacker buffering older-but-still-valid signed blobs can race to land one first in a block; the honest fresher blob then reverts on the one-per-block guard that block. Bounded to ~1-block staleness, self-limiting (monotonic sourceTs; a given blob lands at most once), backstopped by the deviation band + `updatedAt` staleness premium. Inherent to the decoupled relay design. If observed on mainnet, add an optional allowlisted-relayer mode.
@@ -46,12 +48,15 @@ byte 16-23  sourceTs   uint64   ms since epoch. MUST be < 2^48 (fits slot). stri
 1. `feedIds[idx]` bounds check (OOB reverts). `prevAt != 0` (feed exists).
 2. **Monotonic**: `sourceTs > prevSourceTs`, and `sourceTs < 2^48`. Replay of a landed batch fails (all sourceTs == stored).
 3. **One per block**: `dt = block.timestamp - prevAt != 0` (else `CooldownActive`). Bounds per-block move to one band step; makes duplicate idx in a batch fail-closed.
-4. **Deviation band**: `devBps <= maxDeviation*(1 + dt/ttl)` capped `MAX_DEV_THRESHOLD` (65_000). Unchanged from legacy; backstops a compromised NXR key (signature authorizes authenticity, NOT magnitude).
+4. **Deviation band (SOURCE-time-driven per-push sanity cap)**: `devBps <= maxDeviation*(1 + dtSource/ttl)` capped `MAX_DEV_THRESHOLD` (65_000), where `dtSource = (sourceTs - prevSourceTs)/1000` seconds of ATTESTED source time. Chain-agnostic: identical %/wall-second allowance on a 400ms and a 12s chain; a fast chain gets no extra cumulative walk from more blocks. First signed push (prevSourceTs == 0) caps at MAX_DEV_THRESHOLD, same as a long-stale re-sync. This is a per-push SANITY cap only; the CUMULATIVE bound on a compromised push quorum is the independent `refPrimary` band (below).
 5. `b64To1e18(price) != 0`, `sigma <= MAX_VOLATILITY`.
 Store σ directly (no `updateSigmaEma`). No event emitted (observability = `getFeed()` state polling, per `collector/snapshot.ts`).
 
-## Signer registry
-`mapping(address => bool) signers` + `grantSigner`/`revokeSigner` (onlyAdmin), mirrors `oracles`. Seed NXR key post-deploy. <= 6 signers; any one valid signer authorizes (OR semantics). Multi-sig-of-N (require k distinct signers) is a future option, not built.
+## Signer registry (k-of-n)
+`mapping(address => bool) signers` + `uint8 signerThreshold` + `uint256 signerCount`. `grantSigner` (owner) / `revokeSigner` (guardian OR owner) keep `signerCount` in sync (idempotent). `setSignerThreshold(t)` (owner) requires `1 <= t <= signerCount`. Deploy default threshold = 1; deploy flow grants the signer set then raises to 2-of-3. Revoking below the threshold is deliberately allowed: it HALTS pushing (fail-safe compromise response); feeds go stale and the pool fail-closes. <= 6 signers.
+
+## Independent reference feed (the cumulative bound)
+`OracleConfig.refPrimary` (per asset, in the pool) points the depeg ref band at a SEPARATE oracle instance with an independent signer set. `PoolIO.priceBandGuard` reads `refPrimary` (fallback to `primary` only when 0, legacy/self-ref) and fail-closes via `Oracle.gate`. Validation: `refBandBps != 0` requires `refFeedId != 0` AND `refPrimary != 0` (both reachable). Stables MAY self-ref (`refPrimary == primary`); volatile deploy configs MUST pin an independent `refPrimary`, else the breaker is moot (co-signed ref). Result: a compromised push quorum cannot walk the mark past `refBandBps` of the independent reference without halting swaps; push-rate-independent, magnitude-based.
 
 ## Migration
 - Legacy `pushFeed`/`batchPush` (onlyOracle, σ-EMA, `Pushed` event) kept during cutover. Deprecate once keeper relays signed quotes. Do NOT mix legacy + signed on the same feed (σ semantics differ: EMA vs direct).
@@ -63,6 +68,6 @@ Store σ directly (no `updateSigmaEma`). No event emitted (observability = `getF
 | event | Pushed ~2524 | none |
 | σ | updateSigmaEma ~800 | 0 (direct store) |
 | calldata | 128 B ABI | 24 B packed |
-| auth | onlyOracle SLOAD (once) | ecrecover 3000 (once) |
+| auth | onlyOracle SLOAD (once) | k x ecrecover ~3000+ (k = signerThreshold) |
 | target | ~12,900 | ~8,960 (-31%) |
 vs Scribe poke bar=1 measured 60,700 (`docs/Benchmarks.md`).

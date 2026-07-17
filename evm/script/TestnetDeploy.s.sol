@@ -256,6 +256,8 @@ contract TestnetDeploy is Deploy {
     o.feedId = keccak256(abi.encodePacked(asset, base));
     o.refFeedId = refBandBps > 0 ? usdcFeedId : bytes32(0);
     o.refBandBps = refBandBps;
+    // Testnet self-ref. Mainnet volatiles MUST pin an INDEPENDENT refPrimary (separate signer set).
+    o.refPrimary = refBandBps > 0 ? oracle : address(0);
     o.mode = 0;
   }
 

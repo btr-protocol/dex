@@ -113,6 +113,8 @@ contract ChapelApplyStableParams is Script {
     if (tok != USDC && refBand != 0) {
       o.refFeedId = USDC_FEED;
       o.refBandBps = refBand;
+      // Testnet self-ref. Mainnet volatiles MUST pin an INDEPENDENT refPrimary (separate signer set).
+      o.refPrimary = ORACLE;
     } else {
       o.refFeedId = bytes32(0);
       o.refBandBps = 0;

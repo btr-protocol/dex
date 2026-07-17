@@ -14,8 +14,9 @@ import {ECDSA} from "solady/utils/ECDSA.sol";
 /// @title ExternalOracle
 /// @notice Push-based external oracle. NXR attests mark + σ + mark CI, signs the batch; any relayer lands
 ///         it via `batchPushSigned`. Quote = `lastPriceB64`; pricing σ = `sigmaEma`.
-/// @dev Price authority = `ecrecover(digest) ∈ signers` (grantSigner), decoupled from the relayer
-///      (`msg.sender`, unpermissioned). No signature-less/`msg.sender`-trusting push path exists.
+/// @dev Price authority = k-of-n distinct granted signers over one EIP-712 digest (grantSigner +
+///      setSignerThreshold), decoupled from the relayer (`msg.sender`, unpermissioned). No
+///      signature-less/`msg.sender`-trusting push path exists.
 contract ExternalOracle is IOracle, EIP712 {
   address public immutable AC;
   uint32 public constant MAX_VOLATILITY = C.MAX_SIGMA_PBPS;
@@ -35,9 +36,16 @@ contract ExternalOracle is IOracle, EIP712 {
 
   mapping(bytes32 => FeedData) private feeds;
   bytes32[] public feedIds;
-  /// @notice NXR attester keys. A signed quote is authorized iff `ecrecover(digest) ∈ signers` — the
-  ///         relayer (`msg.sender`) is unpermissioned. Decouples price-authority from push-liveness.
+  /// @notice NXR attester keys. A signed quote is authorized iff `signerThreshold` DISTINCT granted
+  ///         signers signed the batch digest — the relayer (`msg.sender`) is unpermissioned.
+  ///         Decouples price-authority from push-liveness.
   mapping(address => bool) public signers;
+  /// @notice k-of-n signature threshold for `batchPushSigned` (Ostium single-key hardening). Deploy
+  ///         default 1; owner raises after granting the signer set. Revoking signers BELOW the
+  ///         threshold is deliberately allowed — it halts pushing, the fail-safe compromise response.
+  uint8 public signerThreshold;
+  /// @notice Live granted-signer count (grantSigner/revokeSigner bookkeeping; caps setSignerThreshold).
+  uint256 public signerCount;
 
   /// @dev Deployment-time ceiling for authenticated source age.
   uint32 public constant MAX_RELAY_LAG_SECS = 1 days;
@@ -59,6 +67,7 @@ contract ExternalOracle is IOracle, EIP712 {
   event FeedUpdated(bytes32 indexed feedId, uint16 maxDeviation, uint16 ttl);
   event SignerGranted(address indexed signer);
   event SignerRevoked(address indexed signer);
+  event SignerThresholdSet(uint8 threshold);
   event FeedPaused(bytes32 indexed feedId);
   event FeedUnpaused(bytes32 indexed feedId);
   event MaxDeviationNarrowed(bytes32 indexed feedId, uint16 newMaxDeviation);
@@ -88,6 +97,8 @@ contract ExternalOracle is IOracle, EIP712 {
     ) revert Err.InvalidInput();
     AC = ac_;
     maxRelayLagSecs = maxRelayLagSecs_;
+    // Bootstrap threshold: 1 (deploy grants the signer set, then raises via setSignerThreshold).
+    signerThreshold = 1;
   }
 
   function addFeed(
@@ -143,17 +154,33 @@ contract ExternalOracle is IOracle, EIP712 {
 
   function grantSigner(address signer) external onlyAdmin {
     if (signer == address(0)) revert Err.ZeroValue();
-    signers[signer] = true;
-    emit SignerGranted(signer);
+    if (!signers[signer]) {
+      signers[signer] = true;
+      ++signerCount;
+      emit SignerGranted(signer);
+    }
   }
 
   /// @notice Guardian OR owner may revoke a signer (fast removal of a leaked NXR key). Asymmetric with
   ///         grantSigner (owner-only): worst rogue-guardian case = revoke all signers → feeds go stale →
-  ///         pool fail-closes = a safe halt, never a loosening.
+  ///         pool fail-closes = a safe halt, never a loosening. Revoking BELOW signerThreshold is
+  ///         deliberately unblocked: dropping under k halts pushing (fail-safe), never loosens.
   function revokeSigner(address signer) external {
     _onlyGuardianOrAdmin();
-    signers[signer] = false;
-    emit SignerRevoked(signer);
+    if (signers[signer]) {
+      signers[signer] = false;
+      --signerCount;
+      emit SignerRevoked(signer);
+    }
+  }
+
+  /// @notice Set the k-of-n signature threshold. Owner-only (raising is a hardening, lowering is a
+  ///         loosening — never a guardian power). Bounded to the live signer set so an unreachable
+  ///         threshold cannot be configured directly; reaching it via revokeSigner is the intended halt.
+  function setSignerThreshold(uint8 t) external onlyAdmin {
+    if (t == 0 || t > signerCount) revert Err.InvalidInput();
+    signerThreshold = t;
+    emit SignerThresholdSet(t);
   }
 
   /// @notice Guardian OR owner may pause a feed (fast-freeze). Fail-closed: a paused feed reverts in
@@ -198,22 +225,40 @@ contract ExternalOracle is IOracle, EIP712 {
     return ("BTR ExternalOracle", "1");
   }
 
-  /// @notice Relay an NXR-signed batch of quotes. Auth = `ecrecover(digest) ∈ signers`; the relayer
-  ///         (`msg.sender`) needs no permission. One ECDSA sig over the whole `blob`. Single push =
-  ///         a 24-byte blob (n=1). Packed record layout + digest: see ORACLE_SIGNED_PUSH_SPEC.md.
+  /// @notice Relay an NXR-signed batch of quotes. Auth = k-of-n: `sigs` = concatenated 65-byte ECDSA
+  ///         signatures over the SAME EIP-712 digest (whole `blob`), k >= signerThreshold, each
+  ///         recovering to a DISTINCT granted signer. Distinctness is enforced by strictly-increasing
+  ///         recovered address — rejects duplicates AND unsorted input (the standard cheap multisig
+  ///         check). The relayer (`msg.sender`) needs no permission. Single push = a 24-byte blob
+  ///         (n=1). Packed record layout + digest: see ORACLE_SIGNED_PUSH_SPEC.md.
   /// @param blob Packed records, 24 B each: idx(u16)|price(u64)|sigma(u32)|conf(u16)|sourceTs(u64).
-  /// @param sig  65-byte (or EIP-2098 64-byte) ECDSA signature over the EIP-712 digest.
-  function batchPushSigned(bytes calldata blob, bytes calldata sig) external {
+  /// @param sigs k concatenated 65-byte ECDSA signatures, sorted by recovered signer address.
+  function batchPushSigned(bytes calldata blob, bytes calldata sigs) external {
     uint256 len = blob.length;
     if (len == 0 || len % RECORD_BYTES != 0) revert Err.InvalidInput();
+    // Fixed 65-byte stride (no EIP-2098): the count IS the quorum claim, so it must be unambiguous.
+    uint256 k = sigs.length / 65;
+    if (sigs.length % 65 != 0 || k < signerThreshold) revert Err.InvalidInput();
 
-    // Verify BEFORE any state change (checks-effects). blobHash commits to the exact idx-based bytes;
-    // safe because feedIds is append-only (idx never remaps).
+    // Verify ALL sigs BEFORE any state change (checks-effects). blobHash commits to the exact
+    // idx-based bytes; safe because feedIds is append-only (idx never remaps).
     // SECURITY: replay defense is the per-feed monotonic sourceTs (_pushSignedInternal), NEVER signature
     // uniqueness — recoverCalldata does not reject a malleable s. Never key any state on the sig bytes.
     bytes32 digest = _hashTypedData(keccak256(abi.encode(BATCH_TYPEHASH, keccak256(blob))));
-    address signer = ECDSA.recoverCalldata(digest, sig);
-    if (!signers[signer]) revert Err.NotAuth();
+    address prev;
+    for (uint256 i; i < k;) {
+      uint256 off;
+      unchecked {
+        off = i * 65;
+      }
+      address rec = ECDSA.recoverCalldata(digest, sigs[off:off + 65]);
+      // Strictly-increasing recovered address ⇒ k DISTINCT signers (dups/unsorted fail closed).
+      if (rec <= prev || !signers[rec]) revert Err.NotAuth();
+      prev = rec;
+      unchecked {
+        ++i;
+      }
+    }
 
     // Absolute freshness floor (ms), read ONCE (no per-feed SLOAD). A signed blob
     // whose sourceTs predates (now - maxRelayLag) is rejected fail-closed — see `maxRelayLagSecs`.
@@ -255,9 +300,14 @@ contract ExternalOracle is IOracle, EIP712 {
     if (sigmaSample > MAX_VOLATILITY) revert Err.ThresholdViolation(sigmaSample, MAX_VOLATILITY);
   }
 
-  /// @dev Per-push mark-move clamp (D1/H-2). Band grows linearly with staleness: maxDeviation·(1 + dt/ttl),
-  ///      hard-capped at MAX_DEV_THRESHOLD. Fail-closed on out-of-band and on maxDev==0. The signature
-  ///      authorizes AUTHENTICITY, not MAGNITUDE — this clamp backstops a compromised NXR signer key.
+  /// @dev Per-push mark-move SANITY cap (D1/H-2), SOURCE-TIME-driven: `dt` = attested sourceTs delta
+  ///      (s), NOT wall-clock landing delta. Band grows linearly with source staleness:
+  ///      maxDeviation·(1 + dt/ttl), hard-capped at MAX_DEV_THRESHOLD. Source-time makes the bound
+  ///      identical %/wall-second on a 400ms chain and a 12s chain — a fast chain gets no extra
+  ///      cumulative walk from more blocks. Fail-closed on out-of-band and on maxDev==0. The signature
+  ///      authorizes AUTHENTICITY, not MAGNITUDE — this clamp backstops a compromised push quorum
+  ///      per push; the CUMULATIVE bound is the independent refPrimary band (PoolIO.priceBandGuard),
+  ///      not this.
   function _checkDeviation(
     uint256 prevMark1e18,
     uint256 mark1e18,
@@ -323,7 +373,15 @@ contract ExternalOracle is IOracle, EIP712 {
     if (dt == 0) revert Err.CooldownActive(1); // one mark/feed/block; duplicate idx in a batch fails closed
 
     uint16 ttl = uint16((word >> 128) & 0xFFFF);
-    _checkDeviation(prevMark1e18, mark1e18, dt, ttl, uint16((word >> 192) & 0xFFFF));
+    // Deviation band scales with ATTESTED source-time delta (chain-agnostic), not block time — see
+    // _checkDeviation. sourceTs > prevSourceTs already enforced (monotonic guard) so unchecked is
+    // safe. prevSourceTs==0 (first signed push after addFeed) yields a huge delta → band caps at
+    // MAX_DEV_THRESHOLD, same as a long-stale re-sync.
+    uint256 dtSourceSecs;
+    unchecked {
+      dtSourceSecs = (sourceTs - prevSourceTs) / 1000;
+    }
+    _checkDeviation(prevMark1e18, mark1e18, dtSourceSecs, ttl, uint16((word >> 192) & 0xFFFF));
 
     // σ floor (economic circuit-breaker vs a compromised signer). The signature authorizes the
     // AUTHENTICITY of the mark, NOT the volatility — a signer signing σ=0 would collapse the pricing

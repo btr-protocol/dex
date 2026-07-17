@@ -161,13 +161,23 @@ contract ExternalOracleSignedTest is Test {
     ext.batchPushSigned(b, _sign(NXR_PK, b));
   }
 
-  // ─── deviation band (backstops a compromised NXR key) ───
+  // ─── deviation band (backstops a compromised push quorum; SOURCE-time-driven) ───
 
-  function test_reject_outOfBand() public {
+  /// @dev Adds a 5%-band feed (idx 1) and lands a first signed push to seed sourceTs — the band is
+  ///      source-time-driven, and a prevSourceTs of 0 (fresh addFeed) caps it at MAX_DEV_THRESHOLD.
+  function _seedBandedFeed() internal returns (bytes32 id) {
     address da = address(0xDA5E);
     address db = address(0xDB5E);
-    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // 5% band, idx=1
-    skip(10);
+    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // 5% band, ttl 3600, idx=1
+    id = keccak256(abi.encodePacked(da, db));
+    skip(TAU);
+    bytes memory seed = _rec(1, M.encodeB64(100e18, 18), 1e4, 5, _srcTs());
+    ext.batchPushSigned(seed, _sign(NXR_PK, seed));
+  }
+
+  function test_reject_outOfBand() public {
+    _seedBandedFeed();
+    skip(10); // source delta 10s → band = 500·(1+10/3600) = 501
     bytes memory blob = _rec(1, M.encodeB64(110e18, 18), 1e4, 5, _srcTs()); // +10% ≫ 5%
     vm.expectRevert(
       abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(501))
@@ -175,14 +185,12 @@ contract ExternalOracleSignedTest is Test {
     ext.batchPushSigned(blob, _sign(NXR_PK, blob));
   }
 
-  /// H-2: the band grows LINEARLY with staleness — maxDev·(1+dt/ttl) — so a legit post-gap re-sync
-  /// passes but an arbitrary jump bought by inducing staleness stays bounded. At dt=ttl the band doubles.
-  function test_deviationBand_scalesWithStaleness() public {
-    address da = address(0xDA5E);
-    address db = address(0xDB5E);
-    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // 5% band, ttl 3600, idx=1
-    bytes32 id = keccak256(abi.encodePacked(da, db));
-    skip(3600); // dt = ttl → band = 500·(1+1) = 1000 bps (10%)
+  /// H-2: the band grows LINEARLY with SOURCE staleness — maxDev·(1+dtSource/ttl) — so a legit
+  /// post-gap re-sync passes but an arbitrary jump bought by inducing staleness stays bounded.
+  /// At dtSource=ttl the band doubles.
+  function test_deviationBand_scalesWithSourceStaleness() public {
+    bytes32 id = _seedBandedFeed();
+    skip(3600); // source delta = ttl → band = 500·(1+1) = 1000 bps (10%)
     // A +200% jump is REJECTED even fully stale (was allowed under the old dt>=ttl exemption).
     bytes memory j = _rec(1, M.encodeB64(300e18, 18), 1e4, 5, _srcTs());
     vm.expectRevert(
@@ -194,6 +202,61 @@ contract ExternalOracleSignedTest is Test {
     ext.batchPushSigned(ok, _sign(NXR_PK, ok));
     assertApproxEqRel(
       M.b64To1e18(ext.getFeed(id).lastPriceB64), 108e18, 0.001e18, "in-band re-sync committed"
+    );
+  }
+
+  /// Layer-2 (Ostium hardening): the band is bound to ATTESTED source time, not blocks — a fast
+  /// chain (many blocks, tiny sourceTs deltas) earns NO extra cumulative allowance. Two rapid
+  /// pushes 1 wall-second apart with sub-second source deltas each get the flat 500-bps band.
+  function test_sourceTimeBand_fastChainGetsNoExtraAllowance() public {
+    bytes32 id = _seedBandedFeed();
+    uint64 ts = _srcTs();
+    skip(1); // next block (clears the one-per-block cooldown), source delta 400ms → dtSource = 0
+    bytes memory a = _rec(1, M.encodeB64(105_02e16, 18), 1e4, 5, ts + 400); // +5.02% > flat 5%
+    vm.expectRevert(
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(502), uint256(500))
+    );
+    ext.batchPushSigned(a, _sign(NXR_PK, a));
+    bytes memory b = _rec(1, M.encodeB64(104_9e17, 18), 1e4, 5, ts + 400); // +4.9% < 5% lands
+    ext.batchPushSigned(b, _sign(NXR_PK, b));
+    // Second rapid push: another sub-second source delta → flat band again, off the NEW mark.
+    skip(1);
+    bytes memory c = _rec(1, M.encodeB64(110_2e17, 18), 1e4, 5, ts + 800); // +5.05% off 104.9 > 5%
+    vm.expectPartialRevert(Err.ThresholdViolation.selector);
+    ext.batchPushSigned(c, _sign(NXR_PK, c));
+    assertApproxEqRel(
+      M.b64To1e18(ext.getFeed(id).lastPriceB64), 104.9e18, 0.001e18, "walk capped at one band step"
+    );
+  }
+
+  /// Wall-clock staleness no longer widens the band: a 1-hour block gap with a 1-second source
+  /// delta keeps the flat band (the attacker cannot buy allowance by waiting out blocks), while
+  /// the one-per-block cooldown stays block-time-based.
+  function test_sourceTimeBand_wallGapWithoutSourceGapStaysFlat() public {
+    _seedBandedFeed();
+    uint64 ts = _srcTs();
+    // 500s WALL gap (within the 600s relay lag), 1s SOURCE gap. Block-time scaling would allow
+    // 500·(1+500/3600) = 569 bps; source-time keeps the band flat at 500 → +5.5% is rejected.
+    skip(500);
+    bytes memory a = _rec(1, M.encodeB64(105_5e17, 18), 1e4, 5, ts + 1000); // +5.5% > flat 5%
+    vm.expectRevert(
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(550), uint256(500))
+    );
+    ext.batchPushSigned(a, _sign(NXR_PK, a));
+  }
+
+  /// First signed push after addFeed (prevSourceTs == 0): the source delta is epoch-sized, so the
+  /// band caps at MAX_DEV_THRESHOLD — same policy as a long-stale re-sync.
+  function test_firstSignedPush_bandCapsAtMaxThreshold() public {
+    address da = address(0xDA11);
+    address db = address(0xDB11);
+    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // idx=1
+    bytes32 id = keccak256(abi.encodePacked(da, db));
+    skip(TAU);
+    bytes memory blob = _rec(1, M.encodeB64(300e18, 18), 1e4, 5, _srcTs()); // +200% < 650% cap
+    ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    assertApproxEqRel(
+      M.b64To1e18(ext.getFeed(id).lastPriceB64), 300e18, 0.001e18, "first push capped-band commit"
     );
   }
 
@@ -414,5 +477,164 @@ contract ExternalOracleSignedTest is Test {
     uint256 signed = g - gasleft();
     emit log_named_uint("signed batchPushSigned(10) exec gas", signed);
     emit log_named_uint("  signed per-feed", signed / n);
+  }
+
+  // ─── k-of-n multi-ECDSA (Ostium single-key hardening) ───
+
+  uint256 constant NXR_PK2 = 0xB0B;
+  uint256 constant NXR_PK3 = 0xCA401;
+
+  /// @dev Concatenated 65-byte sigs sorted by recovered signer address ascending (the contract
+  ///      enforces strictly-increasing recovered addresses as the distinctness check).
+  function _multiSign(uint256[] memory pks, bytes memory blob)
+    internal
+    view
+    returns (bytes memory sigs)
+  {
+    for (uint256 i; i < pks.length; ++i) {
+      for (uint256 j = i + 1; j < pks.length; ++j) {
+        if (vm.addr(pks[j]) < vm.addr(pks[i])) (pks[i], pks[j]) = (pks[j], pks[i]);
+      }
+    }
+    for (uint256 i; i < pks.length; ++i) {
+      sigs = bytes.concat(sigs, _sign(pks[i], blob));
+    }
+  }
+
+  function _pks2() internal pure returns (uint256[] memory pks) {
+    pks = new uint256[](2);
+    pks[0] = NXR_PK;
+    pks[1] = NXR_PK2;
+  }
+
+  /// @dev Grants signers 2+3 (3 total) and raises the threshold to 2 (the default 2-of-3 config).
+  function _setup2of3() internal {
+    ext.grantSigner(vm.addr(NXR_PK2));
+    ext.grantSigner(vm.addr(NXR_PK3));
+    ext.setSignerThreshold(2);
+  }
+
+  function test_kofn_belowThresholdRejected() public {
+    _setup2of3();
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+    vm.expectRevert(Err.InvalidInput.selector); // k=1 < threshold 2
+    ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+  }
+
+  function test_kofn_exactThresholdPasses() public {
+    _setup2of3();
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+    ext.batchPushSigned(blob, _multiSign(_pks2(), blob));
+    assertApproxEqRel(
+      M.b64To1e18(ext.getFeed(feedId).lastPriceB64), 3010e18, 0.001e18, "2-of-3 committed"
+    );
+  }
+
+  function test_kofn_aboveThresholdPasses() public {
+    _setup2of3();
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+    uint256[] memory pks = new uint256[](3);
+    pks[0] = NXR_PK;
+    pks[1] = NXR_PK2;
+    pks[2] = NXR_PK3;
+    ext.batchPushSigned(blob, _multiSign(pks, blob));
+    assertApproxEqRel(
+      M.b64To1e18(ext.getFeed(feedId).lastPriceB64), 3010e18, 0.001e18, "3-of-3 committed"
+    );
+  }
+
+  function test_kofn_duplicateSignerRejected() public {
+    _setup2of3();
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+    bytes memory one = _sign(NXR_PK, blob);
+    vm.expectRevert(Err.NotAuth.selector); // same key twice: rec == prev fails strict ordering
+    ext.batchPushSigned(blob, bytes.concat(one, one));
+  }
+
+  function test_kofn_unsortedSigsRejected() public {
+    _setup2of3();
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+    bytes memory sorted = _multiSign(_pks2(), blob);
+    // Reverse the two 65-byte sigs → recovered addresses strictly DECREASE → reject.
+    bytes memory swapped = new bytes(130);
+    for (uint256 i; i < 65; ++i) {
+      swapped[i] = sorted[65 + i];
+      swapped[65 + i] = sorted[i];
+    }
+    vm.expectRevert(Err.NotAuth.selector);
+    ext.batchPushSigned(blob, swapped);
+  }
+
+  function test_kofn_nonSignerSigRejected() public {
+    _setup2of3();
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+    uint256[] memory pks = new uint256[](2);
+    pks[0] = NXR_PK;
+    pks[1] = 0xBADBAD; // never granted
+    vm.expectRevert(Err.NotAuth.selector);
+    ext.batchPushSigned(blob, _multiSign(pks, blob));
+  }
+
+  function test_kofn_raggedSigsLengthRejected() public {
+    _setup2of3();
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+    bytes memory sigs = _multiSign(_pks2(), blob);
+    // Truncate to 129 B: no longer a 65-byte multiple (EIP-2098 64-byte sigs are also out).
+    bytes memory ragged = new bytes(129);
+    for (uint256 i; i < 129; ++i) {
+      ragged[i] = sigs[i];
+    }
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.batchPushSigned(blob, ragged);
+  }
+
+  /// Revoking below the threshold HALTS pushing (fail-safe compromise response) — the remaining
+  /// honest signer alone cannot clear k=2, and the revoked key is rejected outright.
+  function test_kofn_revokeBelowThreshold_haltsPushing() public {
+    _setup2of3();
+    ext.revokeSigner(vm.addr(NXR_PK2));
+    ext.revokeSigner(vm.addr(NXR_PK3));
+    assertEq(ext.signerCount(), 1, "2 revoked");
+    assertEq(ext.signerThreshold(), 2, "threshold survives revokes");
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3010e18, 18), 1e4, 5, _srcTs());
+    vm.expectRevert(Err.InvalidInput.selector); // k=1 < 2
+    ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    vm.expectRevert(Err.NotAuth.selector); // 2 sigs, but one signer is revoked
+    ext.batchPushSigned(blob, _multiSign(_pks2(), blob));
+  }
+
+  function test_setSignerThreshold_bounds() public {
+    assertEq(ext.signerCount(), 1, "setUp granted one signer");
+    vm.expectRevert(Err.InvalidInput.selector); // t=0
+    ext.setSignerThreshold(0);
+    vm.expectRevert(Err.InvalidInput.selector); // t > signerCount
+    ext.setSignerThreshold(2);
+    ext.grantSigner(vm.addr(NXR_PK2));
+    ext.setSignerThreshold(2);
+    assertEq(ext.signerThreshold(), 2);
+  }
+
+  function test_setSignerThreshold_onlyAdmin() public {
+    ext.grantSigner(vm.addr(NXR_PK2));
+    vm.prank(address(0xDEAD));
+    vm.expectRevert(Err.NotAuth.selector);
+    ext.setSignerThreshold(2);
+  }
+
+  function test_signerCount_idempotentGrantRevoke() public {
+    ext.grantSigner(nxr); // re-grant existing signer
+    assertEq(ext.signerCount(), 1, "double grant does not double count");
+    ext.revokeSigner(address(0xDEAD)); // revoke a never-granted address
+    assertEq(ext.signerCount(), 1, "no-op revoke does not underflow");
+    ext.revokeSigner(nxr);
+    assertEq(ext.signerCount(), 0, "revoke decrements");
   }
 }

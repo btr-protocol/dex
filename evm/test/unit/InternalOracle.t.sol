@@ -62,6 +62,7 @@ contract InternalOracleTest is Test {
     o.feedId = bytes32(uint256(uint160(address(stable))));
     o.refFeedId = REF_ID;
     o.refBandBps = C.MAX_STABLE_DEPEG_BAND_BPS;
+    o.refPrimary = address(oracle);
     o.mode = C.ORACLE_MODE_INTERNAL;
   }
 

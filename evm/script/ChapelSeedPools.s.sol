@@ -165,6 +165,8 @@ contract ChapelSeedPools is Script {
     o.feedId = keccak256(abi.encodePacked(asset, base));
     o.refFeedId = refBandBps > 0 ? USDC_FEED : bytes32(0);
     o.refBandBps = refBandBps;
+    // Testnet self-ref. Mainnet volatiles MUST pin an INDEPENDENT refPrimary (separate signer set).
+    o.refPrimary = refBandBps > 0 ? ORACLE : address(0);
   }
 
   function _seedAmount(address tok, uint256 seedUsdc) internal view returns (uint256) {

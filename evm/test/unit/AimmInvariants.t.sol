@@ -280,6 +280,7 @@ contract AimmInvariantsTest is Test {
     oc.feedId = _feedId(address(tok));
     oc.refFeedId = refId;
     oc.refBandBps = 500;
+    oc.refPrimary = address(oracle); // self-ref (independence covered in the refPrimary tests)
     vm.startPrank(OWNER);
     admin.requestOracleUpdate(address(pool), address(tok), oc);
     vm.warp(block.timestamp + 2 days + 1); // BASE_TIMELOCK
@@ -384,6 +385,7 @@ contract AimmInvariantsTest is Test {
     oc.feedId = _feedId(address(tok));
     oc.refFeedId = refId;
     oc.refBandBps = 500;
+    oc.refPrimary = address(oracle); // self-ref (independence covered in the refPrimary tests)
     vm.startPrank(OWNER);
     admin.requestOracleUpdate(address(pool), address(tok), oc);
     vm.warp(block.timestamp + 2 days + 1);
@@ -396,6 +398,71 @@ contract AimmInvariantsTest is Test {
     skip(20);
     vm.expectPartialRevert(Err.StaleData.selector);
     pool.withdrawTo(address(base), address(tok), lp / 10, 0);
+  }
+
+  /// @dev Arm tok's ref band (±5%) against `refP` via the timelocked oracle-update path, then
+  ///      refresh the primary feeds post-warp. Shared by the refPrimary independence tests.
+  function _armRefBand(address refP, bytes32 refId) internal {
+    IPool.OracleConfig memory oc;
+    oc.primary = address(oracle);
+    oc.feedId = _feedId(address(tok));
+    oc.refFeedId = refId;
+    oc.refBandBps = 500;
+    oc.refPrimary = refP;
+    vm.startPrank(OWNER);
+    admin.requestOracleUpdate(address(pool), address(tok), oc);
+    vm.warp(block.timestamp + 2 days + 1);
+    admin.executeOracleUpdate(address(pool), address(tok));
+    vm.stopPrank();
+    oracle.setMark(address(base), M.encodeB64(1e18, 18));
+  }
+
+  /// Layer-3 (Ostium hardening): the ref band reads refPrimary — an INDEPENDENT oracle instance —
+  /// so a compromised push quorum walking the PRIMARY mark past refBandBps of the independent
+  /// reference halts swaps (push-rate-independent cumulative bound); within-band trading continues.
+  function test_refPrimary_independent_reference_bounds_walked_mark() public {
+    MockOracle refOracle = new MockOracle(); // independent instance (distinct signer set on mainnet)
+    bytes32 refId = bytes32(uint256(0xB7E));
+    refOracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, type(uint16).max);
+    _armRefBand(address(refOracle), refId);
+    refOracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, type(uint16).max); // refresh post-warp
+
+    base.mint(USER, 12_000e18);
+    vm.startPrank(USER);
+    base.approve(address(pool), type(uint256).max);
+    // Walked mark: primary +10% while the independent reference holds → band (±5%) halts swaps.
+    oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 110) / 100, 18), 10_000, 0, 3600);
+    vm.expectPartialRevert(Err.PriceBelowReservation.selector);
+    pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+    // Within band (+2%) → swap executes.
+    oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 102) / 100, 18), 10_000, 0, 3600);
+    uint256 out = pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+    assertGt(out, 0, "within-band swap executes");
+    vm.stopPrank();
+  }
+
+  /// refPrimary == 0 falls back to `primary` (legacy/self-ref state — validation now requires an
+  /// explicit refPrimary, so the zero is written straight to storage to simulate pre-upgrade state).
+  function test_refPrimary_zero_falls_back_to_primary() public {
+    bytes32 refId = bytes32(uint256(0xB7F));
+    oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, type(uint16).max);
+    _armRefBand(address(oracle), refId);
+    oracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, type(uint16).max); // refresh post-warp
+    // Zero the refPrimary slot (OracleConfig slot 3: feedId=0, refFeedId=1, packed=2, refPrimary=3).
+    bytes32 base_ = keccak256(abi.encode(address(tok), uint256(5))); // oracleConfigs mapping @ slot 5
+    vm.store(address(pool), bytes32(uint256(base_) + 3), bytes32(0));
+
+    base.mint(USER, 12_000e18);
+    vm.startPrank(USER);
+    base.approve(address(pool), type(uint256).max);
+    // The band still gates — read off PRIMARY (fallback), which holds refId at PX: +10% halts.
+    oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 110) / 100, 18), 10_000, 0, 3600);
+    vm.expectPartialRevert(Err.PriceBelowReservation.selector);
+    pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+    // Within band → ok (fallback is a live guard, not a bypass).
+    oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 102) / 100, 18), 10_000, 0, 3600);
+    assertGt(pool.swap(address(base), address(tok), 3_000e18, 0, USER), 0, "fallback in-band swap");
+    vm.stopPrank();
   }
 
   /// Sanity: a base->tok buy should cost >= TWAP per tok (buyer pays a spread), never a discount.

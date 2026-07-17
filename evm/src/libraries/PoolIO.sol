@@ -154,7 +154,13 @@ library PoolIO {
     if (lo != 0 && p < M.b64To1e18(lo)) revert Err.PriceBelowReservation(price, lo);
     if (hi != 0 && p > M.b64To1e18(hi)) revert Err.PriceBelowReservation(price, hi);
     if (refBand) {
-      IOracle.FeedData memory ref = IOracle(oc.primary).getFeed(oc.refFeedId);
+      // Layer-3 (Ostium hardening): the reference is read from refPrimary — an oracle with an
+      // INDEPENDENT signer set — so a compromised push quorum cannot walk the mark past refBandBps
+      // of the reference without halting swaps. refPrimary==0 falls back to primary (legacy/self-ref
+      // only; validation requires refPrimary whenever the band is armed).
+      address refSrc = oc.refPrimary;
+      IOracle.FeedData memory ref =
+        IOracle(refSrc == address(0) ? oc.primary : refSrc).getFeed(oc.refFeedId);
       // ORC-10: fail-closed on a stale/dead/over-uncertain reference. The quoting path gates only
       // feedId — a dead/uncertain refFeed keeper would otherwise anchor the band to a corpse price.
       // Oracle.gate returns the reference mark (1e18).
