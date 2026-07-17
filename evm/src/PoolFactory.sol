@@ -9,7 +9,6 @@ import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
 import {UpgradeableBeacon} from "solady/utils/UpgradeableBeacon.sol";
 
@@ -19,10 +18,7 @@ import {UpgradeableBeacon} from "solady/utils/UpgradeableBeacon.sol";
 ///         all proxies read impl from one beacon, so `executeReferenceUpgrade` swaps the impl
 ///         for the ENTIRE live fleet atomically (was: re-point future clones only).
 contract PoolFactory is IPoolFactory {
-  using SafeTransferLib for address;
-
   uint256 public constant UPGRADE_TIMELOCK = 7 days;
-  address internal constant ETH = address(0);
 
   /// @notice REG-01: hard caps on the permissionless append-only discovery arrays. `createPool` (any
   ///         caller) and `registerTokens` (any isPool) can otherwise inflate `poolToTokens` /

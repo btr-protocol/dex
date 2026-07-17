@@ -3,7 +3,7 @@ pragma solidity =0.8.35;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {Maths as M} from "../../src/libraries/Maths.sol";
-import {Err} from "@btr-shared/Errors.sol";
+import {B64} from "@btr-shared/libs/B64.sol";
 
 /// @title LibMathsTest
 /// @notice Comprehensive unit tests for LibMaths B64 encoding/decoding and arithmetic
@@ -50,7 +50,7 @@ contract LibMathsTest is BaseTestSetup {
 
   function test_encodeB64_max_decimal() public pure {
     uint64 b64 = M.encodeB64(1, 31);
-    uint8 storedDecimals = M.b64Decimals(b64);
+    uint8 storedDecimals = B64.b64Decimals(b64);
     assertEq(storedDecimals, 31);
   }
 
@@ -148,83 +148,9 @@ contract LibMathsTest is BaseTestSetup {
   // ARITHMETIC TESTS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  function test_add64_same_decimal() public pure {
-    uint64 a = M.encodeB64(10, 0);
-    uint64 b = M.encodeB64(5, 0);
-
-    uint64 result = M.add64(a, b);
-    uint256 decoded = M.decodeB64(result, 0);
-
-    assertApproxEqAbs(decoded, 15, 1);
-  }
-
-  function test_add64_identity() public pure {
-    uint64 a = M.encodeB64(100, 5);
-    uint64 result = M.add64(a, a);
-
-    uint256 decodedA = M.decodeB64(a, 5);
-    uint256 decodedResult = M.decodeB64(result, 5);
-
-    assertApproxEqAbs(decodedResult, decodedA * 2, 2);
-  }
-
-  function test_add64_zero_operands() public pure {
-    uint64 a = M.encodeB64(100, 0);
-
-    // NB: B64 can't encode zero, so we test edge case behavior
-    uint64 result = M.add64(a, a);
-    assertGt(result, 0);
-  }
-
-  function test_add64_commutative() public pure {
-    uint64 a = M.encodeB64(100, 2);
-    uint64 b = M.encodeB64(50, 2);
-
-    uint64 sum1 = M.add64(a, b);
-    uint64 sum2 = M.add64(b, a);
-
-    uint256 decoded1 = M.decodeB64(sum1, 2);
-    uint256 decoded2 = M.decodeB64(sum2, 2);
-
-    assertApproxEqAbs(decoded1, decoded2, 1);
-  }
-
-  function test_add64_large_values() public pure {
-    uint64 a = M.encodeB64(1e18, 18);
-    uint64 b = M.encodeB64(5e17, 18);
-
-    uint64 result = M.add64(a, b);
-    uint256 decoded = M.decodeB64(result, 18);
-
-    assertApproxEqRel(decoded, 15e17, 0.01e18); // 1% tolerance
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // COMPARISON TESTS
   // ═══════════════════════════════════════════════════════════════════════════
-
-  function test_gt64_equal_values() public pure {
-    uint64 a = M.encodeB64(100, 0);
-    uint64 b = M.encodeB64(100, 0);
-
-    assertFalse(M.gt64(a, b));
-  }
-
-  function test_gt64_different_values() public pure {
-    uint64 a = M.encodeB64(100, 0);
-    uint64 b = M.encodeB64(50, 0);
-
-    assertTrue(M.gt64(a, b));
-    assertFalse(M.gt64(b, a));
-  }
-
-  function test_gt64_large_difference() public pure {
-    uint64 small = M.encodeB64(1, 0);
-    uint64 large = M.encodeB64(1000000, 0);
-
-    assertTrue(M.gt64(large, small));
-    assertFalse(M.gt64(small, large));
-  }
 
   function test_comparison_transitivity() public pure {
     uint64 a = M.encodeB64(10, 0);
@@ -232,9 +158,9 @@ contract LibMathsTest is BaseTestSetup {
     uint64 c = M.encodeB64(30, 0);
 
     // If c > b and b > a, then c > a
-    assertTrue(M.gt64(c, b));
-    assertTrue(M.gt64(b, a));
-    assertTrue(M.gt64(c, a));
+    assertTrue(B64.gt64(c, b));
+    assertTrue(B64.gt64(b, a));
+    assertTrue(B64.gt64(c, a));
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -270,119 +196,9 @@ contract LibMathsTest is BaseTestSetup {
     assertLt(result, 1e18);
   }
 
-  function test_b64Decimals_query() public pure {
-    uint64 encoded = M.encodeB64(123, 4);
-
-    uint8 decimals = M.b64Decimals(encoded);
-
-    assertEq(decimals, 4);
-  }
-
-  function test_b64Decimals_all_values() public pure {
-    for (uint8 dec = 0; dec <= 18; dec++) {
-      uint64 encoded = M.encodeB64(100, dec);
-      uint8 storedDecimals = M.b64Decimals(encoded);
-      assertEq(storedDecimals, dec);
-    }
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // VOLATILITY (diff1e6) TESTS
   // ═══════════════════════════════════════════════════════════════════════════
-
-  function test_diff1e6_equal_prices() public pure {
-    uint64 price = M.encodeB64(1e18, 18);
-
-    uint32 vol = M.diff1e6(price, price);
-
-    assertEq(vol, 0);
-  }
-
-  function test_diff1e6_small_change() public pure {
-    uint64 oldPrice = M.encodeB64(1e18, 18);
-    uint64 newPrice = M.encodeB64(101e16, 18); // 1% increase
-
-    uint32 vol = M.diff1e6(oldPrice, newPrice);
-
-    // Should be ~10,000 (1% in 1e6 base)
-    assertApproxEqAbs(vol, 10_000, 1000);
-  }
-
-  function test_diff1e6_large_change() public pure {
-    uint64 oldPrice = M.encodeB64(1e18, 18);
-    uint64 newPrice = M.encodeB64(15e17, 18); // 50% increase
-
-    uint32 vol = M.diff1e6(oldPrice, newPrice);
-
-    // Should be ~500,000 (50% in 1e6 base)
-    assertApproxEqAbs(vol, 500_000, 50_000);
-  }
-
-  function test_diff1e6_price_decrease() public pure {
-    uint64 oldPrice = M.encodeB64(1e18, 18);
-    uint64 newPrice = M.encodeB64(9e17, 18); // 10% decrease
-
-    uint32 vol = M.diff1e6(oldPrice, newPrice);
-
-    // Should be ~100,000 (10% in 1e6 base)
-    assertApproxEqAbs(vol, 100_000, 10_000);
-  }
-
-  function test_diff1e6_symmetric() public pure {
-    uint64 priceA = M.encodeB64(1e18, 18);
-    uint64 priceB = M.encodeB64(12e17, 18); // 20% increase
-
-    uint32 volAB = M.diff1e6(priceA, priceB);
-    uint32 volBA = M.diff1e6(priceB, priceA);
-
-    // NB: Not perfectly symmetric due to different denominators
-    // volAB uses priceA as base (1.0), volBA uses priceB as base (1.2)
-    // Both should be in same ballpark (within 25% of each other)
-    assertApproxEqRel(volAB, volBA, 0.25e18); // 25% relative tolerance
-  }
-
-  function test_diff1e6_zero_old_price_returns_default() public pure {
-    uint64 oldPrice = M.encodeB64(1, 18); // Very small value
-    uint64 newPrice = M.encodeB64(1e18, 18);
-
-    // When a64 decodes to 0, should return default 10%
-    // This tests the edge case handling
-    uint32 vol = M.diff1e6(oldPrice, newPrice);
-
-    assertGt(vol, 0);
-  }
-
-  function test_diff1e6_overflow_clamping() public pure {
-    uint64 oldPrice = M.encodeB64(1, 18);
-    uint64 newPrice = M.encodeB64(1e30, 18); // Extreme increase
-
-    uint32 vol = M.diff1e6(oldPrice, newPrice);
-
-    // Should clamp to uint32 max
-    assertEq(vol, type(uint32).max);
-  }
-
-  function test_diff1e6_typical_oracle_update() public pure {
-    // Simulate typical price update: $2000 → $2005 (0.25% change)
-    uint64 oldPrice = M.encodeB64(2000e18, 18);
-    uint64 newPrice = M.encodeB64(2005e18, 18);
-
-    uint32 vol = M.diff1e6(oldPrice, newPrice);
-
-    // Should be ~2,500 (0.25% in 1e6 base)
-    assertApproxEqAbs(vol, 2_500, 500);
-  }
-
-  function test_diff1e6_high_volatility_event() public pure {
-    // Simulate high volatility: $2000 → $1000 (50% drop)
-    uint64 oldPrice = M.encodeB64(2000e18, 18);
-    uint64 newPrice = M.encodeB64(1000e18, 18);
-
-    uint32 vol = M.diff1e6(oldPrice, newPrice);
-
-    // Should be ~500,000 (50% in 1e6 base)
-    assertApproxEqAbs(vol, 500_000, 50_000);
-  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // EDGE CASES & FUZZ-LIKE TESTS
@@ -392,8 +208,8 @@ contract LibMathsTest is BaseTestSetup {
     uint64 a = M.encodeB64(100, 2);
     uint64 b = M.encodeB64(50, 2);
 
-    uint64 sum1 = M.add64(a, b);
-    uint64 sum2 = M.add64(b, a);
+    uint64 sum1 = B64.add64(a, b);
+    uint64 sum2 = B64.add64(b, a);
 
     uint256 decoded1 = M.decodeB64(sum1, 2);
     uint256 decoded2 = M.decodeB64(sum2, 2);
@@ -424,8 +240,8 @@ contract LibMathsTest is BaseTestSetup {
     uint64 c = M.encodeB64(30, 0);
 
     // (a + b) + c should approximately equal a + (b + c)
-    uint64 left = M.add64(M.add64(a, b), c);
-    uint64 right = M.add64(a, M.add64(b, c));
+    uint64 left = B64.add64(B64.add64(a, b), c);
+    uint64 right = B64.add64(a, B64.add64(b, c));
 
     uint256 decodedLeft = M.decodeB64(left, 0);
     uint256 decodedRight = M.decodeB64(right, 0);

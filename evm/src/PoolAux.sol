@@ -5,7 +5,6 @@ import {IPool} from "./interfaces/IPool.sol";
 import {IAdmin} from "./interfaces/IAdmin.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
-import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {PoolAdminWrite} from "./libraries/PoolAdminWrite.sol";
 import {PoolEdge} from "./libraries/PoolEdge.sol";
 import {PoolIO} from "./libraries/PoolIO.sol";
@@ -41,10 +40,6 @@ contract PoolAux is ReentrancyGuardTransient {
     AC = ac_;
     admin = admin_;
     flash = flash_;
-  }
-
-  function _owner() internal view returns (address) {
-    return AccessControl(AC).owner();
   }
 
   modifier onlyAdmin() {

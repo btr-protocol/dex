@@ -52,8 +52,9 @@ library PoolLiquidity {
     IPool.Asset storage asset = $.assets[tkn];
     if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tkn);
 
-    PoolDecay.applyDecay($, tkn, asset);
-    if (($.riskConfigs[tkn].flags & C.HALT_MASK) != 0) {
+    IPool.RiskConfig storage rc = $.riskConfigs[tkn]; // one SLOAD of the packed slot, shared below
+    PoolDecay.applyDecay(asset, rc);
+    if ((rc.flags & C.HALT_MASK) != 0) {
       revert Err.FeatureDisabled(Err.Resource.ASSET);
     }
 
@@ -84,8 +85,9 @@ library PoolLiquidity {
     IPool.Asset storage asset = $.assets[tkn];
     if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tkn);
 
-    PoolDecay.applyDecay($, tkn, asset);
-    PoolIO.checkRisk($, tkn, 0);
+    IPool.RiskConfig storage rc = $.riskConfigs[tkn]; // one SLOAD of the packed slot, shared below
+    PoolDecay.applyDecay(asset, rc);
+    PoolIO.checkRiskFlags(rc, 0);
 
     uint256 amt = PoolIO.pull($, token, amount);
     if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
@@ -143,10 +145,13 @@ library PoolLiquidity {
       // freeze/pause is bypassed — draining a halted asset's reserves, or pushing a good asset
       // out priced by a halted/compromised feed. Interior-node halts (Pricing) don't cover
       // endpoints, and the direct spoke→base case has no interior node at all.
-      PoolIO.checkRisk($, ctx.fromTk, 0);
-      PoolIO.checkRisk($, ctx.toTk, 0);
-      PoolDecay.applyDecay($, ctx.fromTk, assetFrom);
-      PoolDecay.applyDecay($, ctx.toTk, assetTo);
+      // Cache each endpoint's packed RiskConfig slot once; halt-check + decay share the SLOAD.
+      IPool.RiskConfig storage rcFrom = $.riskConfigs[ctx.fromTk];
+      IPool.RiskConfig storage rcTo = $.riskConfigs[ctx.toTk];
+      PoolIO.checkRiskFlags(rcFrom, 0);
+      PoolIO.checkRiskFlags(rcTo, 0);
+      PoolDecay.applyDecay(assetFrom, rcFrom);
+      PoolDecay.applyDecay(assetTo, rcTo);
 
       ctx.withdrawValue =
         (lpAmount
