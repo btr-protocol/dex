@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity =0.8.35;
 
 /// @notice Minimal Aave V4 Spoke supply surface (official ISpoke: reserveId, not asset address).
 /// @dev Mirrors https://github.com/aave/aave-v4/blob/main/src/spoke/interfaces/ISpoke.sol supply path.

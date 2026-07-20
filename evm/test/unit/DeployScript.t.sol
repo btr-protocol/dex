@@ -8,7 +8,6 @@ import {PoolFactory} from "../../src/PoolFactory.sol";
 import {Pool} from "../../src/Pool.sol";
 import {GovTreasury} from "@btr-shared/GovTreasury.sol";
 import {OpsTreasury} from "@btr-shared/OpsTreasury.sol";
-import {Bridge} from "@btr-shared/Bridge.sol";
 import {GovToken} from "@btr-shared/tokens/GovToken.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
@@ -85,11 +84,9 @@ contract DeployScriptTest is Test {
     // (Track-B Phase-1: PoolFactory dropped Solady Ownable; auth resolves via AC.owner()).
     assertEq(PoolFactory(payable(a.poolFactory)).AC(), a.ac, "factory.AC != ac");
 
-    // Treasury / Bridge proxies initialized → second initialize reverts.
+    // Treasury proxy initialized → second initialize reverts. (Bridge has no initialize latch.)
     vm.expectRevert();
     GovTreasury(payable(a.treasuryProxy)).initialize(a.govToken);
-    vm.expectRevert();
-    Bridge(payable(a.bridgeProxy)).initialize();
 
     // BRG-01 negatives — kept in ONE test (vm.setEnv is process-global; forge runs
     // separate test fns concurrently, so isolating these avoids env-var races).

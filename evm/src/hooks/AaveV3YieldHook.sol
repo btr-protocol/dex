@@ -11,7 +11,7 @@ import {
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title AaveV3YieldHook — Aave V3 / SparkLend / HyperLend (same Pool ABI).
+/// @title AaveV3YieldHook - Aave V3 / SparkLend / HyperLend (same Pool ABI).
 contract AaveV3YieldHook is YieldHook {
   using SafeTransferLib for address;
 

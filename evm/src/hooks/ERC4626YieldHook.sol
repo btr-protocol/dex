@@ -16,7 +16,7 @@ interface IERC4626Minimal {
   function balanceOf(address account) external view returns (uint256);
 }
 
-/// @title ERC4626YieldHook — Morpho Vaults (Base/Robinhood/Felix Vanilla), Fluid fToken, sUSDS, Spark Savings.
+/// @title ERC4626YieldHook - Morpho Vaults (Base/Robinhood/Felix Vanilla), Fluid fToken, sUSDS, Spark Savings.
 contract ERC4626YieldHook is YieldHook {
   using SafeTransferLib for address;
 

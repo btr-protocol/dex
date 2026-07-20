@@ -44,11 +44,11 @@ contract Admin is IAdmin {
   bytes32 private constant OP_ADD_ASSET = keccak256("ADD_ASSET");
   bytes32 private constant OP_UPDATE_RISK = keccak256("UPDATE_RISK");
   bytes32 private constant OP_UPDATE_FEES = keccak256("UPDATE_FEES");
-  bytes32 private constant OP_UPDATE_BRIDGE = keccak256("UPDATE_BRIDGE");
   bytes32 private constant OP_UPDATE_TREASURY = keccak256("UPDATE_TREASURY");
   bytes32 private constant OP_BASE_MIGRATION = keccak256("BASE_MIGRATION");
   bytes32 private constant OP_UPDATE_ORACLE = keccak256("UPDATE_ORACLE");
   bytes32 private constant OP_UPDATE_PROFILE = keccak256("UPDATE_PROFILE");
+  bytes32 private constant OP_UPDATE_CURVE = keccak256("UPDATE_CURVE");
 
   constructor(address ac_) {
     if (ac_ == address(0)) revert Err.ZeroAddr();
@@ -146,8 +146,8 @@ contract Admin is IAdmin {
     address token,
     IPool.OracleConfig calldata oracleCfg,
     IPool.RiskConfig calldata riskCfg,
-    IPool.LiquidityProfile calldata profile,
-    uint16 minFeeBps,
+    uint16 presetId,
+    uint16 minFeePbps,
     uint8 decimals,
     uint32 minDispersion,
     uint32 maxDispersion,
@@ -162,14 +162,30 @@ contract Admin is IAdmin {
       token,
       oracleCfg,
       riskCfg,
-      profile,
-      minFeeBps,
+      presetId,
+      minFeePbps,
       decimals,
       minDispersion,
       maxDispersion,
       gamma,
       vega
     );
+  }
+
+  /// @notice GOV-03 bootstrap twin of `addAsset`: direct preset-curve install pre-seal (curves must
+  ///         exist before the first listing referencing them). Post-seal only requestSetCurve remains.
+  function setCurve(
+    address pool,
+    uint16 presetId,
+    uint256[] calldata interior,
+    int256[] calldata wQ,
+    uint16 dispRef,
+    uint8 flags
+  ) external {
+    _onlyAdmin();
+    if (bootstrapSealed[pool]) revert Err.InvalidState();
+    IPool(pool).adminSetCurve(presetId, interior, wQ, dispRef, flags);
+    emit CurveUpdated(pool, presetId);
   }
 
   /// @notice GOV-03: permanently close the direct `addAsset` bootstrap path for a pool. Call once
@@ -202,8 +218,8 @@ contract Admin is IAdmin {
     address pool,
     address token,
     uint128 minLiquidity,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
@@ -215,8 +231,8 @@ contract Admin is IAdmin {
       pool,
       token,
       minLiquidity,
-      minFeeBps,
-      maxFeeBps,
+      minFeePbps,
+      maxFeePbps,
       gamma,
       vega,
       haircutSuppressor,
@@ -238,8 +254,8 @@ contract Admin is IAdmin {
     address pool,
     address token,
     uint128 minLiquidity,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
@@ -252,8 +268,8 @@ contract Admin is IAdmin {
       pool,
       token,
       minLiquidity,
-      minFeeBps,
-      maxFeeBps,
+      minFeePbps,
+      maxFeePbps,
       gamma,
       vega,
       haircutSuppressor,
@@ -269,8 +285,8 @@ contract Admin is IAdmin {
     address token,
     IPool.OracleConfig calldata oracleCfg,
     IPool.RiskConfig calldata riskCfg,
-    IPool.LiquidityProfile calldata profile,
-    uint16 minFeeBps,
+    uint16 presetId,
+    uint16 minFeePbps,
     uint8 decimals,
     uint32 minDispersion,
     uint32 maxDispersion,
@@ -283,8 +299,8 @@ contract Admin is IAdmin {
       token: token,
       oracleCfg: oracleCfg,
       riskCfg: riskCfg,
-      profile: profile,
-      minFeeBps: minFeeBps,
+      presetId: presetId,
+      minFeePbps: minFeePbps,
       decimals: decimals,
       minDispersion: minDispersion,
       maxDispersion: maxDispersion,
@@ -327,14 +343,14 @@ contract Admin is IAdmin {
     emit RiskConfigUpdated(pool, token, cfg.flags, 0);
   }
 
-  /// @notice Queue a perpetual profile recalibration: new Hermite shape (weights/knots) + dispersion
-  ///         band for an already-listed asset. Same LOW_TIMELOCK tier as risk-config — it retunes the
-  ///         depth-concentration curve, not custody. Validation (weights sum / knot span / min≤max)
+  /// @notice Queue a perpetual profile recalibration: repoint an asset at a preset curve +
+  ///         dispersion band. Same LOW_TIMELOCK tier as risk-config — it retunes the
+  ///         depth-concentration shape, not custody. Validation (curve exists / wall gate / min<=max)
   ///         runs at execute via `adminSetProfile`, matching the risk/oracle queue idiom.
   function requestUpdateProfile(
     address pool,
     address token,
-    IPool.LiquidityProfile calldata newProfile,
+    uint16 presetId,
     uint32 minDispersion,
     uint32 maxDispersion
   ) external {
@@ -343,7 +359,7 @@ contract Admin is IAdmin {
     _emitQueued(
       key,
       SC.govDelay(SC.LOW_TIMELOCK),
-      abi.encode(token, newProfile, minDispersion, maxDispersion),
+      abi.encode(token, presetId, minDispersion, maxDispersion),
       pool,
       uint8(IPool.OpType.UPDATE_PROFILE)
     );
@@ -352,16 +368,57 @@ contract Admin is IAdmin {
   function executeUpdateProfile(address pool, address token) external {
     _onlyAdmin();
     bytes32 key = _keyToken(pool, OP_UPDATE_PROFILE, token);
-    (address storedToken, IPool.LiquidityProfile memory profile, uint32 minDisp, uint32 maxDisp) =
-      abi.decode(_consume(key), (address, IPool.LiquidityProfile, uint32, uint32));
+    (address storedToken, uint16 presetId, uint32 minDisp, uint32 maxDisp) =
+      abi.decode(_consume(key), (address, uint16, uint32, uint32));
     if (storedToken != token) revert Err.InvalidInput();
-    IPool(pool).adminSetProfile(token, profile, minDisp, maxDisp);
+    IPool(pool).adminSetProfile(token, presetId, minDisp, maxDisp);
     emit ProfileUpdated(pool, token);
   }
 
   function cancelUpdateProfile(address pool, address token) external {
     _onlyGuardianOrAdmin();
     _cancel(pool, _keyToken(pool, OP_UPDATE_PROFILE, token), uint8(IPool.OpType.UPDATE_PROFILE));
+  }
+
+  /// @notice Queue a shared preset-curve install/recalibration (quartic I-spline). Mutating a preset
+  ///         referenced by live assets IS the weekly-refit path — LOW_TIMELOCK, like profile repoints.
+  ///         Full curve validation (monotone / knots / overflow) runs at execute via `adminSetCurve`.
+  function requestSetCurve(
+    address pool,
+    uint16 presetId,
+    uint256[] calldata interior,
+    int256[] calldata wQ,
+    uint16 dispRef,
+    uint8 flags
+  ) external {
+    _onlyAdmin();
+    bytes32 key = _keyCurve(pool, presetId);
+    _emitQueued(
+      key,
+      SC.govDelay(SC.LOW_TIMELOCK),
+      abi.encode(presetId, interior, wQ, dispRef, flags),
+      pool,
+      uint8(IPool.OpType.UPDATE_CURVE)
+    );
+  }
+
+  function executeSetCurve(address pool, uint16 presetId) external {
+    _onlyAdmin();
+    bytes32 key = _keyCurve(pool, presetId);
+    (uint16 storedId, uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags) =
+      abi.decode(_consume(key), (uint16, uint256[], int256[], uint16, uint8));
+    if (storedId != presetId) revert Err.InvalidInput();
+    IPool(pool).adminSetCurve(presetId, interior, wQ, dispRef, flags);
+    emit CurveUpdated(pool, presetId);
+  }
+
+  function cancelSetCurve(address pool, uint16 presetId) external {
+    _onlyGuardianOrAdmin();
+    _cancel(pool, _keyCurve(pool, presetId), uint8(IPool.OpType.UPDATE_CURVE));
+  }
+
+  function _keyCurve(address pool, uint16 presetId) private pure returns (bytes32) {
+    return keccak256(abi.encode(pool, OP_UPDATE_CURVE, presetId));
   }
 
   function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external {
@@ -378,25 +435,7 @@ contract Admin is IAdmin {
     IPool.FeeParams memory params = abi.decode(_consume(key), (IPool.FeeParams));
     if (params.protoShare > 100) revert Err.InvalidInput();
     IPool(pool).adminSetFeeParams(params);
-    emit FeeParamsUpdated(pool, params.protoShare, params.flashFeeBps);
-  }
-
-  function requestBridgeUpdate(address pool, address newBridge) external {
-    _onlyAdmin();
-    _emitQueued(
-      _key(pool, OP_UPDATE_BRIDGE),
-      SC.govDelay(SC.HIGH_TIMELOCK),
-      abi.encode(newBridge),
-      pool,
-      uint8(IPool.OpType.UPDATE_BRIDGE)
-    );
-  }
-
-  function executeBridgeUpdate(address pool) external {
-    _onlyAdmin();
-    address newBridge = abi.decode(_consume(_key(pool, OP_UPDATE_BRIDGE)), (address));
-    IPool(pool).adminSetBridge(newBridge);
-    emit BridgeUpdated(pool, address(0), newBridge);
+    emit FeeParamsUpdated(pool, params.protoShare, params.flashFeePbps);
   }
 
   function requestTreasuryUpdate(address pool, address newTreasury) external {
@@ -500,7 +539,6 @@ contract Admin is IAdmin {
     _onlyGuardianOrAdmin();
     bytes32 key;
     if (opType == uint8(IPool.OpType.MIGRATE_BASE_TOKEN)) key = _key(pool, OP_BASE_MIGRATION);
-    else if (opType == uint8(IPool.OpType.UPDATE_BRIDGE)) key = _key(pool, OP_UPDATE_BRIDGE);
     else if (opType == uint8(IPool.OpType.UPDATE_TREASURY)) key = _key(pool, OP_UPDATE_TREASURY);
     else if (opType == uint8(IPool.OpType.UPDATE_FEES)) key = _key(pool, OP_UPDATE_FEES);
     else revert Err.InvalidInput();

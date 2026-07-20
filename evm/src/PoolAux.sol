@@ -7,6 +7,7 @@ import {Err} from "@btr-shared/Errors.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {PoolAdminWrite} from "./libraries/PoolAdminWrite.sol";
 import {PoolEdge} from "./libraries/PoolEdge.sol";
+import {PoolLiquidity} from "./libraries/PoolLiquidity.sol";
 import {PoolIO} from "./libraries/PoolIO.sol";
 import {PoolHooks} from "./libraries/PoolHooks.sol";
 import {Constants as C} from "./libraries/Constants.sol";
@@ -79,8 +80,8 @@ contract PoolAux is ReentrancyGuardTransient {
     address token,
     IPool.OracleConfig calldata oracleCfg,
     IPool.RiskConfig calldata riskCfg,
-    IPool.LiquidityProfile calldata profile,
-    uint16 minFeeBps,
+    uint16 presetId,
+    uint16 minFeePbps,
     uint8 decimals,
     uint32 minDispersion,
     uint32 maxDispersion,
@@ -92,8 +93,8 @@ contract PoolAux is ReentrancyGuardTransient {
       token,
       oracleCfg,
       riskCfg,
-      profile,
-      minFeeBps,
+      presetId,
+      minFeePbps,
       decimals,
       minDispersion,
       maxDispersion,
@@ -122,8 +123,8 @@ contract PoolAux is ReentrancyGuardTransient {
   function adminSetAssetParams(
     address token,
     uint128 minLiquidity,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
@@ -134,8 +135,8 @@ contract PoolAux is ReentrancyGuardTransient {
       $,
       token,
       minLiquidity,
-      minFeeBps,
-      maxFeeBps,
+      minFeePbps,
+      maxFeePbps,
       gamma,
       vega,
       haircutSuppressor,
@@ -154,19 +155,25 @@ contract PoolAux is ReentrancyGuardTransient {
 
   function adminSetProfile(
     address token,
-    IPool.LiquidityProfile calldata profile,
+    uint16 presetId,
     uint32 minDispersion,
     uint32 maxDispersion
   ) external onlyAdmin {
-    PoolAdminWrite.setProfile($, token, profile, minDispersion, maxDispersion);
+    PoolAdminWrite.setProfile($, token, presetId, minDispersion, maxDispersion);
+  }
+
+  function adminSetCurve(
+    uint16 presetId,
+    uint256[] calldata interior,
+    int256[] calldata wQ,
+    uint16 dispRef,
+    uint8 flags
+  ) external onlyAdmin {
+    PoolAdminWrite.setCurve($, presetId, interior, wQ, dispRef, flags);
   }
 
   function adminSetFeeParams(IPool.FeeParams calldata params) external onlyAdmin {
     PoolAdminWrite.setFeeParams($, params);
-  }
-
-  function adminSetBridge(address newBridge) external onlyAdmin {
-    PoolAdminWrite.setBridge($, newBridge);
   }
 
   function adminSetTreasury(address newTreasury) external onlyAdmin {
@@ -304,12 +311,8 @@ contract PoolAux is ReentrancyGuardTransient {
       revert Err.ExcessiveAmount(inv + amount, type(uint128).max);
     }
     $.invested[t] = uint128(inv + amount);
-    // Raise liquidity index like donate.
-    uint256 liabBefore = uint256(a.liabilities) - amount;
-    uint256 idx = a.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : a.liquidityIndex;
-    uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + amount)) / liabBefore;
-    if (newIndex > type(uint64).max) revert Err.ExcessiveAmount(newIndex, type(uint64).max);
-    a.liquidityIndex = uint64(newIndex);
+    // Raise liquidity index like donate (liabBefore = liabilities prior to the += above).
+    PoolLiquidity.raiseIndex(a, uint256(a.liabilities) - amount, amount);
   }
 
   /// @notice Write-down when external NAV < book: cut invested + reserves; haircut liabilities/index.
@@ -341,7 +344,7 @@ contract PoolAux is ReentrancyGuardTransient {
       if (liabAfter == 0) {
         a.liquidityIndex = 1;
       } else {
-        uint256 idx = a.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : a.liquidityIndex;
+        uint256 idx = C.effIndex(a.liquidityIndex);
         uint256 scaled = (idx * liabAfter) / liabBefore;
         a.liquidityIndex = uint64(scaled == 0 ? 1 : scaled);
       }

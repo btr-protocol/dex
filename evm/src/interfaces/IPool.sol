@@ -1,27 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {IOracle} from "./IOracle.sol";
+import {NUQuartic} from "../libraries/NUQuartic.sol";
 
 /// @title IPool — Adaptive Inventory Market Maker (canonical surface)
 /// @dev Flash is a standalone singleton (IFlash). Routing is off-chain.
-interface IPool is IOracle {
+interface IPool {
   struct Asset {
+    // slot 0
     uint128 reserves;
     uint128 liabilities;
+    // slot 1 (16 bits free)
     uint128 minLiquidity;
     uint64 liquidityIndex;
     uint32 lastUpdate;
-    uint32 minDispersion;
+    // Pricing-shape pointer into PoolStorage.curves (shared preset table). 0 = none (fallback quote).
+    uint16 presetId;
+    // slot 2 (16 bits free)
     address anchor;
-    uint16 minFeeBps;
-    uint16 maxFeeBps;
+    uint16 minFeePbps;
+    uint16 maxFeePbps;
     uint32 maxDispersion;
-    uint8 anchorDepth;
     uint8 decimals;
     uint16 gamma;
+    // slot 3 — `minDispersion` lives here (not slot 1) so the sell leg reads it warm: slot 3 is always
+    // warmed by vega/reservationPrice, whereas slot 1 is cold when decay is disabled (no lastUpdate read).
     uint16 vega;
     uint16 haircutSuppressor;
+    uint32 minDispersion;
     uint64 reservationPrice; // absolute MIN swap price (base-per-asset, b64); 0 = no floor
     uint64 reservationPriceMax; // absolute MAX swap price (b64); 0 = no ceiling
     // INTERNAL-mode quote peg (B64 base-per-asset); default WAD=1.0 at init. EXTERNAL mode ignores.
@@ -38,11 +44,6 @@ interface IPool is IOracle {
     // κ (bps): convex coverage-wall strength (Pricing._covToll). 0 = off (volatiles, 0 gas). >0
     // requires depthAmplifier==0 (the c<1 depth subsidy fights the wall) — enforced at config.
     uint16 kappaCovBps;
-  }
-
-  struct LiquidityProfile {
-    uint8[16] weights;
-    int8[17] knots;
   }
 
   struct OracleConfig {
@@ -69,7 +70,7 @@ interface IPool is IOracle {
 
   struct FeeParams {
     uint8 protoShare;
-    uint16 flashFeeBps;
+    uint16 flashFeePbps;
   }
 
   struct DepositResult {
@@ -88,16 +89,15 @@ interface IPool is IOracle {
 
   enum OpType {
     NONE,
-    TRANSFER_OWNERSHIP,
     MIGRATE_BASE_TOKEN,
     UPDATE_ORACLE,
     ADD_ASSET,
     UPDATE_RISK,
     UPDATE_FEES,
-    UPDATE_BRIDGE,
     UPDATE_TREASURY,
     UPDATE_PROFILE,
-    UPDATE_HOOK
+    UPDATE_HOOK,
+    UPDATE_CURVE
   }
 
   /// @dev Packed hook slot: one SLOAD = target + flags. `address(0)` = disabled.
@@ -113,17 +113,19 @@ interface IPool is IOracle {
   ///      lpStaked/totalLPStaked/modules/pendingOps/pendingData/owner.
   /// @dev Off-chain readers: do NOT add view getters for mappings below — use
   ///      eth_getStorageAt (SDK `@sdk/pool/storage`). Mapping slots pinned:
-  ///      assets=4, oracleConfigs=5, riskConfigs=6, profiles=7.
+  ///      assets=3, oracleConfigs=4, riskConfigs=5, curves=6.
   struct PoolStorage {
+    // slot 0: baseToken + initialized — the whenInitialized latch rides the one slot every hot
+    // entrypoint already reads (was packed with treasury, a slot no swap path touches: −1 cold SLOAD).
     address baseToken;
-    address wnative;
-    address bridge;
-    address treasury;
     bool initialized;
+    address wnative;
+    address treasury;
     mapping(address => IPool.Asset) assets;
     mapping(address => IPool.OracleConfig) oracleConfigs;
     mapping(address => IPool.RiskConfig) riskConfigs;
-    mapping(address => IPool.LiquidityProfile) profiles;
+    // Shared pricing-shape preset table (quartic I-spline curves); assets point in via presetId.
+    mapping(uint16 => NUQuartic.Curve) curves;
     mapping(address => mapping(address => uint256)) lpBalances;
     mapping(address => uint256) protocolFees;
     IPool.FeeParams feeParams;
@@ -156,8 +158,8 @@ interface IPool is IOracle {
     address token,
     OracleConfig calldata oracleCfg,
     RiskConfig calldata riskCfg,
-    LiquidityProfile calldata profile,
-    uint16 minFeeBps,
+    uint16 presetId,
+    uint16 minFeePbps,
     uint8 decimals,
     uint32 minDispersion,
     uint32 maxDispersion,
@@ -170,8 +172,8 @@ interface IPool is IOracle {
   function adminSetAssetParams(
     address token,
     uint128 minLiquidity,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
@@ -180,15 +182,18 @@ interface IPool is IOracle {
   ) external;
   function adminSetRiskConfig(address token, RiskConfig calldata cfg) external;
   function adminSetOracleConfig(address token, OracleConfig calldata cfg) external;
-  /// @notice Recalibrate an asset's liquidity-profile SHAPE + dispersion band (pricing-shape only).
-  function adminSetProfile(
-    address token,
-    LiquidityProfile calldata profile,
-    uint32 minDispersion,
-    uint32 maxDispersion
+  /// @notice Recalibrate an asset's pricing-shape pointer + dispersion band (pricing-shape only).
+  function adminSetProfile(address token, uint16 presetId, uint32 minDispersion, uint32 maxDispersion)
+    external;
+  /// @notice Install/recalibrate a shared preset curve (quartic I-spline). Timelocked via Admin.
+  function adminSetCurve(
+    uint16 presetId,
+    uint256[] calldata interior,
+    int256[] calldata wQ,
+    uint16 dispRef,
+    uint8 flags
   ) external;
   function adminSetFeeParams(FeeParams calldata params) external;
-  function adminSetBridge(address newBridge) external;
   function adminSetTreasury(address newTreasury) external;
   function adminSetBaseToken(address newBase) external;
   /// @notice Timelocked hook install/replace (Admin.executeSetAssetHook).
@@ -237,7 +242,7 @@ interface IPool is IOracle {
   struct SwapQuote {
     uint256 amountOut;
     uint256 amountIn;
-    uint16 spreadBps;
+    uint16 spreadPbps;
     uint256 protoFee;
     uint256 lpFee;
     int8 skewIn;
@@ -254,7 +259,7 @@ interface IPool is IOracle {
     address tokenOut,
     uint256 amountIn,
     uint256 amountOut,
-    uint16 spreadBps,
+    uint16 spreadPbps,
     uint256 protoFee,
     uint256 lpFee
   );

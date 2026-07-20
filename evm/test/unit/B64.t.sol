@@ -2,12 +2,12 @@
 pragma solidity =0.8.35;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {B64} from "@btr-shared/libs/B64.sol";
 
-/// @title LibMathsTest
-/// @notice Comprehensive unit tests for LibMaths B64 encoding/decoding and arithmetic
-contract LibMathsTest is BaseTestSetup {
+/// @title B64Test
+/// @notice Comprehensive unit tests for shared B64 encoding/decoding and arithmetic
+contract B64Test is BaseTestSetup {
   // ═══════════════════════════════════════════════════════════════════════════
   // ENCODING TESTS
   // ═══════════════════════════════════════════════════════════════════════════

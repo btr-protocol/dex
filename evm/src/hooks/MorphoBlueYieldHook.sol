@@ -6,7 +6,7 @@ import {IMorphoBlue, MorphoId} from "../interfaces/external/IMorphoBlue.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title MorphoBlueYieldHook — isolated Morpho Blue / Lista Moolah–style markets (loan asset supply).
+/// @title MorphoBlueYieldHook - isolated Morpho Blue / Lista Moolah–style markets (loan asset supply).
 /// @notice Felix Vanilla vaults prefer ERC4626YieldHook; use this for direct Blue market allowlists.
 /// @dev NAV uses Morpho SharesMathLib virtual shares/assets (toAssetsDown). Does not simulate IRM
 ///      interest accrual in view (would need IIrm.borrowRateView); harvest after market interaction

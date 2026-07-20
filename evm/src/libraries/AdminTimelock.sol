@@ -12,8 +12,8 @@ library AdminTimelock {
     address token;
     IPool.OracleConfig oracleCfg;
     IPool.RiskConfig riskCfg;
-    IPool.LiquidityProfile profile;
-    uint16 minFeeBps;
+    uint16 presetId;
+    uint16 minFeePbps;
     uint8 decimals;
     uint32 minDispersion;
     uint32 maxDispersion;
@@ -23,9 +23,9 @@ library AdminTimelock {
 
   /// @dev Two-blob encode keeps `abi.decode` off the via_ir stack-too-deep edge as IPool structs grow.
   function encodeAddAsset(AddAssetPayload memory p) internal pure returns (bytes memory) {
-    bytes memory head = abi.encode(p.token, p.oracleCfg, p.riskCfg, p.profile);
+    bytes memory head = abi.encode(p.token, p.oracleCfg, p.riskCfg, p.presetId);
     bytes memory tail =
-      abi.encode(p.minFeeBps, p.decimals, p.minDispersion, p.maxDispersion, p.gamma, p.vega);
+      abi.encode(p.minFeePbps, p.decimals, p.minDispersion, p.maxDispersion, p.gamma, p.vega);
     return abi.encode(head, tail);
   }
 
@@ -33,9 +33,9 @@ library AdminTimelock {
     bytes memory head;
     bytes memory tail;
     (head, tail) = abi.decode(raw, (bytes, bytes));
-    (p.token, p.oracleCfg, p.riskCfg, p.profile) =
-      abi.decode(head, (address, IPool.OracleConfig, IPool.RiskConfig, IPool.LiquidityProfile));
-    (p.minFeeBps, p.decimals, p.minDispersion, p.maxDispersion, p.gamma, p.vega) =
+    (p.token, p.oracleCfg, p.riskCfg, p.presetId) =
+      abi.decode(head, (address, IPool.OracleConfig, IPool.RiskConfig, uint16));
+    (p.minFeePbps, p.decimals, p.minDispersion, p.maxDispersion, p.gamma, p.vega) =
       abi.decode(tail, (uint16, uint8, uint32, uint32, uint16, uint16));
   }
 
@@ -51,8 +51,8 @@ library AdminTimelock {
         p.token,
         p.oracleCfg,
         p.riskCfg,
-        p.profile,
-        p.minFeeBps,
+        p.presetId,
+        p.minFeePbps,
         p.decimals,
         p.minDispersion,
         p.maxDispersion,
@@ -69,8 +69,8 @@ library AdminTimelock {
     address token,
     IPool.OracleConfig calldata oracleCfg,
     IPool.RiskConfig calldata riskCfg,
-    IPool.LiquidityProfile calldata profile,
-    uint16 minFeeBps,
+    uint16 presetId,
+    uint16 minFeePbps,
     uint8 decimals,
     uint32 minDispersion,
     uint32 maxDispersion,
@@ -83,8 +83,8 @@ library AdminTimelock {
         token,
         oracleCfg,
         riskCfg,
-        profile,
-        minFeeBps,
+        presetId,
+        minFeePbps,
         decimals,
         minDispersion,
         maxDispersion,
@@ -98,8 +98,8 @@ library AdminTimelock {
     address pool,
     address token,
     uint128 minLiquidity,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
@@ -110,8 +110,8 @@ library AdminTimelock {
       .adminSetAssetParams(
         token,
         minLiquidity,
-        minFeeBps,
-        maxFeeBps,
+        minFeePbps,
+        maxFeePbps,
         gamma,
         vega,
         haircutSuppressor,

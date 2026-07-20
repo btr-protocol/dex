@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity =0.8.35;
 
 /// @notice Minimal Aave V3 Pool + aToken surface for supply-only rehypothecation.
 interface IAaveV3Pool {

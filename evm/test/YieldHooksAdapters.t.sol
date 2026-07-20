@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
@@ -15,19 +14,56 @@ import {ERC4626YieldHook} from "../src/hooks/ERC4626YieldHook.sol";
 import {MorphoBlueYieldHook} from "../src/hooks/MorphoBlueYieldHook.sol";
 import {CompoundV2YieldHook} from "../src/hooks/CompoundV2YieldHook.sol";
 import {YieldHook} from "../src/hooks/YieldHook.sol";
-import {MockAavePool, MockAToken} from "../src/hooks/MockAavePool.sol";
-import {MockAaveV4Spoke} from "../src/hooks/MockAaveV4Spoke.sol";
-import {MockERC4626} from "../src/hooks/MockERC4626.sol";
-import {MockMorphoBlue} from "../src/hooks/MockMorphoBlue.sol";
-import {MockVenus} from "../src/hooks/MockVenus.sol";
+import {MockAavePool, MockAToken} from "./mocks/MockAavePool.sol";
+import {MockAaveV4Spoke} from "./mocks/MockAaveV4Spoke.sol";
+import {MockERC4626} from "./mocks/MockERC4626.sol";
+import {MockMorphoBlue} from "./mocks/MockMorphoBlue.sol";
+import {MockVenus} from "./mocks/MockVenus.sol";
 import {IMorphoBlue, MorphoId} from "../src/interfaces/external/IMorphoBlue.sol";
 import {IAaveRewardsController} from "../src/interfaces/external/IAaveV3.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
-import {Maths as M} from "../src/libraries/Maths.sol";
-import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Err} from "@btr-shared/Errors.sol";
+
+/// @notice ERC4626 stub that can be "bricked": once `brick()` is called, both the NAV view
+///         (`convertToAssets`) and `withdraw` revert — simulating a paused/rogue-upgraded venue that
+///         wedges `_harvest` (O-01). Deposit works pre-brick so `invested` can be non-zero first.
+contract BrickableERC4626 {
+  using SafeTransferLib for address;
+
+  address public immutable asset;
+  bool public bricked;
+  mapping(address => uint256) public balanceOf;
+
+  constructor(address asset_) {
+    asset = asset_;
+  }
+
+  function brick() external {
+    bricked = true;
+  }
+
+  function deposit(uint256 assets, address receiver) external returns (uint256 shares) {
+    asset.safeTransferFrom(msg.sender, address(this), assets);
+    balanceOf[receiver] += assets;
+    return assets;
+  }
+
+  function withdraw(uint256, address, address) external view returns (uint256) {
+    revert("bricked");
+  }
+
+  function convertToAssets(uint256 shares) external view returns (uint256) {
+    if (bricked) revert("bricked");
+    return shares;
+  }
+
+  function maxWithdraw(address) external view returns (uint256) {
+    return 0;
+  }
+}
 
 /// @notice Minimal Aave RewardsController stub: pays a fixed pre-funded reward amount to `to`.
 contract MockAaveRewards is IAaveRewardsController {
@@ -121,7 +157,7 @@ contract MockMerklDistributor {
 }
 
 /// @notice Focused adapter smoke tests (Aave V3, ERC4626, Morpho Blue, CompoundV2 alias path).
-contract YieldHooksAdaptersTest is Test {
+contract YieldHooksAdaptersTest is BaseTestSetup {
   PoolFactory factory;
   Pool poolImpl;
   Admin admin;
@@ -136,18 +172,6 @@ contract YieldHooksAdaptersTest is Test {
   address constant TREASURY = address(0x7ea5);
   uint8 constant PROTO_SHARE = 25;
 
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
-
   function _risk() internal pure returns (IPool.RiskConfig memory r) {
     r.decayStartRatioBps = 5000;
     r.coverageMin = 5000;
@@ -161,7 +185,7 @@ contract YieldHooksAdaptersTest is Test {
     o.feedId = bytes32(uint256(uint160(token)));
   }
 
-  function setUp() public {
+  function setUp() public override {
     ac = new MockAC(OWNER);
     admin = new Admin(address(ac));
     flashSingleton = new Flash();
@@ -174,7 +198,7 @@ contract YieldHooksAdaptersTest is Test {
     address[] memory toks = new address[](2);
     toks[0] = address(base);
     toks[1] = address(quote);
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: PROTO_SHARE, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: PROTO_SHARE, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     address pa = factory.createPool(address(base), toks, initdata);
@@ -184,13 +208,33 @@ contract YieldHooksAdaptersTest is Test {
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setMark(address(quote), M.encodeB64(1e18, 18));
     IPool.RiskConfig memory rc = _risk();
-    IPool.LiquidityProfile memory pf = _profile();
     vm.startPrank(OWNER);
+    admin.setCurve(pa, DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
     admin.addAsset(
-      pa, address(base), _oracleCfg(address(base)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000
+      pa,
+      address(base),
+      _oracleCfg(address(base)),
+      rc,
+      DEFAULT_PRESET,
+      1000,
+      18,
+      1000,
+      100000,
+      10000,
+      10000
     );
     admin.addAsset(
-      pa, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000
+      pa,
+      address(quote),
+      _oracleCfg(address(quote)),
+      rc,
+      DEFAULT_PRESET,
+      1000,
+      18,
+      1000,
+      100000,
+      10000,
+      10000
     );
     // Wire pool.treasury() (HIGH-timelock) so incentive sweeps land on the real default destination.
     admin.requestTreasuryUpdate(pa, TREASURY);
@@ -215,6 +259,11 @@ contract YieldHooksAdaptersTest is Test {
     vm.stopPrank();
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setMark(address(quote), M.encodeB64(1e18, 18));
+  }
+
+  function _clearHook(address token) internal {
+    vm.prank(OWNER);
+    admin.clearAssetHook(address(pool), token);
   }
 
   function _forceThinLiquid(address hook) internal {
@@ -280,6 +329,44 @@ contract YieldHooksAdaptersTest is Test {
     vm.prank(OWNER);
     hook.rebalance();
     assertLt(IPool(address(pool)).getInvested(address(quote)), invBefore, "4626 writedown");
+  }
+
+  /// O-01: a venue whose NAV view reverts wedges `_harvest` (invested can't reach 0), so setHook/
+  /// clearHook (both require invested==0) can never migrate the asset. `forceWriteDown` is the
+  /// owner-gated escape that crystallizes the loss and frees migration.
+  function test_erc4626_bricked_venue_forceWriteDown_escape() public {
+    BrickableERC4626 vault = new BrickableERC4626(address(quote));
+    ERC4626YieldHook hook =
+      new ERC4626YieldHook(address(ac), address(pool), address(quote), address(vault));
+    _setHook(address(quote), address(hook), hook.recommendedFlags());
+
+    quote.mint(address(this), 200_000e18);
+    pool.deposit(address(quote), 200_000e18);
+    vm.prank(OWNER);
+    hook.rebalance();
+    uint256 inv = IPool(address(pool)).getInvested(address(quote));
+    assertGt(inv, 0, "invested after deploy");
+
+    vault.brick(); // NAV view + withdraw now revert
+
+    // Wedge: harvest reverts (NAV view dead) and migration is blocked (invested != 0).
+    vm.prank(OWNER);
+    vm.expectRevert();
+    hook.rebalance();
+    vm.prank(OWNER);
+    vm.expectRevert(); // clearAssetHook requires invested==0
+    admin.clearAssetHook(address(pool), address(quote));
+
+    // Non-owner cannot force it.
+    vm.prank(address(0xBEEF));
+    vm.expectRevert(Err.NotOwner.selector);
+    hook.forceWriteDown(inv);
+
+    // Owner escape crystallizes the loss → invested == 0 → migration unblocked.
+    vm.prank(OWNER);
+    hook.forceWriteDown(inv);
+    assertEq(IPool(address(pool)).getInvested(address(quote)), 0, "invested zeroed");
+    _clearHook(address(quote));
   }
 
   function test_morphoBlue_deploy_and_recall() public {
@@ -642,7 +729,7 @@ contract YieldHooksAdaptersTest is Test {
   function test_claimVenueIncentives_unauthorized_reverts() public {
     (AaveV3YieldHook hook,) = _aaveHookWithRewards(10e18);
     vm.prank(address(0xBAD));
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotAuth.selector);
     hook.claimVenueIncentives("");
   }
 
@@ -732,7 +819,7 @@ contract YieldHooksAdaptersTest is Test {
   ///      keeper authorized. Owner authorization is exercised by every _expectClaimSweep call.
   function _assertGating(address hook, bytes memory data, address reward, uint256 amt) internal {
     vm.prank(address(0xBAD));
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotAuth.selector);
     YieldHook(hook).claimVenueIncentives(data);
 
     address keeper = address(0xC0FFEE);

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {IVBep20} from "../interfaces/external/IVBep20.sol";
+import {IVBep20} from "../../src/interfaces/external/IVBep20.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
-/// @title MockVenus — Compound-like vToken stub for Chapel / unit tests (BTR mock underlyings).
+/// @title MockVenus - Compound-like vToken stub for Chapel / unit tests (BTR mock underlyings).
 /// @dev Fixed 1:1 exchange rate. Cash = contract underlying balance. No interest unless `setRate`.
 ///      `setRate` / `setTotalReserves` are owner-only — permissionless rate cuts grief harvest write-downs.
 contract MockVenus is IVBep20, Ownable {

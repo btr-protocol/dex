@@ -15,7 +15,7 @@ import {PoolSwap} from "./libraries/PoolSwap.sol";
 import {PoolView} from "./libraries/PoolView.sol";
 import {PoolIO} from "./libraries/PoolIO.sol";
 
-/// @title Pool — standalone AIMM (ERC1967 beacon proxy; cold paths → PoolAux).
+/// @title Pool - standalone AIMM (ERC1967 beacon proxy; cold paths → PoolAux).
 /// @dev `$` at slot 0; PoolAux mirrors the same layout for DELEGATECALL.
 contract Pool is ReentrancyGuardTransient {
   // ────────────────────────────────────────────────────────────────
@@ -82,9 +82,6 @@ contract Pool is ReentrancyGuardTransient {
   }
 
   /// @notice ERC7802 bridge auth -bridgeable tokens query this.
-  function getAuthorizedBridge() external view returns (address) {
-    return $.bridge;
-  }
 
   // ────────────────────────────────────────────────────────────────
   // LIQUIDITY DOMAIN (hot)

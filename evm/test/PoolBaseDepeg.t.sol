@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
@@ -11,8 +10,8 @@ import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
-import {Maths as M} from "../src/libraries/Maths.sol";
-import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
 /// @title PoolBaseDepegTest -R44-2 (T3-HIGH2) regression.
@@ -20,7 +19,7 @@ import {Err} from "@btr-shared/Errors.sol";
 ///         - The listed base asset's canonical OracleConfig is the depeg source.
 ///         - A base price within `BASE_DEPEG_HALT_BPS` (5%) executes normally.
 ///         - When base oracle reports a >5% deviation from 1e18: swaps revert `Err.BaseDepegged`.
-contract PoolBaseDepegTest is Test {
+contract PoolBaseDepegTest is BaseTestSetup {
   PoolFactory factory;
   Pool poolImpl;
   Admin admin;
@@ -33,18 +32,6 @@ contract PoolBaseDepegTest is Test {
 
   address constant OWNER = address(0xA11CE);
   address constant USER = address(0xBEEF);
-
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
 
   function _risk() internal pure returns (IPool.RiskConfig memory r) {
     r.decayStartRatioBps = 5000;
@@ -59,7 +46,7 @@ contract PoolBaseDepegTest is Test {
     o.feedId = bytes32(uint256(uint160(token)));
   }
 
-  function setUp() public {
+  function setUp() public override {
     ac = new MockAC(OWNER);
     admin = new Admin(address(ac));
     flashSingleton = new Flash();
@@ -72,7 +59,7 @@ contract PoolBaseDepegTest is Test {
     address[] memory toks = new address[](2);
     toks[0] = address(base);
     toks[1] = address(quote);
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     address pa = factory.createPool(address(base), toks, initdata);
@@ -82,13 +69,33 @@ contract PoolBaseDepegTest is Test {
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setMark(address(quote), M.encodeB64(1e18, 18));
     IPool.RiskConfig memory rc = _risk();
-    IPool.LiquidityProfile memory pf = _profile();
     vm.startPrank(OWNER);
+    admin.setCurve(pa, DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
     admin.addAsset(
-      pa, address(base), _oracleCfg(address(base)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000
+      pa,
+      address(base),
+      _oracleCfg(address(base)),
+      rc,
+      DEFAULT_PRESET,
+      1000,
+      18,
+      1000,
+      100000,
+      10000,
+      10000
     );
     admin.addAsset(
-      pa, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000
+      pa,
+      address(quote),
+      _oracleCfg(address(quote)),
+      rc,
+      DEFAULT_PRESET,
+      1000,
+      18,
+      1000,
+      100000,
+      10000,
+      10000
     );
     vm.stopPrank();
 
@@ -149,14 +156,13 @@ contract PoolBaseDepegTest is Test {
     MockERC20 cTok = new MockERC20("CTok", "CTOK", 18);
     oracle.setMark(address(cTok), M.encodeB64(1e18, 18));
     IPool.RiskConfig memory rc = _risk();
-    IPool.LiquidityProfile memory pf = _profile();
     vm.prank(OWNER);
     admin.addAsset(
       address(pool),
       address(cTok),
       _oracleCfg(address(cTok)),
       rc,
-      pf,
+      DEFAULT_PRESET,
       1000,
       18,
       1000,

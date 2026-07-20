@@ -18,42 +18,35 @@ import {IPool} from "../../src/interfaces/IPool.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Pricing} from "../../src/libraries/Pricing.sol";
-import {Spline} from "../../src/libraries/Spline.sol";
+import {NUQuartic} from "../../src/libraries/NUQuartic.sol";
 import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
-/// @dev Internal-component harness: holds the SAME LiquidityProfile as the pool fixture in its own
-///      storage and times Pricing/Spline internals with the QuarticProto gasleft() pattern.
+/// @dev Internal-component harness: holds the SAME preset curve as the pool fixture in its own
+///      storage and times Pricing/NUQuartic internals with the gasleft() pattern.
 contract PricingHarness {
-  IPool.LiquidityProfile internal profile;
+  using NUQuartic for NUQuartic.Curve;
 
-  constructor(IPool.LiquidityProfile memory p) {
-    profile = p;
+  NUQuartic.Curve internal curve;
+
+  constructor(uint256[] memory interior, int256[] memory wQ) {
+    NUQuartic.set(curve, interior, wQ, 1000, 0);
   }
 
   function noop() external pure returns (uint256) {
     return 1;
   }
 
-  function gBuildPoints(uint32 disp) external view returns (uint256 g, uint256 n) {
+  function gEval(uint256 x) external view returns (uint256 g, int256 y) {
     uint256 g0 = gasleft();
-    Spline.Point[] memory pts = Pricing._buildSplinePoints(profile, disp);
-    g = g0 - gasleft();
-    n = pts.length;
-  }
-
-  function gEval(uint32 disp, uint256 x) external view returns (uint256 g, int256 y) {
-    Spline.Point[] memory pts = Pricing._buildSplinePoints(profile, disp);
-    uint256 g0 = gasleft();
-    y = Spline.eval(x, pts);
+    y = curve.evalQ(curve.header, x);
     g = g0 - gasleft();
   }
 
-  function gArea(uint32 disp, uint256 lo, uint256 hi) external view returns (uint256 g, int256 a) {
-    Spline.Point[] memory pts = Pricing._buildSplinePoints(profile, disp);
+  function gArea(uint256 lo, uint256 hi) external view returns (uint256 g, int256 a) {
     uint256 g0 = gasleft();
-    a = Spline.area(pts, lo, hi);
+    a = curve.areaQ(curve.header, lo, hi);
     g = g0 - gasleft();
   }
 
@@ -64,27 +57,20 @@ contract PricingHarness {
     returns (uint256 g, uint256 out)
   {
     uint256 g0 = gasleft();
-    (out,) = Pricing.quoteSwap(
-      amtIn, res, liab, 1e18, uint32(SC.ONE_PCT_PBPS), profile, 0, true, 10000, 10000, 1000, 100000
+    out = Pricing.quoteSwap(
+      amtIn, res, liab, 1e18, uint32(SC.ONE_PCT_PBPS), curve, 0, true, 10000, 10000, 1000, 100000
     );
     g = g0 - gasleft();
   }
 
-  /// @dev Sell-side spline traversal only (points build + area + floors).
+  /// @dev Sell-side curve traversal only (header + area + floors).
   function gTraverse(uint256 amtIn, uint256 depth, bool selling)
     external
     view
     returns (uint256 g, uint256 px)
   {
     uint256 g0 = gasleft();
-    px = Pricing._traverseSplineByVolume(1e18, 1010, profile, 0, amtIn, depth, selling);
-    g = g0 - gasleft();
-  }
-
-  /// @dev Buy-leg mid estimate (spline EVAL path inside _getMidPriceFromProfile).
-  function gMid() external view returns (uint256 g, uint256 px) {
-    uint256 g0 = gasleft();
-    px = Pricing._getMidPriceFromProfile(1e18, 0, 1010, profile);
+    px = Pricing._traverseCurveByVolume(1e18, 1010, curve, 0, amtIn, depth, selling);
     g = g0 - gasleft();
   }
 
@@ -139,16 +125,13 @@ contract GasProbeTest is Test {
   uint256 constant SEED = 10_000_000e18;
   uint256 constant AMT = 10_000e18; // 0.1% of depth
 
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
+  function _curveArgs() internal pure returns (uint256[] memory interior, int256[] memory wQ) {
+    interior = new uint256[](4);
+    (interior[0], interior[1], interior[2], interior[3]) = (2000, 4000, 6000, 8000);
+    wQ = new int256[](9);
+    for (uint256 i = 0; i < 9; ++i) {
+      wQ[i] = -500e9 + int256(i) * 125e9; // linear ramp −500..+500 pbps·Q at dispRef 1000
+    }
   }
 
   function _risk() internal pure returns (IPool.RiskConfig memory r) {
@@ -184,7 +167,7 @@ contract GasProbeTest is Test {
     toks[0] = address(usdc);
     toks[1] = address(usdt);
     toks[2] = address(usd1);
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(usdc), address(0xCAFE), fp);
     pool = Pool(payable(factory.createPool(address(usdc), toks, initdata)));
@@ -199,14 +182,16 @@ contract GasProbeTest is Test {
     oracle.setMark(address(usd1), M.encodeB64(1e18, 18));
 
     vm.startPrank(OWNER);
+    (uint256[] memory interior, int256[] memory wQ) = _curveArgs();
     for (uint256 p = 0; p < 2; p++) {
       address tgt = p == 0 ? address(pool) : address(poolDirect);
+      admin.setCurve(tgt, 1, interior, wQ, 1000, 0);
       admin.addAsset(
         tgt,
         address(usdc),
         _oracleCfg(address(usdc)),
         _risk(),
-        _profile(),
+        1,
         1000,
         18,
         1000,
@@ -219,7 +204,7 @@ contract GasProbeTest is Test {
         address(usdt),
         _oracleCfg(address(usdt)),
         _risk(),
-        _profile(),
+        1,
         1000,
         18,
         1000,
@@ -232,7 +217,7 @@ contract GasProbeTest is Test {
         address(usd1),
         _oracleCfg(address(usd1)),
         _risk(),
-        _profile(),
+        1,
         1000,
         18,
         1000,
@@ -264,7 +249,8 @@ contract GasProbeTest is Test {
     usdt.approve(address(this), type(uint256).max); // for the raw transferFrom probe
     vm.stopPrank();
 
-    harness = new PricingHarness(_profile());
+    (uint256[] memory hInterior, int256[] memory hWQ) = _curveArgs();
+    harness = new PricingHarness(hInterior, hWQ);
   }
 
   function _seed(Pool p, MockERC20 tk) internal {
@@ -408,7 +394,7 @@ contract GasProbeTest is Test {
     console2.log("PROBE erc20_balanceOf_warm", gBw);
   }
 
-  // ── internal pricing components (harness; call twice: cold/warm profile slots) ──
+  // ── internal pricing components (harness; call twice: cold/warm curve slots) ──
 
   function test_gas_pricing_components() public view {
     harness.noop(); // warm harness account
@@ -417,13 +403,11 @@ contract GasProbeTest is Test {
       (, depthV) = harness.gDepth(uint128(SEED), uint128(SEED));
     }
 
-    (uint256 g1,) = harness.gBuildPoints(1010); // cold profile slots
-    (uint256 g1w,) = harness.gBuildPoints(1010); // warm
-    (uint256 g2,) = harness.gEval(1010, 5000);
-    (uint256 g3,) = harness.gArea(1010, 4950, 5000);
+    (uint256 g2,) = harness.gEval(5000); // cold curve slots (header + 1 seg pair)
+    (uint256 g2w,) = harness.gEval(5000); // warm
+    (uint256 g3,) = harness.gArea(4950, 5000);
     (uint256 g4,) = harness.gTraverse(AMT, depthV, true);
     (uint256 g5,) = harness.gTraverse(AMT, depthV, false);
-    (uint256 g6,) = harness.gMid();
     (uint256 g7,) = harness.gQuoteSwapSell(AMT, uint128(SEED), uint128(SEED));
     (uint256 g8,) = harness.gSkew(uint128(SEED), uint128(SEED));
     (uint256 g9,) = harness.gCovToll(uint128(9_000_000e18), uint128(SEED), 1000, AMT);
@@ -431,13 +415,11 @@ contract GasProbeTest is Test {
     (uint256 g10,) = harness.gDepth(uint128(SEED), uint128(SEED));
     (uint256 g11,,) = harness.gSplitFee(1e18);
 
-    console2.log("PROBE prc_buildPoints_cold", g1);
-    console2.log("PROBE prc_buildPoints_warm", g1w);
-    console2.log("PROBE prc_splineEval", g2);
-    console2.log("PROBE prc_splineArea_50w", g3);
+    console2.log("PROBE prc_curveEval_cold", g2);
+    console2.log("PROBE prc_curveEval_warm", g2w);
+    console2.log("PROBE prc_curveArea_50w", g3);
     console2.log("PROBE prc_traverseSell", g4);
     console2.log("PROBE prc_traverseBuy", g5);
-    console2.log("PROBE prc_midFromProfile", g6);
     console2.log("PROBE prc_quoteSwapSell_full", g7);
     console2.log("PROBE prc_inventorySkew", g8);
     console2.log("PROBE prc_covToll_k1000", g9);

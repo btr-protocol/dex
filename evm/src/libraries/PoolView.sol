@@ -7,8 +7,9 @@ import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolLiquidity} from "./PoolLiquidity.sol";
 import {PoolIO} from "./PoolIO.sol";
+import {Pricing} from "./Pricing.sol";
 
-/// @title PoolView — non-trivial read helpers extracted from Pool.sol
+/// @title PoolView - non-trivial read helpers extracted from Pool.sol
 library PoolView {
   function previewWithdraw(IPool.PoolStorage storage $, address tk, uint256 lp)
     external
@@ -16,7 +17,7 @@ library PoolView {
     returns (uint256 amountOut, uint256 haircut)
   {
     IPool.Asset storage a = $.assets[PoolIO.wrap($, tk)];
-    uint256 li = a.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : a.liquidityIndex;
+    uint256 li = C.effIndex(a.liquidityIndex);
     uint256 wv = (lp * li) / SC.WAD;
     (amountOut, haircut) =
       PoolLiquidity.applyHaircut(wv, a.reserves, a.liabilities, a.haircutSuppressor);
@@ -29,7 +30,6 @@ library PoolView {
   {
     IPool.Asset storage a = $.assets[PoolIO.wrap($, tk)];
     if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tk);
-    if (a.liabilities == 0) return type(uint256).max;
-    return (uint256(a.reserves) * SC.WAD) / uint256(a.liabilities);
+    return Pricing.calculateCoverage(a.reserves, a.liabilities);
   }
 }

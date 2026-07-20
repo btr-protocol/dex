@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {IAaveV4Spoke} from "../interfaces/external/IAaveV4.sol";
+import {IAaveV4Spoke} from "../../src/interfaces/external/IAaveV4.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title MockAaveV4Spoke — minimal reserveId supply stub for AaveV4YieldHook tests.
+/// @title MockAaveV4Spoke - minimal reserveId supply stub for AaveV4YieldHook tests.
 contract MockAaveV4Spoke is IAaveV4Spoke {
   using SafeTransferLib for address;
 

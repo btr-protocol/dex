@@ -33,7 +33,9 @@ library PoolLiquidity {
   {
     if (liabilities == 0 || reserves >= liabilities) return (amount, 0);
     uint256 deficit = ((uint256(liabilities) - uint256(reserves)) * 1e18) / uint256(liabilities);
-    uint256 factor = suppression >= 20000 ? 0 : 1e18 - (uint256(suppression) * 1e18 / 20000);
+    uint256 factor = suppression >= C.HAIRCUT_SUPPRESSOR_DISABLE
+      ? 0
+      : SC.WAD - (uint256(suppression) * SC.WAD / C.HAIRCUT_SUPPRESSOR_DISABLE);
     uint256 haircutRatio = (deficit * factor) / 1e18;
     if (haircutRatio > 1e18) haircutRatio = 1e18;
     // ACC-04: round the haircut UP so `actualAmount` rounds DOWN — a floored haircut let the
@@ -54,15 +56,13 @@ library PoolLiquidity {
 
     IPool.RiskConfig storage rc = $.riskConfigs[tkn]; // one SLOAD of the packed slot, shared below
     PoolDecay.applyDecay(asset, rc);
-    if ((rc.flags & C.HALT_MASK) != 0) {
-      revert Err.FeatureDisabled(Err.Resource.ASSET);
-    }
+    PoolIO.checkRiskFlags(rc, 0);
 
     uint256 amt = PoolIO.pull($, token, amount);
     if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
     uint256 lpAmt =
-      (amt * SC.WAD) / (asset.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : asset.liquidityIndex);
+      (amt * SC.WAD) / (C.effIndex(asset.liquidityIndex));
     // ACC-03: a deposit too small to mint ≥1 LP share would still credit reserves+liabilities —
     // free liquidity donated to existing LPs. Reject the zero-share dust deposit.
     if (lpAmt == 0) revert Err.ZeroValue();
@@ -76,6 +76,17 @@ library PoolLiquidity {
 
     emit IPool.Deposited(msg.sender, tkn, amt, lpAmt);
     return IPool.DepositResult({lpAmount: lpAmt, actualDeposit: amt});
+  }
+
+  /// @dev Raise an asset's liquidity index after `added` value accrues to LPs over `liabBefore`
+  ///      (donate, hookCreditYield). Checked cast: liquidityIndex (uint64) is the sole share↔value
+  ///      converter for all LPs of this asset; a raw cast would wrap on overflow and silently corrupt
+  ///      every holder's balance. Fail closed instead — an accrual that would overflow the index reverts.
+  function raiseIndex(IPool.Asset storage asset, uint256 liabBefore, uint256 added) internal {
+    uint256 idx = C.effIndex(asset.liquidityIndex);
+    uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + added)) / liabBefore;
+    if (newIndex > type(uint64).max) revert Err.ExcessiveAmount(newIndex, type(uint64).max);
+    asset.liquidityIndex = uint64(newIndex);
   }
 
   function donate(IPool.PoolStorage storage $, address token, uint256 amount) external {
@@ -95,14 +106,7 @@ library PoolLiquidity {
     uint256 liabBefore = uint256(asset.liabilities);
     asset.reserves += uint128(amt);
     asset.liabilities += uint128(amt);
-
-    uint256 idx = asset.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : asset.liquidityIndex;
-    uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + amt)) / liabBefore;
-    // Checked cast: liquidityIndex (uint64) is the sole share↔value converter for all LPs of this
-    // asset; a raw cast would wrap on overflow and silently corrupt every holder's balance. Fail
-    // closed instead — a donation that would overflow the index reverts.
-    if (newIndex > type(uint64).max) revert Err.ExcessiveAmount(newIndex, type(uint64).max);
-    asset.liquidityIndex = uint64(newIndex);
+    raiseIndex(asset, liabBefore, amt);
 
     emit IPool.Donated(msg.sender, token, amt);
   }
@@ -155,7 +159,7 @@ library PoolLiquidity {
 
       ctx.withdrawValue =
         (lpAmount
-            * (assetFrom.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : assetFrom.liquidityIndex))
+            * (C.effIndex(assetFrom.liquidityIndex)))
           / SC.WAD;
     }
 
@@ -199,11 +203,6 @@ library PoolLiquidity {
   function _quoteWithdrawCross(IPool.PoolStorage storage $, WithdrawCtx memory ctx) private {
     IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
     IPool.Asset storage assetTo = $.assets[ctx.toTk];
-    // Depeg breaker on BOTH legs: the conversion is priced off fromTk's mark, so a wrong-but-fresh
-    // fromTk mark (above its refBand / reservationPriceMax) over-delivers the healthy output asset —
-    // the same drain the exec/swapLiability input-leg guard closes. Cover all mark-priced value-out paths.
-    PoolIO.priceBandGuard($, ctx.fromTk, assetFrom);
-    PoolIO.priceBandGuard($, ctx.toTk, assetTo);
     // From-asset coverage haircut BEFORE the mark conversion, mirroring same-asset: an LP exiting an
     // under-covered asset converts only face·c_from and leaves its deficit socialized (liabilities still
     // drop by the FULL face below, so the index invariant holds). Without this the cross path pays full
@@ -213,6 +212,13 @@ library PoolLiquidity {
       ctx.withdrawValue, assetFrom.reserves, assetFrom.liabilities, assetFrom.haircutSuppressor
     );
     IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, ctx.fromTk, ctx.toTk, fairValue);
+    // Depeg breaker on BOTH legs, AFTER the quote so the guards hit the tx-primed transient feed
+    // cache (swapLiability ordering): the conversion is priced off fromTk's mark, so a wrong-but-
+    // fresh fromTk mark (above its refBand / reservationPriceMax) over-delivers the healthy output
+    // asset — the same drain the exec/swapLiability input-leg guard closes. Reverting after the
+    // quote is state-identical to reverting before it (all-or-nothing tx).
+    PoolIO.priceBandGuard($, ctx.fromTk, assetFrom);
+    PoolIO.priceBandGuard($, ctx.toTk, assetTo);
     (ctx.amt, ctx.haircut) =
       applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
     ctx.protoFee = q.protoFee;
@@ -274,7 +280,7 @@ library PoolLiquidity {
     }
 
     uint256 liabIn =
-      (lpAmountIn * (assetIn.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : assetIn.liquidityIndex))
+      (lpAmountIn * (C.effIndex(assetIn.liquidityIndex)))
         / SC.WAD;
     if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
 
@@ -294,16 +300,12 @@ library PoolLiquidity {
     // would debit the output reserve with no matching inflow and degrade coverage. The swapper is
     // still charged the full spread (q.amountOut is net); the proto share stays as reduced net
     // liability = coverage to LPs (conservative, LP-safe). Audit-confirmed design choice, not a gap.
-    uint256 liabOut = q.amountOut;
-    uint256 haircut;
-
-    if (assetOut.reserves < assetOut.liabilities) {
-      (liabOut, haircut) =
-        applyHaircut(liabOut, assetOut.reserves, assetOut.liabilities, assetOut.haircutSuppressor);
-    }
+    // applyHaircut self-gates (identity when reserves >= liabilities) — no outer guard needed.
+    (uint256 liabOut, uint256 haircut) =
+      applyHaircut(q.amountOut, assetOut.reserves, assetOut.liabilities, assetOut.haircutSuppressor);
 
     lpAmountOut = (liabOut * SC.WAD)
-      / (assetOut.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : assetOut.liquidityIndex);
+      / (C.effIndex(assetOut.liquidityIndex));
 
     assetIn.liabilities -= uint128(liabIn);
     assetOut.liabilities += uint128(liabOut);

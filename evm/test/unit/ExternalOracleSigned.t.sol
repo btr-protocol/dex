@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ExternalOracle} from "../../src/oracles/ExternalOracle.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 import {Oracle} from "../../src/libraries/Oracle.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {MockAC} from "../fixtures/BaseTestSetup.sol";
 
@@ -33,7 +33,7 @@ contract ExternalOracleSignedTest is Test {
     ext = new ExternalOracle(address(ac), 600, initialSigners, 2);
     vm.warp(1_700_000_000);
     ext.addFeed(
-      BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600
+      BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, ext.MAX_DEV_THRESHOLD(), 3600
     );
     feedId = keccak256(abi.encodePacked(BASE, QUOTE)); // feedIds[0], idx = 0
     nxr = vm.addr(NXR_PK);
@@ -104,7 +104,7 @@ contract ExternalOracleSignedTest is Test {
 
     IOracle.FeedData memory f = ext.getFeed(feedId);
     assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 3030e18, 0.001e18, "signed mark committed");
-    assertEq(f.sigmaEma, 2e4, "signed sigma stored DIRECTLY (no on-chain EMA)");
+    assertEq(f.sigma, 2e4, "signed sigma stored DIRECTLY (no on-chain EMA)");
     assertEq(f.confidence, 7, "signed confidence");
     assertEq(f.updatedAt, uint32(block.timestamp), "updatedAt = block.timestamp");
     assertEq(f.ttl, 3600, "ttl preserved");
@@ -194,7 +194,7 @@ contract ExternalOracleSignedTest is Test {
   function _seedBandedFeed() internal returns (bytes32 id) {
     address da = address(0xDA5E);
     address db = address(0xDB5E);
-    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // 500-bps floor, σ=1e4, idx=1
+    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, 500, 3600); // 500-bps floor, σ=1e4, idx=1
     id = keccak256(abi.encodePacked(da, db));
     skip(TAU);
     bytes memory seed = _rec(1, M.encodeB64(100e18, 18), 1e4, 5, _srcTs());
@@ -265,8 +265,8 @@ contract ExternalOracleSignedTest is Test {
     address lb = address(0x10B);
     address ha = address(0x40A);
     address hb = address(0x40B);
-    ext.addFeed(la, lb, M.encodeB64(100e18, 18), 2e3, 5, TAU, TAU, 100, 3600); // 100-bps floor, idx=1
-    ext.addFeed(ha, hb, M.encodeB64(100e18, 18), 5e4, 5, TAU, TAU, 100, 3600); // 100-bps floor, idx=2
+    ext.addFeed(la, lb, M.encodeB64(100e18, 18), 2e3, 5, 100, 3600); // 100-bps floor, idx=1
+    ext.addFeed(ha, hb, M.encodeB64(100e18, 18), 5e4, 5, 100, 3600); // 100-bps floor, idx=2
     bytes32 lid = keccak256(abi.encodePacked(la, lb));
     bytes32 hid = keccak256(abi.encodePacked(ha, hb));
     skip(TAU);
@@ -319,7 +319,7 @@ contract ExternalOracleSignedTest is Test {
   function test_firstSignedPush_usesConfiguredMaxDeviation() public {
     address da = address(0xDA11);
     address db = address(0xDB11);
-    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, TAU, TAU, 500, 3600); // idx=1
+    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, 500, 3600); // idx=1
     bytes32 id = keccak256(abi.encodePacked(da, db));
     skip(TAU);
     bytes memory bad = _rec(1, M.encodeB64(106e18, 18), 1e4, 5, _srcTs()); // +6% > configured 5%
@@ -356,7 +356,7 @@ contract ExternalOracleSignedTest is Test {
   function test_reject_beyondRelayLag() public {
     ext = new ExternalOracle(address(ac), 60, _initialSigners(), 2);
     ext.addFeed(
-      BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600
+      BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, ext.MAX_DEV_THRESHOLD(), 3600
     );
     skip(TAU);
     // sourceTs 2 minutes behind wall clock (still monotonic > 0, but stale beyond the 60s bound)
@@ -462,9 +462,8 @@ contract ExternalOracleSignedTest is Test {
   function test_signed_preservesConfigBits() public {
     address ba = address(0xCAFE1);
     address qa = address(0xCAFE2);
-    // distinct tauSigma / maxDeviation / ttl so a bit-mixing bug would surface (idx 1). tau param (111)
-    // is vestigial now (struct field repurposed to flags) — addFeed stores flags:0 regardless.
-    ext.addFeed(ba, qa, M.encodeB64(1000e18, 18), 1e4, 5, 111, 222, 333, 4444);
+    // distinct maxDeviation / ttl so a bit-mixing bug in the preserve mask would surface (idx 1).
+    ext.addFeed(ba, qa, M.encodeB64(1000e18, 18), 1e4, 5, 333, 4444);
     bytes32 id = keccak256(abi.encodePacked(ba, qa));
     skip(TAU);
     uint64 ts = _srcTs();
@@ -473,11 +472,10 @@ contract ExternalOracleSignedTest is Test {
 
     IOracle.FeedData memory f = ext.getFeed(id);
     assertEq(f.flags, 0, "flags preserved unpaused");
-    assertEq(f.tauSigma, 222, "tauSigma preserved");
     assertEq(f.maxDeviation, 333, "maxDeviation preserved");
     assertEq(f.ttl, 4444, "ttl preserved");
     assertEq(f.confidence, 9, "confidence overwritten");
-    assertEq(f.sigmaEma, 7e4, "sigma stored direct");
+    assertEq(f.sigma, 7e4, "sigma stored direct");
     assertEq(uint256(f.sourceTs), ts, "sourceTs written");
   }
 
@@ -525,7 +523,7 @@ contract ExternalOracleSignedTest is Test {
     bytes memory blob = _rec(0, M.encodeB64(3060e18, 18), 0, 5, _srcTs());
     ext.batchPushSigned(blob, _sign(NXR_PK, blob));
     assertApproxEqRel(
-      uint256(ext.getFeed(feedId).sigmaEma),
+      uint256(ext.getFeed(feedId).sigma),
       20_000,
       0.001e18,
       "sigma floored to mark-move (2pct = 20k PBPS)"
@@ -537,7 +535,7 @@ contract ExternalOracleSignedTest is Test {
     // attested σ = 50_000 PBPS ≫ the ~20_000 move floor → the attested σ is kept verbatim.
     bytes memory blob = _rec(0, M.encodeB64(3060e18, 18), 50_000, 5, _srcTs());
     ext.batchPushSigned(blob, _sign(NXR_PK, blob));
-    assertEq(uint256(ext.getFeed(feedId).sigmaEma), 50_000, "attested sigma > floor kept verbatim");
+    assertEq(uint256(ext.getFeed(feedId).sigma), 50_000, "attested sigma > floor kept verbatim");
   }
 
   // ─── multi-feed batch + gas ───
@@ -551,7 +549,7 @@ contract ExternalOracleSignedTest is Test {
     for (uint256 i; i < n; ++i) {
       address b = address(uint160(0x10000 + off + i));
       address q = address(uint160(0x20000 + off + i));
-      ext.addFeed(b, q, M.encodeB64(1000e18, 18), 1e4, 5, TAU, TAU, ext.MAX_DEV_THRESHOLD(), 3600);
+      ext.addFeed(b, q, M.encodeB64(1000e18, 18), 1e4, 5, ext.MAX_DEV_THRESHOLD(), 3600);
       ids[i] = keccak256(abi.encodePacked(b, q));
     }
   }
@@ -569,7 +567,7 @@ contract ExternalOracleSignedTest is Test {
     for (uint256 i; i < n; ++i) {
       IOracle.FeedData memory f = ext.getFeed(ids[i]);
       assertApproxEqRel(M.b64To1e18(f.lastPriceB64), 1010e18, 0.001e18, "feed committed");
-      assertEq(f.sigmaEma, 2e4, "direct sigma");
+      assertEq(f.sigma, 2e4, "direct sigma");
     }
   }
 
@@ -728,12 +726,12 @@ contract ExternalOracleSignedTest is Test {
 
   function test_setSignerThreshold_onlyAdmin() public {
     vm.prank(address(0xDEAD));
-    vm.expectRevert(Err.NotAuth.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     ext.setSignerThreshold(3);
 
     ext.setSignerThreshold(3);
     vm.prank(address(0xDEAD));
-    vm.expectRevert(Err.NotAuth.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     ext.requestSignerThresholdDecrease(2);
   }
 

@@ -4,7 +4,8 @@ pragma solidity =0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Maths as M} from "./Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {NUQuartic as NUQ} from "./NUQuartic.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 
@@ -13,45 +14,29 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 ///         setup and validation from `Pool.sol`. Pure storage transforms; no auth
 ///         (caller must gate via `onlyAdmin`).
 library PoolAdmin {
-  /// @notice Validate liquidity profile (weights sum=200, knots monotonic, span=100).
-  function validateProfileMemory(IPool.LiquidityProfile memory profile) internal pure {
-    if (profile.weights[0] == 0) revert Err.InvalidInput();
-
-    uint256 sum = 0;
-    uint256 segmentCount = 0;
-    unchecked {
-      for (uint256 i = 0; i < 16; ++i) {
-        if (profile.weights[i] == 0) {
-          segmentCount = i;
-          break;
-        }
-        sum += profile.weights[i];
-        if (i == 15) segmentCount = 16;
-      }
-    }
-    if (segmentCount == 0 || sum != 200) revert Err.InvalidInput();
-
-    uint256 knotCount = segmentCount + 1;
-    unchecked {
-      for (uint256 i = 1; i < knotCount; ++i) {
-        if (profile.knots[i] < profile.knots[i - 1]) revert Err.InvalidInput();
-      }
-    }
-    if (int16(profile.knots[knotCount - 1]) - int16(profile.knots[0]) != 100) {
-      revert Err.InvalidInput();
-    }
-  }
-
-  /// @notice Ensure every point on the monotone profile has a strictly positive price multiplier at
-  ///         the maximum configured dispersion. `knots[0]` is the minimum after profile validation.
-  function validateProfileDispersion(IPool.LiquidityProfile memory profile, uint32 maxDispersion)
-    internal
-    pure
-  {
+  /// @notice Validate a preset assignment: the curve must exist, a wall-gated preset (hyper tiers)
+  ///         may only price a coverage-walled asset (κ>0 ⇒ haircutSuppressor==0 held by risk config),
+  ///         and the curve's minimum offset — wQ[0], scaled to the max dispersion — must keep a
+  ///         strictly positive price multiplier (the Hermite-era knots[0] bound, quartic form).
+  ///         presetId 0 = explicit no-shape (fallback quote), always valid.
+  function validatePresetAssign(
+    IPool.PoolStorage storage $,
+    address token,
+    uint16 presetId,
+    uint32 maxDispersion
+  ) internal view {
+    if (presetId == 0) return;
+    uint256 header = $.curves[presetId].header;
+    if (header == 0) revert Err.NotConfigured(Err.Resource.ASSET, token);
+    if (
+      (header >> 248) & NUQ.FLAG_REQUIRES_WALL != 0 && $.riskConfigs[token].kappaCovBps == 0
+    ) revert Err.BadConfig();
     uint32 mx = maxDispersion == 0 ? 100000 : maxDispersion;
-    int256 minMultiplierX100 =
-      int256(SC.PBPS) * 100 + int256(profile.knots[0]) * int256(uint256(mx));
-    if (minMultiplierX100 <= 0) revert Err.BadConfig();
+    uint256 dispRef = (header >> 232) & 0xffff;
+    // min offset (pbps) at max dispersion: monotone ⇒ min = y(0) = wQ[0].
+    int256 minOffset =
+      (NUQ.evalQ($.curves[presetId], header, 0) * int256(uint256(mx))) / (int256(dispRef) * NUQ.Q);
+    if (int256(SC.PBPS) + minOffset <= 0) revert Err.BadConfig();
   }
 
   /// @notice Validate risk config: κ>0 (convex coverage wall) forbids depthAmplifier>0. The
@@ -92,6 +77,10 @@ library PoolAdmin {
   ) internal view {
     if (cfg.mode == C.ORACLE_MODE_EXTERNAL) return;
     if (cfg.mode != C.ORACLE_MODE_INTERNAL) revert Err.BadConfig();
+    // Base is the numeraire, priced via _readBasePriceOrHalt's EXTERNAL depeg band. An INTERNAL base
+    // would make that reader quote the frozen peg (const ~1.0) and no-op the depeg breaker on every
+    // base hop. Forbid it: base must be EXTERNAL so its mark is real and its depeg halt bites.
+    if (token == $.baseToken) revert Err.BadConfig();
     IPool.Asset storage a = $.assets[token];
     if (a.pegB64 == 0) revert Err.BadConfig();
     if (cfg.primary == address(0) || cfg.feedId == bytes32(0)) {
@@ -130,7 +119,7 @@ library PoolAdmin {
     IPool.PoolStorage storage $,
     address t,
     uint8 decimals,
-    uint16 minFeeBps,
+    uint16 minFeePbps,
     uint32 minDispersion,
     uint32 maxDispersion,
     uint16 gamma,
@@ -142,8 +131,8 @@ library PoolAdmin {
     if (decimals == 0 || decimals > 18) revert Err.InvalidDecimals();
     IPool.Asset storage asset = $.assets[t];
     asset.decimals = decimals;
-    asset.minFeeBps = minFeeBps;
-    asset.maxFeeBps = uint16(SC.BPS);
+    asset.minFeePbps = minFeePbps;
+    asset.maxFeePbps = uint16(SC.ONE_PCT_PBPS);
     asset.minLiquidity = 0;
     (asset.minDispersion, asset.maxDispersion) = sanitizeDispersion(minDispersion, maxDispersion);
     asset.gamma = gamma == 0 ? uint16(SC.BPS) : gamma;
@@ -152,27 +141,21 @@ library PoolAdmin {
     asset.pegB64 = M.encodeB64(SC.WAD, 18); // INTERNAL-mode default peg (1.0 base-per-asset)
     asset.lastUpdate = uint32(block.timestamp); // A2-1: seed so first decay enable has no retroactive dt
 
-    if (t == $.baseToken) {
-      asset.anchor = address(0);
-      asset.anchorDepth = 0;
-    } else {
-      asset.anchor = $.baseToken;
-      asset.anchorDepth = 1;
-    }
+    asset.anchor = t == $.baseToken ? address(0) : $.baseToken;
   }
 
-  /// @notice Wire oracle/risk/profile slots. The mark now lives in the external oracle (primary);
+  /// @notice Wire oracle/risk/preset slots. The mark now lives in the external oracle (primary);
   ///         no per-asset feed is seeded on-chain (internal-TWAP discovery removed).
   function setupOracleAndConfig(
     IPool.PoolStorage storage $,
     address t,
     IPool.OracleConfig memory oracleCfg,
     IPool.RiskConfig memory riskCfg,
-    IPool.LiquidityProfile memory profile
+    uint16 presetId
   ) internal {
     $.oracleConfigs[t] = oracleCfg;
     $.riskConfigs[t] = riskCfg;
-    $.profiles[t] = profile;
+    $.assets[t].presetId = presetId;
     // Coverage-wall invariant (AIMM_PROOFS Lemma B): initAsset defaults haircutSuppressor to BPS, so a
     // walled asset (κ>0) added here would violate κ>0 ⇒ haircutSuppressor==0 by default — zero it.
     if (riskCfg.kappaCovBps > 0) $.assets[t].haircutSuppressor = 0;

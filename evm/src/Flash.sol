@@ -34,26 +34,21 @@ contract Flash is IFlash, ReentrancyGuardTransient {
     // pool actually pushes/expects wnative. The pool holds wnative (ERC-20) as the asset, so a flash
     // borrower MUST request wnative directly (correct ERC-20 balanceOf accounting).
     if (token == SC.NATIVE) revert Err.FeatureDisabled(Err.Resource.FLASH);
-    // Read pool state via views.
-    IPool.Asset memory asset = IPool(pool).getAsset(token);
-    if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, token);
+    // Existence rides the flags read: an unlisted token has flags 0 ⇒ FLASH bit unset ⇒ fail-closed.
     uint16 flags = IPool(pool).getRiskFlags(token);
     if ((flags & C.FLASH_ENABLED_BIT) == 0) revert Err.FeatureDisabled(Err.Resource.FLASH);
     if ((flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
     if (amount == 0) revert Err.ZeroValue();
 
     IPool.FeeParams memory fp = IPool(pool).getFeeParams();
-    uint256 fee = (amount * uint256(fp.flashFeeBps)) / 1_000_000;
+    uint256 fee = (amount * uint256(fp.flashFeePbps)) / SC.PBPS;
     (uint256 protoFee,) = Pricing.splitFee(fee, fp.protoShare);
 
     // Pool-side recall (books invested via balance-delta) before liquid check / send.
     // Recall target = amount + minLiquidity so post-send floor holds.
     IPool(pool).flashPrepare(token, amount, msg.sender);
-
-    uint256 liq = IPool(pool).getLiquidReserves(token);
-    if (liq < amount || liq - amount < asset.minLiquidity) {
-      revert Err.InsufficientAmount(liq, amount);
-    }
+    // Liquidity floor (liq − amount >= minLiquidity) is enforced pool-side in flashSend — the sole
+    // authoritative copy; a Flash-side pre-check would be a third restatement of the same invariant.
 
     // Capture pool's token balance pre-debit; Pool.flashSend will push `amount` to receiver.
     uint256 balanceBefore = SafeTransferLib.balanceOf(token, pool);
@@ -77,14 +72,14 @@ contract Flash is IFlash, ReentrancyGuardTransient {
 
   function maxFlashLoan(address pool, address token) external view override returns (uint256) {
     if (token == SC.NATIVE) return 0; // FLS-01: native sentinel is not loanable (request wnative)
-    IPool.Asset memory asset = IPool(pool).getAsset(token);
     uint16 flags = IPool(pool).getRiskFlags(token);
     if ((flags & C.FLASH_ENABLED_BIT) == 0) return 0;
     if ((flags & C.HALT_MASK) != 0) return 0;
-    // Honest executable capacity = R_liq − minLiquidity.
-    uint256 liq = IPool(pool).getLiquidReserves(token);
-    if (liq <= asset.minLiquidity) return 0;
-    return liq - asset.minLiquidity;
+    // Honest executable capacity = R_liq − minLiquidity (getBuffer: 1 call vs full 4-slot getAsset).
+    (uint256 reserves, uint256 invested, uint256 minLiquidity) = IPool(pool).getBuffer(token);
+    uint256 liq = reserves - invested;
+    if (liq <= minLiquidity) return 0;
+    return liq - minLiquidity;
   }
 
   function flashFee(address pool, address token, uint256 amount)
@@ -95,6 +90,6 @@ contract Flash is IFlash, ReentrancyGuardTransient {
   {
     if (token == SC.NATIVE) revert Err.FeatureDisabled(Err.Resource.FLASH); // FLS-01: unsupported token
     IPool.FeeParams memory fp = IPool(pool).getFeeParams();
-    return (amount * uint256(fp.flashFeeBps)) / 1_000_000;
+    return (amount * uint256(fp.flashFeePbps)) / SC.PBPS;
   }
 }

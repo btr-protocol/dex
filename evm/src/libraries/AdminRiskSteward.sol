@@ -3,10 +3,11 @@ pragma solidity =0.8.35;
 
 import {IAdmin} from "../interfaces/IAdmin.sol";
 import {IPool} from "../interfaces/IPool.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {AdminTimelock as ATL} from "./AdminTimelock.sol";
 
-/// @title AdminRiskSteward — Steward-lite fences for setAssetParamsBounded (EIP-170 relief).
+/// @title AdminRiskSteward - Steward-lite fences for setAssetParamsBounded (EIP-170 relief).
 /// @notice Hard min/max + single relative `maxDeltaBps` on risk-increasing changes.
 ///         Tighten (more defensive) is exempt from the relative clamp. No per-param matrix,
 ///         no EIP-712 injector, no param-write circuit breaker.
@@ -18,7 +19,7 @@ library AdminRiskSteward {
     IAdmin.RiskFences calldata f
   ) external {
     if (pool == address(0) || token == address(0)) revert Err.ZeroAddr();
-    if (f.maxDeltaBps == 0 || f.maxDeltaBps > 10_000) revert Err.BadConfig();
+    if (f.maxDeltaBps == 0 || f.maxDeltaBps > SC.BPS) revert Err.BadConfig();
     if (f.minFeeHardMin == 0 || f.minFeeHardMin > f.minFeeHardMax) revert Err.BadConfig();
     if (f.maxFeeHardMax < f.minFeeHardMin) revert Err.BadConfig();
     if (f.gammaHardMin > f.gammaHardMax) revert Err.BadConfig();
@@ -34,8 +35,8 @@ library AdminRiskSteward {
     address pool,
     address token,
     uint128 minLiquidity,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
@@ -49,16 +50,16 @@ library AdminRiskSteward {
     if (minLiquidity != cur.minLiquidity) revert Err.BadConfig();
 
     _enforceHard(
-      f, minFeeBps, maxFeeBps, gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax
+      f, minFeePbps, maxFeePbps, gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax
     );
 
     // maxFee ceiling caps stress spread — raising it is defensive; lowering is risk-up.
-    bool paramTighten = minFeeBps >= cur.minFeeBps && maxFeeBps >= cur.maxFeeBps
+    bool paramTighten = minFeePbps >= cur.minFeePbps && maxFeePbps >= cur.maxFeePbps
       && gamma >= cur.gamma && vega >= cur.vega && haircutSuppressor <= cur.haircutSuppressor;
 
     if (!paramTighten) {
-      _relOk(cur.minFeeBps, minFeeBps, f.maxDeltaBps);
-      _relOk(cur.maxFeeBps, maxFeeBps, f.maxDeltaBps);
+      _relOk(cur.minFeePbps, minFeePbps, f.maxDeltaBps);
+      _relOk(cur.maxFeePbps, maxFeePbps, f.maxDeltaBps);
       _relOk(cur.gamma, gamma, f.maxDeltaBps);
       _relOk(cur.vega, vega, f.maxDeltaBps);
       _relOk(cur.haircutSuppressor, haircutSuppressor, f.maxDeltaBps);
@@ -66,7 +67,7 @@ library AdminRiskSteward {
 
     // dex-core-sec-01: the reservation (depeg-breaker) band is ALWAYS relatively clamped, even when
     // the param bundle tightens — so a single call can neither disable it, over-widen it, nor narrow
-    // it to exclude the live mark (a `PriceBelowReservation` swap-DoS). The hard fence above bounds it
+    // it to exclude the live mark (a `PriceOutsideReservation` swap-DoS). The hard fence above bounds it
     // absolutely; this bounds each step.
     bool resTighten = _narrowsReservation(
       cur.reservationPrice, cur.reservationPriceMax, reservationPrice, reservationPriceMax
@@ -80,31 +81,31 @@ library AdminRiskSteward {
       pool,
       token,
       minLiquidity,
-      minFeeBps,
-      maxFeeBps,
+      minFeePbps,
+      maxFeePbps,
       gamma,
       vega,
       haircutSuppressor,
       reservationPrice,
       reservationPriceMax
     );
-    emit IAdmin.AssetParamsBoundedSet(pool, token, minFeeBps, gamma, tighten);
+    emit IAdmin.AssetParamsBoundedSet(pool, token, minFeePbps, gamma, tighten);
   }
 
   function _enforceHard(
     IAdmin.RiskFences memory f,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
     uint64 reservationPrice,
     uint64 reservationPriceMax
   ) private pure {
-    if (minFeeBps < f.minFeeHardMin || minFeeBps > f.minFeeHardMax) {
-      revert Err.ThresholdViolation(minFeeBps, f.minFeeHardMax);
+    if (minFeePbps < f.minFeeHardMin || minFeePbps > f.minFeeHardMax) {
+      revert Err.ThresholdViolation(minFeePbps, f.minFeeHardMax);
     }
-    if (maxFeeBps > f.maxFeeHardMax) revert Err.ThresholdViolation(maxFeeBps, f.maxFeeHardMax);
+    if (maxFeePbps > f.maxFeeHardMax) revert Err.ThresholdViolation(maxFeePbps, f.maxFeeHardMax);
     if (gamma < f.gammaHardMin || gamma > f.gammaHardMax) {
       revert Err.ThresholdViolation(gamma, f.gammaHardMax);
     }
@@ -157,8 +158,8 @@ library AdminRiskSteward {
     // Steward cannot move a param off zero — owner seeds first.
     if (oldV == 0) revert Err.BadConfig();
     uint256 diff = newV > oldV ? newV - oldV : oldV - newV;
-    if (diff * 10_000 > oldV * uint256(maxDeltaBps)) {
-      revert Err.ThresholdViolation(diff, (oldV * maxDeltaBps) / 10_000);
+    if (diff * SC.BPS > oldV * uint256(maxDeltaBps)) {
+      revert Err.ThresholdViolation(diff, (oldV * maxDeltaBps) / SC.BPS);
     }
   }
 }

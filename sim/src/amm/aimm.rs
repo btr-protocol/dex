@@ -8,8 +8,10 @@
 //!     kept here to study the fees-paper Z-Hawkes trend-widening question (keep/port is an open design call).
 //!   · the dual fast/slow vol EMA — on-chain feed collapsed to a single pushed σ.
 //! Shared with production (same unit constants): coverage c=R/L → linear inventory skew ψ; volatility →
-//! dispersion κ; spline VWAP over the traversed depth band; asymmetric vol-band fee; coverage-aware depth amp.
+//! dispersion κ; quartic I-spline VWAP over the traversed depth band; asymmetric vol-band fee;
+//! coverage-aware depth amp.
 
+use super::nuquartic::QuarticCurve;
 use super::{Amm, Fill};
 
 /// How the pool's price mark is sourced — the single most important design axis for LVR.
@@ -73,7 +75,18 @@ pub enum OracleMode {
 const BPS: f64 = 1e4; // 0.01%
 const PBPS: f64 = 1e6; // 0.0001%  (fees, offsets, dispersion)
 const ORACLE_PBPS: f64 = 1e7; // 0.00001% (oracle offsets)
-const WEIGHT_SUM: f64 = 200.0;
+
+/// Default profile = the fitted W5 "flat" (near-uniform density) preset from
+/// `research/stable-core/out/spline_shared_grid.json` (wQ/1e9 → pbps), the closest quartic
+/// analogue of the retired near-linear Hermite default. Fit reference dispersion 1000 pbps ⇒
+/// edge offsets = ±disp/2 at any live dispersion, matching the old default's ±knot·disp/100 span.
+const FLAT_INTERIOR: [f64; 9] =
+    [500.0, 1000.0, 1250.0, 3000.0, 5000.0, 7000.0, 8750.0, 9000.0, 9500.0];
+const FLAT_W: [f64; 14] = [
+    -500.0, -463.4937, -439.1332, -402.924, -333.6537, -227.7734, -87.991, 87.991, 227.7734,
+    333.6536, 402.9241, 439.1327, 463.4944, 499.9991,
+];
+const FLAT_DISP_REF: f64 = 1000.0;
 
 /// Per-asset AIMM parameters (token leg). Default numeric controls match the common fixture; all
 /// research-only switches default off and the production convex wall shape defaults on.
@@ -91,8 +104,10 @@ pub struct AimmParams {
     pub cov_min: f64,  // 0.01% units (5000 = 50%)
     pub cov_max: f64,  // 0.01% units (20000 = 200%)
     pub depth_amp: f64,
-    pub weights: Vec<f64>,
-    pub knots: Vec<f64>, // len == weights.len() + 1, each in [-100, 100]
+    /// Assigned quartic I-spline price profile (fitted preset; y in pbps at `disp_ref`, scaled by
+    /// disp/disp_ref per quote). `None` ≙ on-chain header==0 (unset preset): quotes fall back to
+    /// the skew-anchored linear-impact model so swaps stay live pre-profile-assignment.
+    pub curve: Option<QuarticCurve>,
     /// Fast/slow vol-EMA smoothing (per-swap activity EMA). PBPS-denominated α like PoolOracle.
     pub fast_vol_alpha: f64,
     pub slow_vol_alpha: f64,
@@ -129,8 +144,7 @@ impl Default for AimmParams {
             cov_min: 5_000.0,
             cov_max: 20_000.0,
             depth_amp: 10_000.0,
-            weights: vec![50.0, 50.0, 50.0, 50.0],
-            knots: vec![-50.0, -25.0, 0.0, 25.0, 50.0],
+            curve: Some(QuarticCurve::new(&FLAT_INTERIOR, &FLAT_W, FLAT_DISP_REF)),
             fast_vol_alpha: 1_800.0,
             slow_vol_alpha: 200.0,
             fast_px_alpha: 0.125,
@@ -310,22 +324,10 @@ impl Aimm {
             .max(1.0)
     }
 
-    /// Spline control points (x = cumulative depth 0..10000, y = offset in PBPS).
-    fn spline_points(&self, disp: f64) -> Vec<(f64, f64)> {
-        let n = self.p.weights.len();
-        let mut pts = Vec::with_capacity(n + 1);
-        pts.push((0.0, self.p.knots[0] * disp / 100.0));
-        let mut cum = 0.0;
-        for i in 0..n {
-            cum += self.p.weights[i];
-            pts.push((cum * BPS / WEIGHT_SUM, self.p.knots[i + 1] * disp / 100.0));
-        }
-        pts
-    }
-
-    /// Average price (base per token) over a traded volume, by traversing the spline depth band.
-    /// `selling` = the trader sells the token into the pool. (`Pricing._traverseSplineByVolume`,
-    /// BUG-2 fix: integrate over the ordered band so the mean offset keeps its true sign.)
+    /// Average price (base per token) over a traded volume, by traversing the quartic-curve depth
+    /// band. `selling` = the trader sells the token into the pool. (`Pricing._traverseCurveByVolume`
+    /// + `_traverseCurve`: VWAP offset = area(lo,hi)/width, y-scaled by disp/disp_ref; no assigned
+    /// profile ≙ header==0 → skew-anchored linear-impact fallback.)
     fn traverse(
         &self,
         twap: f64,
@@ -335,8 +337,17 @@ impl Aimm {
         depth: f64,
         selling: bool,
     ) -> f64 {
-        let pts = self.spline_points(disp);
-        let start = 5000.0 + skew * 50.0;
+        let Some(curve) = &self.p.curve else {
+            let impact = (amount_in_tok / depth).min(2.0); // MAX_IMPACT = 200%
+            let mid = skew_to_price(twap, skew, disp);
+            let k = impact / 2.0;
+            return if selling {
+                mid * if k < 1.0 { 1.0 - k } else { 0.001 } // MIN_ADJ = 0.1%
+            } else {
+                mid * (1.0 + k)
+            };
+        };
+        let start = 5000.0 + skew * 50.0; // `Pricing._skewToDepth`
         let vf = ((amount_in_tok * BPS) / depth).min(BPS);
         let end = if selling {
             (start - vf).max(0.0)
@@ -349,13 +360,12 @@ impl Aimm {
             (end, start)
         };
         let width = hi - lo;
-        let avg_off = if width == 0.0 {
-            eval_spline(&pts, start)
-        } else {
-            area_spline(&pts, lo, hi) / width
-        };
-        let max_neg = -PBPS * 0.9;
-        let avg_off = avg_off.max(max_neg);
+        let scale = disp / curve.disp_ref; // `Pricing._scaleY`
+        if width == 0.0 {
+            return offset_to_price(twap, curve.eval(start) * scale);
+        }
+        // SPLINE_MIN_OFFSET_PBPS floor (−90%), then the MIN_EXEC_PRICE_BPS (500) absolute floor.
+        let avg_off = (curve.area(lo, hi) / width * scale).max(-PBPS * 0.9);
         let price = twap * (PBPS + avg_off) / PBPS;
         price.max(twap * 0.05)
     }
@@ -450,11 +460,13 @@ impl Aimm {
             let exec = self.traverse(twap, disp, skew, amount_in, depth, true);
             (amount_in * exec, exec) // base out, base-per-token
         } else {
-            // buy token with base
-            let mid = {
-                let pts = self.spline_points(disp);
-                let off = eval_spline(&pts, 5000.0 + skew * 50.0);
-                (twap * (PBPS + off) / PBPS).max(twap * 0.05)
+            // buy token with base: mid estimate at the skew anchor sizes the token-unit volume
+            // for the real traverse (`Pricing._quoteLeg` buy path).
+            let mid = match &self.p.curve {
+                Some(c) => {
+                    offset_to_price(twap, c.eval(5000.0 + skew * 50.0) * disp / c.disp_ref)
+                }
+                None => skew_to_price(twap, skew, disp),
             };
             let est = amount_in / mid; // estimated token out
             let exec = self.traverse(twap, disp, skew, est, depth, false);
@@ -752,153 +764,14 @@ impl Amm for Aimm {
     }
 }
 
-// Float 1:1 port of Spline.sol's monotone (Fritsch-Carlson) cubic Hermite — same `eval`/`area`/
-// `_tangents`/`_primitive`/`_search` algorithm, just dropping the 1e18 fixed-point scale for
-// ordinary f64. Keeps every sign/clamp quirk of the on-chain version (see spline_tangents below)
-// so a deployed non-collinear profile matches on-chain exactly, not just approximately.
-
-/// Binary search for the segment index i s.t. pts[i].0 < x <= pts[i+1].0 (Spline.sol:_search).
-fn search_spline(pts: &[(f64, f64)], x: f64, n: usize) -> usize {
-    if x <= pts[0].0 {
-        return 0;
-    }
-    let mut low = 0usize;
-    let mut high = n - 2;
-    while low < high {
-        let mid = (low + high).div_ceil(2);
-        if x < pts[mid].0 {
-            high = mid - 1;
-        } else {
-            low = mid;
-        }
-    }
-    low
+/// Clamp + scale a PBPS price offset onto the mark: price = mark·max(0, 1 + offset/PBPS).
+/// (`Pricing._offsetToPrice`)
+fn offset_to_price(mark: f64, offset_pbps: f64) -> f64 {
+    mark * (PBPS + offset_pbps).max(0.0) / PBPS
 }
 
-/// Endpoint tangents for segment i (Spline.sol:_tangents). Secant s of the segment; interior
-/// tangents = sign-preserving average of the two adjacent secants (0 if they disagree in sign —
-/// note a zero secant's sign bit reads as non-negative, matching the on-chain int256 XOR trick, so
-/// a flat secant next to a rising one still yields a nonzero endpoint tangent, never the reverse).
-/// Then the Fritsch-Carlson α²+β²≤9 clamp: if m0²+m1²>9s², scale both by 3|s|/√(m0²+m1²).
-fn spline_tangents(pts: &[(f64, f64)], i: usize, n: usize) -> (f64, f64) {
-    let p0 = pts[i];
-    let p1 = pts[i + 1];
-    let s = (p1.1 - p0.1) / (p1.0 - p0.0);
-    let mut m0 = if i == 0 {
-        s
-    } else {
-        let pm = pts[i - 1];
-        let sp = (p0.1 - pm.1) / (p0.0 - pm.0);
-        if (sp < 0.0) != (s < 0.0) {
-            0.0
-        } else {
-            (sp + s) / 2.0
-        }
-    };
-    let mut m1 = if i == n - 2 {
-        s
-    } else {
-        let p2 = pts[i + 2];
-        let sn = (p2.1 - p1.1) / (p2.0 - p1.0);
-        if (s < 0.0) != (sn < 0.0) {
-            0.0
-        } else {
-            (s + sn) / 2.0
-        }
-    };
-    let sum_sq = m0 * m0 + m1 * m1;
-    let nine_s_sq = 9.0 * s * s;
-    if sum_sq > nine_s_sq {
-        let root = sum_sq.sqrt();
-        if root > 0.0 {
-            let scale = 3.0 * s.abs() / root;
-            m0 *= scale;
-            m1 *= scale;
-        }
-    }
-    (m0, m1)
-}
-
-/// Monotone cubic Hermite interpolation at `x`, flat outside the knot span. (Spline.sol:eval)
-fn eval_spline(pts: &[(f64, f64)], x: f64) -> f64 {
-    let n = pts.len();
-    if n == 0 {
-        return 0.0;
-    }
-    if n == 1 || x <= pts[0].0 {
-        return pts[0].1;
-    }
-    if x >= pts[n - 1].0 {
-        return pts[n - 1].1;
-    }
-    let i = search_spline(pts, x, n);
-    let p0 = pts[i];
-    let p1 = pts[i + 1];
-    let h = p1.0 - p0.0;
-    let (m0, m1) = spline_tangents(pts, i, n);
-    let dy = p1.1 - p0.1;
-    let k0 = m0 * h;
-    let k1 = m1 * h;
-    let c2 = 3.0 * dy - 2.0 * k0 - k1;
-    let c3 = -2.0 * dy + k0 + k1;
-    let t = (x - p0.0) / h;
-    p0.1 + k0 * t + c2 * t * t + c3 * t * t * t
-}
-
-/// Primitive F(t) of the Hermite cubic at `dx` into a segment of width `h`. (Spline.sol:_primitive)
-fn spline_primitive(dx: f64, h: f64, y0: f64, k0: f64, a: f64, b: f64) -> f64 {
-    let t = dx / h;
-    let t2 = t * t;
-    let t3 = t2 * t;
-    let t4 = t3 * t;
-    y0 * t + k0 * t2 / 2.0 + b * t3 / 3.0 + a * t4 / 4.0
-}
-
-/// Exact integral of the monotone cubic Hermite spline over `[x1, x2]`. (Spline.sol:area)
-fn area_spline(pts: &[(f64, f64)], x1: f64, x2: f64) -> f64 {
-    let n = pts.len();
-    if x1 == x2 || n == 0 {
-        return 0.0;
-    }
-    let inv = x1 > x2;
-    let (mut x1, x2) = if inv { (x2, x1) } else { (x1, x2) };
-    if n == 1 {
-        let res = pts[0].1 * (x2 - x1);
-        return if inv { -res } else { res };
-    }
-    if x2 <= pts[0].0 {
-        let res = pts[0].1 * (x2 - x1);
-        return if inv { -res } else { res };
-    }
-    if x1 >= pts[n - 1].0 {
-        let res = pts[n - 1].1 * (x2 - x1);
-        return if inv { -res } else { res };
-    }
-    let mut i = search_spline(pts, x1, n);
-    let mut res = 0.0;
-    while i < n - 1 && x1 < x2 {
-        let p0 = pts[i];
-        let p1 = pts[i + 1];
-        let seg_end = p1.0;
-        let start = x1.max(p0.0);
-        let end = x2.min(seg_end);
-        if end > start {
-            let h = p1.0 - p0.0;
-            let (m0, m1) = spline_tangents(pts, i, n);
-            let k0 = m0 * h;
-            let k1 = m1 * h;
-            let dy = p1.1 - p0.1;
-            let a = k0 + k1 - 2.0 * dy;
-            let b = 3.0 * dy - 2.0 * k0 - k1;
-            let f2 = spline_primitive(end - p0.0, h, p0.1, k0, a, b);
-            let f1 = spline_primitive(start - p0.0, h, p0.1, k0, a, b);
-            res += (f2 - f1) * h;
-        }
-        if seg_end >= x2 {
-            break;
-        }
-        x1 = seg_end;
-        i += 1;
-    }
-    if inv { -res } else { res }
+/// skew → absolute price for the no-profile fallback: offset = skew·disp/100.
+/// (`Pricing._skewToPrice`)
+fn skew_to_price(mark: f64, skew: f64, disp: f64) -> f64 {
+    offset_to_price(mark, skew * disp / 100.0)
 }

@@ -4,7 +4,7 @@ pragma solidity =0.8.35;
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title MockERC4626 — fixed-rate vault stub (Morpho Vault / sUSDS / Euler EVK tests).
+/// @title MockERC4626 - fixed-rate vault stub (Morpho Vault / sUSDS / Euler EVK tests).
 /// @dev Default rate 1e18 (1:1). `setRate` scales convertToAssets = shares * rate / 1e18.
 contract MockERC4626 {
   using SafeTransferLib for address;

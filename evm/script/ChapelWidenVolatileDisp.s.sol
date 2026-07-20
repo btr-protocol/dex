@@ -5,11 +5,10 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/Script.sol";
 
 import {Admin} from "../src/Admin.sol";
-import {IPool} from "../src/interfaces/IPool.sol";
 
-/// @title ChapelWidenVolatileDisp — widen volatile-core Hermite band (minDisp 50k PBPS).
-/// @notice Timelocked LOW (Chapel ~5m): requestUpdateProfile keeps flat knots, raises dispersion
-///         so knots ±50 → ±2.5% half-band (was ±5 bp with minDisp=1000).
+/// @title ChapelWidenVolatileDisp — widen volatile-core dispersion band (minDisp 50k PBPS).
+/// @notice Timelocked LOW (Chapel ~5m): requestUpdateProfile keeps preset 1 (generic default curve,
+///         installed at pool deploy), raises dispersion (was minDisp=1000).
 /// @dev
 ///   forge script script/ChapelWidenVolatileDisp.s.sol:ChapelWidenVolatileDisp --sig run \
 ///     --rpc-url chapel --broadcast --with-gas-price 100000000
@@ -37,7 +36,7 @@ contract ChapelWidenVolatileDisp is Script {
 
     vm.startBroadcast(pk);
     for (uint256 i = 0; i < toks.length; i++) {
-      admin.requestUpdateProfile(VOLATILE, toks[i], _profile(), MIN_DISP, MAX_DISP);
+      admin.requestUpdateProfile(VOLATILE, toks[i], 1, MIN_DISP, MAX_DISP);
       console2.log("queued profile", toks[i]);
     }
     vm.stopBroadcast();
@@ -54,17 +53,5 @@ contract ChapelWidenVolatileDisp is Script {
       console2.log("profile ok", toks[i]);
     }
     vm.stopBroadcast();
-  }
-
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
   }
 }

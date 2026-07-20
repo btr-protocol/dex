@@ -2,9 +2,7 @@
 pragma solidity =0.8.35;
 
 import {DeployBase} from "@btr-shared-script/Deploy.base.sol";
-import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {console2} from "forge-std/Script.sol";
 
 import {Admin} from "../src/Admin.sol";
@@ -114,7 +112,6 @@ contract Deploy is DeployBase {
     if (!allowNoLz) {
       a.bridgeImpl = address(new Bridge(lzEndpoint, a.ac));
       a.bridgeProxy = LibClone.deployERC1967(a.bridgeImpl);
-      Bridge(payable(a.bridgeProxy)).initialize();
     }
 
     // 8. Post-deploy wiring (G13).

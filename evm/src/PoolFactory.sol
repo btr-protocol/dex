@@ -8,7 +8,6 @@ import {IPoolAuxWiring} from "./interfaces/IPoolAuxWiring.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
 import {UpgradeableBeacon} from "solady/utils/UpgradeableBeacon.sol";
 
@@ -18,7 +17,7 @@ import {UpgradeableBeacon} from "solady/utils/UpgradeableBeacon.sol";
 ///         all proxies read impl from one beacon, so `executeReferenceUpgrade` swaps the impl
 ///         for the ENTIRE live fleet atomically (was: re-point future clones only).
 contract PoolFactory is IPoolFactory {
-  uint256 public constant UPGRADE_TIMELOCK = 7 days;
+  uint256 public constant UPGRADE_TIMELOCK = SC.UPGRADE_TIMELOCK;
 
   /// @notice REG-01: hard caps on the permissionless append-only discovery arrays. `createPool` (any
   ///         caller) and `registerTokens` (any isPool) can otherwise inflate `poolToTokens` /
@@ -47,8 +46,8 @@ contract PoolFactory is IPoolFactory {
 
   /// @notice Solady UpgradeableBeacon owning the shared Pool impl for the whole proxy fleet.
   /// @dev Factory is the beacon owner, so the timelocked `executeReferenceUpgrade` drives
-  ///      `beacon.upgradeTo(newImpl)` = atomic upgrade of every live pool. `referencePool`
-  ///      storage mirrors `beacon.implementation()` (kept for the IPoolFactory ABI + events).
+  ///      `beacon.upgradeTo(newImpl)` = atomic upgrade of every live pool. `referencePool()`
+  ///      is a view over `beacon.implementation()` — no mirror storage slot (GAS-19).
   address public immutable override beacon;
 
   address[] public override allPools;
@@ -89,8 +88,14 @@ contract PoolFactory is IPoolFactory {
 
   /// @notice AC-singleton ownership gate. Mirrors Distributor.sol:40 pattern.
   modifier onlyAdmin() {
-    if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+    if (msg.sender != AccessControl(AC).owner()) revert Err.NotOwner();
     _;
+  }
+
+  /// @dev Guardian gate: owner OR AC.isGuardian. Mirrors Admin._onlyGuardianOrAdmin.
+  function _onlyGuardianOrAdmin() internal view {
+    AccessControl ac_ = AccessControl(AC);
+    if (msg.sender != ac_.owner() && !ac_.isGuardian(msg.sender)) revert Err.NotAuth();
   }
 
   // ─── deploy ───
@@ -122,7 +127,7 @@ contract PoolFactory is IPoolFactory {
   // ─── registry ───
 
   function registerTokens(address[] calldata tokens) external override {
-    if (!isPool[msg.sender]) revert Ownable.Unauthorized();
+    if (!isPool[msg.sender]) revert Err.NotAuth();
     _addTokens(msg.sender, tokens, _isOfficialPool[msg.sender]);
     emit TokensRegistered(msg.sender, tokens);
   }
@@ -130,7 +135,7 @@ contract PoolFactory is IPoolFactory {
   /// @notice REG-02: keep the factory's cached base in sync when a pool migrates its base numeraire.
   ///         isPool-gated (only the pool itself, from `PoolAdminWrite.setBaseToken`).
   function setPoolBaseToken(address newBase) external override {
-    if (!isPool[msg.sender]) revert Ownable.Unauthorized();
+    if (!isPool[msg.sender]) revert Err.NotAuth();
     if (newBase == address(0)) revert Err.ZeroValue();
     poolBaseTokens[msg.sender] = newBase;
     emit PoolBaseTokenUpdated(msg.sender, newBase);
@@ -326,22 +331,13 @@ contract PoolFactory is IPoolFactory {
     emit ReferencePoolUpgraded(oldImpl, newImpl);
   }
 
-  function cancelReferenceUpgrade() external onlyAdmin {
-    address cancelled = pendingReferencePool;
-    if (cancelled == address(0)) revert Err.InvalidState();
-    delete pendingReferencePool;
-    delete upgradeTimelock;
-    emit ReferencePoolUpgradeCancelled(msg.sender, cancelled);
-  }
-
-  /// @notice MED: guardian escape hatch — a fleet-wide code swap is otherwise gated only by the
-  ///         owner (request) and cancellable only by that same owner. A guardian (AC.isGuardian) may
-  ///         veto a pending upgrade during the timelock, matching guardians' freeze/pause-only remit.
+  /// @notice Owner OR guardian veto of a pending fleet upgrade (MED: a fleet-wide code swap is
+  ///         otherwise gated only by the owner; guardian cancel matches guardians' halt-only remit).
   /// @dev Residual (accepted MED): a fully-compromised owner can `setGuardian(false)` to strip
   ///      guardians instantly, then re-request — the guard raises the bar, it is not absolute. Owner
   ///      is a multisig; this backstops a single mis-clicked/coerced request, not a full owner takeover.
-  function guardianCancelUpgrade() external {
-    if (!AccessControl(AC).isGuardian(msg.sender)) revert Err.NotAuth();
+  function cancelReferenceUpgrade() external {
+    _onlyGuardianOrAdmin();
     address cancelled = pendingReferencePool;
     if (cancelled == address(0)) revert Err.InvalidState();
     delete pendingReferencePool;
@@ -376,6 +372,4 @@ contract PoolFactory is IPoolFactory {
     IPoolAuxWiring aux = IPoolAuxWiring(auxAddr);
     if (aux.AC() != ac_ || aux.admin() != admin_ || aux.flash() != flash_) revert Err.BadConfig();
   }
-
-  receive() external payable {}
 }

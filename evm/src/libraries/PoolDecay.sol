@@ -4,16 +4,10 @@ pragma solidity =0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {Constants as C} from "./Constants.sol";
 
-/// @title PoolDecay — liability decay math + storage update for Pool.
+/// @title PoolDecay - liability decay math + storage update for Pool.
 library PoolDecay {
-  /// @notice Apply liability decay in-place. Full no-op when decay is disabled (no SSTORE).
-  function applyDecay(IPool.PoolStorage storage $, address token, IPool.Asset storage asset)
-    internal
-  {
-    applyDecay(asset, $.riskConfigs[token]);
-  }
-
-  /// @notice Same as applyDecay but reuses a caller-loaded RiskConfig (avoids re-SLOAD).
+  /// @notice Apply liability decay in-place, reusing a caller-loaded RiskConfig (avoids re-SLOAD).
+  ///         Full no-op when decay is disabled (no SSTORE).
   function applyDecay(IPool.Asset storage asset, IPool.RiskConfig storage rc) internal {
     if ((rc.flags & C.DECAY_ENABLED_BIT) == 0 || rc.decaySlope == 0) return;
 
@@ -28,7 +22,7 @@ library PoolDecay {
       uint128 newLiab = oldLiab - decayAmount;
       // Socialize write-down via liquidity index (value = lp·index/WAD). Floor index at 1.
       if (newLiab > 0) {
-        uint256 idx = asset.liquidityIndex == 0 ? C.LIQUIDITY_INDEX_INIT : asset.liquidityIndex;
+        uint256 idx = C.effIndex(asset.liquidityIndex);
         uint256 scaled = (idx * uint256(newLiab)) / uint256(oldLiab);
         asset.liquidityIndex = uint64(scaled == 0 ? 1 : scaled);
       }

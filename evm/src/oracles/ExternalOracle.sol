@@ -8,21 +8,20 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Timelock as TL} from "@btr-shared/Timelock.sol";
 import {Constants as C} from "../libraries/Constants.sol";
 import {Oracle} from "../libraries/Oracle.sol";
-import {Maths as M} from "../libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 import {ECDSA} from "solady/utils/ECDSA.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title ExternalOracle
 /// @notice Push-based external oracle. NXR attests mark + σ + mark CI, signs the batch; any relayer lands
-///         it via `batchPushSigned`. Quote = `lastPriceB64`; pricing σ = `sigmaEma`.
+///         it via `batchPushSigned`. Quote = `lastPriceB64`; pricing σ = `sigma`.
 /// @dev Price authority = k-of-n distinct granted signers over one EIP-712 digest, decoupled from
 ///      the relayer (`msg.sender`, unpermissioned). Signer additions and threshold decreases are
 ///      timelocked; emergency revocation and threshold increases remain immediate. No
 ///      signature-less/`msg.sender`-trusting push path exists.
 contract ExternalOracle is IOracle, EIP712 {
   address public immutable AC;
-  uint32 public constant MAX_VOLATILITY = C.MAX_SIGMA_PBPS;
   uint16 public constant MAX_DEV_THRESHOLD = 65_000;
   uint8 public constant MAX_SIGNERS = 6;
   /// @dev Per-push deviation band = maxDeviation floor + DEV_SIGMA_Z·σ·√(dtSource/SIGMA_INTERVAL_S).
@@ -49,8 +48,9 @@ contract ExternalOracle is IOracle, EIP712 {
   ///      packed calldata (24 B/feed, idx-based). See ORACLE_SIGNED_PUSH_SPEC.md.
   bytes32 private constant BATCH_TYPEHASH = keccak256("BatchQuote(bytes32 blobHash)");
   uint256 private constant RECORD_BYTES = 24;
-  /// @dev FeedData.flags bit0 = paused (guardian fast-freeze). Repurposed from vestigial `tau`. No new slot.
-  uint16 private constant FLAG_PAUSED = 1;
+  /// @dev FeedData.flags bit0 = paused (guardian fast-freeze). In-slot, no new storage. Value single-
+  ///      sourced with the Oracle.gate reader via C.FEED_PAUSED_BIT so the wire bit can never drift.
+  uint16 private constant FLAG_PAUSED = C.FEED_PAUSED_BIT;
 
   mapping(bytes32 => FeedData) private feeds;
   bytes32[] public feedIds;
@@ -83,8 +83,6 @@ contract ExternalOracle is IOracle, EIP712 {
     uint64 price,
     uint32 sigmaSample,
     uint16 confidence,
-    uint16 tau,
-    uint16 tauSigma,
     uint16 maxDeviation
   );
   event FeedUpdated(bytes32 indexed feedId, uint16 maxDeviation, uint16 ttl);
@@ -100,7 +98,7 @@ contract ExternalOracle is IOracle, EIP712 {
   event MaxDeviationNarrowed(bytes32 indexed feedId, uint16 newMaxDeviation);
 
   modifier onlyAdmin() {
-    if (msg.sender != AccessControl(AC).owner()) revert Err.NotAuth();
+    if (msg.sender != AccessControl(AC).owner()) revert Err.NotOwner();
     _;
   }
 
@@ -152,8 +150,6 @@ contract ExternalOracle is IOracle, EIP712 {
     uint64 price,
     uint32 sigmaSample,
     uint16 confidence,
-    uint16 tau,
-    uint16 tauSigma,
     uint16 maxDeviation,
     uint16 ttl
   ) external onlyAdmin {
@@ -166,24 +162,22 @@ contract ExternalOracle is IOracle, EIP712 {
     if (maxDeviation == 0 || maxDeviation > MAX_DEV_THRESHOLD || ttl <= maxRelayLagSecs) {
       revert Err.InvalidInput();
     }
-    if (tauSigma == 0) tauSigma = tau;
 
     bytes32 feedId = keccak256(abi.encodePacked(base, quote));
     if (feeds[feedId].updatedAt != 0) revert Err.FeedAlreadyExists(feedId);
 
     feeds[feedId] = FeedData({
       lastPriceB64: price,
-      sigmaEma: sigmaSample,
+      sigma: sigmaSample,
       updatedAt: uint32(block.timestamp),
       ttl: ttl,
       confidence: confidence,
       flags: 0, // new feed starts unpaused; guardian pause sets bit0 later
-      tauSigma: tauSigma,
       maxDeviation: maxDeviation,
       sourceTs: 0 // legacy-added feed; set only by the signed path
     });
     feedIds.push(feedId);
-    emit FeedAdded(feedId, base, quote, price, sigmaSample, confidence, tau, tauSigma, maxDeviation);
+    emit FeedAdded(feedId, base, quote, price, sigmaSample, confidence, maxDeviation);
   }
 
   function updateFeed(bytes32 feedId, uint16 maxDeviation, uint16 ttl) external onlyAdmin {
@@ -384,15 +378,25 @@ contract ExternalOracle is IOracle, EIP712 {
     // Absolute freshness floor (ms), read ONCE (no per-feed SLOAD). A signed blob
     // whose sourceTs predates (now - maxRelayLag) is rejected fail-closed — see `maxRelayLagSecs`.
     uint256 minSourceTsMs;
-    uint32 lag = maxRelayLagSecs;
-    if (lag != 0 && block.timestamp > lag) minSourceTsMs = (block.timestamp - lag) * 1000;
+    uint32 lag = maxRelayLagSecs; // ctor forbids 0
+    if (block.timestamp > lag) minSourceTsMs = (block.timestamp - lag) * 1000;
     // Future-dated bound (ms), read ONCE. Rejects a compromised-signer far-future sourceTs that would
     // clear the monotonic guard and then permanently freeze the feed. See SOURCE_TS_FUTURE_SKEW_S.
     uint256 maxSourceTsMs = (block.timestamp + SOURCE_TS_FUTURE_SKEW_S) * 1000;
 
     uint256 n = len / RECORD_BYTES;
+    // Hoist the feedIds bounds + data base out of the per-record loop: the inlined _pushSignedInternal
+    // SSTOREs to a dynamically-derived feeds[feedId] slot the optimizer can't prove disjoint from the
+    // length slot, so `feedIds[idx]` would re-SLOAD feedIds.length every record (NXR relays ~66/batch).
+    // feedIds is append-only (mutated only in addFeed) so idsLen/idsBase stay valid across the loop.
     uint256 base;
-    assembly ("memory-safe") { base := blob.offset }
+    uint256 idsLen = feedIds.length;
+    uint256 idsBase;
+    assembly ("memory-safe") {
+      base := blob.offset
+      mstore(0x00, feedIds.slot)
+      idsBase := keccak256(0x00, 0x20)
+    }
     for (uint256 i; i < n;) {
       uint16 idx;
       uint64 price;
@@ -409,7 +413,10 @@ contract ExternalOracle is IOracle, EIP712 {
         conf := and(shr(128, w), 0xFFFF)
         sourceTs := and(shr(64, w), 0xFFFFFFFFFFFFFFFF)
       }
-      _pushSignedInternal(feedIds[idx], price, sigma, conf, sourceTs, minSourceTsMs, maxSourceTsMs); // OOB idx reverts
+      if (idx >= idsLen) revert Err.InvalidInput(); // OOB idx (was feedIds[idx] bounds check)
+      bytes32 feedId;
+      assembly ("memory-safe") { feedId := sload(add(idsBase, idx)) }
+      _pushSignedInternal(feedId, price, sigma, conf, sourceTs, minSourceTsMs, maxSourceTsMs);
       unchecked {
         ++i;
       }
@@ -418,12 +425,12 @@ contract ExternalOracle is IOracle, EIP712 {
 
   function _validate(uint64 price, uint32 sigmaSample) internal pure returns (uint256 mark1e18) {
     if ((mark1e18 = M.b64To1e18(price)) == 0) revert Err.ZeroValue();
-    if (sigmaSample > MAX_VOLATILITY) revert Err.ThresholdViolation(sigmaSample, MAX_VOLATILITY);
+    if (sigmaSample > C.MAX_SIGMA_PBPS) revert Err.ThresholdViolation(sigmaSample, C.MAX_SIGMA_PBPS);
   }
 
   /// @dev Per-push mark-move SANITY cap (D1/H-2), SOURCE-TIME-driven: `dt` = attested sourceTs delta
-  ///      (s), NOT wall-clock landing delta. Band grows linearly with source staleness:
-  ///      maxDeviation·(1 + dt/ttl), hard-capped at MAX_DEV_THRESHOLD. Source-time makes the bound
+  ///      (s), NOT wall-clock landing delta, hard-capped at MAX_DEV_THRESHOLD (band formula below).
+  ///      Source-time makes the bound
   ///      identical %/wall-second on a 400ms chain and a 12s chain — a fast chain gets no extra
   ///      cumulative walk from more blocks. Fail-closed on out-of-band and on maxDev==0. The signature
   ///      authorizes AUTHENTICITY, not MAGNITUDE — this clamp backstops a compromised push quorum
@@ -457,9 +464,9 @@ contract ExternalOracle is IOracle, EIP712 {
 
   /// @dev Sole feed writer. One feed-slot SLOAD + one SSTORE. maxDeviation for the push clamp lives IN
   ///      the slot (no separate cold mapping — ORA-02). Slot layout (low→high bits):
-  ///      lastPriceB64[0:64) | sigmaEma[64:96) | updatedAt[96:128) | ttl[128:144)
-  ///      | confidence[144:160) | flags[160:176) (bit0=paused) | tauSigma[176:192) | maxDeviation[192:208)
-  ///      | sourceTs[208:256) (uint48 ms, monotonic replay guard; 0 until first signed push).
+  ///      lastPriceB64[0:64) | sigma[64:96) | updatedAt[96:128) | ttl[128:144)
+  ///      | confidence[144:160) | flags[160:176) (bit0=paused) | maxDeviation[176:192)
+  ///      | sourceTs[192:240) (uint48 ms, monotonic replay guard; 0 until first signed push).
   ///      Guards: (1) monotonic `sourceTs` replay guard + a future-dated bound, (2) stores the NXR-signed
   ///      σ DIRECTLY (no on-chain EMA — smoothing moves to source) FLOORED at |Δmark|/mark
   ///      (compromised-signer backstop), (3) no event (observability = getFeed() state polling). Same
@@ -485,7 +492,7 @@ contract ExternalOracle is IOracle, EIP712 {
 
     // Monotonic source timestamp: strictly advance, and fit the 48-bit slot field. A replayed batch
     // (same sourceTs) or a stale/reordered relay fails closed here — the timestamp IS the nonce.
-    uint256 prevSourceTs = (word >> 208) & 0xFFFFFFFFFFFF;
+    uint256 prevSourceTs = (word >> 192) & 0xFFFFFFFFFFFF;
     if (sourceTs <= prevSourceTs || sourceTs >= (1 << 48)) revert Err.InvalidInput();
     // Future-dated reject: a far-future sourceTs clears the monotonic guard once, then poisons it —
     // every honest near-now push fails the strictly-advancing check forever (feed-freeze DoS).
@@ -519,7 +526,7 @@ contract ExternalOracle is IOracle, EIP712 {
       prevMark1e18,
       mark1e18,
       dtSourceSecs,
-      uint16((word >> 192) & 0xFFFF), // maxDeviation floor
+      uint16((word >> 176) & 0xFFFF), // maxDeviation floor
       uint32((word >> 64) & 0xFFFFFFFF) // stored σ (PBPS) drives the adaptive band
     );
 
@@ -528,19 +535,19 @@ contract ExternalOracle is IOracle, EIP712 {
     // spread to the minFee floor and make a mark-then-self-swap round trip spread-free. Floor the
     // stored σ at the realized |Δmark|/mark so any mark move (even within the deviation band) forces a
     // proportional spread → the round trip is spread-NEGATIVE. Direct-σ, no on-chain smoothing.
-    // markMovePbps caps at MAX_SIGMA_PBPS == MAX_VOLATILITY and sigma is already _validate'd
-    // ≤ MAX_VOLATILITY, so sigmaStored stays within the validated σ invariant (no extra cap needed).
+    // markMovePbps caps at MAX_SIGMA_PBPS and sigma is already _validate'd ≤ MAX_SIGMA_PBPS, so
+    // sigmaStored stays within the validated σ invariant (no extra cap needed).
     uint32 moveFloor = Oracle.markMovePbps(prevMark1e18, mark1e18);
     uint32 sigmaStored = sigma > moveFloor ? sigma : moveFloor;
 
-    // Preserve config fields (ttl/conf-slot/tau/tauSigma/maxDev) from the slot; overwrite mark, σ (direct),
-    // updatedAt, confidence, sourceTs. sigmaEma[64:96) := floored signed σ (no EMA on the signed path).
+    // Preserve config fields (ttl/conf-slot/flags/maxDev) from the slot; overwrite mark, σ (direct),
+    // updatedAt, confidence, sourceTs. sigma[64:96) := floored signed σ (no EMA on the signed path).
     uint256 newWord = uint256(newPriceB64) | (uint256(sigmaStored) << 64)
       | (uint256(uint32(block.timestamp)) << 96) | (word & (uint256(0xFFFF) << 128)) // ttl
       | (uint256(conf) << 144)
-      // GAS-22: flags|tauSigma|maxDeviation are contiguous [160:208) → preserve in one 48-bit mask
+      // GAS-22: flags|maxDeviation are contiguous [160:192) → preserve in one 32-bit mask
       // (so a guardian-set paused bit survives every signed push; only owner unpause clears it).
-      | (word & (uint256(0xFFFFFFFFFFFF) << 160)) | (uint256(uint48(sourceTs)) << 208);
+      | (word & (uint256(0xFFFFFFFF) << 160)) | (uint256(uint48(sourceTs)) << 192);
     assembly ("memory-safe") { sstore(slot, newWord) }
   }
 
@@ -549,41 +556,28 @@ contract ExternalOracle is IOracle, EIP712 {
     if (data.updatedAt == 0) revert Err.FeedNotFound(feedId);
   }
 
-  /// @dev Same clock as `Oracle.observedAt` (storage-local; avoids memory copy).
+  /// @dev Shared observed-at clock, read storage-local (2 scalars, no memory copy of the feed).
   function _obsAt(FeedData storage f) private view returns (uint32) {
-    if (f.sourceTs != 0) {
-      uint256 srcSec = uint256(f.sourceTs) / 1000;
-      if (srcSec > f.updatedAt) srcSec = f.updatedAt;
-      return uint32(srcSec);
-    }
-    return f.updatedAt;
+    return Oracle.obsAt(f.sourceTs, f.updatedAt);
   }
 
   function isFeedFresh(bytes32 feedId, uint32 maxAge) external view override returns (bool) {
+    return _isFeedFresh(feeds[feedId], maxAge);
+  }
+
+  function isFeedFresh(bytes32 feedId) external view override returns (bool) {
     FeedData storage f = feeds[feedId];
+    return _isFeedFresh(f, f.ttl);
+  }
+
+  function _isFeedFresh(FeedData storage f, uint32 maxAge) private view returns (bool) {
     if (f.updatedAt == 0 || f.flags & FLAG_PAUSED != 0) return false;
     unchecked {
       return block.timestamp - _obsAt(f) <= maxAge;
     }
   }
 
-  function isFeedFresh(bytes32 feedId) external view override returns (bool) {
-    FeedData storage f = feeds[feedId];
-    if (f.updatedAt == 0 || f.flags & FLAG_PAUSED != 0) return false;
-    unchecked {
-      return block.timestamp - _obsAt(f) <= f.ttl;
-    }
-  }
-
   function getFeedIds() external view returns (bytes32[] memory) {
     return feedIds;
-  }
-
-  function getFeedCount() external view returns (uint256) {
-    return feedIds.length;
-  }
-
-  function hasFeed(bytes32 feedId) external view returns (bool) {
-    return feeds[feedId].updatedAt != 0;
   }
 }

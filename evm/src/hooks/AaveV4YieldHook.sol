@@ -6,7 +6,7 @@ import {IAaveV4Spoke, IAaveV4Rewards} from "../interfaces/external/IAaveV4.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title AaveV4YieldHook — EXPERIMENTAL Aave V4 Spoke supply-only (official reserveId ABI).
+/// @title AaveV4YieldHook - EXPERIMENTAL Aave V4 Spoke supply-only (official reserveId ABI).
 /// @dev Experimental: no mainnet Spoke / reserveId pin. Not production-ready. Positions are
 ///      share-ledger on Spoke (no aToken ERC20). Quarantine until pins land.
 contract AaveV4YieldHook is YieldHook {

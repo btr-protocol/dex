@@ -14,6 +14,8 @@ path = "src/lib.rs"
 [dependencies]
 
 # Tests replay real NX bar tapes via nxr-sdk::BarFile (path dep into the NX Rates repo). Data files
-# live under ../research/data (gitignored); tests skip gracefully when absent.
+# live under ../research/data (gitignored); tests skip gracefully when absent. serde_json (already
+# in the nxr-sdk dev tree) reads the shared Solidity parity vectors (evm/test/proto).
 [dev-dependencies]
 nxr-sdk = { path = "../../../nx/nx-rates/sdk/rust", default-features = false }
+serde_json = "1"

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-/// @title IPoolHooks — lean per-asset hooks (void; side-effects only).
+/// @title IPoolHooks - lean per-asset hooks (void; side-effects only).
 /// @notice Venus surface: unified pre-outflow recall + optional postInflow deploy.
 ///         Flags: `HOOK_PRE_OUTFLOW`, `HOOK_POST_INFLOW` in Constants.
 ///         Pool dispatches only when `HookSlot.target != 0` and the matching flag is set.

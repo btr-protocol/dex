@@ -7,12 +7,12 @@ import {console2} from "forge-std/Script.sol";
 import {Admin} from "../src/Admin.sol";
 import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
-import {Constants as C} from "../src/libraries/Constants.sol";
 
 /// @title ChapelApplyStableParams — push stable-core risk params onto the live Chapel stable pool.
 /// @notice Immediate: `setAssetParams` (fees/gamma/vega). Timelocked (Chapel LOW=5m / BASE=15m):
-///         `requestUpdateProfile` (knots/weights + dispersion) + `requestUpdateOracle` (refBand).
-///         Risk coverage/flags already correct from surgical listing (flags=6).
+///         `requestSetCurve` (preset 2, tight stable) + `requestUpdateProfile` (preset + dispersion)
+///         + `requestUpdateOracle` (refBand). Pool is sealed ⇒ curve goes through the timelocked
+///         twin, not the bootstrap `setCurve`. Risk coverage/flags already correct (flags=6).
 /// @dev Run (gas 0.1 gwei):
 ///   # 1) fees now + queue profile/oracle
 ///   forge script script/ChapelApplyStableParams.s.sol:ChapelApplyStableParams --sig run \
@@ -41,13 +41,15 @@ contract ChapelApplyStableParams is Script {
     address[5] memory toks = [USDC, USDT, USD1, USDE, FDUSD];
 
     vm.startBroadcast(pk);
+    (uint256[] memory interior, int256[] memory wQ) = _curve();
+    admin.requestSetCurve(STABLE, 2, interior, wQ, 100, 0);
     for (uint256 i = 0; i < toks.length; i++) {
       address tok = toks[i];
       (uint16 minFee, uint32 minDisp, uint32 maxDisp, uint16 refBand) = _params(tok);
       // gamma=20000 (2× inventory skew), vega=1×, haircutSuppressor=10000
       admin.setAssetParams(STABLE, tok, 0, minFee, 2000, 20_000, 10_000, 10_000, 0, 0);
       admin.setRiskFences(STABLE, tok, _fences(tok));
-      admin.requestUpdateProfile(STABLE, tok, _profile(), minDisp, maxDisp);
+      admin.requestUpdateProfile(STABLE, tok, 2, minDisp, maxDisp);
       admin.requestOracleUpdate(STABLE, tok, _oracle(tok, refBand, refOracle));
       console2.log("queued", tok, minFee, refBand);
     }
@@ -60,6 +62,7 @@ contract ChapelApplyStableParams is Script {
     Admin admin = Admin(ADMIN);
     address[5] memory toks = [USDC, USDT, USD1, USDE, FDUSD];
     vm.startBroadcast(pk);
+    admin.executeSetCurve(STABLE, 2); // preset 2 must land before profiles referencing it
     for (uint256 i = 0; i < toks.length; i++) {
       admin.executeUpdateProfile(STABLE, toks[i]);
       console2.log("profile ok", toks[i]);
@@ -79,15 +82,18 @@ contract ChapelApplyStableParams is Script {
     vm.stopBroadcast();
   }
 
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    // Milder center bump (post 2026-07-12): knots [-50,-12,12,50] · weights [50,100,50]
-    p.weights[0] = 50;
-    p.weights[1] = 100;
-    p.weights[2] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -12;
-    p.knots[2] = 12;
-    p.knots[3] = 50;
+  // placeholder: production weights come from research/stable-core/out/spline_shared_grid.json at deploy
+  /// @dev Preset 2 = tight stable: linear ±50 pbps ramp over 9 quartic weights, dispRef 100.
+  function _curve() internal pure returns (uint256[] memory interior, int256[] memory wQ) {
+    interior = new uint256[](4);
+    interior[0] = 2000;
+    interior[1] = 4000;
+    interior[2] = 6000;
+    interior[3] = 8000;
+    wQ = new int256[](9);
+    for (uint256 i = 0; i < 9; i++) {
+      wQ[i] = (int256(i) - 4) * 12_500_000_000;
+    }
   }
 
   function _params(address tok)

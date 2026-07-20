@@ -31,12 +31,13 @@ library PoolHooks {
     uint256 amountIn,
     uint256 lpMinted
   ) internal {
-    // Skip HookSlot SLOAD when nothing liquid to deploy.
-    uint256 liq = liquidReserves($, token);
-    if (liq == 0) return;
-
+    // Hookless assets are the common case: check the HookSlot FIRST so they pay one warm-path SLOAD
+    // instead of the invested+reserves reads liquidReserves costs.
     IPool.HookSlot memory h = $.assetHooks[token];
     if (h.target == address(0) || (h.flags & C.HOOK_POST_INFLOW) == 0) return;
+
+    uint256 liq = liquidReserves($, token);
+    if (liq == 0) return;
 
     // Never approve past the liquid floor (malicious hooks cannot drain R_liq < minLiquidity).
     uint256 minLiq = $.assets[token].minLiquidity;

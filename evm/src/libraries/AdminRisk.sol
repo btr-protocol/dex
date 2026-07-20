@@ -5,7 +5,7 @@ import {IAdmin} from "../interfaces/IAdmin.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
-/// @title AdminRisk — linked library for emergency freeze/pause + batch (EIP-170 relief).
+/// @title AdminRisk - linked library for emergency freeze/pause + batch (EIP-170 relief).
 /// @dev External fns DELEGATECALL'd from Admin; events appear as Admin.
 library AdminRisk {
   function freeze(address pool, address token) external {
@@ -60,11 +60,11 @@ library AdminRisk {
 
   function setFlowCooldown(address pool, uint16 cooldownSeconds) external {
     IPool(pool).adminSetFlowCooldown(cooldownSeconds);
-    emit IAdmin.FlowCooldownUpdated(pool, 0, cooldownSeconds);
+    emit IAdmin.FlowCooldownUpdated(pool, cooldownSeconds);
   }
 
   function setAnchor(address pool, address token, address anchor) external {
     IPool(pool).adminSetAnchor(token, anchor);
-    emit IAdmin.AnchorUpdated(pool, token, anchor, 0);
+    emit IAdmin.AnchorUpdated(pool, token, anchor);
   }
 }

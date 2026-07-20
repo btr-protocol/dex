@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity =0.8.35;
 
 /// @notice Compound V2–family cToken / vToken / mToken / qToken / fToken (Flux) surface.
 /// @dev Venus returns uint error codes; classic Compound reverts on failure. Adapters handle both.

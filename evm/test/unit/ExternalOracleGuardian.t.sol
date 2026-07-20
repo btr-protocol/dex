@@ -4,7 +4,7 @@ pragma solidity =0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {ExternalOracle} from "../../src/oracles/ExternalOracle.sol";
 import {Oracle} from "../../src/libraries/Oracle.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {MockAC} from "../fixtures/BaseTestSetup.sol";
 
@@ -35,7 +35,7 @@ contract ExternalOracleGuardianTest is Test {
     ext = new ExternalOracle(address(ac), 600, initialSigners, 2);
     vm.warp(1_700_000_000);
     startDev = ext.MAX_DEV_THRESHOLD();
-    ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, TAU, TAU, startDev, 3600);
+    ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, startDev, 3600);
     feedId = keccak256(abi.encodePacked(BASE, QUOTE));
     nxr = vm.addr(NXR_PK);
     ac.setGuardian(GUARDIAN, true);
@@ -70,7 +70,7 @@ contract ExternalOracleGuardianTest is Test {
 
   function test_guardian_cannotRequestSignerGrant() public {
     vm.prank(GUARDIAN);
-    vm.expectRevert(Err.NotAuth.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     ext.requestSignerGrant(OUTSIDER);
   }
 
@@ -84,7 +84,7 @@ contract ExternalOracleGuardianTest is Test {
   function test_guardian_cannotUnpauseFeed() public {
     ext.pauseFeed(feedId); // owner pauses
     vm.prank(GUARDIAN);
-    vm.expectRevert(Err.NotAuth.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     ext.unpauseFeed(feedId);
   }
 

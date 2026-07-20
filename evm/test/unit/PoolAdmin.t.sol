@@ -3,7 +3,8 @@ pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolAdmin} from "../../src/libraries/PoolAdmin.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {NUQuartic} from "../../src/libraries/NUQuartic.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
@@ -42,12 +43,38 @@ contract PoolAdminHarness {
     return $.riskConfigs[t];
   }
 
-  function getProfile(address t) external view returns (IPool.LiquidityProfile memory) {
-    return $.profiles[t];
+  function getPresetId(address t) external view returns (uint16) {
+    return $.assets[t].presetId;
   }
 
-  function callValidateProfileMemory(IPool.LiquidityProfile memory p) external pure {
-    PoolAdmin.validateProfileMemory(p);
+  function callSetCurve(
+    uint16 id,
+    uint256[] memory interior,
+    int256[] memory wQ,
+    uint16 dispRef,
+    uint8 flags
+  ) external {
+    NUQuartic.set($.curves[id], interior, wQ, dispRef, flags);
+  }
+
+  function callValidatePresetAssign(address t, uint16 presetId, uint32 maxDispersion)
+    external
+    view
+  {
+    PoolAdmin.validatePresetAssign($, t, presetId, maxDispersion);
+  }
+
+  function callValidateInternalMode(address t, IPool.OracleConfig memory cfg) external view {
+    PoolAdmin.validateInternalMode($, t, cfg);
+  }
+
+  function seedPeg(address t) external {
+    $.assets[t].pegB64 = 1; // nonzero peg so INTERNAL passes the pegB64 gate
+    $.assets[t].reservationPrice = 1; // abs depeg band present
+  }
+
+  function setKappa(address t, uint16 kappa) external {
+    $.riskConfigs[t].kappaCovBps = kappa;
   }
 
   function callValidateOracleConfig(IPool.OracleConfig memory cfg) external view {
@@ -57,28 +84,28 @@ contract PoolAdminHarness {
   function callInitAsset(
     address t,
     uint8 decimals,
-    uint16 minFeeBps,
+    uint16 minFeePbps,
     uint32 minDispersion,
     uint32 maxDispersion,
     uint16 gamma,
     uint16 vega
   ) external {
-    PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega);
+    PoolAdmin.initAsset($, t, decimals, minFeePbps, minDispersion, maxDispersion, gamma, vega);
   }
 
   function callSetupOracleAndConfig(
     address t,
     IPool.OracleConfig memory oracleCfg,
     IPool.RiskConfig memory riskCfg,
-    IPool.LiquidityProfile memory profile
+    uint16 presetId
   ) external {
-    PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
+    PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, presetId);
   }
 }
 
 /// @title PoolAdminTest
 /// @notice Phase 42H.D · Round 3 (G8) -direct unit tests for PoolAdmin library.
-///         Covers validateProfileMemory edge cases, validateOracleConfig boundaries,
+///         Covers validatePresetAssign edge cases, validateOracleConfig boundaries,
 ///         initAsset full path (base vs non-base, default fallbacks), and
 ///         setupOracleAndConfig integration (self-oracle seeding + non-self skip).
 contract PoolAdminTest is Test {
@@ -94,47 +121,68 @@ contract PoolAdminTest is Test {
     vm.warp(1_700_000_000);
   }
 
-  function _validProfile() internal pure returns (IPool.LiquidityProfile memory p) {
-    // 2 segments, weights sum=200, knots span 100.
-    p.weights[0] = 100;
-    p.weights[1] = 100;
-    p.knots[0] = -50;
-    p.knots[1] = 0;
-    p.knots[2] = 50;
+  function _curveArgs() internal pure returns (uint256[] memory interior, int256[] memory wQ) {
+    interior = new uint256[](4);
+    (interior[0], interior[1], interior[2], interior[3]) = (2000, 4000, 6000, 8000);
+    wQ = new int256[](9);
+    for (uint256 i = 0; i < 9; ++i) {
+      wQ[i] = -500e9 + int256(i) * 125e9;
+    }
   }
 
-  // ─── validateProfileMemory ───
+  // ─── validatePresetAssign ───
 
-  function test_validateProfile_validPasses() public view {
-    h.callValidateProfileMemory(_validProfile());
+  function test_presetAssign_zeroIsNoShape() public view {
+    h.callValidatePresetAssign(TKA, 0, 0); // explicit fallback: always valid
   }
 
-  function test_validateProfile_revertsOnZeroFirstWeight() public {
-    IPool.LiquidityProfile memory p = _validProfile();
-    p.weights[0] = 0;
-    vm.expectRevert(Err.InvalidInput.selector);
-    h.callValidateProfileMemory(p);
+  function test_presetAssign_unknownPresetReverts() public {
+    vm.expectRevert(abi.encodeWithSelector(Err.NotConfigured.selector, Err.Resource.ASSET, TKA));
+    h.callValidatePresetAssign(TKA, 9, 0);
   }
 
-  function test_validateProfile_revertsOnSumNot200() public {
-    IPool.LiquidityProfile memory p = _validProfile();
-    p.weights[1] = 50; // sum=150
-    vm.expectRevert(Err.InvalidInput.selector);
-    h.callValidateProfileMemory(p);
+  function test_presetAssign_installedPresetPasses() public {
+    (uint256[] memory interior, int256[] memory wQ) = _curveArgs();
+    h.callSetCurve(1, interior, wQ, 1000, 0);
+    h.callValidatePresetAssign(TKA, 1, 0);
   }
 
-  function test_validateProfile_revertsOnNonMonotonicKnots() public {
-    IPool.LiquidityProfile memory p = _validProfile();
-    p.knots[1] = -60; // < knots[0]
-    vm.expectRevert(Err.InvalidInput.selector);
-    h.callValidateProfileMemory(p);
+  function test_presetAssign_wallFlagRequiresKappa() public {
+    (uint256[] memory interior, int256[] memory wQ) = _curveArgs();
+    h.callSetCurve(2, interior, wQ, 1000, NUQuartic.FLAG_REQUIRES_WALL);
+    vm.expectRevert(Err.BadConfig.selector); // unwalled asset (kappa 0) may not price on a hyper tier
+    h.callValidatePresetAssign(TKA, 2, 0);
+    h.setKappa(TKA, 500);
+    h.callValidatePresetAssign(TKA, 2, 0); // walled: passes
   }
 
-  function test_validateProfile_revertsOnSpanNot100() public {
-    IPool.LiquidityProfile memory p = _validProfile();
-    p.knots[2] = 49; // span = 49 - (-50) = 99
-    vm.expectRevert(Err.InvalidInput.selector);
-    h.callValidateProfileMemory(p);
+  function test_internalMode_baseRejected() public {
+    // Base is the numeraire: INTERNAL mode would no-op its depeg breaker on every base hop.
+    h.seedPeg(BASE);
+    IPool.OracleConfig memory cfg;
+    cfg.primary = address(mock);
+    cfg.feedId = bytes32(uint256(1));
+    cfg.mode = 1; // INTERNAL
+    cfg.refFeedId = bytes32(uint256(2));
+    cfg.refBandBps = 10;
+    vm.expectRevert(Err.BadConfig.selector);
+    h.callValidateInternalMode(BASE, cfg);
+    // Same config on a NON-base asset is accepted.
+    h.seedPeg(TKA);
+    h.callValidateInternalMode(TKA, cfg);
+  }
+
+  function test_presetAssign_minOffsetBoundAtMaxDispersion() public {
+    // wQ[0] = −990000 pbps (−99%) at dispRef 1000: multiplier goes non-positive once
+    // maxDispersion pushes the scaled offset past −100% ⇒ BadConfig.
+    (uint256[] memory interior, int256[] memory wQ) = _curveArgs();
+    for (uint256 i = 0; i < 9; ++i) {
+      wQ[i] = -990_000e9 + int256(i) * 1e9;
+    }
+    h.callSetCurve(3, interior, wQ, 1000, 0);
+    h.callValidatePresetAssign(TKA, 3, 1000); // −99% at dispRef: still positive
+    vm.expectRevert(Err.BadConfig.selector);
+    h.callValidatePresetAssign(TKA, 3, 2000); // −198% ⇒ multiplier ≤ 0
   }
 
   // ─── validateOracleConfig ───
@@ -224,10 +272,9 @@ contract PoolAdminTest is Test {
     h.callInitAsset(BASE, 18, 30, 0, 0, 0, 0);
     IPool.Asset memory a = h.getAsset(BASE);
     assertEq(a.decimals, 18);
-    assertEq(a.minFeeBps, 30);
-    assertEq(a.maxFeeBps, 10000);
+    assertEq(a.minFeePbps, 30);
+    assertEq(a.maxFeePbps, 10000);
     assertEq(a.anchor, address(0), "base has no anchor");
-    assertEq(a.anchorDepth, 0);
     // Defaults applied on zero inputs.
     assertEq(a.minDispersion, 1000);
     assertEq(a.maxDispersion, 100000);
@@ -240,9 +287,8 @@ contract PoolAdminTest is Test {
     h.callInitAsset(TKA, 6, 25, 500, 50000, 8000, 9000);
     IPool.Asset memory a = h.getAsset(TKA);
     assertEq(a.decimals, 6);
-    assertEq(a.minFeeBps, 25);
+    assertEq(a.minFeePbps, 25);
     assertEq(a.anchor, BASE, "non-base anchors to baseToken");
-    assertEq(a.anchorDepth, 1);
     assertEq(a.minDispersion, 500);
     assertEq(a.maxDispersion, 50000);
     assertEq(a.gamma, 8000);
@@ -257,13 +303,11 @@ contract PoolAdminTest is Test {
     oc.feedId = bytes32(uint256(1));
     IPool.RiskConfig memory rc;
     rc.decayStartRatioBps = 5000;
-    IPool.LiquidityProfile memory p = _validProfile();
-
-    h.callSetupOracleAndConfig(TKA, oc, rc, p);
+    h.callSetupOracleAndConfig(TKA, oc, rc, 1);
 
     assertEq(h.getOracleConfig(TKA).primary, address(mock));
     assertEq(h.getRiskConfig(TKA).decayStartRatioBps, 5000);
-    assertEq(uint256(h.getProfile(TKA).weights[0]), 100);
+    assertEq(h.getPresetId(TKA), 1);
   }
 
   // ─── R44-7 (Pass-44B): minDispersion ≤ maxDispersion ───

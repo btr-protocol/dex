@@ -8,6 +8,7 @@ import {Err} from "@btr-shared/Errors.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {AnchorTree} from "./AnchorTree.sol";
+import {NUQuartic} from "./NUQuartic.sol";
 import {Oracle} from "./Oracle.sol";
 import {PoolAdmin} from "./PoolAdmin.sol";
 import {PoolIO} from "./PoolIO.sol";
@@ -51,8 +52,8 @@ library PoolAdminWrite {
     address token,
     IPool.OracleConfig calldata oracleCfg,
     IPool.RiskConfig calldata riskCfg,
-    IPool.LiquidityProfile calldata profile,
-    uint16 minFeeBps,
+    uint16 presetId,
+    uint16 minFeePbps,
     uint8 decimals,
     uint32 minDispersion,
     uint32 maxDispersion,
@@ -62,17 +63,17 @@ library PoolAdminWrite {
     address t = PoolIO.wrap($, token);
     if ($.assets[t].decimals != 0) revert Err.AlreadyConfigured(Err.Resource.ASSET, t);
 
-    PoolAdmin.validateProfileMemory(profile);
-    PoolAdmin.validateProfileDispersion(profile, maxDispersion);
     PoolAdmin.validateOracleConfig(oracleCfg);
     PoolAdmin.validateRiskConfig(riskCfg);
     // Base = the pool numeraire (price ≡ 1, priced via its own depeg breaker). The coverage wall
     // must never apply to it — a walled base breaks the cross-leg round-trip-neutrality argument
     // (AIMM_PROOFS Thm 2) and collides with _readBasePriceOrHalt. Enforce κ_base == 0.
     if (t == $.baseToken && riskCfg.kappaCovBps != 0) revert Err.BadConfig();
-    if (minFeeBps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
-    PoolAdmin.initAsset($, t, decimals, minFeeBps, minDispersion, maxDispersion, gamma, vega);
-    PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, profile);
+    if (minFeePbps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
+    PoolAdmin.initAsset($, t, decimals, minFeePbps, minDispersion, maxDispersion, gamma, vega);
+    PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, presetId);
+    // After risk config lands: wall-flag gating + min-offset bound read curve + riskConfigs.
+    PoolAdmin.validatePresetAssign($, t, presetId, maxDispersion);
     PoolAdmin.validateInternalMode($, t, oracleCfg); // after asset init: reads reservation band
     // REG-02: mirror the newly-listed asset into the factory discovery index so SafetyOps enumeration
     // (pauseAsset/freezeAll over getPoolsForToken/getPoolTokens) finds assets added AFTER createPool.
@@ -93,17 +94,16 @@ library PoolAdminWrite {
     address t = PoolIO.wrap($, token);
     IPool.Asset storage asset = $.assets[t];
     if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
-    uint8 depth = AnchorTree.validateAnchor($, t, anchor);
+    AnchorTree.validateAnchor($, t, anchor);
     asset.anchor = anchor;
-    asset.anchorDepth = depth;
   }
 
   function setAssetParams(
     IPool.PoolStorage storage $,
     address token,
     uint128 minLiquidity,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
@@ -113,12 +113,12 @@ library PoolAdminWrite {
     address t = PoolIO.wrap($, token);
     IPool.Asset storage asset = $.assets[t];
     if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
-    if (minFeeBps > maxFeeBps) revert Err.InvalidInput();
-    if (minFeeBps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
+    if (minFeePbps > maxFeePbps) revert Err.InvalidInput();
+    if (minFeePbps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
     // haircutSuppressor ≥ 20000 zeroes the haircut (applyHaircut) → an under-covered leg pays face
     // value → first-mover bank-run drains coverage. Cap below the disabling threshold so the deficit
     // is always at least partially socialized (walled/stable assets should run 0 = full haircut).
-    if (haircutSuppressor >= 20000) revert Err.InvalidInput();
+    if (haircutSuppressor >= C.HAIRCUT_SUPPRESSOR_DISABLE) revert Err.InvalidInput();
     // Coverage-wall invariant (AIMM_PROOFS Lemma B): a walled asset (κ>0) MUST run haircutSuppressor==0,
     // else same-asset withdrawal is a toll-exempt coverage-declining path that bypasses the wall.
     if ($.riskConfigs[t].kappaCovBps > 0 && haircutSuppressor != 0) revert Err.InvalidInput();
@@ -127,8 +127,8 @@ library PoolAdminWrite {
     }
 
     asset.minLiquidity = minLiquidity;
-    asset.minFeeBps = minFeeBps;
-    asset.maxFeeBps = maxFeeBps;
+    asset.minFeePbps = minFeePbps;
+    asset.maxFeePbps = maxFeePbps;
     asset.gamma = gamma;
     asset.vega = vega;
     asset.haircutSuppressor = haircutSuppressor;
@@ -151,6 +151,12 @@ library PoolAdminWrite {
     // Coverage-wall invariant (Lemma B): raising the wall on an asset that still socializes deficit
     // via a haircut would leave the toll-exempt withdrawal bypass open — require haircutSuppressor==0.
     if (cfg.kappaCovBps > 0 && $.assets[t].haircutSuppressor != 0) revert Err.BadConfig();
+    // FLAG_REQUIRES_WALL is asserted at preset-assign; stripping κ here would strand a wall-gated
+    // (hyper) preset on a now-unwalled asset — its ultra-concentrated tip loses its only drain
+    // defense. Re-assert the assign invariant so the wall gate is bidirectional, not assign-only.
+    if (cfg.kappaCovBps == 0) {
+      PoolAdmin.validatePresetAssign($, t, $.assets[t].presetId, $.assets[t].maxDispersion);
+    }
     // Halt bits survive config writes: a freeze/pause raised during the timelock window must not
     // be cleared (nor sneaked in) by executing a queued RiskConfig — only the explicit
     // unfreeze/unpause ops touch HALT_MASK.
@@ -164,25 +170,39 @@ library PoolAdminWrite {
     if (nowDecay && !wasDecay) $.assets[t].lastUpdate = uint32(block.timestamp);
   }
 
-  /// @notice Perpetual profile recalibration: rewrite an asset's Hermite liquidity-profile SHAPE
-  ///         (weights/knots) + dispersion band after listing. Pricing-shape only — reserves,
-  ///         liabilities and coverage are untouched, so live LP positions are not repriced by fiat.
-  ///         Gated by the LOW_TIMELOCK request/execute path (see Admin.requestUpdateProfile).
+  /// @notice Perpetual profile recalibration: repoint an asset at a preset curve + dispersion band
+  ///         after listing. Pricing-shape only — reserves, liabilities and coverage are untouched,
+  ///         so live LP positions are not repriced by fiat. Gated by the LOW_TIMELOCK
+  ///         request/execute path (see Admin.requestUpdateProfile).
   function setProfile(
     IPool.PoolStorage storage $,
     address token,
-    IPool.LiquidityProfile calldata profile,
+    uint16 presetId,
     uint32 minDispersion,
     uint32 maxDispersion
   ) external {
     address t = PoolIO.wrap($, token);
     IPool.Asset storage asset = $.assets[t];
     if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
-    PoolAdmin.validateProfileMemory(profile);
-    PoolAdmin.validateProfileDispersion(profile, maxDispersion);
+    PoolAdmin.validatePresetAssign($, t, presetId, maxDispersion);
     (asset.minDispersion, asset.maxDispersion) =
       PoolAdmin.sanitizeDispersion(minDispersion, maxDispersion);
-    $.profiles[t] = profile;
+    asset.presetId = presetId;
+  }
+
+  /// @notice Install/recalibrate a shared preset curve (validated quartic I-spline). Mutating a
+  ///         preset live-referenced by assets IS the weekly-refit path — hence the LOW_TIMELOCK
+  ///         request/execute gate (Admin.requestSetCurve). Shape-only: no custody state touched.
+  function setCurve(
+    IPool.PoolStorage storage $,
+    uint16 presetId,
+    uint256[] calldata interior,
+    int256[] calldata wQ,
+    uint16 dispRef,
+    uint8 flags
+  ) external {
+    if (presetId == 0 || dispRef == 0) revert Err.InvalidInput(); // 0 = the no-shape sentinel
+    NUQuartic.set($.curves[presetId], interior, wQ, dispRef, flags);
   }
 
   function setOracleConfig(
@@ -200,10 +220,6 @@ library PoolAdminWrite {
   function setFeeParams(IPool.PoolStorage storage $, IPool.FeeParams calldata params) external {
     if (params.protoShare > 100) revert Err.InvalidInput();
     $.feeParams = params;
-  }
-
-  function setBridge(IPool.PoolStorage storage $, address newBridge) external {
-    $.bridge = newBridge;
   }
 
   function setTreasury(IPool.PoolStorage storage $, address newTreasury) external {
@@ -235,9 +251,7 @@ library PoolAdminWrite {
     // of it so the anchor graph stays a well-formed depth-1 star for AnchorTree. (Operators re-anchor
     // the remaining spokes to the new base over the CRITICAL_TIMELOCK window.)
     newA.anchor = address(0);
-    newA.anchorDepth = 0;
     oldA.anchor = newBase;
-    oldA.anchorDepth = 1;
     $.baseToken = newBase;
     // REG-02: keep the factory's cached base in sync (best-effort; skipped for a non-factory clone).
     address f = $.factory;

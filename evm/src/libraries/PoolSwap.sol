@@ -19,38 +19,35 @@ library PoolSwap {
     uint256 minAmountOut,
     address recipient
   ) external returns (uint256 out) {
-    address[2] memory tk = [PoolIO.wrap($, tokenIn), PoolIO.wrap($, tokenOut)];
-    if (tk[0] == tk[1]) revert Err.InvalidInput();
+    address inTk = PoolIO.wrap($, tokenIn);
+    address outTk = PoolIO.wrap($, tokenOut);
+    if (inTk == outTk) revert Err.InvalidInput();
     if (amountIn == 0) revert Err.ZeroValue();
 
-    IPool.Asset storage aIn = $.assets[tk[0]];
-    IPool.Asset storage aOut = $.assets[tk[1]];
+    IPool.Asset storage aIn = $.assets[inTk];
+    IPool.Asset storage aOut = $.assets[outTk];
 
     // One risk SLOAD per token: halt/swap gate + decay early-out (G-4).
-    IPool.RiskConfig storage rIn = $.riskConfigs[tk[0]];
-    IPool.RiskConfig storage rOut = $.riskConfigs[tk[1]];
+    IPool.RiskConfig storage rIn = $.riskConfigs[inTk];
+    IPool.RiskConfig storage rOut = $.riskConfigs[outTk];
     PoolIO.checkRiskFlags(rIn, C.SWAP_ENABLED_BIT);
     PoolIO.checkRiskFlags(rOut, C.SWAP_ENABLED_BIT);
     PoolDecay.applyDecay(aIn, rIn);
     PoolDecay.applyDecay(aOut, rOut);
 
     uint256 actualIn = PoolIO.pull($, tokenIn, amountIn);
-    IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, tk[0], tk[1], actualIn);
+    IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, inTk, outTk, actualIn);
 
     out = q.amountOut;
     // Cov-wall full drain can yield amountOut==0; never settle a zero-delivery swap (A-02).
     if (out == 0) revert Err.ZeroValue();
-    // Hard recall on tokenOut only when R_liq shortfall (0 CALL if buffer OK).
-    uint256 need = out + q.protoFee + aOut.minLiquidity;
-    PoolHooks.preOutflow($, tk[1], msg.sender, need);
-
-    PoolIO.exec($, tk[0], tk[1], actualIn, q, aIn, aOut);
+    PoolIO.settle($, inTk, outTk, actualIn, q, aIn, aOut);
 
     if (out < minAmountOut) revert Err.ThresholdViolation(out, minAmountOut);
 
     PoolIO.push($, tokenOut, recipient, out);
     emit IPool.Swapped(
-      msg.sender, recipient, tk[0], tk[1], actualIn, out, q.spreadBps, q.protoFee, q.lpFee
+      msg.sender, recipient, inTk, outTk, actualIn, out, q.spreadPbps, q.protoFee, q.lpFee
     );
   }
 }

@@ -125,13 +125,16 @@ contract ChapelEnableSwaps is Script {
     address xautRefOracle,
     bytes32 xautRefFeedId
   ) internal returns (address poolAddr) {
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeePbps: 100});
     bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], WNATIVE, fp);
     poolAddr = factory.createPool(tokens[0], tokens, initdata);
 
     IPool.RiskConfig memory rcBase = _riskStableBase();
     IPool.RiskConfig memory rcSpoke = stable ? _riskStableSpoke() : _riskVolatile();
-    IPool.LiquidityProfile memory pf = stable ? _stableProfile() : _volatileProfile();
+    // Preset curve must exist pre-seal, before the first addAsset referencing it.
+    uint16 presetId = stable ? 2 : 1;
+    (uint256[] memory interior, int256[] memory wQ, uint16 dispRef) = _curve(stable);
+    admin.setCurve(poolAddr, presetId, interior, wQ, dispRef, 0);
 
     for (uint256 i = 0; i < tokens.length; i++) {
       address tok = tokens[i];
@@ -140,7 +143,7 @@ contract ChapelEnableSwaps is Script {
         _oracleCfg(tok, tokens[0], refBand, refOracle, xautRefOracle, xautRefFeedId);
       // Base numeraire forbids κ wall (PoolAdminWrite); spokes use stable κ=100.
       IPool.RiskConfig memory rc = (tok == tokens[0]) ? rcBase : rcSpoke;
-      admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, minDisp, maxDisp, GAMMA, VEGA);
+      admin.addAsset(poolAddr, tok, oc, rc, presetId, minFee, 18, minDisp, maxDisp, GAMMA, VEGA);
       // initAsset defaults maxFeeBps=BPS; clamp to SSoT. κ-walled spokes require haircut=0.
       uint16 maxFee = stable ? 2_000 : 10_000;
       uint16 haircut = (rc.kappaCovBps > 0) ? 0 : 10_000;
@@ -181,27 +184,25 @@ contract ChapelEnableSwaps is Script {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  function _volatileProfile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
-
-  /// @dev sharedLiquidityProfile — milder center bump [50,100,50].
-  function _stableProfile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 100;
-    p.weights[2] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -12;
-    p.knots[2] = 12;
-    p.knots[3] = 50;
+  // placeholder: production weights come from research/stable-core/out/spline_shared_grid.json at deploy
+  /// @dev Preset 1 = generic default (±500 pbps ramp, dispRef 1000); preset 2 = tight stable
+  ///      (±50 pbps ramp, dispRef 100).
+  function _curve(bool stable)
+    internal
+    pure
+    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef)
+  {
+    interior = new uint256[](4);
+    interior[0] = 2000;
+    interior[1] = 4000;
+    interior[2] = 6000;
+    interior[3] = 8000;
+    wQ = new int256[](9);
+    int256 step = stable ? int256(12_500_000_000) : int256(125_000_000_000);
+    for (uint256 i = 0; i < 9; i++) {
+      wQ[i] = (int256(i) - 4) * step;
+    }
+    dispRef = stable ? 100 : 1000;
   }
 
   function _fences(address tok, bool stable) internal pure returns (IAdmin.RiskFences memory f) {

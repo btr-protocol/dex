@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity =0.8.35;
 
 /// @notice Merkl (Angle) Distributor — used by Morpho / Euler (rEUL) / generic ERC4626 incentive campaigns.
 /// @dev claim sends tokens to `users[i]` (or their setClaimRecipient). Default recipient = the user, so

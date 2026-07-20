@@ -10,18 +10,17 @@ import {Admin} from "../../src/Admin.sol";
 import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Pricing} from "../../src/libraries/Pricing.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @notice Machine-checked layer for AIMM_PROOFS.md (repo root): shared walled-pool fixture.
 ///         Each test anchors a theorem/lemma of the coverage-safety proof program; doc §9 maps
 ///         claim → test. Unit fuzzes hit Pricing._covToll/_covQ directly (internal); boundary
 ///         fuzzes + the invariant campaign exercise the same claims through Pool entrypoints.
-abstract contract CoverageProofsBase is Test {
+abstract contract CoverageProofsBase is BaseTestSetup {
   uint256 constant BPS = 10_000;
-  uint256 constant WAD = 1e18;
 
   PoolFactory factory;
   Pool poolImpl;
@@ -37,18 +36,6 @@ abstract contract CoverageProofsBase is Test {
   uint16 constant KAPPA = 15_000; // c* = 15000/25000 = 0.6
   uint256 constant SEED = 1_000_000e18;
 
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
-
   function _risk(uint16 kappa) internal pure returns (IPool.RiskConfig memory r) {
     r.coverageMin = 5000;
     r.coverageMax = 20000;
@@ -62,7 +49,7 @@ abstract contract CoverageProofsBase is Test {
     o.feedId = bytes32(uint256(uint160(token)));
   }
 
-  function setUp() public virtual {
+  function setUp() public virtual override {
     ac = new MockAC(OWNER);
     admin = new Admin(address(ac));
     flash = new Flash();
@@ -74,7 +61,7 @@ abstract contract CoverageProofsBase is Test {
     address[] memory toks = new address[](2);
     toks[0] = address(base);
     toks[1] = address(tok);
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initd =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     pool = Pool(payable(factory.createPool(address(base), toks, initd)));
@@ -82,12 +69,13 @@ abstract contract CoverageProofsBase is Test {
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setMark(address(tok), M.encodeB64(1e18, 18)); // stable pair: mark 1.0 (walled-asset regime)
     vm.startPrank(OWNER);
+    admin.setCurve(address(pool), DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
     admin.addAsset(
       address(pool),
       address(base),
       _oc(address(base)),
       _risk(0),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -100,7 +88,7 @@ abstract contract CoverageProofsBase is Test {
       address(tok),
       _oc(address(tok)),
       _risk(KAPPA),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -326,7 +314,7 @@ contract CoverageProofsTest is CoverageProofsBase {
   function test_base_kappa_rejected_at_addAsset() public {
     address[] memory toks = new address[](1);
     toks[0] = address(base);
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initd =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     Pool p2 = Pool(payable(factory.createPool(address(base), toks, initd)));
@@ -337,7 +325,7 @@ contract CoverageProofsTest is CoverageProofsBase {
       address(base),
       _oc(address(base)),
       _risk(KAPPA),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,

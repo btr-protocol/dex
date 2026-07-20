@@ -2,7 +2,7 @@
 pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 
@@ -71,12 +71,11 @@ contract MockOracle is IOracle {
   function _set(bytes32 id, uint64 priceB64, uint32 sigma, uint16 confidence, uint16 ttl) internal {
     feeds[id] = FeedData({
       lastPriceB64: priceB64,
-      sigmaEma: sigma,
+      sigma: sigma,
       updatedAt: uint32(block.timestamp),
       ttl: ttl,
       confidence: confidence,
       flags: 0,
-      tauSigma: 0,
       maxDeviation: 0,
       sourceTs: 0
     });
@@ -145,6 +144,28 @@ abstract contract BaseTestSetup is Test {
     return M.decodeB64(b64, decimals);
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DEFAULT PRESET CURVE (quartic I-spline)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// @dev Canonical test preset: near-linear monotone quartic spanning ±500 pbps at dispRef=1000 —
+  ///      the shape-scale twin of the retired Hermite default (knots ±50 × dispersion). Install via
+  ///      `admin.setCurve(pool, DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0)`
+  ///      BEFORE the first addAsset referencing DEFAULT_PRESET.
+  uint16 internal constant DEFAULT_PRESET = 1;
+
+  function defaultCurveInterior() internal pure returns (uint256[] memory it) {
+    it = new uint256[](4);
+    (it[0], it[1], it[2], it[3]) = (2000, 4000, 6000, 8000);
+  }
+
+  function defaultCurveWQ() internal pure returns (int256[] memory wQ) {
+    wQ = new int256[](9);
+    for (uint256 i = 0; i < 9; ++i) {
+      wQ[i] = -500e9 + int256(i) * 125e9; // linear ramp −500..+500 pbps·Q
+    }
+  }
+
   /// @notice Build a FeedData directly (external-mark model).
   function makeFeedData(uint64 priceB64, uint32 sigma, uint16 confidence)
     internal
@@ -153,12 +174,11 @@ abstract contract BaseTestSetup is Test {
   {
     return IOracle.FeedData({
       lastPriceB64: priceB64,
-      sigmaEma: sigma,
+      sigma: sigma,
       updatedAt: uint32(block.timestamp),
       ttl: 3600,
       confidence: confidence,
       flags: 0,
-      tauSigma: 0,
       maxDeviation: 0,
       sourceTs: 0
     });

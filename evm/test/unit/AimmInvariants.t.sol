@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../../src/Pool.sol";
 import {PoolAux} from "../../src/PoolAux.sol";
@@ -10,9 +9,9 @@ import {Admin} from "../../src/Admin.sol";
 import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @title AimmInvariants
 /// @notice Reproduction + invariant tests for the AIMM pricer at NON-UNITY price.
@@ -21,7 +20,7 @@ import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 ///         BUG-3 (buy-side decimal underflow). These tests seed a $3000 asset so the
 ///         orientation/sign/decimal defects become observable. They are expected to
 ///         FAIL on the current code and pass once the pricer is corrected.
-contract AimmInvariantsTest is Test {
+contract AimmInvariantsTest is BaseTestSetup {
   PoolFactory factory;
   Pool poolImpl;
   Admin admin;
@@ -39,18 +38,6 @@ contract AimmInvariantsTest is Test {
   uint16 constant FLASH_FEE_BPS = 100;
 
   uint256 constant PX = 3000e18; // 3000 base per tok
-
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
 
   function _risk() internal pure returns (IPool.RiskConfig memory r) {
     r.decayStartRatioBps = 5000;
@@ -70,7 +57,7 @@ contract AimmInvariantsTest is Test {
     return bytes32(uint256(uint160(token)));
   }
 
-  function setUp() public {
+  function setUp() public override {
     ac = new MockAC(OWNER);
     admin = new Admin(address(ac));
     flashSingleton = new Flash();
@@ -85,7 +72,7 @@ contract AimmInvariantsTest is Test {
     toks[0] = address(base);
     toks[1] = address(tok);
     IPool.FeeParams memory fp =
-      IPool.FeeParams({protoShare: PROTO_SHARE, flashFeeBps: FLASH_FEE_BPS});
+      IPool.FeeParams({protoShare: PROTO_SHARE, flashFeePbps: FLASH_FEE_BPS});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     pool = Pool(payable(factory.createPool(address(base), toks, initdata)));
@@ -95,15 +82,15 @@ contract AimmInvariantsTest is Test {
     // tok: fresh mark 3000 (base per tok, NON-UNITY), σ=1%, CI=0, finite ttl for staleness tests.
     oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), 10_000, 0, 3600);
     IPool.RiskConfig memory rc = _risk();
-    IPool.LiquidityProfile memory pf = _profile();
 
     vm.startPrank(OWNER);
+    admin.setCurve(address(pool), DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
     admin.addAsset(
       address(pool),
       address(base),
       _oracle(address(base)),
       rc,
-      pf,
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -116,7 +103,7 @@ contract AimmInvariantsTest is Test {
       address(tok),
       _oracle(address(tok)),
       rc,
-      pf,
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -140,10 +127,10 @@ contract AimmInvariantsTest is Test {
   /// must lift it above that floor. NB: the tx-scoped oracle TCache would serve a stale cached feed
   /// on a re-quote of the SAME token, so we assert against the known floor rather than re-quoting.
   function test_confidence_surcharge_widens_beyond_floor() public {
-    uint16 floorFee = pool.getAsset(address(tok)).minFeeBps; // 0.1%
+    uint16 floorFee = pool.getAsset(address(tok)).minFeePbps; // 0.1%
     oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), 10_000, 200, 3600); // 2% CI
     IPool.SwapQuote memory q = pool.getSwapQuote(address(tok), address(base), 1e18);
-    assertGt(q.spreadBps, floorFee, "confidence surcharge must widen beyond the minFee floor");
+    assertGt(q.spreadPbps, floorFee, "confidence surcharge must widen beyond the minFee floor");
   }
 
   /// Confidence halt: a feed CI past MAX_CONFIDENCE_HALT_BPS (10%) fail-closes the swap path.
@@ -188,13 +175,13 @@ contract AimmInvariantsTest is Test {
     vm.warp(block.timestamp + 1500);
     IPool.SwapQuote memory qWithinGrace = pool.getSwapQuote(address(tok), address(base), 1e18);
     assertEq(
-      qWithinGrace.spreadBps, qFresh.spreadBps, "within grace (age<ttl/2) the premium must stay OFF"
+      qWithinGrace.spreadPbps, qFresh.spreadPbps, "within grace (age<ttl/2) the premium must stay OFF"
     );
     // Past the grace (keeper missed its heartbeat) but under the ttl: widen (graceful degradation).
     vm.warp(block.timestamp + 1000); // total age 2500s: > 1800 grace, < 3600 ttl → excess 700s
     IPool.SwapQuote memory qStale = pool.getSwapQuote(address(tok), address(base), 1e18);
     assertGt(
-      qStale.spreadBps, qFresh.spreadBps, "past grace the staleness premium must widen the spread"
+      qStale.spreadPbps, qFresh.spreadPbps, "past grace the staleness premium must widen the spread"
     );
     // NON-SATURATION: the premium must be a GENTLE ramp, not slam to maxFee the instant age>ttl/2.
     // Regression guard for the σ-scaling bug (raw σ·√excess with σ in PBPS saturated maxFee at 1s):
@@ -202,7 +189,7 @@ contract AimmInvariantsTest is Test {
     vm.warp(block.timestamp + 900); // total age 3400s: excess 1600s (> the 700s above, still < ttl)
     IPool.SwapQuote memory qMoreStale = pool.getSwapQuote(address(tok), address(base), 1e18);
     assertGt(
-      qMoreStale.spreadBps, qStale.spreadBps, "premium must keep ramping (not saturated to maxFee)"
+      qMoreStale.spreadPbps, qStale.spreadPbps, "premium must keep ramping (not saturated to maxFee)"
     );
   }
 
@@ -226,7 +213,7 @@ contract AimmInvariantsTest is Test {
     base.mint(USER, 30_000e18);
     vm.startPrank(USER);
     base.approve(address(pool), type(uint256).max);
-    vm.expectRevert(); // Err.PriceBelowReservation — tok mark (PX) > reservationPriceMax (PX/2)
+    vm.expectRevert(); // Err.PriceOutsideReservation — tok mark (PX) > reservationPriceMax (PX/2)
     pool.swap(address(base), address(tok), 30_000e18, 0, USER);
     vm.stopPrank();
   }
@@ -251,7 +238,7 @@ contract AimmInvariantsTest is Test {
     tok.mint(USER, 10e18);
     vm.startPrank(USER);
     tok.approve(address(pool), type(uint256).max);
-    vm.expectRevert(); // Err.PriceBelowReservation — tok is the INPUT and fails its own band
+    vm.expectRevert(); // Err.PriceOutsideReservation — tok is the INPUT and fails its own band
     pool.swap(address(tok), address(base), 10e18, 0, USER);
     vm.stopPrank();
   }
@@ -316,7 +303,7 @@ contract AimmInvariantsTest is Test {
     admin.setAssetParams(
       address(pool), address(tok), 0, C.MIN_FEE_PBPS, 10_000, 10_000, 10_000, 10_000, 0, 0
     );
-    assertEq(pool.getAsset(address(tok)).minFeeBps, C.MIN_FEE_PBPS);
+    assertEq(pool.getAsset(address(tok)).minFeePbps, C.MIN_FEE_PBPS);
   }
 
   /// 1 PBPS spread at σ=0 must still settle fees — halving spread before multiply would zero them.
@@ -327,7 +314,7 @@ contract AimmInvariantsTest is Test {
     );
     oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), 0, 0, 3600);
     IPool.SwapQuote memory q = pool.getSwapQuote(address(tok), address(base), 1000e18);
-    assertEq(q.spreadBps, C.MIN_FEE_PBPS);
+    assertEq(q.spreadPbps, C.MIN_FEE_PBPS);
     assertGt(q.lpFee + q.protoFee, 0, "1 PBPS floor must settle non-zero fees");
   }
 
@@ -348,7 +335,7 @@ contract AimmInvariantsTest is Test {
     );
     uint256 lp = pool.getLPBalance(address(this), address(base));
     skip(20);
-    vm.expectRevert(); // Err.PriceBelowReservation — tok mark (PX) > reservationPriceMax (PX/2)
+    vm.expectRevert(); // Err.PriceOutsideReservation — tok mark (PX) > reservationPriceMax (PX/2)
     pool.withdrawTo(address(base), address(tok), lp / 10, 0);
   }
 
@@ -373,7 +360,7 @@ contract AimmInvariantsTest is Test {
     );
     uint256 lp = pool.getLPBalance(address(this), address(tok)); // tok deposited in setUp
     skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1); // clear JIT cooldown so only the band can revert
-    vm.expectRevert(); // Err.PriceBelowReservation — tok is the INPUT and fails its own band
+    vm.expectRevert(); // Err.PriceOutsideReservation — tok is the INPUT and fails its own band
     pool.withdrawTo(address(tok), address(base), lp / 10, 0);
   }
 
@@ -434,7 +421,7 @@ contract AimmInvariantsTest is Test {
     base.approve(address(pool), type(uint256).max);
     // Walked mark: primary +10% while the independent reference holds → band (±5%) halts swaps.
     oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 110) / 100, 18), 10_000, 0, 3600);
-    vm.expectPartialRevert(Err.PriceBelowReservation.selector);
+    vm.expectPartialRevert(Err.PriceOutsideReservation.selector);
     pool.swap(address(base), address(tok), 3_000e18, 0, USER);
     // Within band (+2%) → swap executes.
     oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 102) / 100, 18), 10_000, 0, 3600);
@@ -443,9 +430,12 @@ contract AimmInvariantsTest is Test {
     vm.stopPrank();
   }
 
-  /// refPrimary == 0 falls back to `primary` (legacy/self-ref state — validation now requires an
-  /// explicit refPrimary, so the zero is written straight to storage to simulate pre-upgrade state).
-  function test_refPrimary_zero_falls_back_to_primary() public {
+  /// refPrimary == 0 with the band armed FAIL-CLOSES (no self-ref fallback). Validation requires a
+  /// distinct refPrimary whenever the band is armed, so this state is unreachable in production; the
+  /// zero is written straight to storage to simulate pre-upgrade state and prove that even then a
+  /// misconfigured zero halts swaps (reads off address(0) → revert) rather than silently self-comparing
+  /// the mark against itself and disarming the depeg breaker (O-08 / L-04).
+  function test_refPrimary_zero_failClosed() public {
     bytes32 refId = bytes32(uint256(0xB7F));
     MockOracle refOracle = new MockOracle();
     refOracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, type(uint16).max);
@@ -459,13 +449,10 @@ contract AimmInvariantsTest is Test {
     base.mint(USER, 12_000e18);
     vm.startPrank(USER);
     base.approve(address(pool), type(uint256).max);
-    // The band still gates — read off PRIMARY (fallback), which holds refId at PX: +10% halts.
-    oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 110) / 100, 18), 10_000, 0, 3600);
-    vm.expectPartialRevert(Err.PriceBelowReservation.selector);
-    pool.swap(address(base), address(tok), 3_000e18, 0, USER);
-    // Within band → ok (fallback is a live guard, not a bypass).
+    // Even a perfectly in-band mark halts: the ref read targets address(0) → revert. No self-ref bypass.
     oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 102) / 100, 18), 10_000, 0, 3600);
-    assertGt(pool.swap(address(base), address(tok), 3_000e18, 0, USER), 0, "fallback in-band swap");
+    vm.expectRevert();
+    pool.swap(address(base), address(tok), 3_000e18, 0, USER);
     vm.stopPrank();
   }
 

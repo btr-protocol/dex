@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test, StdStorage, stdStorage} from "forge-std/Test.sol";
+import {StdStorage, stdStorage} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
@@ -17,12 +17,11 @@ import {IDistributor} from "@btr-shared/interfaces/IDistributor.sol";
 import {IBridge} from "@btr-shared/interfaces/IBridge.sol";
 import {IOpsTreasury} from "@btr-shared/interfaces/IOpsTreasury.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
-import {Maths as M} from "../src/libraries/Maths.sol";
-import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 
-contract DistributorBridgeIntegrationTest is Test {
+contract DistributorBridgeIntegrationTest is BaseTestSetup {
   using stdStorage for StdStorage;
 
   PoolFactory factory;
@@ -41,18 +40,6 @@ contract DistributorBridgeIntegrationTest is Test {
   address constant USER2 = address(0xC0FE);
   uint8 constant PROTO_SHARE = 25;
 
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
-
   function _risk() internal pure returns (IPool.RiskConfig memory r) {
     r.coverageMin = 5000;
     r.coverageMax = 20000;
@@ -65,7 +52,7 @@ contract DistributorBridgeIntegrationTest is Test {
     o.feedId = bytes32(uint256(uint160(token)));
   }
 
-  function setUp() public {
+  function setUp() public override {
     ac = new MockAC(OWNER);
     admin = new Admin(address(ac));
     flashSingleton = new Flash();
@@ -79,7 +66,7 @@ contract DistributorBridgeIntegrationTest is Test {
     address[] memory toks = new address[](2);
     toks[0] = address(base);
     toks[1] = address(quote);
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: PROTO_SHARE, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: PROTO_SHARE, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     address pa = factory.createPool(address(base), toks, initdata);
@@ -89,13 +76,33 @@ contract DistributorBridgeIntegrationTest is Test {
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setMark(address(quote), M.encodeB64(1e18, 18));
     IPool.RiskConfig memory rc = _risk();
-    IPool.LiquidityProfile memory pf = _profile();
     vm.startPrank(OWNER);
+    admin.setCurve(pa, DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
     admin.addAsset(
-      pa, address(base), _oracleCfg(address(base)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000
+      pa,
+      address(base),
+      _oracleCfg(address(base)),
+      rc,
+      DEFAULT_PRESET,
+      1000,
+      18,
+      1000,
+      100000,
+      10000,
+      10000
     );
     admin.addAsset(
-      pa, address(quote), _oracleCfg(address(quote)), rc, pf, 1000, 18, 1000, 100000, 10000, 10000
+      pa,
+      address(quote),
+      _oracleCfg(address(quote)),
+      rc,
+      DEFAULT_PRESET,
+      1000,
+      18,
+      1000,
+      100000,
+      10000,
+      10000
     );
     vm.stopPrank();
   }
@@ -148,7 +155,7 @@ contract DistributorBridgeIntegrationTest is Test {
     // Spin a second pool clone via factory.
     address[] memory toks2 = new address[](1);
     toks2[0] = address(base);
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 0, flashFeeBps: 0});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 0, flashFeePbps: 0});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     address pool2 = factory.createPool(address(base), toks2, initdata);
@@ -255,7 +262,7 @@ contract DistributorBridgeIntegrationTest is Test {
 
     // Non-owner cannot sweep.
     vm.prank(USER);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     tr.salvage(address(stuck), USER, 1_000e18);
 
     // Owner sweeps.
@@ -317,7 +324,7 @@ contract DistributorBridgeIntegrationTest is Test {
     vm.prank(OWNER);
     uint256 id = dist.createTokenCampaign(address(pool), address(reward), OWNER);
     vm.prank(USER);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotAuth.selector);
     dist.proposeCampaignRoot(address(pool), id, bytes32(uint256(1)), uint32(block.timestamp), 1);
   }
 
@@ -336,13 +343,12 @@ contract DistributorBridgeIntegrationTest is Test {
     // Bridge requires LZ_ENDPOINT immutable; pass a non-zero placeholder.
     MockAC localAC = new MockAC(address(this));
     Bridge br = new Bridge(address(0x1234), address(localAC));
-    br.initialize();
 
     MockERC20 stuck = new MockERC20("S", "S", 18);
     stuck.mint(address(br), 1_000e18);
 
     vm.prank(USER);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     br.salvage(address(stuck), USER, 1_000e18);
 
     br.salvage(address(stuck), USER, 1_000e18);

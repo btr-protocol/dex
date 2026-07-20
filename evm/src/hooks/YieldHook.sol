@@ -7,11 +7,11 @@ import {IHasTreasury} from "../interfaces/IHasTreasury.sol";
 import {IMerklDistributor} from "../interfaces/external/IMerklDistributor.sol";
 import {Constants as C} from "../libraries/Constants.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 
-/// @title YieldHook — shared rehypothecation buffer + incentive sweep to Treasury.
+/// @title YieldHook - shared rehypothecation buffer + incentive sweep to Treasury.
 /// @notice Hot path: recall only on liquid shortfall (no venue NAV). Cold: harvest NAV + buffer.
 ///         Incentive tokens (Merkl / Turtle / venue) are claimed then pushed to `pool.treasury()` —
 ///         never swapped inside adapters.
@@ -39,17 +39,19 @@ abstract contract YieldHook is BasePoolHook {
   ///         Ctor-injection would change every adapter's ctor (Aave unaffected per spec) → use a setter.
   address public merklDistributor = C.MERKL_DISTRIBUTOR;
 
-  error OnlyPool();
-
   modifier onlyPool() {
-    if (msg.sender != pool) revert OnlyPool();
+    if (msg.sender != pool) revert Err.NotPool();
+    _;
+  }
+
+  modifier onlyOwner() {
+    if (msg.sender != AccessControl(AC).owner()) revert Err.NotOwner();
     _;
   }
 
   modifier onlyKeeperOrOwner() {
-    if (!AccessControl(AC).isKeeper(msg.sender) && msg.sender != AccessControl(AC).owner()) {
-      revert Ownable.Unauthorized();
-    }
+    AccessControl ac_ = AccessControl(AC);
+    if (!ac_.isKeeper(msg.sender) && msg.sender != ac_.owner()) revert Err.NotAuth();
     _;
   }
 
@@ -67,16 +69,14 @@ abstract contract YieldHook is BasePoolHook {
     return C.HOOK_PRE_OUTFLOW | C.HOOK_POST_INFLOW;
   }
 
-  function setBuffer(uint16 targetInvestedBps_, uint16 hysteresisBps_) external {
-    if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
-    if (targetInvestedBps_ > 10_000 || hysteresisBps_ > targetInvestedBps_) revert Err.BadConfig();
+  function setBuffer(uint16 targetInvestedBps_, uint16 hysteresisBps_) external onlyOwner {
+    if (targetInvestedBps_ > SC.BPS || hysteresisBps_ > targetInvestedBps_) revert Err.BadConfig();
     targetInvestedBps = targetInvestedBps_;
     hysteresisBps = hysteresisBps_;
   }
 
-  function setMaxHarvestCreditBps(uint16 bps_) external {
-    if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
-    if (bps_ > 10_000) revert Err.BadConfig();
+  function setMaxHarvestCreditBps(uint16 bps_) external onlyOwner {
+    if (bps_ > SC.BPS) revert Err.BadConfig();
     maxHarvestCreditBps = bps_;
   }
 
@@ -85,16 +85,27 @@ abstract contract YieldHook is BasePoolHook {
   ///         decision that must sit with the same principal as the timelocked treasury-rotation path,
   ///         not the param/admin owner.
   function setIncentivesReceiver(address receiver_) external {
-    if (msg.sender != AccessControl(AC).treasuryOwner()) revert Ownable.Unauthorized();
+    if (msg.sender != AccessControl(AC).treasuryOwner()) revert Err.NotAuth();
     incentivesReceiver = receiver_;
   }
 
-  function setMerklDistributor(address distributor_) external {
-    if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+  function setMerklDistributor(address distributor_) external onlyOwner {
     merklDistributor = distributor_;
   }
 
-  // ── IPoolHooks ─────────────────────────────────────────────────────────
+  /// @notice Escape hatch: crystallize a stuck-venue loss when `_navAssets()` reverts (bricked/paused/
+  ///         rogue-upgraded venue), which wedges `_harvest` and leaves no path to lower `invested` —
+  ///         so `setAssetHook`/`clearAssetHook` (both require `invested == 0`) can never replace or clear
+  ///         this hook. Writes `invested` down (decrease-only; `hookWriteDown` caps to invested and
+  ///         socializes the loss via the liquidity index), freeing migration. Owner = timelocked gov,
+  ///         the same principal as `setAssetHook`; keeper is intentionally excluded (loss socialization
+  ///         is governance-grade). `msg.sender == assetHooks[token].target == address(this)` satisfies
+  ///         the pool-side hook-target gate.
+  function forceWriteDown(uint256 amount) external onlyOwner {
+    IPool(pool).hookWriteDown(token, amount);
+  }
+
+  // ─── IPoolHooks ───
 
   function preOutflow(address, address, address token_, uint256 amountNeeded)
     external
@@ -122,12 +133,12 @@ abstract contract YieldHook is BasePoolHook {
     _harvest();
     (uint256 reserves, uint256 inv, uint256 minLiq) = IPool(pool).getBuffer(token);
     if (reserves == 0) return;
-    uint256 highInv = (reserves * _hiBps()) / 10_000;
+    uint256 highInv = (reserves * _hiBps()) / SC.BPS;
     if (inv > highInv) _trimToTarget(reserves, inv);
     else _deploy(reserves, inv, minLiq);
   }
 
-  // ── Incentives → Treasury (no in-hook swaps) ───────────────────────────
+  // ─── Incentives → Treasury (no in-hook swaps) ───
 
   /// @notice Venue claim → rewards land on the hook, then `sweepIncentives` pushes them to Treasury.
   /// @dev Native venues (Aave, Compound) override `_claimVenueIncentives`. The base default is the
@@ -153,7 +164,7 @@ abstract contract YieldHook is BasePoolHook {
     }
   }
 
-  // ── Venue hooks (subclass) ─────────────────────────────────────────────
+  // ─── Venue hooks (subclass) ───
 
   function _venueDeposit(uint256 assets) internal virtual;
   function _venueWithdraw(uint256 assets) internal virtual returns (uint256 received);
@@ -183,7 +194,7 @@ abstract contract YieldHook is BasePoolHook {
     return address(0);
   }
 
-  // ── Buffer internals ───────────────────────────────────────────────────
+  // ─── Buffer internals ───
 
   function _incentivesTo() internal view returns (address) {
     address override_ = incentivesReceiver;
@@ -194,7 +205,7 @@ abstract contract YieldHook is BasePoolHook {
   /// @dev Capped invested hysteresis ceiling (BPS). Shared by deploy/trim/rebalance.
   function _hiBps() private view returns (uint256 hi) {
     hi = uint256(targetInvestedBps) + hysteresisBps;
-    if (hi > 10_000) hi = 10_000;
+    if (hi > SC.BPS) hi = SC.BPS;
   }
 
   function _recall(address token_, uint256 amountNeeded) internal {
@@ -226,12 +237,12 @@ abstract contract YieldHook is BasePoolHook {
     if (reserves == 0) return;
     uint256 liq = reserves > inv ? reserves - inv : 0;
 
-    uint256 targetInv = (reserves * targetInvestedBps) / 10_000;
+    uint256 targetInv = (reserves * targetInvestedBps) / SC.BPS;
     uint256 lowInv = targetInvestedBps > hysteresisBps
-      ? (reserves * (targetInvestedBps - hysteresisBps)) / 10_000
+      ? (reserves * (targetInvestedBps - hysteresisBps)) / SC.BPS
       : 0;
     if (inv >= lowInv) return;
-    uint256 keepLiq = reserves - ((reserves * _hiBps()) / 10_000);
+    uint256 keepLiq = reserves - ((reserves * _hiBps()) / SC.BPS);
     if (keepLiq < minLiq) keepLiq = minLiq;
     if (liq <= keepLiq) return;
     uint256 deployAmt = liq - keepLiq;
@@ -249,9 +260,9 @@ abstract contract YieldHook is BasePoolHook {
 
   function _trimToTarget(uint256 reserves, uint256 inv) private {
     if (reserves == 0) return;
-    uint256 highInv = (reserves * _hiBps()) / 10_000;
+    uint256 highInv = (reserves * _hiBps()) / SC.BPS;
     if (inv <= highInv) return;
-    uint256 trim = inv - ((reserves * targetInvestedBps) / 10_000);
+    uint256 trim = inv - ((reserves * targetInvestedBps) / SC.BPS);
     uint256 maxW = _maxWithdrawable();
     if (trim > maxW) trim = maxW;
     if (trim == 0) return;
@@ -274,7 +285,7 @@ abstract contract YieldHook is BasePoolHook {
       // Sandwich/inflation bound: credit at most maxHarvestCreditBps of book per harvest.
       uint16 capBps = maxHarvestCreditBps;
       if (capBps == 0) return;
-      uint256 maxCredit = (book * uint256(capBps)) / 10_000;
+      uint256 maxCredit = (book * uint256(capBps)) / SC.BPS;
       if (credit > maxCredit) credit = maxCredit;
       if (credit == 0) return;
       IPool(pool).hookCreditYield(token, credit);

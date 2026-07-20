@@ -7,7 +7,7 @@ import {console2} from "forge-std/Script.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Admin} from "../src/Admin.sol";
 import {CompoundV2YieldHook} from "../src/hooks/CompoundV2YieldHook.sol";
-import {MockVenus} from "../src/hooks/MockVenus.sol";
+import {MockVenus} from "../test/mocks/MockVenus.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 
 /// @title ChapelWireYield — MockVenus + CompoundV2YieldHook on stable USDC/USDT (Steward-lite AC).

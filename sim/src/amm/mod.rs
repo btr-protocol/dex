@@ -18,6 +18,7 @@ pub mod aimm_ci;
 pub mod as_mm;
 pub mod curve;
 pub mod engine;
+pub mod nuquartic;
 pub mod router;
 pub mod univ2;
 pub mod univ3;

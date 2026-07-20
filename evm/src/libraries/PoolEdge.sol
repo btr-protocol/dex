@@ -7,7 +7,7 @@ import {PoolDecay} from "./PoolDecay.sol";
 import {PoolIO} from "./PoolIO.sol";
 import {PoolHooks} from "./PoolHooks.sol";
 
-/// @title PoolEdge -flash-edge ops extracted from Pool.sol
+/// @title PoolEdge - flash-edge ops extracted from Pool.sol
 /// @notice Wave-2 bytecode reduction. Pure refactor; behavior preserved.
 ///         `external` lib fns DELEGATECALL'd from Pool trampolines (auth +
 ///         reentrancy enforced at the trampoline).
@@ -30,7 +30,7 @@ library PoolEdge {
     address t = PoolIO.wrap($, token);
     IPool.Asset storage asset = $.assets[t];
     if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
-    PoolDecay.applyDecay($, t, asset);
+    PoolDecay.applyDecay(asset, $.riskConfigs[t]);
     if (amount == 0) revert Err.ZeroValue();
     // Executable flash capacity = R_liq (invested is not loanable without prior recall).
     uint256 liq = PoolHooks.liquidReserves($, t);

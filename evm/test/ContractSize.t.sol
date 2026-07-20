@@ -12,11 +12,11 @@ import {AaveV3YieldHook} from "../src/hooks/AaveV3YieldHook.sol";
 import {ERC4626YieldHook} from "../src/hooks/ERC4626YieldHook.sol";
 import {MorphoBlueYieldHook} from "../src/hooks/MorphoBlueYieldHook.sol";
 import {AaveV4YieldHook} from "../src/hooks/AaveV4YieldHook.sol";
-import {MockVenus} from "../src/hooks/MockVenus.sol";
-import {MockAavePool, MockAToken} from "../src/hooks/MockAavePool.sol";
-import {MockERC4626} from "../src/hooks/MockERC4626.sol";
-import {MockMorphoBlue} from "../src/hooks/MockMorphoBlue.sol";
-import {MockAaveV4Spoke} from "../src/hooks/MockAaveV4Spoke.sol";
+import {MockVenus} from "./mocks/MockVenus.sol";
+import {MockAavePool, MockAToken} from "./mocks/MockAavePool.sol";
+import {MockERC4626} from "./mocks/MockERC4626.sol";
+import {MockMorphoBlue} from "./mocks/MockMorphoBlue.sol";
+import {MockAaveV4Spoke} from "./mocks/MockAaveV4Spoke.sol";
 import {IMorphoBlue} from "../src/interfaces/external/IMorphoBlue.sol";
 import {MockAC} from "./fixtures/BaseTestSetup.sol";
 

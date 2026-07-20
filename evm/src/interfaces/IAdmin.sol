@@ -19,8 +19,8 @@ interface IAdmin {
     address token,
     IPool.OracleConfig calldata oracleCfg,
     IPool.RiskConfig calldata riskCfg,
-    IPool.LiquidityProfile calldata profile,
-    uint16 minFeeBps,
+    uint16 presetId,
+    uint16 minFeePbps,
     uint8 decimals,
     uint32 minDispersion,
     uint32 maxDispersion,
@@ -28,6 +28,14 @@ interface IAdmin {
     uint16 vega
   ) external;
   function collectProtocolFees(address pool, address token, address recipient) external;
+  function setCurve(
+    address pool,
+    uint16 presetId,
+    uint256[] calldata interior,
+    int256[] calldata wQ,
+    uint16 dispRef,
+    uint8 flags
+  ) external;
   function sealBootstrap(address pool) external;
   function bootstrapSealed(address pool) external view returns (bool);
   function setFlowCooldown(address pool, uint16 cooldownSeconds) external;
@@ -36,8 +44,8 @@ interface IAdmin {
     address pool,
     address token,
     uint128 minLiquidity,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
@@ -66,8 +74,8 @@ interface IAdmin {
     address pool,
     address token,
     uint128 minLiquidity,
-    uint16 minFeeBps,
-    uint16 maxFeeBps,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
     uint16 gamma,
     uint16 vega,
     uint16 haircutSuppressor,
@@ -81,8 +89,8 @@ interface IAdmin {
     address token,
     IPool.OracleConfig calldata oracleCfg,
     IPool.RiskConfig calldata riskCfg,
-    IPool.LiquidityProfile calldata profile,
-    uint16 minFeeBps,
+    uint16 presetId,
+    uint16 minFeePbps,
     uint8 decimals,
     uint32 minDispersion,
     uint32 maxDispersion,
@@ -97,17 +105,25 @@ interface IAdmin {
   function requestUpdateProfile(
     address pool,
     address token,
-    IPool.LiquidityProfile calldata newProfile,
+    uint16 presetId,
     uint32 minDispersion,
     uint32 maxDispersion
   ) external;
   function executeUpdateProfile(address pool, address token) external;
   function cancelUpdateProfile(address pool, address token) external;
+  function requestSetCurve(
+    address pool,
+    uint16 presetId,
+    uint256[] calldata interior,
+    int256[] calldata wQ,
+    uint16 dispRef,
+    uint8 flags
+  ) external;
+  function executeSetCurve(address pool, uint16 presetId) external;
+  function cancelSetCurve(address pool, uint16 presetId) external;
   function requestUpdateFeeParams(address pool, IPool.FeeParams calldata params) external;
   function executeUpdateFeeParams(address pool) external;
 
-  function requestBridgeUpdate(address pool, address newBridge) external;
-  function executeBridgeUpdate(address pool) external;
   function requestTreasuryUpdate(address pool, address newTreasury) external;
   function executeTreasuryUpdate(address pool) external;
   function requestBaseMigration(address pool, address newBase) external;
@@ -132,9 +148,7 @@ interface IAdmin {
   event AssetParamsUpdated(
     address indexed pool, address indexed token, uint128 minLiquidity, uint64 reservationPrice
   );
-  event AnchorUpdated(
-    address indexed pool, address indexed asset, address indexed anchor, uint8 depth
-  );
+  event AnchorUpdated(address indexed pool, address indexed asset, address indexed anchor);
   event ProtocolFeesCollected(
     address indexed pool, address indexed token, address indexed recipient, uint256 amount
   );
@@ -155,7 +169,7 @@ interface IAdmin {
     Pause,
     Unpause
   }
-  event FlowCooldownUpdated(address indexed pool, uint16 oldCooldown, uint16 newCooldown);
+  event FlowCooldownUpdated(address indexed pool, uint16 newCooldown);
 
   event TimelockRequested(
     address indexed pool, bytes32 indexed id, uint8 opType, uint48 executableAt
@@ -166,8 +180,9 @@ interface IAdmin {
   );
   /// @dev Emitted on profile recalibration execute — indexer re-reads the new shape from Pool state.
   event ProfileUpdated(address indexed pool, address indexed token);
-  event FeeParamsUpdated(address indexed pool, uint16 protoShare, uint16 flashFeeBps);
-  event BridgeUpdated(address indexed pool, address indexed oldBridge, address indexed newBridge);
+  /// @dev Emitted on preset-curve install/recalibration execute (shared shape table).
+  event CurveUpdated(address indexed pool, uint16 indexed presetId);
+  event FeeParamsUpdated(address indexed pool, uint8 protoShare, uint16 flashFeePbps);
   event TreasuryUpdated(
     address indexed pool, address indexed oldTreasury, address indexed newTreasury
   );
@@ -181,6 +196,6 @@ interface IAdmin {
   event RiskFencesSet(address indexed pool, address indexed token, uint16 maxDeltaBps);
   /// @dev Steward-lite: bounded setAssetParams applied (`tighten` = relative clamp skipped).
   event AssetParamsBoundedSet(
-    address indexed pool, address indexed token, uint16 minFeeBps, uint16 gamma, bool tighten
+    address indexed pool, address indexed token, uint16 minFeePbps, uint16 gamma, bool tighten
   );
 }

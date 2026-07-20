@@ -11,8 +11,8 @@ import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {ERC4626YieldHook} from "../src/hooks/ERC4626YieldHook.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
-import {Maths as M} from "../src/libraries/Maths.sol";
-import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
@@ -122,7 +122,7 @@ contract PoolFactoryRegistrySaturationRegressionTest is Test {
     address[] memory tokens = new address[](2);
     tokens[0] = address(commonToken);
     tokens[1] = other;
-    IPool.FeeParams memory fees = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fees = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(commonToken), address(0xCAFE), fees);
     vm.prank(creator);
@@ -175,7 +175,7 @@ contract PoolFactoryCommonRouteRegressionTest is Test {
     address[] memory tokens = new address[](2);
     tokens[0] = base;
     tokens[1] = other;
-    IPool.FeeParams memory fees = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fees = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, base, address(0xCAFE), fees);
     pool = factory.createPool(base, tokens, initdata);
@@ -202,8 +202,8 @@ contract PoolFactoryCommonRouteRegressionTest is Test {
 }
 
 /// @notice Regression coverage for profile positivity and canonical base-oracle governance.
-contract PoolConfigurationRegressionTest is Test {
-  uint256 private constant ORACLE_CONFIGS_SLOT = 5;
+contract PoolConfigurationRegressionTest is BaseTestSetup {
+  uint256 private constant ORACLE_CONFIGS_SLOT = 4;
 
   address internal constant OWNER = address(0xA11CE);
   address internal constant USER = address(0xBEEF);
@@ -215,24 +215,17 @@ contract PoolConfigurationRegressionTest is Test {
   MockAC internal ac;
   MockOracle internal oracle;
 
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
+  /// @dev Deep-negative curve (±800 pbps ramp): at maxDispersion 1_282_052 its midpoint offset
+  ///      drives PBPS + minOffset ≤ 0 — the positivity analog of the retired zero-midpoint profile.
+  uint16 internal constant BAD_PRESET = 3;
 
-  function _zeroMidpointProfile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 100;
-    p.weights[1] = 100;
-    p.knots[0] = -128;
-    p.knots[1] = -78;
-    p.knots[2] = -28;
+  function _installBadCurve() internal {
+    uint256[] memory interior = new uint256[](0);
+    int256[] memory wQ = new int256[](5);
+    (wQ[0], wQ[1], wQ[2], wQ[3], wQ[4]) =
+      (int256(-800e9), int256(-400e9), int256(0), int256(400e9), int256(800e9));
+    vm.prank(OWNER);
+    admin.setCurve(address(pool), BAD_PRESET, interior, wQ, 1000, 0);
   }
 
   function _risk() internal pure returns (IPool.RiskConfig memory r) {
@@ -252,7 +245,7 @@ contract PoolConfigurationRegressionTest is Test {
     o.feedId = bytes32(uint256(uint160(token)));
   }
 
-  function setUp() public {
+  function setUp() public override {
     ac = new MockAC(OWNER);
     admin = new Admin(address(ac));
     Flash flash = new Flash();
@@ -265,7 +258,7 @@ contract PoolConfigurationRegressionTest is Test {
     address[] memory tokens = new address[](2);
     tokens[0] = address(base);
     tokens[1] = address(quote);
-    IPool.FeeParams memory fees = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fees = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(base), fees);
     pool = Pool(payable(factory.createPool(address(base), tokens, initdata)));
@@ -274,12 +267,15 @@ contract PoolConfigurationRegressionTest is Test {
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setMark(address(quote), M.encodeB64(1e18, 18));
     vm.startPrank(OWNER);
+    admin.setCurve(
+      address(pool), DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0
+    );
     admin.addAsset(
       address(pool),
       address(base),
       _oracleCfg(oracle, address(base)),
       _risk(),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -292,7 +288,7 @@ contract PoolConfigurationRegressionTest is Test {
       address(quote),
       _oracleCfg(oracle, address(quote)),
       _risk(),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -311,6 +307,7 @@ contract PoolConfigurationRegressionTest is Test {
   }
 
   function test_nonpositive_profile_rejected_at_asset_init() public {
+    _installBadCurve();
     MockERC20 other = new MockERC20("Other", "OTHER", 18);
     oracle.setMark(address(other), M.encodeB64(1e18, 18));
     vm.prank(OWNER);
@@ -320,7 +317,7 @@ contract PoolConfigurationRegressionTest is Test {
       address(other),
       _oracleCfg(oracle, address(other)),
       _risk(),
-      _zeroMidpointProfile(),
+      BAD_PRESET,
       1000,
       18,
       1000,
@@ -331,10 +328,9 @@ contract PoolConfigurationRegressionTest is Test {
   }
 
   function test_nonpositive_profile_rejected_at_timelocked_update() public {
+    _installBadCurve();
     vm.startPrank(OWNER);
-    admin.requestUpdateProfile(
-      address(pool), address(quote), _zeroMidpointProfile(), 1000, 1_282_052
-    );
+    admin.requestUpdateProfile(address(pool), address(quote), BAD_PRESET, 1000, 1_282_052);
     vm.warp(block.timestamp + 3 days);
     vm.expectRevert(Err.BadConfig.selector);
     admin.executeUpdateProfile(address(pool), address(quote));

@@ -4,7 +4,7 @@ pragma solidity =0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Pricing} from "./Pricing.sol";
-import {Maths as M} from "./Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolDecay} from "./PoolDecay.sol";
@@ -45,9 +45,7 @@ library PoolBatch {
     // A later direct-base input can keep aggregate baseTotal nonzero, so this leg cannot rely on
     // the batch-level zero check: settling it would silently donate `amt` for zero base output.
     if (q.amountOut == 0) revert Err.ZeroValue();
-    uint256 need = q.amountOut + q.protoFee + $.assets[base].minLiquidity;
-    PoolHooks.preOutflow($, base, msg.sender, need);
-    PoolIO.exec($, tk, base, amt, q, a, $.assets[base]);
+    PoolIO.settle($, tk, base, amt, q, a, $.assets[base]);
     return q.amountOut;
   }
 
@@ -80,9 +78,7 @@ library PoolBatch {
       outAmt = baseIn;
     } else {
       IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, base, tk, baseIn);
-      uint256 need = q.amountOut + q.protoFee + a.minLiquidity;
-      PoolHooks.preOutflow($, tk, msg.sender, need);
-      PoolIO.exec($, base, tk, baseIn, q, $.assets[base], a);
+      PoolIO.settle($, base, tk, baseIn, q, $.assets[base], a);
       outAmt = q.amountOut;
     }
 
@@ -108,7 +104,7 @@ library PoolBatch {
     // but each leg prices base as an ENDPOINT, so Pricing's interior-node HALT_MASK check never
     // fires — a frozen/paused base would still route spoke↔spoke. Mirror the single-swap interior
     // gate here (base as an explicit input/output is halt-checked per-entry regardless).
-    PoolIO.checkRisk($, base, 0);
+    PoolIO.checkRiskFlags($.riskConfigs[base], 0);
     amountsOut = new uint256[](outLen);
     uint256 baseTotal;
 
@@ -136,10 +132,9 @@ library PoolBatch {
     for (uint256 j; j < outLen;) {
       address rawTk;
       assembly ("memory-safe") { rawTk := shr(96, calldataload(add(outputs.offset, mul(j, 32)))) }
-      // Unwrap only when caller packed the native sentinel — passing wnative as ERC-20
-      // must deliver WETH (parity with single-path swap).
-      address pushTk = rawTk == SC.NATIVE ? SC.NATIVE : PoolIO.wrap($, rawTk);
-      PoolIO.push($, pushTk, recipient, amountsOut[j]);
+      // Sentinel passthrough: NATIVE unwraps in push; wnative-as-ERC20 delivers WETH (parity with
+      // single-path swap). wrap() is identity on every non-NATIVE token, so rawTk needs no mapping.
+      PoolIO.push($, rawTk, recipient, amountsOut[j]);
       unchecked {
         ++j;
       }

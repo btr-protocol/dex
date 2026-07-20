@@ -9,7 +9,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Oracle} from "./Oracle.sol";
-import {Maths as M} from "./Maths.sol";
+import {PoolHooks} from "./PoolHooks.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {TransientCache as TCache} from "./TransientCache.sol";
 
 /// @title PoolIO
@@ -82,13 +83,6 @@ library PoolIO {
     }
   }
 
-  function checkRisk(IPool.PoolStorage storage $, address token, uint16 requiredFlag)
-    internal
-    view
-  {
-    checkRiskFlags($.riskConfigs[token], requiredFlag);
-  }
-
   /// @notice Halt/flag gate on a caller-loaded RiskConfig (shared SLOAD with decay).
   function checkRiskFlags(IPool.RiskConfig storage risk, uint16 requiredFlag) internal view {
     if ((risk.flags & C.HALT_MASK) != 0) revert Err.FeatureDisabled(Err.Resource.ASSET);
@@ -100,8 +94,13 @@ library PoolIO {
     }
   }
 
-  /// @notice Reuses caller-warmed Asset storage refs.
-  function exec(
+  /// @notice Reuses caller-warmed Asset storage refs. `minReq` = the `need` the caller already computed
+  ///         for preOutflow (out + protoFee + aOut.minLiquidity); threaded in to avoid re-reading
+  ///         aOut.minLiquidity (Asset slot 1) across the intervening preOutflow external call.
+  /// @dev Canonical settle idiom: need = out + protoFee + output floor, hard-recall via preOutflow,
+  ///      then exec. Single source for the three swap-shaped settlement sites (swap + batch legs) so
+  ///      the R_liq >= need invariant math can never drift between them.
+  function settle(
     IPool.PoolStorage storage $,
     address tkIn,
     address tkOut,
@@ -110,10 +109,26 @@ library PoolIO {
     IPool.Asset storage aIn,
     IPool.Asset storage aOut
   ) internal {
-    // Executable depth = R_liq (reserves − invested). Pricing still sees full reserves.
+    uint256 need = q.amountOut + q.protoFee + aOut.minLiquidity;
+    PoolHooks.preOutflow($, tkOut, msg.sender, need);
+    exec($, tkIn, tkOut, amtIn, q, aIn, aOut, need);
+  }
+
+  function exec(
+    IPool.PoolStorage storage $,
+    address tkIn,
+    address tkOut,
+    uint256 amtIn,
+    IPool.SwapQuote memory q,
+    IPool.Asset storage aIn,
+    IPool.Asset storage aOut,
+    uint256 minReq
+  ) internal {
+    // Executable depth = R_liq (reserves − invested). Pricing still sees full reserves. minReq is the
+    // caller's `need`; the liq<minReq check reads reserves/invested FRESH here (post-recall), so the
+    // R_liq>=need invariant is unchanged — only the constant RHS is passed in instead of recomputed.
     uint256 inv = $.invested[tkOut];
     uint256 liq = aOut.reserves > inv ? uint256(aOut.reserves) - inv : 0;
-    uint256 minReq = q.amountOut + q.protoFee + aOut.minLiquidity;
     if (liq < minReq) revert Err.InsufficientAmount(liq, minReq);
 
     if (amtIn > type(uint128).max) revert Err.ExcessiveAmount(amtIn, type(uint128).max);
@@ -133,7 +148,12 @@ library PoolIO {
     uint64 lo = a.reservationPrice;
     uint64 hi = a.reservationPriceMax;
     IPool.OracleConfig storage oc = $.oracleConfigs[token];
-    bool refBand = oc.refFeedId != 0 && oc.refBandBps != 0;
+    // refBandBps alone is a sufficient armed-flag: validateOracleConfig (PoolAdmin) enforces
+    // refBandBps != 0 ⟹ refFeedId/refPrimary set + reachable. Reads only the warm slot (refBandBps
+    // packs with primary/mode, warmed at quote time); avoids a cold SLOAD of refFeedId (own slot) to
+    // discover a disabled band. Fail-closed: a corrupt refBandBps!=0/refFeedId==0 state now reverts in
+    // getFeed(0) instead of silently disarming the depeg breaker.
+    bool refBand = oc.refBandBps != 0;
     if (lo == 0 && hi == 0 && !refBand) return;
 
     // EXTERNAL mode: reuse the tx-scoped transient cache — Pricing._readOracle read, TTL/CI-gated
@@ -155,23 +175,21 @@ library PoolIO {
     // raw </> orders by mantissa first and is non-monotonic across a decimal-decade boundary — a
     // catastrophic depeg into a different decade would silently bypass the floor/ceiling.
     uint256 p = M.b64To1e18(price);
-    if (lo != 0 && p < M.b64To1e18(lo)) revert Err.PriceBelowReservation(price, lo);
-    if (hi != 0 && p > M.b64To1e18(hi)) revert Err.PriceBelowReservation(price, hi);
+    if (lo != 0 && p < M.b64To1e18(lo)) revert Err.PriceOutsideReservation(price, lo);
+    if (hi != 0 && p > M.b64To1e18(hi)) revert Err.PriceOutsideReservation(price, hi);
     if (refBand) {
       // Layer-3 (Ostium hardening): the reference is read from refPrimary — an oracle with an
       // INDEPENDENT signer set — so a compromised push quorum cannot walk the mark past refBandBps
-      // of the reference without halting swaps. refPrimary==0 falls back to primary (legacy/self-ref
-      // only; validation requires refPrimary whenever the band is armed).
-      address refSrc = oc.refPrimary;
-      IOracle.FeedData memory ref =
-        IOracle(refSrc == address(0) ? oc.primary : refSrc).getFeed(oc.refFeedId);
+      // of the reference without halting swaps. Validation requires a distinct refPrimary whenever
+      // the band is armed, so refPrimary is never 0 here — fail-closed (no self-ref fallback).
+      IOracle.FeedData memory ref = IOracle(oc.refPrimary).getFeed(oc.refFeedId);
       // ORC-10: fail-closed on a stale/dead/over-uncertain reference. The quoting path gates only
       // feedId — a dead/uncertain refFeed keeper would otherwise anchor the band to a corpse price.
       // Oracle.gate returns the reference mark (1e18).
       uint256 refP = Oracle.gate(ref);
       uint256 dev = p > refP ? p - refP : refP - p;
       if (dev * SC.BPS > refP * uint256(oc.refBandBps)) {
-        revert Err.PriceBelowReservation(price, uint64(refP));
+        revert Err.PriceOutsideReservation(price, uint64(refP));
       }
     }
   }

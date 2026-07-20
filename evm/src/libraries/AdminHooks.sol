@@ -7,7 +7,7 @@ import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Timelock as TL} from "@btr-shared/Timelock.sol";
 
-/// @title AdminHooks — linked library for per-asset hook timelock setters (EIP-170 relief).
+/// @title AdminHooks - linked library for per-asset hook timelock setters (EIP-170 relief).
 /// @dev External fns are DELEGATECALL'd from Admin; events appear as Admin.
 library AdminHooks {
   bytes32 private constant OP_UPDATE_HOOK = keccak256("UPDATE_HOOK");

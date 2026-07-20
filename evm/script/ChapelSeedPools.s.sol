@@ -116,12 +116,14 @@ contract ChapelSeedPools is Script {
     address xautRefOracle,
     bytes32 xautRefFeedId
   ) internal returns (address poolAddr) {
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeePbps: 100});
     bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], WNATIVE, fp);
     poolAddr = factory.createPool(tokens[0], tokens, initdata);
 
     IPool.RiskConfig memory rc = _risk();
-    IPool.LiquidityProfile memory pf = _profile();
+    // Preset 1 (generic default) must exist pre-seal, before the first addAsset referencing it.
+    (uint256[] memory interior, int256[] memory wQ) = _curve();
+    admin.setCurve(poolAddr, 1, interior, wQ, 1000, 0);
     for (uint256 i = 0; i < tokens.length; i++) {
       address tok = tokens[i];
       (uint16 minFee, uint16 refBand) = _assetParams(tok, stable);
@@ -130,7 +132,7 @@ contract ChapelSeedPools is Script {
         tok,
         _oracleCfg(tok, tokens[0], refBand, refOracle, xautRefOracle, xautRefFeedId),
         rc,
-        pf,
+        1,
         minFee,
         18,
         1000,
@@ -151,16 +153,18 @@ contract ChapelSeedPools is Script {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
+  // placeholder: production weights come from research/stable-core/out/spline_shared_grid.json at deploy
+  /// @dev Preset 1 = generic default: linear ±500 pbps ramp over 9 quartic weights.
+  function _curve() internal pure returns (uint256[] memory interior, int256[] memory wQ) {
+    interior = new uint256[](4);
+    interior[0] = 2000;
+    interior[1] = 4000;
+    interior[2] = 6000;
+    interior[3] = 8000;
+    wQ = new int256[](9);
+    for (uint256 i = 0; i < 9; i++) {
+      wQ[i] = (int256(i) - 4) * 125_000_000_000;
+    }
   }
 
   function _assetParams(address tok, bool stable)

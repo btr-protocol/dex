@@ -6,7 +6,7 @@ import {ICToken} from "../interfaces/external/ICToken.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title CompoundV2YieldHook — Venus / Moonwell / Flux / Benqi (cToken family).
+/// @title CompoundV2YieldHook - Venus / Moonwell / Flux / Benqi (cToken family).
 /// @dev Supports the standard Compound/Venus ABI whose mint/redeemUnderlying return 0 on success.
 ///      No-return forks are incompatible and must use a dedicated adapter.
 contract CompoundV2YieldHook is YieldHook {

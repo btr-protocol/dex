@@ -10,7 +10,6 @@ import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
 import {UpgradeableBeacon} from "solady/utils/UpgradeableBeacon.sol";
 import {MockAC} from "./fixtures/BaseTestSetup.sol";
@@ -76,7 +75,7 @@ contract PoolBeaconUpgradeTest is Test {
     toks = new address[](2);
     toks[0] = baseTok;
     toks[1] = other;
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, baseTok, address(0xCAFE), fp);
     pool = factory.createPool(baseTok, toks, initdata);
@@ -126,7 +125,7 @@ contract PoolBeaconUpgradeTest is Test {
   /// @notice Reference upgrade is owner-gated (AC.owner()).
   function test_upgrade_gated_owner() public {
     (Pool implB,) = _compatImpl();
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     factory.requestReferenceUpgrade(address(implB)); // caller != AC.owner()
   }
 
@@ -250,10 +249,10 @@ contract PoolBeaconUpgradeTest is Test {
 
     // Non-guardian cannot cancel.
     vm.expectRevert(Err.NotAuth.selector);
-    factory.guardianCancelUpgrade();
+    factory.cancelReferenceUpgrade();
 
     vm.prank(GUARDIAN);
-    factory.guardianCancelUpgrade();
+    factory.cancelReferenceUpgrade();
     assertEq(factory.pendingReferencePool(), address(0), "pending cleared");
     assertEq(factory.upgradeTimelock(), 0, "timelock cleared");
   }

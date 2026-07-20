@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {IAaveV3Pool, IAaveAToken, AaveReserveData} from "../interfaces/external/IAaveV3.sol";
+import {IAaveV3Pool, IAaveAToken, AaveReserveData} from "../../src/interfaces/external/IAaveV3.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title MockAToken — 1:1 aToken stub (balance = underlying units).
+/// @title MockAToken - 1:1 aToken stub (balance = underlying units).
 contract MockAToken is IAaveAToken {
   using SafeTransferLib for address;
 
@@ -31,7 +31,7 @@ contract MockAToken is IAaveAToken {
   }
 }
 
-  /// @title MockAavePool — Aave V3 Pool stub for supply-only tests.
+  /// @title MockAavePool - Aave V3 Pool stub for supply-only tests.
   contract MockAavePool is IAaveV3Pool {
     using SafeTransferLib for address;
 

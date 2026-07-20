@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../src/Pool.sol";
 import {PoolAux} from "../src/PoolAux.sol";
@@ -11,15 +10,15 @@ import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
-import {Maths as M} from "../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
 
 /// @title PoolLifecycleTest
 /// @notice Pool lifecycle sanity -Pool is standalone (no proxy, no modules, no ERC-7201).
 ///         Each pool instance is an ERC1967 beacon proxy deployed by PoolFactory.
-contract PoolLifecycleTest is Test {
+contract PoolLifecycleTest is BaseTestSetup {
   PoolFactory factory;
   Pool poolImpl;
   Admin admin;
@@ -36,18 +35,6 @@ contract PoolLifecycleTest is Test {
   uint8 constant PROTO_SHARE = 25;
   uint16 constant FLASH_FEE_BPS = 100;
 
-  function _defaultProfile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
-
   function _defaultRisk() internal pure returns (IPool.RiskConfig memory r) {
     r.decayStartRatioBps = 5000;
     r.coverageMin = 5000;
@@ -62,7 +49,7 @@ contract PoolLifecycleTest is Test {
     o.feedId = bytes32(uint256(uint160(token)));
   }
 
-  function setUp() public {
+  function setUp() public override {
     ac = new MockAC(OWNER);
 
     admin = new Admin(address(ac));
@@ -79,7 +66,7 @@ contract PoolLifecycleTest is Test {
     toks[0] = address(base);
     toks[1] = address(quote);
     IPool.FeeParams memory fp =
-      IPool.FeeParams({protoShare: PROTO_SHARE, flashFeeBps: FLASH_FEE_BPS});
+      IPool.FeeParams({protoShare: PROTO_SHARE, flashFeePbps: FLASH_FEE_BPS});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     address poolAddr = factory.createPool(address(base), toks, initdata);
@@ -89,15 +76,15 @@ contract PoolLifecycleTest is Test {
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setMark(address(quote), M.encodeB64(1e18, 18));
     IPool.RiskConfig memory rc = _defaultRisk();
-    IPool.LiquidityProfile memory pf = _defaultProfile();
 
     vm.startPrank(OWNER);
+    admin.setCurve(poolAddr, DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
     admin.addAsset(
       poolAddr,
       address(base),
       _oracleCfg(address(base)),
       rc,
-      pf,
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -110,7 +97,7 @@ contract PoolLifecycleTest is Test {
       address(quote),
       _oracleCfg(address(quote)),
       rc,
-      pf,
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -134,7 +121,7 @@ contract PoolLifecycleTest is Test {
   }
 
   function test_initialize_idempotent() public {
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 0, flashFeeBps: 0});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 0, flashFeePbps: 0});
     vm.expectRevert(Err.InvalidState.selector);
     pool.initialize(address(base), address(0xCAFE), fp);
   }
@@ -264,27 +251,6 @@ contract PoolLifecycleTest is Test {
     admin.cancelUpdateRiskConfig(address(pool), address(quote));
   }
 
-  /// Guardian veto also covers the generic `cancelTimelock` lever (bridge/treasury/fees/base).
-  function test_guardian_can_cancelTimelock_pending_bridge() public {
-    address g = makeAddr("guardian");
-    ac.setGuardian(g, true);
-
-    // Guardian cannot START the bridge update.
-    vm.prank(g);
-    vm.expectRevert(Ownable.Unauthorized.selector);
-    admin.requestBridgeUpdate(address(pool), makeAddr("bridge"));
-
-    // Owner queues; guardian vetoes via cancelTimelock.
-    vm.prank(OWNER);
-    admin.requestBridgeUpdate(address(pool), makeAddr("bridge"));
-    vm.prank(g);
-    admin.cancelTimelock(address(pool), uint8(IPool.OpType.UPDATE_BRIDGE));
-
-    vm.prank(g);
-    vm.expectRevert(Err.InvalidState.selector);
-    admin.cancelTimelock(address(pool), uint8(IPool.OpType.UPDATE_BRIDGE));
-  }
-
   function test_steward_bounded_tighten_ok_riskup_clamped() public {
     address s = makeAddr("steward");
     ac.setRiskSteward(s, true);
@@ -307,21 +273,21 @@ contract PoolLifecycleTest is Test {
 
     IPool.Asset memory before = pool.getAsset(address(base));
     // Tighten: raise minFee — exempt from relative clamp.
-    uint16 tighterFee = before.minFeeBps + 200;
+    uint16 tighterFee = before.minFeePbps + 200;
     vm.prank(s);
     admin.setAssetParamsBounded(
       address(pool),
       address(base),
       before.minLiquidity,
       tighterFee,
-      before.maxFeeBps,
+      before.maxFeePbps,
       before.gamma,
       before.vega,
       before.haircutSuppressor,
       before.reservationPrice,
       before.reservationPriceMax
     );
-    assertEq(pool.getAsset(address(base)).minFeeBps, tighterFee);
+    assertEq(pool.getAsset(address(base)).minFeePbps, tighterFee);
 
     // Risk-up: cut minFee by >25% → revert.
     uint16 tooLow = uint16((uint256(tighterFee) * 50) / 100); // -50%
@@ -332,7 +298,7 @@ contract PoolLifecycleTest is Test {
       address(base),
       before.minLiquidity,
       tooLow,
-      before.maxFeeBps,
+      before.maxFeePbps,
       before.gamma,
       before.vega,
       before.haircutSuppressor,
@@ -348,14 +314,14 @@ contract PoolLifecycleTest is Test {
       address(base),
       before.minLiquidity,
       mildCut,
-      before.maxFeeBps,
+      before.maxFeePbps,
       before.gamma,
       before.vega,
       before.haircutSuppressor,
       before.reservationPrice,
       before.reservationPriceMax
     );
-    assertEq(pool.getAsset(address(base)).minFeeBps, mildCut);
+    assertEq(pool.getAsset(address(base)).minFeePbps, mildCut);
 
     // Guardian cannot write params.
     address g = makeAddr("guardian");
@@ -367,7 +333,7 @@ contract PoolLifecycleTest is Test {
       address(base),
       before.minLiquidity,
       mildCut,
-      before.maxFeeBps,
+      before.maxFeePbps,
       before.gamma,
       before.vega,
       before.haircutSuppressor,
@@ -397,7 +363,7 @@ contract PoolLifecycleTest is Test {
     admin.setRiskFences(address(pool), address(base), f);
 
     IPool.Asset memory cur = pool.getAsset(address(base));
-    uint16 raisedMin = cur.minFeeBps + 50;
+    uint16 raisedMin = cur.minFeePbps + 50;
     vm.prank(s);
     vm.expectRevert();
     admin.setAssetParamsBounded(
@@ -441,8 +407,8 @@ contract PoolLifecycleTest is Test {
       address(pool),
       address(base),
       seeded.minLiquidity,
-      seeded.minFeeBps,
-      seeded.maxFeeBps,
+      seeded.minFeePbps,
+      seeded.maxFeePbps,
       seeded.gamma,
       seeded.vega,
       seeded.haircutSuppressor,
@@ -457,8 +423,8 @@ contract PoolLifecycleTest is Test {
       address(pool),
       address(base),
       cur.minLiquidity,
-      cur.minFeeBps,
-      cur.maxFeeBps,
+      cur.minFeePbps,
+      cur.maxFeePbps,
       cur.gamma,
       cur.vega,
       cur.haircutSuppressor,
@@ -494,8 +460,8 @@ contract PoolLifecycleTest is Test {
       address(pool),
       address(base),
       seeded.minLiquidity,
-      seeded.minFeeBps,
-      seeded.maxFeeBps,
+      seeded.minFeePbps,
+      seeded.maxFeePbps,
       seeded.gamma,
       seeded.vega,
       seeded.haircutSuppressor,
@@ -511,8 +477,8 @@ contract PoolLifecycleTest is Test {
       address(pool),
       address(base),
       cur.minLiquidity,
-      cur.minFeeBps,
-      cur.maxFeeBps,
+      cur.minFeePbps,
+      cur.maxFeePbps,
       cur.gamma,
       cur.vega,
       cur.haircutSuppressor,
@@ -527,8 +493,8 @@ contract PoolLifecycleTest is Test {
       address(pool),
       address(base),
       cur.minLiquidity,
-      cur.minFeeBps,
-      cur.maxFeeBps,
+      cur.minFeePbps,
+      cur.maxFeePbps,
       cur.gamma,
       cur.vega,
       cur.haircutSuppressor,
@@ -542,8 +508,8 @@ contract PoolLifecycleTest is Test {
       address(pool),
       address(base),
       cur.minLiquidity,
-      cur.minFeeBps,
-      cur.maxFeeBps,
+      cur.minFeePbps,
+      cur.maxFeePbps,
       cur.gamma,
       cur.vega,
       cur.haircutSuppressor,
@@ -581,8 +547,8 @@ contract PoolLifecycleTest is Test {
       address(pool),
       address(base),
       seeded.minLiquidity,
-      seeded.minFeeBps,
-      seeded.maxFeeBps,
+      seeded.minFeePbps,
+      seeded.maxFeePbps,
       seeded.gamma,
       seeded.vega,
       seeded.haircutSuppressor,
@@ -596,8 +562,8 @@ contract PoolLifecycleTest is Test {
       address(pool),
       address(base),
       cur.minLiquidity,
-      cur.minFeeBps,
-      cur.maxFeeBps,
+      cur.minFeePbps,
+      cur.maxFeePbps,
       cur.gamma,
       cur.vega,
       cur.haircutSuppressor,
@@ -633,8 +599,8 @@ contract PoolLifecycleTest is Test {
       address(pool),
       address(base),
       cur.minLiquidity + 1,
-      cur.minFeeBps,
-      cur.maxFeeBps,
+      cur.minFeePbps,
+      cur.maxFeePbps,
       cur.gamma,
       cur.vega,
       cur.haircutSuppressor,
@@ -796,7 +762,7 @@ contract PoolLifecycleTest is Test {
       address(tok2),
       _oracleCfg(address(tok2)),
       _defaultRisk(),
-      _defaultProfile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -843,13 +809,16 @@ contract PoolLifecycleTest is Test {
 
   // ─── perpetual profile recalibration (requestUpdateProfile / executeUpdateProfile) ───
 
-  /// @dev A coarser 2-segment shape (span still 100, sum still 200) distinct from `_defaultProfile`.
-  function _recalProfile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 100;
-    p.weights[1] = 100;
-    p.knots[0] = -50;
-    p.knots[1] = 0;
-    p.knots[2] = 50;
+  /// @dev Coarser single-segment preset (same ±500 pbps span as DEFAULT_PRESET, no interior knots).
+  uint16 constant RECAL_PRESET = 2;
+
+  function _installRecalCurve() internal {
+    uint256[] memory interior = new uint256[](0);
+    int256[] memory wQ = new int256[](5);
+    (wQ[0], wQ[1], wQ[2], wQ[3], wQ[4]) =
+      (int256(-500e9), int256(-250e9), int256(0), int256(250e9), int256(500e9));
+    vm.prank(OWNER);
+    admin.setCurve(address(pool), RECAL_PRESET, interior, wQ, 1000, 0);
   }
 
   /// @dev Seed base+quote reserves so a base→quote quote isn't reserve-clamped; quote is the
@@ -872,8 +841,9 @@ contract PoolLifecycleTest is Test {
     uint256 outBefore = pool.getSwapQuote(address(base), address(quote), amtIn).amountOut;
     assertGt(outBefore, 0, "baseline quote");
 
+    _installRecalCurve();
     vm.prank(OWNER);
-    admin.requestUpdateProfile(address(pool), address(quote), _recalProfile(), 80_000, 80_000);
+    admin.requestUpdateProfile(address(pool), address(quote), RECAL_PRESET, 80_000, 80_000);
     vm.warp(block.timestamp + 1 days + 1);
     // Keeper marks would refresh over a 1-day window; without it the mock feed staleness-halts.
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
@@ -882,6 +852,7 @@ contract PoolLifecycleTest is Test {
     admin.executeUpdateProfile(address(pool), address(quote));
 
     IPool.Asset memory a = pool.getAsset(address(quote));
+    assertEq(a.presetId, RECAL_PRESET, "preset repointed");
     assertEq(a.minDispersion, 80_000, "min dispersion written");
     assertEq(a.maxDispersion, 80_000, "max dispersion written");
 
@@ -890,14 +861,15 @@ contract PoolLifecycleTest is Test {
     assertLt(outAfter, outBefore, "wider dispersion steepens curve, more slippage");
   }
 
-  /// (b1) Malformed profile (weights sum != 200) reverts at execute via the existing validator.
-  function test_updateProfile_invalidWeights_reverts() public {
-    IPool.LiquidityProfile memory bad = _recalProfile();
-    bad.weights[1] = 99; // sum = 199 ≠ 200
+  /// (b1) Repointing at an uninstalled preset reverts at execute via `validatePresetAssign`.
+  function test_updateProfile_unknownPreset_reverts() public {
+    uint16 missing = 42; // no curve installed at this id
     vm.startPrank(OWNER);
-    admin.requestUpdateProfile(address(pool), address(quote), bad, 1000, 100000);
+    admin.requestUpdateProfile(address(pool), address(quote), missing, 1000, 100000);
     vm.warp(block.timestamp + 1 days + 1);
-    vm.expectRevert(Err.InvalidInput.selector);
+    vm.expectRevert(
+      abi.encodeWithSelector(Err.NotConfigured.selector, Err.Resource.ASSET, address(quote))
+    );
     admin.executeUpdateProfile(address(pool), address(quote));
     vm.stopPrank();
   }
@@ -905,7 +877,7 @@ contract PoolLifecycleTest is Test {
   /// (b2) Inverted dispersion band (min > max) reverts at execute (sanitizeDispersion ordering guard).
   function test_updateProfile_invalidDispersion_reverts() public {
     vm.startPrank(OWNER);
-    admin.requestUpdateProfile(address(pool), address(quote), _recalProfile(), 90_000, 1000);
+    admin.requestUpdateProfile(address(pool), address(quote), DEFAULT_PRESET, 90_000, 1000);
     vm.warp(block.timestamp + 1 days + 1);
     vm.expectRevert(Err.BadConfig.selector);
     admin.executeUpdateProfile(address(pool), address(quote));
@@ -915,7 +887,7 @@ contract PoolLifecycleTest is Test {
   /// (c) Executing before the LOW_TIMELOCK (1 day) elapses reverts NotReady.
   function test_updateProfile_beforeTimelock_reverts() public {
     vm.startPrank(OWNER);
-    admin.requestUpdateProfile(address(pool), address(quote), _recalProfile(), 1000, 100000);
+    admin.requestUpdateProfile(address(pool), address(quote), DEFAULT_PRESET, 1000, 100000);
     vm.warp(block.timestamp + 1 hours); // < 1 day
     vm.expectRevert(Err.NotReady.selector);
     admin.executeUpdateProfile(address(pool), address(quote));
@@ -926,7 +898,7 @@ contract PoolLifecycleTest is Test {
   function test_updateProfile_nonAdmin_reverts() public {
     vm.startPrank(USER);
     vm.expectRevert(Ownable.Unauthorized.selector);
-    admin.requestUpdateProfile(address(pool), address(quote), _recalProfile(), 1000, 100000);
+    admin.requestUpdateProfile(address(pool), address(quote), DEFAULT_PRESET, 1000, 100000);
     vm.expectRevert(Ownable.Unauthorized.selector);
     admin.executeUpdateProfile(address(pool), address(quote));
     vm.stopPrank();

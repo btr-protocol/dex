@@ -33,7 +33,7 @@ contract PoolDecayHarness {
   }
 
   function callApplyDecay(address token) external {
-    PoolDecay.applyDecay($, token, $.assets[token]);
+    PoolDecay.applyDecay($.assets[token], $.riskConfigs[token]);
   }
 
   function callCalculateDecay(

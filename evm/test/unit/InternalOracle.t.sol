@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../../src/Pool.sol";
 import {PoolAux} from "../../src/PoolAux.sol";
@@ -10,13 +9,13 @@ import {Admin} from "../../src/Admin.sol";
 import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @title InternalOracleTest
 /// @notice INTERNAL-mode stableswap: constant peg quote + external gate feed (depeg breaker).
-contract InternalOracleTest is Test {
+contract InternalOracleTest is BaseTestSetup {
   PoolFactory factory;
   Pool poolImpl;
   Admin admin;
@@ -32,18 +31,6 @@ contract InternalOracleTest is Test {
   address constant OWNER = address(0xA11CE);
   address constant USER = address(0xBEEF);
   bytes32 constant REF_ID = bytes32(uint256(0x571A));
-
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
 
   function _riskStable() internal pure returns (IPool.RiskConfig memory r) {
     r.decayStartRatioBps = 5000;
@@ -67,7 +54,7 @@ contract InternalOracleTest is Test {
     o.mode = C.ORACLE_MODE_INTERNAL;
   }
 
-  function setUp() public {
+  function setUp() public override {
     ac = new MockAC(OWNER);
     admin = new Admin(address(ac));
     flashSingleton = new Flash();
@@ -81,7 +68,7 @@ contract InternalOracleTest is Test {
     address[] memory toks = new address[](2);
     toks[0] = address(base);
     toks[1] = address(stable);
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     pool = Pool(payable(factory.createPool(address(base), toks, initdata)));
@@ -90,17 +77,18 @@ contract InternalOracleTest is Test {
     refOracle = new MockOracle();
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setFeed(
-      bytes32(uint256(uint160(address(stable)))), M.encodeB64(1e18, 18), C.STABLE_SIGMA, 0, 3600
+      bytes32(uint256(uint160(address(stable)))), M.encodeB64(1e18, 18), C.STABLE_SIGMA_PBPS, 0, 3600
     );
-    refOracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA, 0, 3600);
+    refOracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA_PBPS, 0, 3600);
 
     vm.startPrank(OWNER);
+    admin.setCurve(address(pool), DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
     admin.addAsset(
       address(pool),
       address(base),
       _oracleExt(address(base)),
       _riskStable(),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -113,7 +101,7 @@ contract InternalOracleTest is Test {
       address(stable),
       _internalOracle(),
       _riskStable(),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -133,9 +121,9 @@ contract InternalOracleTest is Test {
 
   function test_walk_off_peg_quotes_constant_peg() public {
     oracle.setFeed(
-      bytes32(uint256(uint160(address(stable)))), M.encodeB64(995e15, 18), C.STABLE_SIGMA, 0, 3600
+      bytes32(uint256(uint160(address(stable)))), M.encodeB64(995e15, 18), C.STABLE_SIGMA_PBPS, 0, 3600
     );
-    refOracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA, 0, 3600);
+    refOracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA_PBPS, 0, 3600);
 
     uint256 amtIn = 10_000e18;
     IPool.SwapQuote memory q = pool.getSwapQuote(address(base), address(stable), amtIn);
@@ -145,7 +133,7 @@ contract InternalOracleTest is Test {
 
   function test_band_halt_when_gate_depegs() public {
     oracle.setFeed(
-      bytes32(uint256(uint160(address(stable)))), M.encodeB64(101e16, 18), C.STABLE_SIGMA, 0, 3600
+      bytes32(uint256(uint160(address(stable)))), M.encodeB64(101e16, 18), C.STABLE_SIGMA_PBPS, 0, 3600
     );
 
     base.mint(USER, 1000e18);

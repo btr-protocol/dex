@@ -7,6 +7,7 @@
     --s-cv1:#b8790f; --s-cv2:#c98a1e; --s-cv3:#dcae5c;
     --s-b0:#3c5eff; --s-b1:#7b46e8; --s-b2:#1193b0; --s-b3:#c8399b; --s-b4:#e0563c;
     --s-b5:#2ea88a; --s-b6:#0e8fc0; --s-b7:#c98a1e; --s-b8:#d13b6e; --s-b9:#7a52d0; --s-b10:#55636f; --s-b11:#1f9e5a; --s-b12:#b5531e; --s-b13:#5566b8;
+    --s-b14:#c45c2a; --s-b15:#2a7a5c; --s-b16:#6b4fc4;
     --s-knot:#3c5eff;
     --shadow:0 1px 0 rgba(12,26,36,.04),0 12px 30px -18px rgba(12,26,36,.30);
   }
@@ -17,6 +18,7 @@
     --s-cv1:#d99a2b; --s-cv2:#e2ab3d; --s-cv3:#edc470;
     --s-b0:#7a93ff; --s-b1:#a684f7; --s-b2:#3fc4de; --s-b3:#ef7cc4; --s-b4:#f0836a;
     --s-b5:#4fd0ad; --s-b6:#54b8e6; --s-b7:#e2ab3d; --s-b8:#f07a9e; --s-b9:#a98bf0; --s-b10:#9fb0bd; --s-b11:#5cd88f; --s-b12:#e0864f; --s-b13:#8a9be6;
+    --s-b14:#e8945c; --s-b15:#5cd8a8; --s-b16:#a88ff0;
     --s-knot:#6f8cff;
     --shadow:0 1px 0 rgba(0,0,0,.4),0 18px 40px -20px rgba(0,0,0,.7);
   }}
@@ -27,6 +29,7 @@
     --s-cv1:#b8790f; --s-cv2:#c98a1e; --s-cv3:#dcae5c;
     --s-b0:#3c5eff; --s-b1:#7b46e8; --s-b2:#1193b0; --s-b3:#c8399b; --s-b4:#e0563c;
     --s-b5:#2ea88a; --s-b6:#0e8fc0; --s-b7:#c98a1e; --s-b8:#d13b6e; --s-b9:#7a52d0; --s-b10:#55636f; --s-b11:#1f9e5a; --s-b12:#b5531e; --s-b13:#5566b8;
+    --s-b14:#c45c2a; --s-b15:#2a7a5c; --s-b16:#6b4fc4;
     --s-knot:#3c5eff;
   }
   :root[data-theme="dark"]{
@@ -36,6 +39,7 @@
     --s-cv1:#d99a2b; --s-cv2:#e2ab3d; --s-cv3:#edc470;
     --s-b0:#7a93ff; --s-b1:#a684f7; --s-b2:#3fc4de; --s-b3:#ef7cc4; --s-b4:#f0836a;
     --s-b5:#4fd0ad; --s-b6:#54b8e6; --s-b7:#e2ab3d; --s-b8:#f07a9e; --s-b9:#a98bf0; --s-b10:#9fb0bd; --s-b11:#5cd88f; --s-b12:#e0864f; --s-b13:#8a9be6;
+    --s-b14:#e8945c; --s-b15:#5cd8a8; --s-b16:#a88ff0;
     --s-knot:#6f8cff;
   }
   *{box-sizing:border-box}
@@ -98,18 +102,11 @@
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">BTR AIMM · Spline.sol · real cubic Hermite math</div>
-    <h1>The bell curve: where liquidity actually sits</h1>
-    <p class="lede">$ of liquidity per basis point at each price offset — the derivative of the raw spline.
-      <b>NEW: clamped QUARTIC B-spline (penalized I-spline) candidate</b> — monotone via Δw≥0, density
-      <b>curvature-continuous (C2/G2)</b>, smoothed in the VIEWED metric (log-density vs offset) so it stays
-      glassy at FEW knots. A whole distribution zoo, every shape at <b>4–13 knots</b>: <b>bimodal</b> (two peaks,
-      7 knots), an inverted <b>V / barbell</b> (liquidity pulled off the peg to the wings), a <b>skew-t</b> (asymmetric
-      AND fat-tailed) and <b>skew-platy</b> (asymmetric flat-top), the full <b>platy / meso / lepto</b> kurtosis trio,
-      left/right skew, log-normal, the Gyro <b>E-CLP plateau</b>, and 1–2-knot fits of real Curve <b>Ethereum mainnet</b>
-      pools. Every line is plotted through the EXACT on-chain path (power-basis Horner) — and Solidity ≡ TypeScript
-      is proven on all of them (worst eval Δ ~5×10⁻⁹ pbps, forge). Next to the current <span class="k">Spline.sol</span>
-      Fritsch-Carlson Hermite regimes (C1) for contrast. Toggle anything in the legend.</p>
+    <div class="eyebrow">BTR AIMM · one quartic I-spline · 9 regimes + hyperconcentration</div>
+    <h1>Universal liquidity density</h1>
+    <p class="lede">Nine shape primitives of ρ(δ) on a shared knot grid per wall W.
+      Default = <b>hyper tip (W=±1)</b> + core pack (flat / plateau / meso / lepto / pin_M) + Curve A4000 + FC tip.
+      Formula: clamped quartic I-spline (C2 density, <span class="k">Δw≥0</span>).</p>
     <div class="chips" id="chips"></div>
   </header>
 
@@ -177,18 +174,19 @@ const fmtBp=v=>v==null?'—':v.toFixed(Math.abs(v)<1?3:2);
 let TAB='density', hover=null, geom=null;
 const PROFILE_COL={default:'--s-p0',smooth_concentrated:'--s-p1',smooth_flattop:'--s-p2',flattop_gentle:'--s-p3',cubic_5knot_low_bump:'--s-p4',cubic_5knot_concentrated:'--s-p6',prior_wide_flagged:'--s-p5'};
 const CURVE_COL={A4000:'--s-cv1',A1500:'--s-cv2',A256:'--s-cv3'};
-const BSPLINE_COL={curve_A4000:'--s-b0',curve_A1500:'--s-b1',curve_A256:'--s-b2',eclp:'--s-b3',bimodal:'--s-b4',
-  right_skew:'--s-b5',left_skew:'--s-b6',lognormal:'--s-b7',fat_tail:'--s-b8',thin_tail:'--s-b9',normal:'--s-b10',valley:'--s-b11',skew_fat:'--s-b12',skew_thin:'--s-b13'};
-// v7 default view = the DECISION view: new B-spline fits (solid, bold) vs their Curve targets (dashed gold)
-// vs the best shipped FC profile (smooth_concentrated) — everything else one click away. E-CLP/bimodal off
-// by default because their ±40bp support re-scales both axes (axes are dynamic, fitted to visible series).
-let off={ p_default:true,p_smooth_concentrated:true,p_smooth_flattop:true,p_flattop_gentle:true,
+const BSPLINE_COL={
+  hyper:'--s-b14', hyper05:'--s-b9', flat:'--s-b3', plateau:'--s-b10', meso:'--s-b8',
+  lepto:'--s-b5', platy:'--s-b4', skew_L:'--s-b6', skew_R:'--s-b7',
+  pin_M:'--s-b2', pin_M_tight:'--s-b1', pin_M_wide:'--s-b0',
+};
+// Default: hyper tip + core pack + Curve A4000 + FC tip. off[id]=true ⇒ hidden.
+let off={ p_default:true,p_smooth_concentrated:false,p_smooth_flattop:true,p_flattop_gentle:true,
   p_cubic_5knot_low_bump:true,p_cubic_5knot_concentrated:true,p_prior_wide_flagged:true,
-  curveA4000:true, curveA1500:true, curveA256:true,
-  b_curve_A4000:true, b_curve_A1500:true, b_curve_A256:true, b_eclp:true, b_bimodal:false,
-  b_right_skew:true, b_left_skew:true, b_lognormal:true,
-  b_normal:false, b_fat_tail:false, b_thin_tail:false,
-  b_valley:false, b_skew_fat:false, b_skew_thin:true }; // default = bimodal + kurtosis trio + valley + skews
+  curveA4000:false, curveA1500:true, curveA256:true,
+  b_hyper:false, b_hyper05:true,
+  b_flat:false, b_plateau:false, b_meso:false, b_lepto:false, b_platy:true,
+  b_skew_L:true, b_skew_R:true,
+  b_pin_M:false, b_pin_M_tight:true, b_pin_M_wide:true };
 
 function profileList(key){ // key: 'rows' or 'density'
   return D.profileKeys.map(k=>{
@@ -336,7 +334,7 @@ function mkRow(el,it,group){ const row=document.createElement('div'); row.classN
   row.onclick=()=>{ off[it.id]=!off[it.id]; draw(); renderLegend(); renderTable(); }; el.appendChild(row); }
 function renderLegend(){
   const el=document.getElementById('legend'); el.innerHTML='';
-  const h0=document.createElement('div'); h0.className='lg-group'; h0.textContent='NEW · quartic B-spline (C2 density) — candidate replacement'; el.appendChild(h0);
+  const h0=document.createElement('div'); h0.className='lg-group'; h0.textContent='9 regimes · hyper tips + shared W=±5 pack'; el.appendChild(h0);
   for(const s of bsplineList('rows')) mkRow(el,s);
   const h1=document.createElement('div'); h1.className='lg-group'; h1.textContent='FC Hermite profiles (current Spline.sol)'; el.appendChild(h1);
   for(const s of profileList('rows')) mkRow(el,s);
@@ -362,13 +360,17 @@ function renderTable(){
   }
 }
 function renderChips(){
+  const sh=D.shared||{};
+  const h1=sh.hyperW1||{}, h05=sh.hyperW05||{};
+  const pm=sh.portableMatrix||{};
+  const pmTxt=Object.entries(pm).map(([k,v])=>`${k.replace('_','.')}:${(v||[]).length}`).join(' · ');
   document.getElementById('chips').innerHTML =
-    `<span class="chip"><b class="teal">NEW</b> quartic B-spline: log-density roughness ≤ <b>0.12</b> decades (kinky v1 ≥1.18); smoothed in the viewed metric</span>`+
-    `<span class="chip">B-spline series = <b>on-chain path</b> (power-basis Horner, powEval/powDeriv)</span>`+
-    `<span class="chip"><b class="teal">multimodal proven</b>: 2 density peaks, monotone cumulative</span>`+
-    `<span class="chip">FC math = <b>Spline.sol eval/_tangents</b>, 1:1 port</span>`+
-    `<span class="chip">capital integral = <b class="teal">$10.00M exact</b>, every series</span>`+
-    `<span class="chip">Curve benchmarks = <b class="teal">real Ethereum L1</b>, not BSC</span>`;
+    `<span class="chip"><b class="teal">PORT</b> ${sh.solPort?'clear':'blocked'} · 9@W5 ncp=<b>${sh.ncp??'—'}</b> · h=${sh.hBp??'—'}bp</span>`+
+    `<span class="chip">hyper vs <b>N=3 3pool marginal</b> ($18.0M/bp): W=0.5 = <b>${h05.peakX!=null?Number(h05.peakX).toFixed(1):'—'}×</b> · W=1 = <b>${h1.peakX!=null?Number(h1.peakX).toFixed(1):'—'}×</b></span>`+
+    `<span class="chip">portable whitelist = <b class="teal">${pmTxt||'—'}</b> (ladder W∈{${(sh.wallLadder||[]).join(', ')}})</span>`+
+    `<span class="chip">formula = <b>clamped quartic I-spline</b> (C2 density, Δw≥0, seamJ≤0.18 uniform)</span>`+
+    `<span class="chip">regimes = hyper · flat · plateau · meso · lepto · platy · skew_L/R · pin_M</span>`+
+    `<span class="chip">capital = <b class="teal">$10.00M</b> / series</span>`;
 }
 const NOTES_DENSITY =
  `<p><b>NEW v2 — clamped QUARTIC B-spline (penalized I-spline): removes the SEAM class, not just the kink `+

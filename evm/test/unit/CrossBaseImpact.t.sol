@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test, console2} from "forge-std/Test.sol";
+import {console2} from "forge-std/Test.sol";
 import {MockERC20} from "../../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../../src/Pool.sol";
 import {PoolAux} from "../../src/PoolAux.sol";
@@ -10,14 +10,14 @@ import {Admin} from "../../src/Admin.sol";
 import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
-import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @notice MEASURE: does the BASE transit in a spoke->spoke cross (USDT->USDC->USD1) add its OWN
 ///         spline price impact (double-tax), or is base a flat numeraire (zero base impact)?
 ///         3 stables, all price 1.0, balanced (coverage=1). Compare a single cross quote against
 ///         the two legs executed as separate standalone direct swaps.
-contract CrossBaseImpactTest is Test {
+contract CrossBaseImpactTest is BaseTestSetup {
   PoolFactory factory;
   Admin admin;
   MockAC ac;
@@ -32,18 +32,6 @@ contract CrossBaseImpactTest is Test {
   uint256 constant SEED = 10_000_000e18; // 10M each, balanced
   uint256 constant AMT = 100_000e18; // 100k cross
 
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
-
   function _risk() internal pure returns (IPool.RiskConfig memory r) {
     r.decayStartRatioBps = 5000;
     r.coverageMin = 5000;
@@ -57,7 +45,7 @@ contract CrossBaseImpactTest is Test {
     o.feedId = bytes32(uint256(uint160(token)));
   }
 
-  function setUp() public {
+  function setUp() public override {
     ac = new MockAC(OWNER);
     admin = new Admin(address(ac));
     Flash flash = new Flash();
@@ -73,7 +61,7 @@ contract CrossBaseImpactTest is Test {
     toks[0] = address(usdc);
     toks[1] = address(usdt);
     toks[2] = address(usd1);
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 25, flashFeePbps: 100});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(usdc), address(0xCAFE), fp);
     pool = Pool(payable(factory.createPool(address(usdc), toks, initdata)));
@@ -83,14 +71,15 @@ contract CrossBaseImpactTest is Test {
     oracle.setMark(address(usdt), M.encodeB64(1e18, 18));
     oracle.setMark(address(usd1), M.encodeB64(1e18, 18));
 
-    // minFeeBps = 1000 PBPS (~5bps half-spread on output) so the single-vs-double spread is visible.
+    // minFeePbps = 1000 PBPS (~5bps half-spread on output) so the single-vs-double spread is visible.
     vm.startPrank(OWNER);
+    admin.setCurve(address(pool), DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
     admin.addAsset(
       address(pool),
       address(usdc),
       _oracleCfg(address(usdc)),
       _risk(),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -103,7 +92,7 @@ contract CrossBaseImpactTest is Test {
       address(usdt),
       _oracleCfg(address(usdt)),
       _risk(),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -116,7 +105,7 @@ contract CrossBaseImpactTest is Test {
       address(usd1),
       _oracleCfg(address(usd1)),
       _risk(),
-      _profile(),
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -161,7 +150,7 @@ contract CrossBaseImpactTest is Test {
     console2.log("hop2 gross out (USD1)  ", grossOut);
     console2.log("  leg2 USD1 spline loss", legYImpact);
     console2.log("path spread (once)     ", pathSpread);
-    console2.log("spreadBps (PBPS)       ", x.spreadBps);
+    console2.log("spreadPbps (PBPS)       ", x.spreadPbps);
     console2.log("cross final amountOut  ", x.amountOut);
     console2.log("cross loss (bps)       ", ((amt - x.amountOut) * 10_000) / amt);
     console2.log("two-standalone-leg out ", sB.amountOut);

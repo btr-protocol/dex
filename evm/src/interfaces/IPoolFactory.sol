@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-/// @title IPoolFactory -Pool beacon-proxy factory + token registry
+/// @title IPoolFactory - Pool beacon-proxy factory + token registry
 /// @dev Each pool is a deterministic ERC1967 beacon proxy reading its impl from the shared
 ///      Solady UpgradeableBeacon (`beacon()`); `referencePool()` mirrors the current impl.
 interface IPoolFactory {
-  struct PoolParams {
-    address baseToken;
-    address[] tokens;
-    bytes initdata;
-  }
-
   function referencePool() external view returns (address);
   function beacon() external view returns (address);
   function protocolDeployer() external view returns (address);

@@ -4,7 +4,7 @@ pragma solidity =0.8.35;
 import {IPool} from "../interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
-/// @title AnchorTree -depth-1 star topology (validation, routing).
+/// @title AnchorTree - depth-1 star topology (validation, routing).
 /// @dev Every non-base asset anchors directly to base: a cross-spoke swap is spoke→base→spoke, both
 ///      EDGE legs (full impact + reserve accounting), so A→B is one price regardless of decomposition.
 ///      Flat is not just simpler — a deep relative spline for correlated wrappers is depeg-blind: NX

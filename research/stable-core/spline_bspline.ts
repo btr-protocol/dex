@@ -15,15 +15,16 @@
 //   penalty λ·Δ²(d_i/d̂_i) — 2nd differences of density carriers NORMALIZED by the target's own slope
 //           (exact-target ∈ null space ⇒ deviation-from-target-smoothness; walls not flattened);
 //   λ       single scale-free ladder {1..1024}, smallest λ passing ALL gates;
-//   gate    seamJ ≤ 0.3: exact closed-form worst log10-density deviation (decades) a knot seam can
-//           produce at chart scale — the honest "no visible kink" metric (v1 contBreakPct measured
-//           Δy″ which is identically 0 at p=4; seamJ measures Δy⁗, the new lowest discontinuity).
+//   gate    seamJ ≤ 0.18 (SEAM_J_MAX, uniform — no per-regime exceptions): exact closed-form worst
+//           log10-density deviation (decades) a knot seam can produce at chart scale — the honest
+//           "no visible kink" metric (v1 contBreakPct measured Δy″ which is identically 0 at p=4;
+//           seamJ measures Δy⁗, the new lowest discontinuity).
 //
 // ON-CHAIN path unchanged in kind: keeper pushes (knots,w), contract validates Δw≥0 (O(n) int
 // compares ⇒ monotone for ANY degree — derivative ctrl pts q_i ∝ Δw_i), converts each span to a
 // power-basis QUARTIC once at push (segPowerBasis), then eval()=lookup+Horner (+1 term vs cubic),
-// area()=quintic antiderivative. Bench (QuarticBench proto): eval 8.9k gas, area O(1) via prefix
-// integrals — BEATS the deployed FC Hermite on both hot ops.
+// area()=quintic antiderivative. Bench (QuarticProto, non-uniform knots, ncp=14/10 segs): eval
+// ≈17.3k gas, area O(1) ≈20.3k via prefix integrals — within the FC Hermite ≈18k + 2k budget.
 //
 // Units/conventions reused 1:1 from spline_shape.ts: x ∈ [0,BPS=1e4] depth coord, volUsd=(x-5000)*1000
 // ∈ [-5M,+5M], offset y in PBPS (offsetBps = pbps/100), L=$10M/side, density in $/bp.
@@ -40,6 +41,10 @@ const SEAM_J_MAX = 0.18; // decades of log-density roughness = the METRIC THE EY
 // forcing knot bloat — glassiness comes from the fit, not from over-gating.
 const LAMBDAS = [1, 4, 16, 64, 256, 1024, 4096, 16384]; // u-penalty is scale-free; top = hug-the-target
 const H_SWEEP = [8, 6.5, 5, 4, 3, 2.5, 2]; // knot pitch (bp), coarse→fine; coarsest passing wins
+const H_SWEEP_NARROW = [2.5, 2, 1.5, 1.25, 1, 0.75]; // for |wall|≤6bp (±5 stable pack)
+const STABLE_NCP_MAX = 9; // port gate: control points for ±5bp pack
+const STABLE_PACK = new Set(['uni_flat', 'stable_normal', 'stable_skew', 'curve_A1500']);
+const WALL_SWEEP_BP = [3, 5, 10]; // report-only wall widths for uni_flat
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Generic B-spline primitives (Cox–de Boor / Piegl-Tiller). Degree-agnostic so derivatives reuse
@@ -149,11 +154,12 @@ export function powArea(segs: Seg[], xa: number, xb: number): number {
 // seamJ — the visual-smoothness gate. Quartic ⇒ y,y′,y″,y‴ all continuous; the lowest discontinuity
 // is Δy⁗ at knots (=24Δc4/d⁴). Its worst-case footprint on the LOG-density chart (what the owner
 // reads): deviation of y′ from smooth continuation over half a knot-image span δ (bp, capped at 2bp)
-// is Δy⁗·(100δ)³/3!, relative /y′, in decades /ln10. Calibrated threshold SEAM_J_MAX=0.3: shipped-
+// is Δy⁗·(100δ)³/3!, relative /y′, in decades /ln10. Calibrated threshold SEAM_J_MAX=0.18: shipped-
 // accepted fits measured ≤0.13, owner-flagged kinky fits ≥1.18. Knots in the economically-dead tail
 // (density < 1e-4·peak ⇔ y′ > 1e4·y′min) are skipped — the chart floor hides them.
+// Exported: the parity exporter re-checks seamJ on the QUANTIZED (integer-knot, integer-w) object.
 // ─────────────────────────────────────────────────────────────────────────────
-function seamJ(segs: Seg[]): number {
+export function seamJ(segs: Seg[]): number {
   const yp: number[] = [], hbp: number[] = [];
   for (const s of segs) { yp.push((s.k0 / s.d)); hbp.push(Math.abs(powEval(segs, s.x1) - powEval(segs, s.x0)) / 100); }
   const ypAt = (i: number) => powDeriv(segs, segs[i].x0); // left-limit ≡ right-limit (C3)
@@ -270,12 +276,16 @@ function isValley(d: number[]): boolean {
 // edgeLo/edgeHi (bp, signed): the target's offset SUPPORT — asymmetric for skewed shapes so no knot
 // budget or penalty mass is wasted on dead tails (a dead half-window made the skews unfittable: the
 // carriers there carry enormous d̂ slopes that poison the high-λ target-hugging limit).
-interface Target { name: string; offAtX: (x: number) => number; edgeLo: number; edgeHi: number; unimodal: boolean; expectedModes?: number; plateau?: boolean; valley?: boolean; featureAnchors?: number[]; }
-const volAtX = (x: number) => (x - 5000) * 1000; // [-5M,+5M]
+export interface Target { name: string; offAtX: (x: number) => number; edgeLo: number; edgeHi: number; unimodal: boolean; expectedModes?: number; plateau?: boolean; valley?: boolean; featureAnchors?: number[]; }
+export { BPS } from './spline_shape.ts';
+export const SEAM_J_MAX_EXPORT = SEAM_J_MAX;
+export const LAMBDAS_EXPORT = LAMBDAS;
+export const DEGREE = P;
+export const volAtX = (x: number) => (x - 5000) * 1000;
 // Enforce strictly-increasing knots with a tiny min-gap (0.1% of domain), two-sided so wall-clustered
 // knots stay distinct AND never overshoot [gap, BPS-gap] (a knot > BPS injects a negative span into
 // Cox-de Boor ⇒ garbage/negative density carriers).
-function clampGap(ks: number[]): number[] {
+export function clampGap(ks: number[]): number[] {
   const n = ks.length, gap = BPS * 1e-3;
   for (let j = 0; j < n; j++) ks[j] = Math.max(ks[j], j === 0 ? gap : ks[j - 1] + gap);
   for (let j = n - 1; j >= 0; j--) ks[j] = Math.min(ks[j], j === n - 1 ? BPS - gap : ks[j + 1] - gap);
@@ -316,7 +326,7 @@ function curveTarget(name: string, A: number): Target {
 }
 // Build offset(x) from a density(offsetBp) spec by integrating to cumulative volume then inverting.
 // densityFn need not be normalized; we rescale so ∫ over [lo,hi] = $10M (=full ±5M range).
-function densityTarget(name: string, lo: number, hi: number, densityFn: (o: number) => number, unimodal: boolean, expectedModes = 1): Target {
+export function densityTarget(name: string, lo: number, hi: number, densityFn: (o: number) => number, unimodal: boolean, expectedModes = 1): Target {
   const M = 40000, W = hi - lo, os: number[] = [], cum: number[] = []; let acc = 0, prevD = densityFn(lo);
   os.push(lo); cum.push(0);
   for (let i = 1; i <= M; i++) { const o = lo + (W * i) / M; const dD = densityFn(o); acc += ((prevD + dD) / 2) * (W / M); prevD = dD; os.push(o); cum.push(acc); }
@@ -330,16 +340,29 @@ function densityTarget(name: string, lo: number, hi: number, densityFn: (o: numb
   return { name, offAtX: off, edgeLo: lo, edgeHi: hi, unimodal, expectedModes };
 }
 // erf (Abramowitz-Stegun 7.1.26, |err|<1.5e-7) → normal CDF Φ → skew-normal density.
-function erf(x: number): number {
+export function erf(x: number): number {
   const s = x < 0 ? -1 : 1, ax = Math.abs(x), t = 1 / (1 + 0.3275911 * ax);
   return s * (1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-ax * ax));
 }
-const Phi = (z: number) => 0.5 * (1 + erf(z / Math.SQRT2));
-const phi = (z: number) => Math.exp(-0.5 * z * z);
+export const Phi = (z: number) => 0.5 * (1 + erf(z / Math.SQRT2));
+export const phi = (z: number) => Math.exp(-0.5 * z * z);
 
 // (d) Gyroscope E-CLP-like: flat plateau |o|<25, quarter-ellipse rolloff to a hard cutoff at ±40bp.
 const eclpTarget = densityTarget('eclp', -40, 40, (o) => { const a = 25, c = 40, ao = Math.abs(o); return ao <= a ? 1 : ao >= c ? 0 : Math.sqrt(Math.max(0, 1 - ((ao - a) / (c - a)) ** 2)); }, true);
 eclpTarget.plateau = true; // the ONLY plateau target — its flat |o|<20 top makes the ≤2% ripple gate meaningful
+// Uniswap-flat (±5bp stable pack): near-constant density on |o|≤3.5, C2 ellipse rolloff to hard walls ±5.
+// Mimics a single Uni v3 full-range concentration without tick ladders. featureAnchors keep ncp small.
+const uniFlatTarget = densityTarget('uni_flat', -5, 5, (o) => {
+  const a = 3.5, c = 5, ao = Math.abs(o);
+  return ao <= a ? 1 : ao >= c ? 0 : Math.sqrt(Math.max(0, 1 - ((ao - a) / (c - a)) ** 2));
+}, true);
+uniFlatTarget.plateau = true;
+// 2 shape anchors + 2 wall pairs from shapeKnots ⇒ 4 interiors ⇒ ncp=9 (port budget).
+uniFlatTarget.featureAnchors = [-3.2, 3.2];
+// ±5bp stable pack: mesokurtic + mild skew with soft mass near the wall (σ large enough that
+ // density is near-dead at ±5 ⇒ quartic can meet the wall without seamJ blowups).
+const stableNormalTarget = densityTarget('stable_normal', -5, 5, (o) => Math.exp(-(o * o) / (2 * 2.0 * 2.0)), true);
+const stableSkewTarget = densityTarget('stable_skew', -5, 5, (o) => { const z = o / 2.2; return phi(z) * Phi(0.9 * z); }, true);
 // (e) bimodal: two Gaussians at ±15bp, σ=5bp — the multimodality proof. ±30 = mass support (±3σ).
 // featureAnchors: knots pinned to the SHAPE (peaks ±15, valley 0, inner flanks ±8, near-wall) instead
 // of a uniform grid — 7 interior knots express two clean peaks (owner: "5-9, not 23"). The dense
@@ -376,6 +399,7 @@ const TARGETS: Target[] = [
   curveTarget('curve_A4000', CURVE_BENCHMARKS.A4000),
   curveTarget('curve_A1500', CURVE_BENCHMARKS.A1500),
   curveTarget('curve_A256', CURVE_BENCHMARKS.A256),
+  uniFlatTarget, stableNormalTarget, stableSkewTarget,
   eclpTarget, bimodalTarget, valleyTarget,
   rightSkewTarget, leftSkewTarget, lognormalTarget, normalTarget, fatTailTarget, thinTailTarget,
   skewFatTarget, skewThinTarget,
@@ -403,16 +427,23 @@ function prominence(y: number[], i: number): number {
   let r = y[i]; for (let j = i + 1; j < y.length; j++) { if (y[j] > y[i]) break; r = Math.min(r, y[j]); }
   return y[i] - Math.max(l, r);
 }
-interface WallShape { modes: number; spuriousLobeMaxPct: number; tailMonotone: boolean; peakAbsOff: number[]; plateauRipplePct: number; extraInfl: number; valleyOk: boolean; }
-function wallShape(tg: Target, segs: Seg[]): WallShape {
+// Target-free mode census on the emitted density — shared by wallShape and the parity exporter's
+// post-quantization re-gate (quantized objects have no Target; only mode COUNT must be preserved).
+function modeCensus(segs: Seg[]) {
   const lo = powEval(segs, 0) / 100, hi = powEval(segs, BPS) / 100;
   const dens = densityAtUniformOffsets((x) => powEval(segs, x), (x) => powDeriv(segs, x), DENS_N, lo, hi);
-  const extraInfl = Math.max(0, logInflections(dens) - targetInflections(tg));
   const o = dens.map((d) => d[0]), y = dens.map((d) => (isFinite(d[1]) && d[1] > 0 ? d[1] : 1e-30));
   const pk = Math.max(...y), live = (i: number) => y[i] > 0.04 * pk;
   const maxima: number[] = [];
   for (let i = 1; i < y.length - 1; i++) if (live(i) && y[i] >= y[i - 1] && y[i] > y[i + 1]) maxima.push(i);
   const modes = maxima.filter((i) => Math.log10(y[i]) - Math.log10(Math.max(y[i] - prominence(y, i), 1e-30)) > 0.02);
+  return { dens, o, y, pk, live, maxima, modes };
+}
+export function densityModes(segs: Seg[]): number { return modeCensus(segs).modes.length; }
+export interface WallShape { modes: number; spuriousLobeMaxPct: number; tailMonotone: boolean; peakAbsOff: number[]; plateauRipplePct: number; extraInfl: number; valleyOk: boolean; }
+export function wallShape(tg: Target, segs: Seg[]): WallShape {
+  const { dens, o, y, pk, live, maxima, modes } = modeCensus(segs);
+  const extraInfl = Math.max(0, logInflections(dens) - targetInflections(tg));
   const nExp = tg.expectedModes ?? 1;
   const intended = [...modes].sort((a, b) => y[b] - y[a]).slice(0, nExp), kept = new Set(intended);
   let spur = 0; for (const i of maxima) if (!kept.has(i)) spur = Math.max(spur, (prominence(y, i) / y[i]) * 100);
@@ -427,7 +458,8 @@ function wallShape(tg: Target, segs: Seg[]): WallShape {
     for (let k = iR; k < y.length - 1; k++) { if (vis(k + 1) && y[k + 1] > y[k] * 1.01) tailMono = false; }
     for (let k = iL; k > 0; k--) { if (vis(k - 1) && y[k - 1] > y[k] * 1.01) tailMono = false; }
   }
-  const plat = dens.filter((d) => Math.abs(d[0]) < 20).map((d) => d[1]);
+  const platW = Math.min(20, Math.min(Math.abs(tg.edgeLo), Math.abs(tg.edgeHi)) * 0.65);
+  const plat = dens.filter((d) => Math.abs(d[0]) < platW).map((d) => d[1]);
   const platRipple = plat.length ? ((Math.max(...plat) - Math.min(...plat)) / ((Math.max(...plat) + Math.min(...plat)) / 2)) * 100 : 0;
   // valleyOk: emitted density is a single VALLEY — rises (1% tol) from the central min out to BOTH
   // live-region edges. The V/barbell analogue of the mode gate (density MIN at peg, not a peak).
@@ -494,7 +526,7 @@ function targetInflections(tg: Target): number {
   if (!tgInflCache.has(tg.name)) tgInflCache.set(tg.name, logInflections(targetRho(tg)));
   return tgInflCache.get(tg.name)!;
 }
-function densErrPct(tg: Target, segs: Seg[]): number {
+export function densErrPct(tg: Target, segs: Seg[]): number {
   const tab = targetRho(tg), pk = Math.max(...tab.map((p) => p[1]));
   const W = tg.edgeHi - tg.edgeLo, a = tg.edgeLo + 0.005 * W, b = tg.edgeHi - 0.005 * W;
   const dens = densityAtUniformOffsets((x) => powEval(segs, x), (x) => powDeriv(segs, x), 400, a, b);
@@ -509,8 +541,8 @@ function densErrPct(tg: Target, segs: Seg[]): number {
 // Derivative control coeffs d_i = P·Δw_i/(t_{i+P+1}-t_{i+1}) — the density-mode carriers (raw Δw is
 // NOT ∝ density under non-uniform knots; the knot span divides out here). Modes of d = density modes.
 function derivCoeffs(T: number[], e: number[]): number[] { return e.map((ei, i) => (P * ei) / (T[i + P + 1] - T[i + 1])); }
-interface Fit { ncp: number; T: number[]; w: number[]; e: number[]; d: number[]; segs: Seg[]; maxErrPbps: number; coreErrPbps: number; bumpPct: number; seamJ: number; capitalM: number; unimodalD: boolean; deBoorRelErr: number; areaRelErr: number; peaks: number; }
-function fit(tg: Target, interior: number[], lambda: number, enforceUni = false): Fit {
+export interface Fit { ncp: number; T: number[]; w: number[]; e: number[]; d: number[]; segs: Seg[]; maxErrPbps: number; coreErrPbps: number; bumpPct: number; seamJ: number; capitalM: number; unimodalD: boolean; deBoorRelErr: number; areaRelErr: number; peaks: number; }
+export function fit(tg: Target, interior: number[], lambda: number, enforceUni = false): Fit {
   const NCP = interior.length + P + 1;
   const T = clampedKnots(NCP, 0, BPS, interior);
   const nS = 700, xs: number[] = []; for (let k = 0; k <= nS; k++) xs.push((k / nS) * BPS);
@@ -592,6 +624,7 @@ function quantize(tg: Target, f: Fit): { maxErrPbps: number; bumpPct: number; se
 // Shape targets sweep h × λ; Curve targets sweep ncp (5..16, offset-uniform interiors) × λ.
 // ─────────────────────────────────────────────────────────────────────────────
 const TOL = 0.5; // pbps, Curve fit gate
+if (import.meta.main) {
 const results: any = { tol_pbps: TOL, seamJMax: SEAM_J_MAX, degree: P, targets: {} };
 for (const tg of TARGETS) {
   const isCurve = tg.name.startsWith('curve');
@@ -614,15 +647,20 @@ for (const tg of TARGETS) {
     const anchored = !!tg.featureAnchors;
     const inflOk = anchored ? true : s!.extraInfl === 0;
     const fidOk = anchored ? true : densErrPct(tg, f.segs) <= 55;
+    const platMax = (tg.edgeHi - tg.edgeLo) <= 12 ? 3.5 : 2; // narrow ±5 walls: slightly looser ripple
     const base = f.seamJ <= SEAM_J_MAX && inflOk && fidOk && f.coreErrPbps <= 500;
     return tg.valley
       ? base && s!.valleyOk && s!.spuriousLobeMaxPct < 3
-      : base && s!.modes === nExp && s!.spuriousLobeMaxPct < 2 && s!.tailMonotone && (anchored || peakErr(s!) <= 1.5) && (!tg.plateau || s!.plateauRipplePct <= 2);
+      : base && s!.modes === nExp && s!.spuriousLobeMaxPct < 2 && s!.tailMonotone && (anchored || peakErr(s!) <= 1.5) && (!tg.plateau || s!.plateauRipplePct <= platMax);
   };
   let hit: Fit | null = null, hitShape: WallShape | null = null, chosenLambda = 0, chosenHbp = 0, passedGates = false;
   const sweepOut: any[] = [];
   let fall: { f: Fit; s: WallShape | null; lam: number; h: number } | null = null;
-  outer: for (const h of isCurve ? Array.from({ length: 12 }, (_, k) => 5 + k) : (tg.featureAnchors ? [0] : H_SWEEP)) {
+  const narrow = !isCurve && (tg.edgeHi - tg.edgeLo) <= 12;
+  const hList = isCurve
+    ? Array.from({ length: 12 }, (_, k) => 5 + k)
+    : (tg.featureAnchors ? [0] : (narrow ? H_SWEEP_NARROW : H_SWEEP));
+  outer: for (const h of hList) {
     const interior = isCurve ? curveKnots(tg, (h as number) - P - 1) : shapeKnots(tg, h as number);
     if (isCurve && interior.length !== (h as number) - P - 1) continue; // ncp too small for P+1
     for (const lam of LAMBDAS) {
@@ -639,9 +677,9 @@ for (const tg of TARGETS) {
   // Greedy knot REMOVAL (owner: "fewest knots, near-parity"): repeatedly drop any interior knot whose
   // removal still passes ALL gates — candidates tried least-active first (|Δ²| of the density carriers
   // around the knot; dead-tail and redundant-plateau knots go first). Gate-driven, zero hand tuning.
-  // SKIP for feature-anchored shapes: their anchors ARE the shape (peaks/valley/wings); pruning them
-  // collapses a bimodal to a 3-knot gentle hump. They start minimal (7), which is already in-budget.
-  if (passedGates && !tg.featureAnchors) {
+  // SKIP prune for multimodal/valley feature anchors (peaks ARE the shape). Stable-pack + plateau
+  // anchors may prune further toward STABLE_NCP_MAX.
+  if (passedGates && (!tg.featureAnchors || tg.plateau || STABLE_PACK.has(tg.name))) {
     let interior = hit.T.slice(P + 1, hit.T.length - P - 1);
     let changed = true;
     while (changed && interior.length > 1) {
@@ -673,6 +711,28 @@ for (const tg of TARGETS) {
       if (gates(ft, st)) { hit = ft; hitShape = st; chosenLambda = lam; break; }
     }
   }
+  // Stable-pack port budget: if still above STABLE_NCP_MAX, keep pruning under a slightly relaxed
+  // densErr/extraInfl (shape essence retained; absolute target fidelity secondary to gas/ncp).
+  if (STABLE_PACK.has(tg.name) && hit.ncp > STABLE_NCP_MAX && passedGates && !isCurve) {
+    let interior = hit.T.slice(P + 1, hit.T.length - P - 1);
+    const packGates = (f: Fit, s: WallShape): boolean =>
+      f.seamJ <= SEAM_J_MAX && densErrPct(tg, f.segs) <= 85 && s.extraInfl <= 1 && f.coreErrPbps <= 500
+      && s.modes === nExp && s.spuriousLobeMaxPct < 3 && s.tailMonotone
+      && (!tg.plateau || s.plateauRipplePct <= 3.5);
+    let changed = true;
+    while (changed && interior.length > 1 && hit.ncp > STABLE_NCP_MAX) {
+      changed = false;
+      removal2: for (let idx = 0; idx < interior.length; idx++) {
+        const trial = interior.filter((_, i) => i !== idx);
+        const li = LAMBDAS.indexOf(chosenLambda);
+        for (const lam of LAMBDAS.slice(Math.max(0, li), li + 4)) {
+          const ft = fit(tg, trial, lam);
+          const st = wallShape(tg, ft.segs);
+          if (packGates(ft, st)) { interior = trial; hit = ft; hitShape = st; chosenLambda = lam; changed = true; break removal2; }
+        }
+      }
+    }
+  }
   // Cost of forcing single-peak liquidity: free NNLS fit is ALREADY single-peak for every unimodal
   // target (variation-diminishing) — constraint is a no-op. Only a multi-peak free fit re-fits.
   let uniCost: number | null = null, uniErr: number | null = null;
@@ -689,6 +749,9 @@ for (const tg of TARGETS) {
     capitalM: hit.capitalM, peaks: hit.peaks, unimodalD: hit.unimodalD, deBoorRelErr: hit.deBoorRelErr, areaRelErr: hit.areaRelErr,
     shape: ws ? { modes: ws.modes, spuriousLobeMaxPct: +ws.spuriousLobeMaxPct.toFixed(3), tailMonotone: ws.tailMonotone, extraInfl: ws.extraInfl, peakAbsOffBp: ws.peakAbsOff.map((o) => +o.toFixed(2)), peakPosErrBp: nExp === 2 && ws.peakAbsOff.length ? +Math.max(...ws.peakAbsOff.map((o) => Math.abs(o - 15))).toFixed(3) : null, plateauRipplePct: +ws.plateauRipplePct.toFixed(3) } : null,
     edgeBp: Math.max(Math.abs(tg.edgeLo), Math.abs(tg.edgeHi)), edgeLoBp: tg.edgeLo, edgeHiBp: tg.edgeHi,
+    stablePack: STABLE_PACK.has(tg.name),
+    passedGates,
+    portNcpOk: hit.ncp <= STABLE_NCP_MAX,
     uniEnforcedCoreErrPbps: uniErr, uniCostPbps: uniCost,
     quant: q,
     sweep: sweepOut,
@@ -709,9 +772,58 @@ const fc = PROFILES.smooth_concentrated; const fcPts = splinePoints(fc.knots, fc
 const fcEdge = Math.abs((fc.knots[fc.knots.length - 1] * 1000) / 100 / 100);
 const fcBump = maxBumpPct((x) => hermiteEval(fcPts, x), (x) => hermiteDeriv(fcPts, x), fcEdge);
 results.fc = { knots: fc.knots.length, bumpPct: +fcBump.toFixed(4), contBreak: 'y″ jumps at every knot (C1 only)' };
+results.stableNcpMax = STABLE_NCP_MAX;
+results.stablePack = [...STABLE_PACK];
+
+// Report-only wall sweep for Uni-flat density at ±{3,5,10}bp (not three production profiles).
+results.wallSweep = {} as Record<string, any>;
+for (const wall of WALL_SWEEP_BP) {
+  const a = wall * 0.7, c = wall;
+  const tg = densityTarget(`uni_flat_w${wall}`, -wall, wall, (o) => {
+    const ao = Math.abs(o);
+    return ao <= a ? 1 : ao >= c ? 0 : Math.sqrt(Math.max(0, 1 - ((ao - a) / (c - a)) ** 2));
+  }, true);
+  tg.plateau = true;
+  tg.featureAnchors = wall <= 5 ? [-wall * 0.64, wall * 0.64] : [-wall * 0.84, -wall * 0.5, 0, wall * 0.5, wall * 0.84];
+  let best: Fit | null = null, bestLam = 0, ok = false;
+  for (const lam of LAMBDAS) {
+    const f = fit(tg, shapeKnots(tg, 0), lam);
+    const s = wallShape(tg, f.segs);
+    const pass = f.seamJ <= SEAM_J_MAX && s.modes === 1 && s.spuriousLobeMaxPct < 2 && s.tailMonotone
+      && s.plateauRipplePct <= 3.5 && f.coreErrPbps <= 500;
+    if (!best || f.seamJ < best.seamJ) { best = f; bestLam = lam; }
+    if (pass) { best = f; bestLam = lam; ok = true; break; }
+  }
+  // light prune toward ≤STABLE_NCP_MAX
+  if (ok && best) {
+    let interior = best.T.slice(P + 1, best.T.length - P - 1);
+    let changed = true;
+    while (changed && interior.length > 1 && best.ncp > STABLE_NCP_MAX) {
+      changed = false;
+      for (let idx = 0; idx < interior.length; idx++) {
+        const trial = interior.filter((_, i) => i !== idx);
+        const ft = fit(tg, trial, bestLam);
+        const st = wallShape(tg, ft.segs);
+        const pass = ft.seamJ <= SEAM_J_MAX && st.modes === 1 && st.spuriousLobeMaxPct < 2 && st.tailMonotone
+          && st.plateauRipplePct <= 3.5 && ft.coreErrPbps <= 500;
+        if (pass) { interior = trial; best = ft; changed = true; break; }
+      }
+    }
+  }
+  results.wallSweep[`±${wall}`] = {
+    wallBp: wall, ncp: best!.ncp, knots: best!.ncp - P - 1, seamJ: +best!.seamJ.toFixed(4),
+    lambda: bestLam, passedGates: ok, portNcpOk: best!.ncp <= STABLE_NCP_MAX,
+    plateauRipplePct: +wallShape(tg, best!.segs).plateauRipplePct.toFixed(3),
+  };
+}
 
 await Bun.write('out/spline_bspline.json', JSON.stringify(results, null, 2));
 for (const [name, t] of Object.entries<any>(results.targets)) {
-  console.log(`${name.padEnd(12)} knots=${String(t.chosen_ncp - P - 1).padStart(2)} h=${t.chosenHbp || '-'} λ=${t.chosenLambda} J=${t.seamJ.toFixed(3)} xInfl=${t.shape ? t.shape.extraInfl : 0} coreErr=${t.coreErrPbps.toFixed(2)}pbps modes=${t.shape ? t.shape.modes : t.peaks} spur=${t.shape ? t.shape.spuriousLobeMaxPct : '-'} cap=${t.capitalM.toFixed(2)}M quantJ=${t.quant.seamJ.toFixed(3)}`);
+  const pack = t.stablePack ? ' PACK' : '';
+  const gate = t.passedGates ? 'ok' : 'FALL';
+  const ncpGate = t.portNcpOk ? '≤9' : '>9';
+  console.log(`${name.padEnd(14)} knots=${String(t.chosen_ncp - P - 1).padStart(2)} ncp=${String(t.chosen_ncp).padStart(2)}(${ncpGate}) h=${t.chosenHbp || '-'} λ=${t.chosenLambda} J=${t.seamJ.toFixed(3)} gate=${gate}${pack} coreErr=${t.coreErrPbps.toFixed(2)}pbps`);
 }
+console.log('wallSweep', JSON.stringify(results.wallSweep));
 console.log('FC smooth_concentrated bump%=', fcBump.toFixed(3), 'knots=', fc.knots.length);
+} // import.meta.main

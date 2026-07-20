@@ -4,7 +4,7 @@ pragma solidity =0.8.35;
 import {IOracle} from "../interfaces/IOracle.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Maths as M} from "../libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 
 /// @dev Minimal Chainlink push-feed interface (AggregatorV3Interface subset).
 interface IAggregatorV3 {
@@ -21,7 +21,7 @@ interface IAggregatorV3 {
     );
 }
 
-/// @title ChainlinkOracle — pull-based IOracle over a Chainlink push aggregator.
+/// @title ChainlinkOracle - pull-based IOracle over a Chainlink push aggregator.
 /// @notice The INDEPENDENT reference oracle for a pool's `refPrimary` depeg band. `latestRoundData()`
 ///         is a SYNCHRONOUS read (atomic in the swap tx, unlike a pull oracle that needs a fresh
 ///         update tx first), so a compromised BTR/NX signer quorum cannot walk the mark past
@@ -47,12 +47,13 @@ contract ChainlinkOracle is IOracle {
   );
 
   modifier onlyAdmin() {
-    if (msg.sender != AccessControl(AC).owner()) revert Err.NotAuth();
+    if (msg.sender != AccessControl(AC).owner()) revert Err.NotOwner();
     _;
   }
 
   constructor(address ac_) {
     if (ac_ == address(0)) revert Err.ZeroValue();
+    if (ac_.code.length == 0) revert Err.NotCode();
     AC = ac_;
   }
 
@@ -87,12 +88,11 @@ contract ChainlinkOracle is IOracle {
     uint256 price1e18 = uint256(answer) * (10 ** (18 - f.aggDecimals));
     data = FeedData({
       lastPriceB64: M.encodeB64(price1e18, 18),
-      sigmaEma: 0,
+      sigma: 0,
       updatedAt: uint32(updatedAt),
       ttl: f.ttl,
       confidence: 0,
       flags: 0,
-      tauSigma: 0,
       maxDeviation: 0,
       sourceTs: 0
     });
@@ -115,7 +115,4 @@ contract ChainlinkOracle is IOracle {
     return feedIds;
   }
 
-  function hasFeed(bytes32 feedId) external view returns (bool) {
-    return feeds[feedId].exists;
-  }
 }

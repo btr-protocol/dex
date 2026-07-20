@@ -20,10 +20,9 @@ contract LibAnchorTreeHarness {
     _s().baseToken = b;
   }
 
-  function configureAsset(address asset, address anchor, uint8 depth, uint8 decimals) external {
+  function configureAsset(address asset, address anchor, uint8 decimals) external {
     IPool.PoolStorage storage $ = _s();
     $.assets[asset].anchor = anchor;
-    $.assets[asset].anchorDepth = depth;
     $.assets[asset].decimals = decimals;
   }
 
@@ -51,9 +50,9 @@ contract LibAnchorTreeTest is BaseTestSetup {
     super.setUp();
     harness = new LibAnchorTreeHarness();
     harness.setBaseToken(BASE);
-    harness.configureAsset(BASE, address(0), 0, 18);
-    harness.configureAsset(SPOKE_A, BASE, 1, 18);
-    harness.configureAsset(SPOKE_B, BASE, 1, 6);
+    harness.configureAsset(BASE, address(0), 18);
+    harness.configureAsset(SPOKE_A, BASE, 18);
+    harness.configureAsset(SPOKE_B, BASE, 6);
   }
 
   // ── validateAnchor ──

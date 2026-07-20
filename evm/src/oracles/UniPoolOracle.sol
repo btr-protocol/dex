@@ -5,10 +5,10 @@ import {IOracle} from "../interfaces/IOracle.sol";
 import {IUniSpot} from "../interfaces/IUniSpot.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Maths as M} from "../libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {SqrtPrice} from "../incumbents/univ4/SqrtPrice.sol";
 
-/// @title UniPoolOracle — pull-based IOracle that reads spot from a Uni-style pool.
+/// @title UniPoolOracle - pull-based IOracle that reads spot from a Uni-style pool.
 /// @notice No keeper push: `getFeed` samples `slot0().sqrtPriceX96` each call and stamps
 ///         `updatedAt = block.timestamp` so BTR freshness gates always pass.
 /// @dev TESTNET/INCUMBENT BENCHMARK ONLY: the instantaneous spot is flash-manipulable and MUST NOT
@@ -19,7 +19,7 @@ contract UniPoolOracle is IOracle {
   struct PoolFeed {
     address pool;
     bool invert; // true → quote/base = token0/token1 (base is token1)
-    uint32 sigmaEma; // fixed PBPS σ for pricing
+    uint32 sigma; // fixed PBPS σ for pricing
     uint16 confidence; // mark CI bps
     uint16 ttl;
     bool exists;
@@ -29,11 +29,11 @@ contract UniPoolOracle is IOracle {
   bytes32[] public feedIds;
 
   event FeedAdded(
-    bytes32 indexed feedId, address indexed pool, bool invert, uint32 sigmaEma, uint16 confidence
+    bytes32 indexed feedId, address indexed pool, bool invert, uint32 sigma, uint16 confidence
   );
 
   modifier onlyAdmin() {
-    if (msg.sender != AccessControl(AC).owner()) revert Err.NotAuth();
+    if (msg.sender != AccessControl(AC).owner()) revert Err.NotOwner();
     _;
   }
 
@@ -47,7 +47,7 @@ contract UniPoolOracle is IOracle {
     address base,
     address quote,
     address pool,
-    uint32 sigmaEma,
+    uint32 sigma,
     uint16 confidence,
     uint16 ttl
   ) external onlyAdmin returns (bytes32 feedId) {
@@ -71,10 +71,10 @@ contract UniPoolOracle is IOracle {
     }
 
     feeds[feedId] = PoolFeed({
-      pool: pool, invert: invert, sigmaEma: sigmaEma, confidence: confidence, ttl: ttl, exists: true
+      pool: pool, invert: invert, sigma: sigma, confidence: confidence, ttl: ttl, exists: true
     });
     feedIds.push(feedId);
-    emit FeedAdded(feedId, pool, invert, sigmaEma, confidence);
+    emit FeedAdded(feedId, pool, invert, sigma, confidence);
   }
 
   /// @inheritdoc IOracle
@@ -93,12 +93,11 @@ contract UniPoolOracle is IOracle {
     uint64 priceB64 = M.encodeB64(price1e18, 18);
     data = FeedData({
       lastPriceB64: priceB64,
-      sigmaEma: f.sigmaEma,
+      sigma: f.sigma,
       updatedAt: uint32(block.timestamp),
       ttl: f.ttl,
       confidence: f.confidence,
       flags: 0,
-      tauSigma: 0,
       maxDeviation: 0,
       sourceTs: 0
     });
@@ -116,9 +115,6 @@ contract UniPoolOracle is IOracle {
     return feedIds;
   }
 
-  function hasFeed(bytes32 feedId) external view returns (bool) {
-    return feeds[feedId].exists;
-  }
 
   function getPool(bytes32 feedId) external view returns (address) {
     return feeds[feedId].pool;

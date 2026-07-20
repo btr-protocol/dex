@@ -4,7 +4,7 @@ pragma solidity =0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {ChainlinkOracle, IAggregatorV3} from "../../src/oracles/ChainlinkOracle.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {MockAC} from "../fixtures/BaseTestSetup.sol";
 
@@ -101,7 +101,17 @@ contract ChainlinkOracleTest is Test {
 
   function test_addFeed_onlyAdmin() public {
     vm.prank(address(0xBEEF));
-    vm.expectRevert(Err.NotAuth.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     oracle.addFeed(address(0x1), address(0x2), address(agg), 3600);
+  }
+
+  function test_ctor_rejectsZeroAC() public {
+    vm.expectRevert(Err.ZeroValue.selector);
+    new ChainlinkOracle(address(0));
+  }
+
+  function test_ctor_rejectsCodelessAC() public {
+    vm.expectRevert(Err.NotCode.selector);
+    new ChainlinkOracle(address(0xDEAD));
   }
 }

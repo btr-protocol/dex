@@ -4,8 +4,8 @@ pragma solidity =0.8.35;
 import {IOracle} from "../interfaces/IOracle.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Maths as M} from "./Maths.sol";
-import {Spline} from "./Spline.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {NUQuartic as NUQ} from "./NUQuartic.sol";
 import {AnchorTree} from "./AnchorTree.sol";
 import {Oracle} from "./Oracle.sol";
 import {TransientCache as TCache} from "./TransientCache.sol";
@@ -16,10 +16,6 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @title Pricing -coverage-adjusted pricing + bi-factor fee model.
 /// @dev Units: see Constants. BPS=0.01%, PBPS=0.0001%, WAD=1e18.
 library Pricing {
-  using {M.b64To1e18} for uint64;
-
-  /// @dev Profile weights sum (200 = 100%, 1 unit = 0.5% depth).
-  uint256 private constant WEIGHT_SUM = 200;
   // Staleness-premium coefficient for the A-S σ√age keeper-lag defense in `_pathSpread` (the term is
   // STALE_Z·σ·√excess/BPS). Global (not per-asset) to avoid a RiskConfig storage change; the
   // deviation-push policy (minFee ≈ 2·θ) is the primary defense, so this only bites past the keeper
@@ -28,6 +24,11 @@ library Pricing {
 
   uint256 private constant MAX_IMPACT = 2 * SC.WAD; // 200%
   uint256 private constant MIN_ADJ = SC.WAD / 1000; // 0.1%
+  /// @dev Spline segment offset floor: an averaged offset never discounts below −90% of PBPS (price ≥
+  ///      10% of mark) even for a pathological knot×dispersion — a hard backstop under the spline curve.
+  int256 private constant SPLINE_MIN_OFFSET_PBPS = -int256(SC.PBPS) * 90 / 100;
+  /// @dev Absolute execution-price floor = 5% of mark (500 bps); final guard below the spline floor.
+  uint256 private constant MIN_EXEC_PRICE_BPS = 500;
 
   /// @notice Coverage-driven inventory skew = a reservation-price mid-shift (shift fair value against
   ///         inventory: Avellaneda-Stoikov theory, first instantiated on-chain by DODO PMM's oracle-
@@ -59,30 +60,28 @@ library Pricing {
     return under ? int8(int256(skew)) : int8(-int256(skew));
   }
 
-  /// @notice Quote sell-side swap with coverage-adjusted depth + spline traversal.
+  /// @notice Quote sell-side swap with coverage-adjusted depth + curve traversal.
   function quoteSwap(
     uint256 amountIn,
     uint128 reserves,
     uint128 liabilities,
-    uint256 twap,
-    uint32 volatility,
-    IPool.LiquidityProfile storage profile,
+    uint256 mark,
+    uint32 sigma,
+    NUQ.Curve storage curve,
     int8 inventorySkew,
     bool selling,
     uint16 depthAmplifier,
     uint16 vega,
     uint32 minDispersion,
     uint32 maxDispersion
-  ) internal view returns (uint256 amountOut, uint256 executionPrice) {
+  ) internal view returns (uint256 amountOut) {
     // Calculate effective depth and dispersion
     uint256 depth = calculateDepth(reserves, liabilities, depthAmplifier);
-    uint32 dispersion = _calculateDispersion(volatility, vega, minDispersion, maxDispersion);
+    uint32 dispersion = _calculateDispersion(sigma, vega, minDispersion, maxDispersion);
 
-    // Traverse spline by volume to get execution price
-    executionPrice =
-      _traverseSplineByVolume(twap, dispersion, profile, inventorySkew, amountIn, depth, selling);
-
-    // executionPrice is in base per token units (1e18), so baseOut = amountIn * executionPrice / SC.WAD
+    // Execution price (base per token, 1e18) from the volume traverse; out = in·px/WAD.
+    uint256 executionPrice =
+      _traverseCurveByVolume(mark, dispersion, curve, inventorySkew, amountIn, depth, selling);
     amountOut = (amountIn * executionPrice) / SC.WAD;
   }
 
@@ -90,58 +89,63 @@ library Pricing {
   ///      `minDispersion` is the quiet-tape floor (owner-set per asset); do NOT hardcode a 1000 PBPS
   ///      base or tight stable bands (1–6 bp) are unreachable when σ≈0.
   function _calculateDispersion(
-    uint32 volatility,
+    uint32 sigma,
     uint16 vega,
     uint32 minDispersion,
     uint32 maxDispersion
   ) internal pure returns (uint32 dispersion) {
-    // Linear mapping: dispersion increases with volatility above the per-asset floor.
-    // Vega controls sensitivity: 10000 (100%=1x) means vol/1000, 5000 (50%=0.5x) means vol/2000
-    uint256 scaledVol = (uint256(volatility) * uint256(vega)) / (1000 * SC.BPS);
-    uint256 raw = uint256(minDispersion) + scaledVol;
+    // Linear mapping: dispersion increases with σ above the per-asset floor.
+    // Vega controls sensitivity: 10000 (100%=1x) means σ/1000, 5000 (50%=0.5x) means σ/2000
+    uint256 scaledSigma = (uint256(sigma) * uint256(vega)) / (1000 * SC.BPS);
+    uint256 raw = uint256(minDispersion) + scaledSigma;
 
     if (raw > uint256(maxDispersion)) return maxDispersion;
     return uint32(raw);
   }
 
-  /// @dev TWAP @ skew=0; spline maps skew→price offset.
-  function _getMidPriceFromProfile(
-    uint256 twap,
-    int8 inventorySkew,
-    uint32 dispersion,
-    IPool.LiquidityProfile storage profile
-  ) internal view returns (uint256 midPrice) {
-    if (profile.weights[0] == 0) {
-      return _skewToPrice(twap, inventorySkew, dispersion);
-    }
-    return _midFromPoints(twap, inventorySkew, _buildSplinePoints(profile, dispersion));
+  /// @dev Clamp + scale a PBPS price offset onto the mark: price = mark·max(0, 1 + offset/PBPS).
+  function _offsetToPrice(uint256 mark, int256 offsetPbps) private pure returns (uint256) {
+    int256 m = int256(SC.PBPS) + offsetPbps;
+    if (m < 0) m = 0;
+    return (mark * uint256(m)) / SC.PBPS;
   }
 
-  function _midFromPoints(uint256 twap, int8 inventorySkew, Spline.Point[] memory points)
-    private
-    pure
-    returns (uint256 midPrice)
-  {
-    int256 priceOffsetBps = Spline.eval(_skewToDepth(inventorySkew), points);
-    int256 multiplier = int256(SC.PBPS) + priceOffsetBps;
-    if (multiplier < 0) multiplier = 0;
-    midPrice = (twap * uint256(multiplier)) / SC.PBPS;
+  /// @dev Offset → price with the SAME two economic backstops the area path applies: the
+  ///      SPLINE_MIN_OFFSET_PBPS floor (offset never below −90% PBPS) and the MIN_EXEC_PRICE_BPS
+  ///      floor (price never below 5% of mark). Shared by the area, dust (width==0) and buy-mid
+  ///      paths so a mutated/degenerate curve can never quote below the floors on ANY path.
+  function _flooredOffsetPrice(uint256 mark, int256 offsetPbps) private pure returns (uint256 px) {
+    if (offsetPbps < SPLINE_MIN_OFFSET_PBPS) offsetPbps = SPLINE_MIN_OFFSET_PBPS;
+    px = _offsetToPrice(mark, offsetPbps);
+    uint256 minPrice = (mark * MIN_EXEC_PRICE_BPS) / SC.BPS;
+    if (px < minPrice) px = minPrice;
   }
 
-  /// @dev Exact analytical Hermite-spline integration → VWAP over trade.
-  function _traverseSplineByVolume(
-    uint256 twap,
+  /// @dev Dispersion contract: the curve is fitted at its reference dispersion (header dispRef,
+  ///      pbps); live quotes y-scale it by dispersion/dispRef, then drop the Q fixed point. A linear
+  ///      y-scale preserves monotonicity and C2 exactly — the W-tier is the coarse regime anchor,
+  ///      dispersion the fine σ-adaptive scale.
+  function _scaleY(int256 yQ, uint256 header, uint32 dispersion) private pure returns (int256) {
+    return (yQ * int256(uint256(dispersion))) / (int256((header >> 232) & 0xffff) * NUQ.Q);
+  }
+
+  /// @dev Exact analytical quartic I-spline integration → VWAP over trade. Empty curve (header 0 —
+  ///      unset preset or presetId 0) falls back to the skew-anchored linear-impact quote: swaps
+  ///      stay live between listing and the first profile assignment.
+  function _traverseCurveByVolume(
+    uint256 mark,
     uint32 dispersion,
-    IPool.LiquidityProfile storage profile,
+    NUQ.Curve storage curve,
     int8 inventorySkew,
     uint256 amountIn,
     uint256 depth,
     bool selling
   ) internal view returns (uint256 avgPrice) {
-    if (profile.weights[0] == 0) {
+    uint256 header = curve.header;
+    if (header == 0) {
       uint256 impact = (amountIn * SC.WAD) / depth;
       if (impact > MAX_IMPACT) impact = MAX_IMPACT;
-      uint256 midPrice = _skewToPrice(twap, inventorySkew, dispersion);
+      uint256 midPrice = _skewToPrice(mark, inventorySkew, dispersion);
       uint256 k = impact / 2;
       if (selling) {
         uint256 adj = k < SC.WAD ? SC.WAD - k : MIN_ADJ;
@@ -149,19 +153,19 @@ library Pricing {
       }
       return (midPrice * (SC.WAD + k)) / SC.WAD;
     }
-    return _traverseWithPoints(
-      twap, _buildSplinePoints(profile, dispersion), inventorySkew, amountIn, depth, selling
-    );
+    return _traverseCurve(mark, dispersion, curve, header, inventorySkew, amountIn, depth, selling);
   }
 
-  function _traverseWithPoints(
-    uint256 twap,
-    Spline.Point[] memory points,
+  function _traverseCurve(
+    uint256 mark,
+    uint32 dispersion,
+    NUQ.Curve storage curve,
+    uint256 header,
     int8 inventorySkew,
     uint256 amountIn,
     uint256 depth,
     bool selling
-  ) private pure returns (uint256 avgPrice) {
+  ) private view returns (uint256 avgPrice) {
     uint256 startDepth = _skewToDepth(inventorySkew);
     uint256 volumeFraction = (amountIn * SC.BPS) / depth;
     if (volumeFraction > SC.BPS) volumeFraction = SC.BPS;
@@ -176,67 +180,31 @@ library Pricing {
     uint256 hi = selling ? startDepth : endDepth;
     uint256 width = hi - lo;
     if (width == 0) {
-      int256 off = Spline.eval(startDepth, points);
-      int256 mult = int256(SC.PBPS) + off;
-      if (mult < 0) mult = 0;
-      return (twap * uint256(mult)) / SC.PBPS;
+      return _flooredOffsetPrice(mark, _scaleY(NUQ.evalQ(curve, header, startDepth), header, dispersion));
     }
-    int256 avgOffsetBps = Spline.area(points, lo, hi) / int256(width);
-    int256 MAX_NEG = -int256(SC.PBPS) * 90 / 100;
-    if (avgOffsetBps < MAX_NEG) avgOffsetBps = MAX_NEG;
-    int256 multiplier = int256(SC.PBPS) + avgOffsetBps;
-    avgPrice = (twap * uint256(multiplier)) / SC.PBPS;
-    uint256 minPrice = (twap * 5) / 100;
-    if (avgPrice < minPrice) avgPrice = minPrice;
+    int256 avgOffsetPbps =
+      _scaleY(NUQ.areaQ(curve, header, lo, hi) / int256(width), header, dispersion);
+    avgPrice = _flooredOffsetPrice(mark, avgOffsetPbps);
   }
 
-  /// @dev Profile (weights[], knots[]) → spline (x=cumDepth[0,10000], y=offsetBps).
-  ///      knots[i] in [-100,+100] = % of dispersion range. price = TWAP*(1+disp*knot/100/PBPS).
-  ///      ∀ N segments: N+1 knots; max(knot)-min(knot) = 100. Up to 16 segs.
-  function _buildSplinePoints(IPool.LiquidityProfile storage profile, uint32 dispersion)
-    internal
-    view
-    returns (Spline.Point[] memory points)
-  {
-    uint256 count = 0;
-    for (uint256 i = 0; i < 16; i++) {
-      if (profile.weights[i] == 0) break;
-      count++;
-    }
-    points = new Spline.Point[](count + 1);
-    points[0] = Spline.Point({
-      x: 0, y: (int256(int16(profile.knots[0])) * int256(uint256(dispersion))) / 100
-    });
-    uint256 cumW = 0;
-    for (uint256 i = 0; i < count; i++) {
-      cumW += uint256(profile.weights[i]);
-      points[i + 1] = Spline.Point({
-        x: (cumW * SC.BPS) / WEIGHT_SUM,
-        y: (int256(int16(profile.knots[i + 1])) * int256(uint256(dispersion))) / 100
-      });
-    }
-  }
-
-  /// @dev skew∈[-100,+100] → depth∈[0,10000]. -100→0, 0→5000, +100→10000.
+  /// @dev skew∈[-100,+100] maps linearly onto the spline x-domain [0, SC.BPS]; midpoint SC.BPS/2 at
+  ///      skew 0, slope SC.BPS/200 per skew unit (±100 → 0 / SC.BPS).
   /// @dev Phase 42D A4-4 DISCARD: unchecked add is sound -precondition `skew ∈ [-100,+100]`
-  ///      is enforced by `computeInventorySkew` clamps; range `[5000 - 5000, 5000 + 5000] = [0, 10000]`
+  ///      is enforced by `computeInventorySkew` clamps; range `[mid - mid, mid + mid] = [0, SC.BPS]`
   ///      always non-negative. Caller MUST pass a clamped skew (int8 alone is insufficient).
   function _skewToDepth(int8 inventorySkew) internal pure returns (uint256) {
     unchecked {
-      return uint256(5000 + int256(inventorySkew) * 50);
+      return uint256(int256(SC.BPS) / 2 + int256(inventorySkew) * (int256(SC.BPS) / 200));
     }
   }
 
-  /// @dev skew → absolute price (no-profile fallback). offsetBps = skew*disp/100.
-  function _skewToPrice(uint256 twap, int8 skew, uint32 dispersion)
+  /// @dev skew → absolute price (no-profile fallback). offsetPbps = skew*disp/100.
+  function _skewToPrice(uint256 mark, int8 skew, uint32 dispersion)
     internal
     pure
     returns (uint256)
   {
-    int256 offsetBps = (int256(int16(skew)) * int256(uint256(dispersion))) / 100;
-    int256 multiplier = int256(SC.PBPS) + offsetBps;
-    if (multiplier < 0) multiplier = 0;
-    return (twap * uint256(multiplier)) / SC.PBPS;
+    return _offsetToPrice(mark, (int256(int16(skew)) * int256(uint256(dispersion))) / 100);
   }
 
   // --- Anchor-path routing & spread ---
@@ -308,8 +276,8 @@ library Pricing {
       quote.hopPrices = new uint64[](path.hops.length - 1);
     }
 
-    EndpointCache memory cacheIn = _cacheEndpoint($, tokenIn);
-    EndpointCache memory cacheOut = _cacheEndpoint($, tokenOut);
+    EndpointCache memory cIn = _cacheEndpoint($, tokenIn);
+    EndpointCache memory cOut = _cacheEndpoint($, tokenOut);
 
     for (uint256 i = 1; i + 1 < path.hops.length; i++) {
       address hop = path.hops[i];
@@ -323,8 +291,8 @@ library Pricing {
     acc.currentAmount = amountIn;
 
     _walkLegs($, path, acc, quote, analytics);
-    quote.amountIn = amountIn;
-    _settleQuote($, quote, acc, cacheIn, cacheOut, analytics);
+    if (analytics) quote.amountIn = amountIn; // echo of caller's own arg — view/UI only
+    _settleQuote($, quote, acc, cIn, cOut, analytics);
   }
 
   /// @dev Path tail: spread, coverage toll, fee split; skews only when `analytics`.
@@ -332,29 +300,29 @@ library Pricing {
     IPool.PoolStorage storage $,
     IPool.SwapQuote memory quote,
     PathAccumulator memory acc,
-    EndpointCache memory cacheIn,
-    EndpointCache memory cacheOut,
+    EndpointCache memory cIn,
+    EndpointCache memory cOut,
     bool analytics
   ) private view {
-    quote.spreadBps = _pathSpread(acc, cacheIn, cacheOut);
-    acc.currentAmount -= _covToll(cacheOut, acc.currentAmount);
-    uint256 feeOut = (acc.currentAmount * uint256(quote.spreadBps)) / (2 * 1_000_000);
+    quote.spreadPbps = _pathSpread(acc, cIn, cOut);
+    acc.currentAmount -= _covToll(cOut, acc.currentAmount);
+    uint256 feeOut = (acc.currentAmount * uint256(quote.spreadPbps)) / (2 * SC.PBPS);
     (quote.protoFee, quote.lpFee) = splitFee(feeOut, $.feeParams.protoShare);
     quote.amountOut = acc.currentAmount - feeOut;
     if (analytics) {
       quote.skewIn = computeInventorySkew(
-        cacheIn.reserves,
-        cacheIn.liabilities,
-        cacheIn.coverageMin,
-        cacheIn.coverageMax,
-        cacheIn.gamma
+        cIn.reserves,
+        cIn.liabilities,
+        cIn.coverageMin,
+        cIn.coverageMax,
+        cIn.gamma
       );
       quote.skewOut = computeInventorySkew(
-        cacheOut.reserves,
-        cacheOut.liabilities,
-        cacheOut.coverageMin,
-        cacheOut.coverageMax,
-        cacheOut.gamma
+        cOut.reserves,
+        cOut.liabilities,
+        cOut.coverageMin,
+        cOut.coverageMax,
+        cOut.gamma
       );
     }
   }
@@ -363,7 +331,7 @@ library Pricing {
   ///      bounds. Pulled out of `getAnchorPathQuote` to keep that function off the stack-too-deep edge
   ///      (sVol/rawSpread live here, not in the hot frame).
   ///      - S_vol = minFeePath + σ·vega/(100·BPS) — per-asset floor at σ=0 (MIN_FEE_PBPS = 1 PBPS = 0.01 bp).
-  ///      - U_stale = STALE_Z·σ·√(age)/100 keyed on the stalest endpoint: defense-in-depth for keeper
+  ///      - U_stale = STALE_Z·σ·√(age)/BPS keyed on the stalest endpoint: defense-in-depth for keeper
   ///        LAG so a late/censored keeper degrades gracefully (wider quote) rather than being picked
   ///        off up to the hard TTL revert. ≈0 when fresh (age→0). With the deviation-triggered push
   ///        policy (minFee ≈ 2·θ) this rarely engages — it only bites when the keeper misses its push.
@@ -386,13 +354,14 @@ library Pricing {
   }
 
   /// @dev Staleness term (PBPS) = STALE_Z·σ·√(staleExcess)/BPS, where staleExcess = age beyond the
-  ///      keeper grace (ttl/2). σ (getSigma) is PBPS-scaled (1e4 = 1%), so it MUST be normalized by
+  ///      keeper grace (ttl/2). σ is PBPS-scaled (1e4 = 1%), so it MUST be normalized by
   ///      BPS here exactly as `sVol` normalizes σ·vega by 100·BPS — otherwise the raw σ·√excess term
   ///      is ~1e4× too large and saturates the spread to maxFee the instant age crosses ttl/2 (a step,
   ///      not the intended gentle ramp). Now: σ=1% (1e4), excess=100s → ~10bps; excess=1800s → ~42bps
   ///      (non-saturating, clamped by maxFeePath only in extremes). sqrt(0)=0 ⇒ 0 within the keeper
   ///      grace (flat market stays tight). Own frame keeps `_pathSpread` off the stack-too-deep edge.
   function _staleTerm(uint32 staleExcess, uint32 sigma) private pure returns (uint256) {
+    if (staleExcess == 0 || sigma == 0) return 0; // typical case: inside keeper grace — skip the sqrt
     return (STALE_Z * uint256(sigma) * FixedPointMathLib.sqrt(staleExcess)) / SC.BPS;
   }
 
@@ -444,17 +413,26 @@ library Pricing {
     view
     returns (uint256 basePrice)
   {
-    IPool.OracleConfig storage cfg = $.oracleConfigs[$.baseToken];
-    if (cfg.primary == address(0)) revert Err.NotConfigured(Err.Resource.ORACLE, $.baseToken);
-    IOracle.FeedData memory feed = IOracle(cfg.primary).getFeed(cfg.feedId);
-    // ORC-10: the base leg is exempt from the staleness PREMIUM (price is pinned to the unit of
-    // account, not keeper-pushed), so it must still clear the same fail-closed safety triad every
-    // other priced/gating feed does — STALE (a FROZEN base feed inside the depeg band), DEAD (mark 0)
-    // and UNCERTAIN (confidence > halt). `Oracle.gate` centralizes all three (prior code checked only
-    // age + mark==0, letting an over-uncertain base mark price freely).
-    basePrice = Oracle.gate(feed);
-    uint256 deviation = basePrice > 1e18 ? basePrice - 1e18 : 1e18 - basePrice;
-    uint256 devBps = (deviation * SC.BPS) / 1e18;
+    address base = $.baseToken;
+    // Tx-cache hit first (primed by the swap-exec path): saves a full external getFeed per hop —
+    // spoke→spoke reads the base mark on BOTH legs. View path unchanged (tload is view-safe).
+    // A cache hit was already gated at prime time (same tx, same timestamp ⇒ identical verdict) —
+    // decode the mark and skip straight to the depeg band, matching _readOracle's cached-feed model.
+    (bool found, IOracle.FeedData memory feed) = TCache.tryLoadOracleFeed(base);
+    if (found) {
+      basePrice = Oracle.mark(feed);
+    } else {
+      IPool.OracleConfig storage cfg = $.oracleConfigs[base];
+      if (cfg.primary == address(0)) revert Err.NotConfigured(Err.Resource.ORACLE, base);
+      feed = IOracle(cfg.primary).getFeed(cfg.feedId);
+      // ORC-10: the base leg is exempt from the staleness PREMIUM (price is pinned to the unit of
+      // account, not keeper-pushed), so it must still clear the same fail-closed safety triad every
+      // other priced/gating feed does — STALE (a FROZEN base feed inside the depeg band), DEAD
+      // (mark 0) and UNCERTAIN (confidence > halt). `Oracle.gate` centralizes all three.
+      basePrice = Oracle.gate(feed);
+    }
+    uint256 deviation = basePrice > SC.WAD ? basePrice - SC.WAD : SC.WAD - basePrice;
+    uint256 devBps = (deviation * SC.BPS) / SC.WAD;
     if (devBps > uint256(C.BASE_DEPEG_HALT_BPS)) revert Err.BaseDepegged(basePrice, devBps);
   }
 
@@ -490,14 +468,14 @@ library Pricing {
     bool isUpward = $.assets[from].anchor == to;
     address profileAsset = isUpward ? from : to;
 
-    (uint256 twap, uint32 sigma, uint16 minFee, uint16 maxFee) = _legMarkAndFees($, profileAsset);
+    (uint256 mark, uint32 sigma, uint16 minFee, uint16 maxFee) = _legMarkAndFees($, profileAsset);
     r.sigma = sigma;
     r.minFee = minFee;
     r.maxFee = maxFee;
 
     IPool.Asset storage asset = $.assets[profileAsset];
     IPool.RiskConfig storage rc = $.riskConfigs[profileAsset];
-    r.amountOut = _priceEdgeHop($, asset, rc, amountIn, twap, sigma, isUpward, profileAsset);
+    r.amountOut = _priceEdgeHop($, asset, rc, amountIn, mark, sigma, isUpward, profileAsset);
     bool clamped;
     (r.amountOut, clamped) = _legScaleOut($, from, to, r.amountOut);
     if (analytics && !clamped) {
@@ -524,15 +502,15 @@ library Pricing {
   function _legMarkAndFees(IPool.PoolStorage storage $, address profileAsset)
     private
     view
-    returns (uint256 twap, uint32 sigma, uint16 minFee, uint16 maxFee)
+    returns (uint256 mark, uint32 sigma, uint16 minFee, uint16 maxFee)
   {
     // Depth-1 star: profileAsset is always the spoke (edge), never base (L2-1).
     IOracle.FeedData memory feed = _readOracle($, profileAsset);
-    twap = Oracle.mark(feed);
-    sigma = Oracle.getSigma(feed);
+    mark = Oracle.mark(feed);
+    sigma = feed.sigma;
     IPool.Asset storage asset = $.assets[profileAsset];
-    minFee = asset.minFeeBps;
-    maxFee = asset.maxFeeBps;
+    minFee = asset.minFeePbps;
+    maxFee = asset.maxFeePbps;
   }
 
   /// @dev Informational per-hop execution price for SwapQuote.hopPrices (UI/analytics only).
@@ -546,13 +524,13 @@ library Pricing {
   ) private view returns (uint64 execPriceB64) {
     uint8 decimalsFrom = $.assets[from].decimals;
     uint8 decimalsTo = $.assets[to].decimals;
-    uint256 price18 = (amountOut * 1e18 * (10 ** uint256(18 - decimalsTo)))
+    uint256 price1e18 = (amountOut * 1e18 * (10 ** uint256(18 - decimalsTo)))
       / (amountIn * (10 ** uint256(18 - decimalsFrom)));
-    if (price18 == 0) revert Err.ZeroValue();
+    if (price1e18 == 0) revert Err.ZeroValue();
     if (isUpward) {
-      execPriceB64 = M.encodeB64(price18 / (10 ** uint256(18 - decimalsTo)), decimalsTo);
+      execPriceB64 = M.encodeB64(price1e18 / (10 ** uint256(18 - decimalsTo)), decimalsTo);
     } else {
-      execPriceB64 = M.encodeB64((uint256(1e18) * 1e18) / price18, 18);
+      execPriceB64 = M.encodeB64((SC.WAD * SC.WAD) / price1e18, 18);
     }
   }
 
@@ -562,7 +540,7 @@ library Pricing {
     IPool.Asset storage asset,
     IPool.RiskConfig storage rc,
     uint256 amountIn,
-    uint256 twap,
+    uint256 mark,
     uint32 sigma,
     bool selling,
     address profileAsset
@@ -571,15 +549,16 @@ library Pricing {
       asset.reserves, asset.liabilities, rc.coverageMin, rc.coverageMax, asset.gamma
     );
 
+    NUQ.Curve storage curve = $.curves[$.assets[profileAsset].presetId];
     if (selling) {
       // child→base: amountIn is already in profile-asset (child) decimals, matching `depth`.
-      (amountOut,) = quoteSwap(
+      amountOut = quoteSwap(
         amountIn,
         asset.reserves,
         asset.liabilities,
-        twap,
+        mark,
         sigma,
-        $.profiles[profileAsset],
+        curve,
         skew,
         true,
         rc.depthAmplifier,
@@ -588,33 +567,23 @@ library Pricing {
         asset.maxDispersion
       );
     } else {
-      // Buy: build spline points once, reuse for mid estimate + volume traverse.
+      // Buy: mid estimate at the skew anchor sizes the child-unit volume for the real traverse.
       uint256 depth = calculateDepth(asset.reserves, asset.liabilities, rc.depthAmplifier);
       uint32 dispersion =
         _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
-      IPool.LiquidityProfile storage profile = $.profiles[profileAsset];
-      uint256 midPrice;
-      uint256 execPrice;
-      if (profile.weights[0] == 0) {
-        midPrice = _skewToPrice(twap, skew, dispersion);
-        uint256 estOutLin = (amountIn * SC.WAD) / midPrice;
-        int256 decShiftLin =
-          int256(uint256(asset.decimals)) - int256(uint256($.assets[asset.anchor].decimals));
-        uint256 estChildLin = decShiftLin >= 0
-          ? estOutLin * (10 ** uint256(decShiftLin))
-          : estOutLin / (10 ** uint256(-decShiftLin));
-        execPrice =
-          _traverseSplineByVolume(twap, dispersion, profile, skew, estChildLin, depth, false);
-      } else {
-        Spline.Point[] memory points = _buildSplinePoints(profile, dispersion);
-        midPrice = _midFromPoints(twap, skew, points);
-        uint256 estOut = (amountIn * SC.WAD) / midPrice;
-        int256 decShift =
-          int256(uint256(asset.decimals)) - int256(uint256($.assets[asset.anchor].decimals));
-        uint256 estChild =
-          decShift >= 0 ? estOut * (10 ** uint256(decShift)) : estOut / (10 ** uint256(-decShift));
-        execPrice = _traverseWithPoints(twap, points, skew, estChild, depth, false);
-      }
+      uint256 header = curve.header;
+      uint256 midPrice = header == 0
+        ? _skewToPrice(mark, skew, dispersion)
+        : _flooredOffsetPrice(
+          mark, _scaleY(NUQ.evalQ(curve, header, _skewToDepth(skew)), header, dispersion)
+        );
+      uint256 estOut = (amountIn * SC.WAD) / midPrice;
+      int256 decShift =
+        int256(uint256(asset.decimals)) - int256(uint256($.assets[asset.anchor].decimals));
+      uint256 estChild =
+        decShift >= 0 ? estOut * (10 ** uint256(decShift)) : estOut / (10 ** uint256(-decShift));
+      uint256 execPrice =
+        _traverseCurveByVolume(mark, dispersion, curve, skew, estChild, depth, false);
       amountOut = (amountIn * SC.WAD) / execPrice;
     }
   }
@@ -644,10 +613,10 @@ library Pricing {
   {
     IPool.OracleConfig storage cfg = $.oracleConfigs[token];
     if (cfg.primary == address(0)) revert Err.NotConfigured(Err.Resource.ORACLE, token);
-    // INTERNAL mode: quote off a synthetic never-stale peg feed (mark = ema = pegB64, σ = STABLE_SIGMA,
+    // INTERNAL mode: quote off a synthetic never-stale peg feed (mark = pegB64, σ = STABLE_SIGMA_PBPS,
     // confidence 0). External feed still GATES via priceBandGuard (depeg breaker).
     if (cfg.mode == C.ORACLE_MODE_INTERNAL) {
-      return Oracle.getPegFeed($.assets[token].pegB64, C.STABLE_SIGMA);
+      return Oracle.getPegFeed($.assets[token].pegB64, C.STABLE_SIGMA_PBPS);
     }
     data = IOracle(cfg.primary).getFeed(cfg.feedId);
     // ORC-10: STALE + UNCERTAIN + DEAD — centralized in Oracle.gate.
@@ -663,10 +632,12 @@ library Pricing {
   {
     _cacheFeed($, tokenIn);
     _cacheFeed($, tokenOut);
+    // Base is read by _readBasePriceOrHalt on every hop of every leg — prime it too so multi-leg
+    // paths (and the depeg re-check per leg) hit tload instead of an external getFeed each time.
+    _cacheFeed($, $.baseToken);
   }
 
   function _cacheFeed(IPool.PoolStorage storage $, address token) private {
-    if (token == $.baseToken) return;
     (bool found,) = TCache.tryLoadOracleFeed(token);
     if (found) return;
     TCache.cacheOracleFeed(token, _fetchFeed($, token));
@@ -705,6 +676,7 @@ library Pricing {
   /// @dev Coverage potential Q(c) = ln c − c + 1 (WAD): ≤0, max 0 at c=1, convex wall diverging as c→0.
   ///      Finite differences of Q telescope to 0 over any closed reserve loop ⇒ round-trip-neutral.
   function _covQ(uint256 cWad) internal pure returns (int256) {
+    if (cWad == SC.WAD) return 0; // Q(1)=0 analytic max; skip lnWad on clamped at/above-peg legs
     return FixedPointMathLib.lnWad(int256(cWad)) - int256(cWad) + int256(SC.WAD);
   }
 

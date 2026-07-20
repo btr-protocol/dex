@@ -9,7 +9,7 @@ import {IPool} from "../src/interfaces/IPool.sol";
 import {ExternalOracle} from "../src/oracles/ExternalOracle.sol";
 import {TestnetERC20} from "../src/testnet/TestnetERC20.sol";
 import {TestnetFaucet} from "../src/testnet/TestnetFaucet.sol";
-import {Maths as M} from "../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {console2} from "forge-std/Script.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -25,7 +25,6 @@ import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 ///         SEED_USDC (default 2_000_000e18 per pool side), DEPLOY_OUT.
 /// @dev Run: forge script script/TestnetDeploy.s.sol:TestnetDeploy --sig deployTestnet --rpc-url chapel --broadcast
 contract TestnetDeploy is Deploy {
-  uint16 internal constant TAU = 1800;
   uint16 internal constant STABLE_TTL = 7200;
   uint16 internal constant VOLATILE_TTL = 600;
   uint32 internal constant SIGMA_SEED = 10_000; // 1% PBPS
@@ -313,8 +312,6 @@ contract TestnetDeploy is Deploy {
       M.encodeB64(m.usdc, 18),
       SIGMA_SEED,
       CONF_SEED,
-      TAU,
-      TAU,
       STABLE_MAXDEV,
       STABLE_TTL
     );
@@ -350,7 +347,7 @@ contract TestnetDeploy is Deploy {
     uint16 maxDev,
     uint16 ttl
   ) internal {
-    oracle.addFeed(asset, usdc, priceB64, SIGMA_SEED, CONF_SEED, TAU, TAU, maxDev, ttl);
+    oracle.addFeed(asset, usdc, priceB64, SIGMA_SEED, CONF_SEED, maxDev, ttl);
   }
 
   function _stableList(Tokens memory t) internal pure returns (address[] memory list) {
@@ -384,13 +381,15 @@ contract TestnetDeploy is Deploy {
     bytes32 xautRefFeedId,
     SeedMarks memory seedMarks
   ) internal returns (address poolAddr) {
-    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeeBps: 100});
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeePbps: 100});
     bytes memory initdata = abi.encodeWithSelector(Pool.initialize.selector, tokens[0], wnative, fp);
     poolAddr = PoolFactory(payable(ctx.core.poolFactory)).createPool(tokens[0], tokens, initdata);
     Pool pool = Pool(payable(poolAddr));
     Admin admin = Admin(ctx.core.admin);
     IPool.RiskConfig memory rc = _risk();
-    IPool.LiquidityProfile memory pf = _profile();
+    // Preset 1 (generic default) must exist pre-seal, before the first addAsset referencing it.
+    (uint256[] memory interior, int256[] memory wQ) = _curve();
+    admin.setCurve(poolAddr, 1, interior, wQ, 1000, 0);
 
     for (uint256 i = 0; i < tokens.length; i++) {
       address tok = tokens[i];
@@ -406,7 +405,7 @@ contract TestnetDeploy is Deploy {
         xautRefOracle,
         xautRefFeedId
       );
-      admin.addAsset(poolAddr, tok, oc, rc, pf, minFee, 18, 1000, 100_000, 10_000, 10_000);
+      admin.addAsset(poolAddr, tok, oc, rc, 1, minFee, 18, 1000, 100_000, 10_000, 10_000);
     }
 
     // The listed base asset's OracleConfig is its depeg breaker.
@@ -458,16 +457,18 @@ contract TestnetDeploy is Deploy {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
+  // placeholder: production weights come from research/stable-core/out/spline_shared_grid.json at deploy
+  /// @dev Preset 1 = generic default: linear ±500 pbps ramp over 9 quartic weights.
+  function _curve() internal pure returns (uint256[] memory interior, int256[] memory wQ) {
+    interior = new uint256[](4);
+    interior[0] = 2000;
+    interior[1] = 4000;
+    interior[2] = 6000;
+    interior[3] = 8000;
+    wQ = new int256[](9);
+    for (uint256 i = 0; i < 9; i++) {
+      wQ[i] = (int256(i) - 4) * 125_000_000_000;
+    }
   }
 
   function _seedPool(

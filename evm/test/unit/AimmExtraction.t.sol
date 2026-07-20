@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../../src/Pool.sol";
 import {PoolAux} from "../../src/PoolAux.sol";
@@ -10,15 +9,15 @@ import {Admin} from "../../src/Admin.sol";
 import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
-import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {BaseTestSetup, MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
 
 /// @title AimmExtraction
 /// @notice High-volatility extraction tests for the AIMM pricer. At high dispersion the spline
 ///         offset (+/- 5% at maxDispersion) dwarfs the 1% fee cap, so a sign error in the
 ///         sell-side spline (BUG-2) or a dead/mis-decimalled buy path (BUG-3) becomes a CROSSED
 ///         market (bid > ask) = free round-trip extraction. Expected to FAIL pre-fix.
-contract AimmExtractionTest is Test {
+contract AimmExtractionTest is BaseTestSetup {
   PoolFactory factory;
   Pool poolImpl;
   Admin admin;
@@ -35,18 +34,6 @@ contract AimmExtractionTest is Test {
   uint16 constant FLASH_FEE_BPS = 100;
   uint256 constant PX = 3000e18;
   uint32 constant HI_VOL = 100_000_000; // drives dispersion to its max (10%)
-
-  function _profile() internal pure returns (IPool.LiquidityProfile memory p) {
-    p.weights[0] = 50;
-    p.weights[1] = 50;
-    p.weights[2] = 50;
-    p.weights[3] = 50;
-    p.knots[0] = -50;
-    p.knots[1] = -25;
-    p.knots[2] = 0;
-    p.knots[3] = 25;
-    p.knots[4] = 50;
-  }
 
   function _risk() internal pure returns (IPool.RiskConfig memory r) {
     r.decayStartRatioBps = 5000;
@@ -66,7 +53,7 @@ contract AimmExtractionTest is Test {
     return bytes32(uint256(uint160(token)));
   }
 
-  function setUp() public {
+  function setUp() public override {
     ac = new MockAC(OWNER);
     admin = new Admin(address(ac));
     flashSingleton = new Flash();
@@ -79,7 +66,7 @@ contract AimmExtractionTest is Test {
     toks[0] = address(base);
     toks[1] = address(tok);
     IPool.FeeParams memory fp =
-      IPool.FeeParams({protoShare: PROTO_SHARE, flashFeeBps: FLASH_FEE_BPS});
+      IPool.FeeParams({protoShare: PROTO_SHARE, flashFeePbps: FLASH_FEE_BPS});
     bytes memory initdata =
       abi.encodeWithSelector(Pool.initialize.selector, address(base), address(0xCAFE), fp);
     pool = Pool(payable(factory.createPool(address(base), toks, initdata)));
@@ -89,14 +76,14 @@ contract AimmExtractionTest is Test {
     oracle.setFeed(_feedId(address(base)), M.encodeB64(1e18, 18), HI_VOL, 0, type(uint16).max);
     oracle.setFeed(_feedId(address(tok)), M.encodeB64(PX, 18), HI_VOL, 0, type(uint16).max);
     IPool.RiskConfig memory rc = _risk();
-    IPool.LiquidityProfile memory pf = _profile();
     vm.startPrank(OWNER);
+    admin.setCurve(address(pool), DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
     admin.addAsset(
       address(pool),
       address(base),
       _oracle(address(base)),
       rc,
-      pf,
+      DEFAULT_PRESET,
       1000,
       18,
       1000,
@@ -109,7 +96,7 @@ contract AimmExtractionTest is Test {
       address(tok),
       _oracle(address(tok)),
       rc,
-      pf,
+      DEFAULT_PRESET,
       1000,
       18,
       1000,

@@ -3,7 +3,7 @@ pragma solidity =0.8.35;
 
 import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
 import {Oracle} from "../../src/libraries/Oracle.sol";
-import {Maths as M} from "../../src/libraries/Maths.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
@@ -12,16 +12,11 @@ import {IOracle} from "../../src/interfaces/IOracle.sol";
 /// @notice Unit tests for the external-mark oracle lib: mark decode, single σ, σ-EMA fold, and
 ///         the synthetic base feed.
 contract LibOracleTest is BaseTestSetup {
-  // ─── mark / getSigma ───
+  // ─── mark ───
 
   function test_mark_returns_lastPrice_1e18() public view {
     IOracle.FeedData memory f = makeFeedData(M.encodeB64(3000e18, 18), VOL_1_PCT, 5);
     assertApproxEqRel(Oracle.mark(f), 3000e18, 0.0001e18, "mark = b64To1e18(lastPrice)");
-  }
-
-  function test_getSigma_passthrough() public view {
-    IOracle.FeedData memory f = makeFeedData(M.encodeB64(1e18, 18), 300_000, 0);
-    assertEq(Oracle.getSigma(f), 300_000, "sigma is a single passthrough field");
   }
 
   // ─── getPegFeed (unit peg / base-numeraire stand-in) ───
@@ -29,7 +24,7 @@ contract LibOracleTest is BaseTestSetup {
   function test_getPegFeed_isUnitAndNeverExpires() public view {
     IOracle.FeedData memory f = Oracle.getPegFeed(M.encodeB64(SC.WAD, 18), uint32(SC.ONE_PCT_PBPS));
     assertApproxEqRel(Oracle.mark(f), SC.WAD, 0.0001e18, "peg mark = 1.0");
-    assertEq(uint256(f.sigmaEma), SC.ONE_PCT_PBPS, "peg sigmaEma = 1%");
+    assertEq(uint256(f.sigma), SC.ONE_PCT_PBPS, "peg sigma = 1%");
     assertEq(f.ttl, type(uint16).max, "peg never expires");
     assertEq(f.confidence, 0, "peg has no CI");
   }

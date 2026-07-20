@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {IMorphoBlue, MorphoId} from "../interfaces/external/IMorphoBlue.sol";
+import {IMorphoBlue, MorphoId} from "../../src/interfaces/external/IMorphoBlue.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @title MockMorphoBlue — supply-only Morpho Blue market stub (SharesMathLib virtual shares).
+/// @title MockMorphoBlue - supply-only Morpho Blue market stub (SharesMathLib virtual shares).
 contract MockMorphoBlue is IMorphoBlue {
   using SafeTransferLib for address;
   using MorphoId for MarketParams;
