@@ -33,7 +33,7 @@ Local layout:
 | `Flash.sol` | ERC-3156-style (postFlashLoan variant) flash-loan singleton — loans a pool's reserves (no minting); repay by raising the pool's token balance. |
 | `oracles/ExternalOracle.sol` | Permissionless relay of EIP-712 NXR-signed mark/σ/confidence records. Authenticated source time, immutable relay-lag ceiling, monotonic replay protection, deviation clamps, and TTL gates fail closed. No Chainlink or lagging price EMA is in the quote path. |
 
-On-chain `Router` was retired (see `AUDIT_REPORT.md` cycle 4) — routing is off-chain by design: route-finding in `sdk/src/amm` (`rankSwap`, direct + 2-hop routes across BTR's own pools) + execution calldata in `sdk/src/router` (`planToLegs` + `buildSwapCalls`).
+On-chain `Router` was retired; routing is off-chain by design: route-finding in `sdk/src/amm` (`rankSwap`, direct + 2-hop routes across BTR's own pools) + execution calldata in `sdk/src/router` (`planToLegs` + `buildSwapCalls`).
 
 Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`, `GovToken`, `StakedAsset`, `Bridge`, `tokens/BridgeableERC20`) live in `~/Work/btr/shared` and are consumed via `@btr-shared/` remap. `Bridge.sol` = LayerZero OFT bridge; `BridgeableERC20` = ERC-7802 bridgeable token mixin.
 
