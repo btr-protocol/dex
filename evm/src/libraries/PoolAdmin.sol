@@ -14,6 +14,14 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 ///         setup and validation from `Pool.sol`. Pure storage transforms; no auth
 ///         (caller must gate via `onlyAdmin`).
 library PoolAdmin {
+  /// @dev Dispersion ceiling (pbps) = 90% PBPS. At worst inventory skew (±100) the no-profile / empty-
+  ///      curve offset is ±dispersion pbps (skew·disp/100); a dispersion ≥ PBPS drives _offsetToPrice's
+  ///      mark multiplier to 0 → a degenerate/zero fallback quote with NO positivity guard (presetId 0
+  ///      skips validatePresetAssign). Bounding max dispersion here (shared by init + recalibration)
+  ///      makes the fallback midPrice honor the same −90% offset floor the spline path enforces. Wide
+  ///      volatile bands (≤ 500000 = 50% PBPS) are unaffected.
+  uint32 private constant MAX_DISPERSION_PBPS = 900_000;
+
   /// @notice Validate a preset assignment: the curve must exist, a wall-gated preset (hyper tiers)
   ///         may only price a coverage-walled asset (κ>0 ⇒ haircutSuppressor==0 held by risk config),
   ///         and the curve's minimum offset — wQ[0], scaled to the max dispersion — must keep a
@@ -62,7 +70,7 @@ library PoolAdmin {
   {
     mn = minDispersion == 0 ? 1000 : minDispersion;
     mx = maxDispersion == 0 ? 100000 : maxDispersion;
-    if (mn > mx) revert Err.BadConfig();
+    if (mn > mx || mx > MAX_DISPERSION_PBPS) revert Err.BadConfig();
   }
 
   /// @notice Validate oracle config: primary set + reachable, plus INTERNAL-mode gating.

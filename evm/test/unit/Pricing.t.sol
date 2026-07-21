@@ -333,4 +333,33 @@ contract LibPricingTest is BaseTestSetup {
     assertLt(depth50, depth75);
     assertLt(depth75, depth100);
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EMPTY-CURVE FALLBACK FLOOR (Item A): the no-profile mid (_skewToPrice) routes through the SAME
+  // −90% offset / 5%-of-mark backstops the spline path uses, so a degenerate mark or a dispersion that
+  // bypasses the admin ceiling (900000) can never zero/brick the fallback quote. buy = mid·(WAD+k)/WAD
+  // ≥ mid, so flooring the mid floors both the sell and buy fallback (the presetId-0 bootstrap path).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// @notice At the admin ceiling (disp 900000, worst skew −100) the fallback mid floors to 10% of mark.
+  function test_skewToPrice_at_ceiling_is_ten_pct_mark() public pure {
+    // offset = −100·900000/100 = −900000 ⇒ mid = mark·(PBPS−900000)/PBPS = 10% mark.
+    assertEq(P._skewToPrice(1e18, -100, 900_000), 1e17);
+  }
+
+  /// @notice Degenerate disp ABOVE PBPS (only reachable if the ceiling were bypassed) clamps to the
+  ///         −90% offset floor ⇒ 10% of mark, never 0 — the belt-and-suspenders that keeps the empty-
+  ///         curve buy quote from bricking. Without the floor, offset −2000000 ⇒ mark multiplier < 0 ⇒ 0.
+  function test_skewToPrice_extreme_disp_stays_positive() public pure {
+    // offset = −100·2000000/100 = −2000000; SPLINE floor caps it at −900000 ⇒ mid = 10% mark (> 0).
+    uint256 px = P._skewToPrice(1e18, -100, 2_000_000);
+    assertGt(px, 0);
+    assertEq(px, 1e17); // 10% of 1e18 (offset floor dominates the 5%-of-mark floor here)
+  }
+
+  /// @notice Honest wide-volatile band (disp 500000 = 50% PBPS, worst skew −100): untouched by the floor,
+  ///         mid = 50% mark. Confirms the guard only bites degenerate configs, not legitimate ones.
+  function test_skewToPrice_honest_wide_band_unfloored() public pure {
+    assertEq(P._skewToPrice(1e18, -100, 500_000), 5e17); // 50% mark, above both floors
+  }
 }

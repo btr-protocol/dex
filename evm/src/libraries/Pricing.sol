@@ -145,6 +145,10 @@ library Pricing {
     if (header == 0) {
       uint256 impact = (amountIn * SC.WAD) / depth;
       if (impact > MAX_IMPACT) impact = MAX_IMPACT;
+      // _skewToPrice floors the mid on the SAME −90% offset / 5%-of-mark backstops the spline path uses,
+      // so a degenerate mark (or a pathological dispersion×skew) can never zero the empty-curve BUY quote
+      // (SC.WAD+k ≥ WAD ⇒ buy ≥ mid ≥ 5% mark). The SELL branch keeps its own floor: impact adj can still
+      // push its output below the floored mid.
       uint256 midPrice = _skewToPrice(mark, inventorySkew, dispersion);
       uint256 k = impact / 2;
       if (selling) {
@@ -200,13 +204,17 @@ library Pricing {
     }
   }
 
-  /// @dev skew → absolute price (no-profile fallback). offsetPbps = skew*disp/100.
+  /// @dev skew → absolute price (no-profile fallback). offsetPbps = skew*disp/100. Routes through the
+  ///      SAME backstops as the curve path (`_flooredOffsetPrice`): a fresh listing (skew ≡ −100, empty
+  ///      preset) under an extreme admin maxDispersion (≥ PBPS) would otherwise clamp offset ≤ −PBPS →
+  ///      midPrice 0 → zero/bricked buy quote (buy-sizing div-by-0 at `_priceEdgeHop`). Floor covers both
+  ///      empty-curve buy call sites (fallback + sizing) and the sell fallback consistently.
   function _skewToPrice(uint256 mark, int8 skew, uint32 dispersion)
     internal
     pure
     returns (uint256)
   {
-    return _offsetToPrice(mark, (int256(int16(skew)) * int256(uint256(dispersion))) / 100);
+    return _flooredOffsetPrice(mark, (int256(int16(skew)) * int256(uint256(dispersion))) / 100);
   }
 
   // --- Anchor-path routing & spread ---

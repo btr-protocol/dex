@@ -350,4 +350,29 @@ contract PoolAdminTest is Test {
     assertEq(a.minDispersion, 2500);
     assertEq(a.maxDispersion, 75000);
   }
+
+  // ─── maxDispersion ceiling (Item B): empty-preset assets skip validatePresetAssign, so
+  //     sanitizeDispersion is the SOLE on-chain guard keeping the no-profile fallback offset
+  //     (skew·disp/100, |skew|≤100 ⇒ ≤ disp pbps) from clamping _offsetToPrice's mark multiplier to 0. ───
+
+  /// @notice maxDispersion above the 90%-PBPS ceiling (900000) must revert — a disp ≥ PBPS would
+  ///         zero the empty-curve fallback mid.
+  function test_maxDispersion_above_ceiling_reverts() public {
+    vm.expectRevert(Err.BadConfig.selector);
+    h.callInitAsset(TKA, 6, 25, 1000, 900_001, 8000, 9000);
+  }
+
+  /// @notice Boundary: maxDispersion == ceiling (900000) is allowed and persists; at worst skew −100 the
+  ///         fallback offset is −900000 ⇒ multiplier 100000/PBPS > 0 (mid ≥ 10% mark).
+  function test_maxDispersion_at_ceiling_allowed() public {
+    h.callInitAsset(TKA, 6, 25, 1000, 900_000, 8000, 9000);
+    assertEq(h.getAsset(TKA).maxDispersion, 900_000);
+  }
+
+  /// @notice PBPS (1000000) is a rejected value — this is the exact disp that would drive the empty-curve
+  ///         mid to 0 at skew −100; the ceiling sits strictly below it.
+  function test_maxDispersion_at_pbps_reverts() public {
+    vm.expectRevert(Err.BadConfig.selector);
+    h.callInitAsset(TKA, 6, 25, 1000, 1_000_000, 8000, 9000);
+  }
 }

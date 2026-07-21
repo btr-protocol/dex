@@ -19,31 +19,30 @@ import {PoolIO} from "./PoolIO.sol";
 ///         trampolines. ~700 gas/call extra but admin paths are cold so
 ///         the trade-off is favorable for ~250 bytes/fn bytecode savings.
 library PoolAdminWrite {
-  function _requireAsset(IPool.PoolStorage storage $, address t) private view {
+  /// @dev wrap→resolve canonical token, then assert it is a listed asset (decimals!=0). Returns the
+  ///      wrapped token so the 8 admin halt/config sites collapse the wrap+require pair to one call.
+  function _wrapRequire(IPool.PoolStorage storage $, address token) private view returns (address t) {
+    t = PoolIO.wrap($, token);
     if ($.assets[t].decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
   }
 
   function freezeAsset(IPool.PoolStorage storage $, address token) external {
-    address t = PoolIO.wrap($, token);
-    _requireAsset($, t);
+    address t = _wrapRequire($, token);
     $.riskConfigs[t].flags |= C.FROZEN_BIT;
   }
 
   function unfreezeAsset(IPool.PoolStorage storage $, address token) external {
-    address t = PoolIO.wrap($, token);
-    _requireAsset($, t);
+    address t = _wrapRequire($, token);
     $.riskConfigs[t].flags &= ~C.FROZEN_BIT;
   }
 
   function pauseAsset(IPool.PoolStorage storage $, address token) external {
-    address t = PoolIO.wrap($, token);
-    _requireAsset($, t);
+    address t = _wrapRequire($, token);
     $.riskConfigs[t].flags |= C.ASSET_PAUSED_BIT;
   }
 
   function unpauseAsset(IPool.PoolStorage storage $, address token) external {
-    address t = PoolIO.wrap($, token);
-    _requireAsset($, t);
+    address t = _wrapRequire($, token);
     $.riskConfigs[t].flags &= ~C.ASSET_PAUSED_BIT; // clears ONLY bit6 — an independent FROZEN survives
   }
 
@@ -144,8 +143,7 @@ library PoolAdminWrite {
   function setRiskConfig(IPool.PoolStorage storage $, address token, IPool.RiskConfig calldata cfg)
     external
   {
-    address t = PoolIO.wrap($, token);
-    _requireAsset($, t);
+    address t = _wrapRequire($, token);
     PoolAdmin.validateRiskConfig(cfg); // κ>0 ⇒ depthAmplifier==0
     if (t == $.baseToken && cfg.kappaCovBps != 0) revert Err.BadConfig(); // base numeraire never walled (Thm 2)
     // Coverage-wall invariant (Lemma B): raising the wall on an asset that still socializes deficit
@@ -221,8 +219,7 @@ library PoolAdminWrite {
     address token,
     IPool.OracleConfig calldata cfg
   ) external {
-    address t = PoolIO.wrap($, token);
-    _requireAsset($, t);
+    address t = _wrapRequire($, token);
     PoolAdmin.validateOracleConfig(cfg);
     PoolAdmin.validateInternalMode($, t, cfg);
     $.oracleConfigs[t] = cfg;
@@ -280,8 +277,7 @@ library PoolAdminWrite {
   function setAssetHook(IPool.PoolStorage storage $, address token, address hook, uint32 flags)
     external
   {
-    address t = PoolIO.wrap($, token);
-    _requireAsset($, t);
+    address t = _wrapRequire($, token);
     if (flags & ~C.HOOK_FLAGS_MASK != 0) revert Err.InvalidInput();
     address prev = $.assetHooks[t].target;
     uint256 inv = $.invested[t];
@@ -297,8 +293,7 @@ library PoolAdminWrite {
   }
 
   function clearAssetHook(IPool.PoolStorage storage $, address token) external {
-    address t = PoolIO.wrap($, token);
-    _requireAsset($, t);
+    address t = _wrapRequire($, token);
     if ($.invested[t] != 0) revert Err.InvalidState();
     delete $.assetHooks[t];
   }

@@ -445,6 +445,53 @@ contract PoolConfigurationRegressionTest is BaseTestSetup {
     pool.swap(address(base), address(quote), 100e18, 0, USER);
   }
 
+  uint256 private constant ASSETS_SLOT = 3;
+
+  /// @notice Empty-curve BUY floor invariant. A fresh listing (liabilities==0 ⇒ skew ≡ −100) on the
+  ///         empty preset (presetId 0) at the MAXIMUM admin maxDispersion (= MAX_DISPERSION_PBPS,
+  ///         900_000) drives the no-profile mid to its worst case: offset = skew·disp/100 = −900_000
+  ///         PBPS. `_skewToPrice` now routes through the shared −90%-offset / 5%-of-mark backstop
+  ///         (`_flooredOffsetPrice`) that the spline path uses, closing the one offset→price path that
+  ///         previously bypassed it, so the empty-curve BUY execution price stays ≥ 5% of mark. The
+  ///         on-chain 900_000 dispersion cap already keeps the raw mid > 0 (m = PBPS − 900_000 = 1e5);
+  ///         this locks the floor as defense-in-depth should that cap or the skew clamp ever change.
+  function test_empty_curve_buy_floored_at_max_dispersion() public {
+    MockERC20 fresh = new MockERC20("Fresh", "FRESH", 18);
+    uint256 mark = 1e18;
+    // High σ so dispersion clamps to maxDispersion: scaledσ = σ·vega/(1000·BPS) ≫ maxDispersion.
+    oracle.setFeed(
+      bytes32(uint256(uint160(address(fresh)))),
+      M.encodeB64(mark, 18),
+      2_000_000_000,
+      0,
+      type(uint16).max
+    );
+    vm.prank(OWNER);
+    admin.addAsset(
+      address(pool),
+      address(fresh),
+      _oracleCfg(oracle, address(fresh)),
+      _risk(),
+      0, // presetId 0 = empty curve (header 0 → skew-anchored linear fallback)
+      1000,
+      18,
+      1000,
+      900_000, // maxDispersion = MAX_DISPERSION_PBPS (cap): worst-case offset = −900_000 PBPS
+      10000,
+      10000
+    );
+    // Seed OUTPUT reserves with liabilities==0 (Asset slot0 = reserves|liabilities): keeps skew ≡ −100
+    // and gives the buy an un-clamped fill so the execution price is observable.
+    bytes32 assetRoot = keccak256(abi.encode(address(fresh), ASSETS_SLOT));
+    vm.store(address(pool), assetRoot, bytes32(uint256(1_000_000e18)));
+
+    IPool.SwapQuote memory q = pool.getSwapQuote(address(base), address(fresh), 1e18);
+    assertGt(q.amountOut, 0, "buy quote must not brick/zero-out on empty preset");
+    // execPrice (base per FRESH, 1e18) = amountIn·WAD/amountOut; must clear the 5%-of-mark floor.
+    uint256 execPrice = (uint256(1e18) * SC.WAD) / q.amountOut;
+    assertGe(execPrice, (mark * 500) / SC.BPS, "empty-curve buy execPrice below 5% mark floor");
+  }
+
   function _storedPrimary(bytes32 configRoot) internal view returns (address) {
     uint256 packed = uint256(vm.load(address(pool), bytes32(uint256(configRoot) + 2)));
     return address(uint160(packed));

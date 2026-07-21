@@ -178,6 +178,25 @@ contract PoolLifecycleTest is BaseTestSetup {
     assertEq(pool.getRiskFlags(address(base)) & C.ASSET_PAUSED_BIT, 0, "unpaused");
   }
 
+  // Guards the _wrapRequire collapse (PoolAdminWrite): every admin halt/config site must still revert
+  // NotFound(ASSET) for an unlisted token — the wrap+decimals==0 check folded into one helper.
+  function test_admin_wrapRequire_unlisted_reverts() public {
+    address ghost = makeAddr("unlistedToken");
+    bytes memory nf = abi.encodeWithSelector(Err.NotFound.selector, Err.Resource.ASSET, ghost);
+    vm.startPrank(OWNER);
+    vm.expectRevert(nf);
+    admin.freezeAsset(address(pool), ghost);
+    vm.expectRevert(nf);
+    admin.pauseAsset(address(pool), ghost);
+    vm.expectRevert(nf);
+    admin.unfreezeAsset(address(pool), ghost);
+    vm.expectRevert(nf);
+    admin.unpauseAsset(address(pool), ghost);
+    vm.expectRevert(nf);
+    admin.clearAssetHook(address(pool), ghost);
+    vm.stopPrank();
+  }
+
   function test_guardian_can_freeze_but_not_unfreeze() public {
     address g = makeAddr("guardian");
     ac.setGuardian(g, true);
