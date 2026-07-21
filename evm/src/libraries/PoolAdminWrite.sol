@@ -207,6 +207,12 @@ library PoolAdminWrite {
     uint8 flags
   ) external {
     if (presetId == 0 || dispRef == 0) revert Err.InvalidInput(); // 0 = the no-shape sentinel
+    // A live preset's wall-requirement is immutable across refits: assets were assigned against its
+    // current FLAG_REQUIRES_WALL. Flipping it on an in-use preset would strand referencing assets
+    // (an unwalled asset left on a now-wall-required needle, or vice versa). Changing the wall
+    // requirement needs a fresh presetId; a refit keeps the flag byte.
+    uint256 existing = $.curves[presetId].header;
+    if (existing != 0 && uint8(existing >> 248) != flags) revert Err.BadConfig();
     NUQuartic.set($.curves[presetId], interior, wQ, dispRef, flags);
   }
 
