@@ -14,6 +14,7 @@ import {PoolFactory} from "../src/PoolFactory.sol";
 import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
+import {NUQuartic} from "../src/libraries/NUQuartic.sol";
 import {TestnetERC20} from "../src/testnet/TestnetERC20.sol";
 import {ChapelSeedAmounts} from "./ChapelSeedAmounts.sol";
 
@@ -131,10 +132,8 @@ contract ChapelEnableSwaps is Script {
 
     IPool.RiskConfig memory rcBase = _riskStableBase();
     IPool.RiskConfig memory rcSpoke = stable ? _riskStableSpoke() : _riskVolatile();
-    // Preset curve must exist pre-seal, before the first addAsset referencing it.
-    uint16 presetId = stable ? 2 : 1;
-    (uint256[] memory interior, int256[] memory wQ, uint16 dispRef) = _curve(stable);
-    admin.setCurve(poolAddr, presetId, interior, wQ, dispRef, 0);
+    // Fitted preset curves must exist pre-seal, before the first addAsset referencing them.
+    _installPresets(admin, poolAddr, stable);
 
     for (uint256 i = 0; i < tokens.length; i++) {
       address tok = tokens[i];
@@ -143,6 +142,7 @@ contract ChapelEnableSwaps is Script {
         _oracleCfg(tok, tokens[0], refBand, refOracle, xautRefOracle, xautRefFeedId);
       // Base numeraire forbids κ wall (PoolAdminWrite); spokes use stable κ=100.
       IPool.RiskConfig memory rc = (tok == tokens[0]) ? rcBase : rcSpoke;
+      uint16 presetId = _presetFor(tok, stable);
       admin.addAsset(poolAddr, tok, oc, rc, presetId, minFee, 18, minDisp, maxDisp, GAMMA, VEGA);
       // initAsset defaults maxFeeBps=BPS; clamp to SSoT. κ-walled spokes require haircut=0.
       uint16 maxFee = stable ? 2_000 : 10_000;
@@ -184,25 +184,269 @@ contract ChapelEnableSwaps is Script {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  // placeholder: production weights come from research/stable-core/out/spline_shared_grid.json at deploy
-  /// @dev Preset 1 = generic default (±500 pbps ramp, dispRef 1000); preset 2 = tight stable
-  ///      (±50 pbps ramp, dispRef 100).
-  function _curve(bool stable)
+  /// @notice Install every fitted preset referenced by this pool, pre-seal (addAsset requires them).
+  /// @dev Stable pool: 10 plateau-W1, 11 hyper-W0.5 (REQUIRES_WALL), 12 plateau-W2.
+  ///      Volatile pool: 20 plateau-W1, 21 lepto-W5, 22 platy-W5, 23 meso-W2.
+  function _installPresets(Admin admin, address pool, bool stable) internal {
+    uint16[3] memory sids = [uint16(10), 11, 12];
+    uint16[4] memory vids = [uint16(20), 21, 22, 23];
+    uint256 n = stable ? 3 : 4;
+    for (uint256 i = 0; i < n; i++) {
+      uint16 id = stable ? sids[i] : vids[i];
+      (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags) = _preset(id);
+      admin.setCurve(pool, id, interior, wQ, dispRef, flags);
+    }
+  }
+
+  /// @notice Per-asset default preset (SSoT: research/stable-core/RISK_PARAMS_TESTNET.md §3/§4).
+  /// @dev hyper (11) is reserved to the coverage-walled USDT spoke; base + un-walled legs use plateau.
+  function _presetFor(address tok, bool stable) internal pure returns (uint16) {
+    if (stable) {
+      if (tok == USDT) return 11; // hyper W0.5 (walled, κ=100)
+      if (tok == USDE) return 12; // plateau W2
+      return 10; // USDC(base), USD1, FDUSD -> plateau W1
+    }
+    if (tok == BTCB || tok == ETH || tok == WBNB) return 21; // lepto W5
+    if (tok == CAKE) return 22; // platy W5
+    if (tok == XAUT) return 23; // meso W2
+    return 20; // USDC(base), USDT -> plateau W1
+  }
+
+  /// @notice Fitted quartic I-spline presets. Integers verbatim from
+  ///         `test/proto/quartic_vectors.json` (pbps·Q, Q=1e9); research SSoT =
+  ///         `research/stable-core/out/spline_shared_grid.json`. dispRef(pbps) = wall(bp)·100, and
+  ///         the fit's edge wQ[last] ≈ dispRef·Q (verified per preset). flags = FLAG_REQUIRES_WALL
+  ///         only on hyper (11).
+  function _preset(uint16 presetId)
     internal
     pure
-    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef)
+    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags)
   {
-    interior = new uint256[](4);
-    interior[0] = 2000;
-    interior[1] = 4000;
-    interior[2] = 6000;
-    interior[3] = 8000;
-    wQ = new int256[](9);
-    int256 step = stable ? int256(12_500_000_000) : int256(125_000_000_000);
+    if (presetId == 10 || presetId == 20) return _fitW1Plateau();
+    if (presetId == 11) return _fitW05Hyper();
+    if (presetId == 12) return _fitW2Plateau();
+    if (presetId == 21) return _fitLepto();
+    if (presetId == 22) return _fitPlaty();
+    if (presetId == 23) return _fitW2Meso();
+    revert("unknown preset");
+  }
+
+  // --- Fitted vectors (verbatim from quartic_vectors.json) -----------------------------------
+
+  /// @dev vector key `W1_plateau`; presets 10 (stable) + 20 (volatile). dispRef 100.
+  function _fitW1Plateau()
+    private
+    pure
+    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags)
+  {
+    interior = _dynI9([uint256(500), 1250, 2500, 3750, 5000, 6250, 7500, 8750, 9500]);
+    wQ = _dynW14(
+      [
+        int256(-100_000_000_000),
+        -92_850_900_000,
+        -83_925_500_000,
+        -71_143_900_000,
+        -54_153_400_000,
+        -33_922_600_000,
+        -11_258_100_000,
+        11_258_100_000,
+        33_922_600_000,
+        54_153_400_000,
+        71_143_900_000,
+        83_925_500_000,
+        92_851_000_000,
+        99_999_400_000
+      ]
+    );
+    dispRef = 100;
+    flags = 0;
+  }
+
+  /// @dev vector key `W05_hyper`; preset 11. dispRef 50, FLAG_REQUIRES_WALL (needle only safe walled).
+  function _fitW05Hyper()
+    private
+    pure
+    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags)
+  {
+    interior = _dynI9([uint256(800), 2200, 3600, 4500, 5000, 5500, 6400, 7800, 9200]);
+    wQ = _dynW14(
+      [
+        int256(-50_000_000_000),
+        -24_880_500_000,
+        -6_394_200_000,
+        -2_604_100_000,
+        -1_431_200_000,
+        -734_700_000,
+        -217_600_000,
+        217_100_000,
+        734_600_000,
+        1_432_400_000,
+        2_607_400_000,
+        6_396_300_000,
+        24_858_000_000,
+        49_939_900_000
+      ]
+    );
+    dispRef = 50;
+    flags = NUQuartic.FLAG_REQUIRES_WALL;
+  }
+
+  /// @dev vector key `W2_plateau`; preset 12. dispRef 200 (13 interior / 18 wQ = 14 segs).
+  function _fitW2Plateau()
+    private
+    pure
+    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags)
+  {
+    interior = _dynI13(
+      [uint256(500), 1000, 1250, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 8750, 9000, 9500]
+    );
+    wQ = _dynW18(
+      [
+        int256(-200_000_000_000),
+        -183_640_600_000,
+        -173_212_900_000,
+        -157_195_400_000,
+        -138_182_300_000,
+        -114_963_700_000,
+        -88_233_800_000,
+        -54_109_500_000,
+        -18_141_400_000,
+        18_141_300_000,
+        54_109_500_000,
+        88_233_800_000,
+        114_963_700_000,
+        138_182_300_000,
+        157_195_500_000,
+        173_212_700_000,
+        183_640_900_000,
+        199_999_600_000
+      ]
+    );
+    dispRef = 200;
+    flags = 0;
+  }
+
+  /// @dev vector key `lepto`; preset 21. dispRef 500 (fat Student-t wings).
+  function _fitLepto()
+    private
+    pure
+    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags)
+  {
+    interior = _dynI9([uint256(500), 1000, 1250, 3000, 5000, 7000, 8750, 9000, 9500]);
+    wQ = _dynW14(
+      [
+        int256(-500_000_000_000),
+        -395_034_300_000,
+        -296_995_100_000,
+        -230_482_800_000,
+        -138_926_100_000,
+        -77_502_900_000,
+        -25_288_300_000,
+        25_288_300_000,
+        77_502_900_000,
+        138_926_100_000,
+        230_482_800_000,
+        296_995_000_000,
+        395_034_400_000,
+        499_999_800_000
+      ]
+    );
+    dispRef = 500;
+    flags = 0;
+  }
+
+  /// @dev vector key `platy`; preset 22. dispRef 500 (broad, thin tails).
+  function _fitPlaty()
+    private
+    pure
+    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags)
+  {
+    interior = _dynI9([uint256(500), 1000, 1250, 3000, 5000, 7000, 8750, 9000, 9500]);
+    wQ = _dynW14(
+      [
+        int256(-500_000_000_000),
+        -334_784_000_000,
+        -255_994_500_000,
+        -226_879_000_000,
+        -182_115_500_000,
+        -124_190_400_000,
+        -43_226_400_000,
+        43_226_700_000,
+        124_190_000_000,
+        182_114_100_000,
+        226_884_400_000,
+        256_001_300_000,
+        334_769_400_000,
+        499_910_000_000
+      ]
+    );
+    dispRef = 500;
+    flags = 0;
+  }
+
+  /// @dev vector key `W2_meso`; preset 23. dispRef 200 (Gaussian bell; 14 segs).
+  function _fitW2Meso()
+    private
+    pure
+    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags)
+  {
+    interior = _dynI13(
+      [uint256(500), 1000, 1250, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 8750, 9000, 9500]
+    );
+    wQ = _dynW18(
+      [
+        int256(-200_000_000_000),
+        -124_028_100_000,
+        -93_671_000_000,
+        -79_742_300_000,
+        -64_580_600_000,
+        -50_468_800_000,
+        -36_307_800_000,
+        -21_307_200_000,
+        -6_931_400_000,
+        6_931_500_000,
+        21_307_200_000,
+        36_307_700_000,
+        50_468_600_000,
+        64_580_900_000,
+        79_743_400_000,
+        93_672_700_000,
+        124_026_500_000,
+        199_974_100_000
+      ]
+    );
+    dispRef = 200;
+    flags = 0;
+  }
+
+  // Fixed→dynamic copies: keep the fitted vectors as one-line literals (auditable vs JSON) while
+  // setCurve wants dynamic arrays. Sizes: W0.5/W1/W5 = 9 interior / 14 wQ; W2 = 13 interior / 18 wQ.
+  function _dynI9(uint256[9] memory a) private pure returns (uint256[] memory o) {
+    o = new uint256[](9);
     for (uint256 i = 0; i < 9; i++) {
-      wQ[i] = (int256(i) - 4) * step;
+      o[i] = a[i];
     }
-    dispRef = stable ? 100 : 1000;
+  }
+
+  function _dynI13(uint256[13] memory a) private pure returns (uint256[] memory o) {
+    o = new uint256[](13);
+    for (uint256 i = 0; i < 13; i++) {
+      o[i] = a[i];
+    }
+  }
+
+  function _dynW14(int256[14] memory a) private pure returns (int256[] memory o) {
+    o = new int256[](14);
+    for (uint256 i = 0; i < 14; i++) {
+      o[i] = a[i];
+    }
+  }
+
+  function _dynW18(int256[18] memory a) private pure returns (int256[] memory o) {
+    o = new int256[](18);
+    for (uint256 i = 0; i < 18; i++) {
+      o[i] = a[i];
+    }
   }
 
   function _fences(address tok, bool stable) internal pure returns (IAdmin.RiskFences memory f) {
