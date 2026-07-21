@@ -33,8 +33,8 @@ contract ChapelPresetsExposer is ChapelEnableSwaps {
     require(_presetFor(BTCB, false) == 21, "BTCB");
     require(_presetFor(ETH, false) == 21, "ETH");
     require(_presetFor(WBNB, false) == 21, "WBNB");
-    require(_presetFor(CAKE, false) == 22, "CAKE");
-    require(_presetFor(XAUT, false) == 23, "XAUT");
+    require(_presetFor(CAKE, false) == 21, "CAKE lepto");
+    require(_presetFor(XAUT, false) == 21, "XAUT lepto");
   }
 }
 
@@ -58,21 +58,19 @@ contract ChapelPresetsTest is Test {
     bool wall; // FLAG_REQUIRES_WALL expected
   }
 
-  function _cases() internal pure returns (Case[7] memory c) {
+  function _cases() internal pure returns (Case[5] memory c) {
     // maxDisp = largest among assets on the preset (RISK_PARAMS_TESTNET.md §3/§4)
     c[0] = Case(10, 8000, false); // plateau W1: USDC 2000 / USD1 5000 / FDUSD 8000
     c[1] = Case(11, 6000, true); // hyper W0.5: USDT 6000 (walled)
     c[2] = Case(12, 5000, false); // plateau W2: USDE 5000
     c[3] = Case(20, 500_000, false); // plateau W1 vol: USDC/USDT 500000
     c[4] = Case(21, 500_000, false); // lepto W5: BTCB/ETH/WBNB 500000
-    c[5] = Case(22, 500_000, false); // platy W5: CAKE 500000
-    c[6] = Case(23, 500_000, false); // meso W2: XAUT 500000
   }
 
   /// @dev setCurve (NUQuartic._validate: monotone Δw≥0, non-flat, segs≤14) + validatePresetAssign
   ///      (min-offset > 0 at binding maxDisp) must pass for every preset; logs the min-offset margin.
   function test_presets_install_validate_and_margin() public {
-    Case[7] memory cs = _cases();
+    Case[5] memory cs = _cases();
     for (uint256 i = 0; i < cs.length; i++) {
       Case memory c = cs[i];
       (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags) =

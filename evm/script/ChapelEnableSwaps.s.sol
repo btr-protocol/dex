@@ -186,11 +186,11 @@ contract ChapelEnableSwaps is Script {
 
   /// @notice Install every fitted preset referenced by this pool, pre-seal (addAsset requires them).
   /// @dev Stable pool: 10 plateau-W1, 11 hyper-W0.5 (REQUIRES_WALL), 12 plateau-W2.
-  ///      Volatile pool: 20 plateau-W1, 21 lepto-W5, 22 platy-W5, 23 meso-W2.
+  ///      Volatile pool: 20 plateau-W1, 21 lepto-W5 (BTCB/ETH/WBNB/CAKE/XAUT).
   function _installPresets(Admin admin, address pool, bool stable) internal {
     uint16[3] memory sids = [uint16(10), 11, 12];
-    uint16[4] memory vids = [uint16(20), 21, 22, 23];
-    uint256 n = stable ? 3 : 4;
+    uint16[2] memory vids = [uint16(20), 21];
+    uint256 n = stable ? 3 : 2;
     for (uint256 i = 0; i < n; i++) {
       uint16 id = stable ? sids[i] : vids[i];
       (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags) = _preset(id);
@@ -206,9 +206,9 @@ contract ChapelEnableSwaps is Script {
       if (tok == USDE) return 12; // plateau W2
       return 10; // USDC(base), USD1, FDUSD -> plateau W1
     }
-    if (tok == BTCB || tok == ETH || tok == WBNB) return 21; // lepto W5
-    if (tok == CAKE) return 22; // platy W5
-    if (tok == XAUT) return 23; // meso W2
+    // CAKE + XAUT reassigned platy/meso -> lepto W5 after the density overlay showed both are
+    // fat-tailed (kurt 36/35, tail-alpha ~2-3); platy/meso under-fit the tails, lepto is honest.
+    if (tok == BTCB || tok == ETH || tok == WBNB || tok == CAKE || tok == XAUT) return 21; // lepto W5
     return 20; // USDC(base), USDT -> plateau W1
   }
 
@@ -226,8 +226,6 @@ contract ChapelEnableSwaps is Script {
     if (presetId == 11) return _fitW05Hyper();
     if (presetId == 12) return _fitW2Plateau();
     if (presetId == 21) return _fitLepto();
-    if (presetId == 22) return _fitPlaty();
-    if (presetId == 23) return _fitW2Meso();
     revert("unknown preset");
   }
 
@@ -352,70 +350,6 @@ contract ChapelEnableSwaps is Script {
       ]
     );
     dispRef = 500;
-    flags = 0;
-  }
-
-  /// @dev vector key `platy`; preset 22. dispRef 500 (broad, thin tails).
-  function _fitPlaty()
-    private
-    pure
-    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags)
-  {
-    interior = _dynI9([uint256(500), 1000, 1250, 3000, 5000, 7000, 8750, 9000, 9500]);
-    wQ = _dynW14(
-      [
-        int256(-500_000_000_000),
-        -334_784_000_000,
-        -255_994_500_000,
-        -226_879_000_000,
-        -182_115_500_000,
-        -124_190_400_000,
-        -43_226_400_000,
-        43_226_700_000,
-        124_190_000_000,
-        182_114_100_000,
-        226_884_400_000,
-        256_001_300_000,
-        334_769_400_000,
-        499_910_000_000
-      ]
-    );
-    dispRef = 500;
-    flags = 0;
-  }
-
-  /// @dev vector key `W2_meso`; preset 23. dispRef 200 (Gaussian bell; 14 segs).
-  function _fitW2Meso()
-    private
-    pure
-    returns (uint256[] memory interior, int256[] memory wQ, uint16 dispRef, uint8 flags)
-  {
-    interior = _dynI13(
-      [uint256(500), 1000, 1250, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 8750, 9000, 9500]
-    );
-    wQ = _dynW18(
-      [
-        int256(-200_000_000_000),
-        -124_028_100_000,
-        -93_671_000_000,
-        -79_742_300_000,
-        -64_580_600_000,
-        -50_468_800_000,
-        -36_307_800_000,
-        -21_307_200_000,
-        -6_931_400_000,
-        6_931_500_000,
-        21_307_200_000,
-        36_307_700_000,
-        50_468_600_000,
-        64_580_900_000,
-        79_743_400_000,
-        93_672_700_000,
-        124_026_500_000,
-        199_974_100_000
-      ]
-    );
-    dispRef = 200;
     flags = 0;
   }
 

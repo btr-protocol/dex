@@ -204,8 +204,8 @@ gamma = 20000, vega = 10000 for every stable. refFeedId for all non-USDC stables
 | BTCB | **`lepto`** | W5 / 500 | 1000 | 10000 | 50000 | 500000 | 0 | 10000 | 10000 | 0 | 100 |
 | ETH | **`lepto`** | W5 / 500 | 1000 | 10000 | 50000 | 500000 | 0 | 10000 | 10000 | 0 | 100 |
 | WBNB | **`lepto`** | W5 / 500 | 1000 | 10000 | 50000 | 500000 | 0 | 10000 | 10000 | 0 | 100 |
-| CAKE | **`platy`** | W5 / 500 | 1000 | 10000 | 50000 | 500000 | 0 | 10000 | 10000 | 0 | 100 |
-| XAUT | **`meso`** | W2 / 200 | 1000 | 10000 | 50000 | 500000 | 0 | 10000 | 10000 | 200 | 100 |
+| CAKE | **`lepto`** | W5 / 500 | 1000 | 10000 | 50000 | 500000 | 0 | 10000 | 10000 | 0 | 100 |
+| XAUT | **`lepto`** | W5 / 500 | 1000 | 10000 | 50000 | 500000 | 0 | 10000 | 10000 | 200 | 100 |
 
 gamma = 20000, vega = 10000 for every volatile asset. minFee 1000 PBPS = 10 bp = 2θ (θ_vol = 5 bp), which
 satisfies the `lepto`/`skew`/`pin` between-push discipline `minFee ≥ 2θ`. Fee charged is half the path spread.
