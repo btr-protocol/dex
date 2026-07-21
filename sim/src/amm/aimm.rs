@@ -289,7 +289,9 @@ impl Aimm {
         };
         let progress = numer / denom;
         let s = (self.p.gamma / BPS) * 100.0 * progress;
-        let s = s.min(100.0);
+        // Mirror `computeInventorySkew` int8 return: magnitude is truncated to an integer before
+        // it feeds start=5000+skew*50 and the buy-mid eval depth (no continuous-f64 divergence).
+        let s = s.min(100.0).trunc();
         if under { s } else { -s }
     }
 
@@ -362,12 +364,10 @@ impl Aimm {
         let width = hi - lo;
         let scale = disp / curve.disp_ref; // `Pricing._scaleY`
         if width == 0.0 {
-            return offset_to_price(twap, curve.eval(start) * scale);
+            // Dust: point eval must take the same floors as the area path (Pricing floors ALL paths).
+            return floored_offset_price(twap, curve.eval(start) * scale);
         }
-        // SPLINE_MIN_OFFSET_PBPS floor (−90%), then the MIN_EXEC_PRICE_BPS (500) absolute floor.
-        let avg_off = (curve.area(lo, hi) / width * scale).max(-PBPS * 0.9);
-        let price = twap * (PBPS + avg_off) / PBPS;
-        price.max(twap * 0.05)
+        floored_offset_price(twap, curve.area(lo, hi) / width * scale)
     }
 
     /// Asymmetric fee (spread) in PBPS for a trade with coverage `impact`. (`Pricing` path spread
@@ -464,7 +464,7 @@ impl Aimm {
             // for the real traverse (`Pricing._quoteLeg` buy path).
             let mid = match &self.p.curve {
                 Some(c) => {
-                    offset_to_price(twap, c.eval(5000.0 + skew * 50.0) * disp / c.disp_ref)
+                    floored_offset_price(twap, c.eval(5000.0 + skew * 50.0) * disp / c.disp_ref)
                 }
                 None => skew_to_price(twap, skew, disp),
             };
@@ -768,6 +768,14 @@ impl Amm for Aimm {
 /// (`Pricing._offsetToPrice`)
 fn offset_to_price(mark: f64, offset_pbps: f64) -> f64 {
     mark * (PBPS + offset_pbps).max(0.0) / PBPS
+}
+
+/// Floored offset→price used on EVERY curve path (VWAP area, width==0 dust point-eval, buy-mid
+/// anchor): clamp the offset to SPLINE_MIN_OFFSET_PBPS (−90%), then apply the MIN_EXEC_PRICE_BPS
+/// absolute floor (5% of mark). (`Pricing._flooredOffsetPrice`)
+fn floored_offset_price(mark: f64, offset_pbps: f64) -> f64 {
+    let price = mark * (PBPS + offset_pbps.max(-PBPS * 0.9)) / PBPS;
+    price.max(mark * 0.05)
 }
 
 /// skew → absolute price for the no-profile fallback: offset = skew·disp/100.

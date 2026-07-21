@@ -306,6 +306,71 @@ contract PoolConfigurationRegressionTest is BaseTestSetup {
     pool.deposit(address(quote), 1_000_000e18);
   }
 
+  /// @dev Wall-gated (hyper) preset: FLAG_REQUIRES_WALL set. Asset pricing on it MUST stay walled.
+  uint16 internal constant WALL_PRESET = 4;
+
+  function _riskWalled() internal pure returns (IPool.RiskConfig memory r) {
+    r.decayStartRatioBps = 5000;
+    r.coverageMin = 5000;
+    r.coverageMax = 20000;
+    r.depthAmplifier = 0; // κ>0 forbids the depth subsidy
+    r.kappaCovBps = 500;
+    r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
+  }
+
+  /// @notice Audit regression: stripping κ from an asset pricing on a FLAG_REQUIRES_WALL preset must
+  ///         revert. The re-check must read the NEW kappa against the preset flag, not the pre-write
+  ///         storage kappa (the earlier fix called validatePresetAssign, which read stale storage).
+  function test_setRiskConfig_cannot_strip_wall_from_hyper_preset_asset() public {
+    vm.prank(OWNER);
+    admin.setCurve(address(pool), WALL_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 1);
+    MockERC20 walled = new MockERC20("Walled", "WALL", 18);
+    oracle.setMark(address(walled), M.encodeB64(1e18, 18));
+    vm.startPrank(OWNER);
+    admin.addAsset(
+      address(pool),
+      address(walled),
+      _oracleCfg(oracle, address(walled)),
+      _riskWalled(),
+      WALL_PRESET,
+      1000,
+      18,
+      1000,
+      100000,
+      10000,
+      10000
+    );
+    IPool.RiskConfig memory unwalled = _riskWalled();
+    unwalled.kappaCovBps = 0;
+    unwalled.depthAmplifier = 10000;
+    admin.requestUpdateRiskConfig(address(pool), address(walled), unwalled);
+    vm.warp(block.timestamp + 3 days);
+    vm.expectRevert(Err.BadConfig.selector);
+    admin.executeUpdateRiskConfig(address(pool), address(walled));
+    vm.stopPrank();
+  }
+
+  /// @notice Audit regression: base migration to an INTERNAL-mode token must revert. An INTERNAL base
+  ///         would make _readBasePriceOrHalt read the frozen peg and silently disable the depeg halt.
+  function test_setBaseToken_rejects_internal_mode_base() public {
+    vm.startPrank(OWNER);
+    // Arm quote's absolute reservation band so INTERNAL mode is eligible, then set it INTERNAL.
+    admin.setAssetParams(
+      address(pool), address(quote), 0, 1000, 10000, 10000, 10000, 10000, uint64(9e17), 0
+    );
+    IPool.OracleConfig memory internalCfg = _oracleCfg(oracle, address(quote));
+    internalCfg.mode = C.ORACLE_MODE_INTERNAL;
+    admin.requestOracleUpdate(address(pool), address(quote), internalCfg);
+    vm.warp(block.timestamp + 3 days);
+    admin.executeOracleUpdate(address(pool), address(quote));
+    // Migrate base -> quote: must revert (base must be EXTERNAL).
+    admin.requestBaseMigration(address(pool), address(quote));
+    vm.warp(block.timestamp + 7 days);
+    vm.expectRevert(Err.BadConfig.selector);
+    admin.executeBaseMigration(address(pool));
+    vm.stopPrank();
+  }
+
   function test_nonpositive_profile_rejected_at_asset_init() public {
     _installBadCurve();
     MockERC20 other = new MockERC20("Other", "OTHER", 18);

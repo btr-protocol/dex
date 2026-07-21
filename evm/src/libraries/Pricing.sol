@@ -149,7 +149,9 @@ library Pricing {
       uint256 k = impact / 2;
       if (selling) {
         uint256 adj = k < SC.WAD ? SC.WAD - k : MIN_ADJ;
-        return (midPrice * adj) / SC.WAD;
+        uint256 sellPx = (midPrice * adj) / SC.WAD;
+        uint256 minPrice = (mark * MIN_EXEC_PRICE_BPS) / SC.BPS; // 5%-of-mark backstop, as on the curve path
+        return sellPx < minPrice ? minPrice : sellPx;
       }
       return (midPrice * (SC.WAD + k)) / SC.WAD;
     }

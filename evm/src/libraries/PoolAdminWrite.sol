@@ -155,7 +155,12 @@ library PoolAdminWrite {
     // (hyper) preset on a now-unwalled asset — its ultra-concentrated tip loses its only drain
     // defense. Re-assert the assign invariant so the wall gate is bidirectional, not assign-only.
     if (cfg.kappaCovBps == 0) {
-      PoolAdmin.validatePresetAssign($, t, $.assets[t].presetId, $.assets[t].maxDispersion);
+      uint16 pid = $.assets[t].presetId;
+      // Read the preset flag and compare to the NEW kappa directly: validatePresetAssign reads
+      // riskConfigs[t].kappaCovBps from storage, which still holds the OLD (pre-write) value here.
+      if (pid != 0 && ($.curves[pid].header >> 248) & NUQuartic.FLAG_REQUIRES_WALL != 0) {
+        revert Err.BadConfig(); // cannot strip κ from an asset pricing on a wall-gated (hyper) preset
+      }
     }
     // Halt bits survive config writes: a freeze/pause raised during the timelock window must not
     // be cleared (nor sneaked in) by executing a queued RiskConfig — only the explicit
@@ -236,6 +241,10 @@ library PoolAdminWrite {
     if (newA.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, newBase);
     // Base-numeraire invariant (AIMM_PROOFS P3 / Thm 2): the coverage wall must never apply to the base.
     if ($.riskConfigs[newBase].kappaCovBps != 0) revert Err.BadConfig();
+    // Base must quote off a real EXTERNAL mark so its depeg halt bites; an INTERNAL base reads the
+    // frozen peg (const ~1.0) and silently disables the breaker (validateInternalMode blocks the
+    // config path, but base MIGRATION would otherwise smuggle an INTERNAL spoke into the numeraire).
+    if ($.oracleConfigs[newBase].mode != C.ORACLE_MODE_EXTERNAL) revert Err.BadConfig();
     // PRC-01: setBaseToken re-numeraires the pool — after migration the base is priced ≡ 1
     // unit-of-account. The prior naked pointer swap added ONLY the κ check, leaving the repricing hole
     // wide open: pointing base at an asset that does NOT currently trade at ~1 (e.g. WETH at ~3000)
