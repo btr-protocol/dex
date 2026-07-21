@@ -18,6 +18,50 @@ basis (10000 = 1x). `coverage` in 0.01% units (10000 = 100%). `refBand`/`maxDevi
 
 ---
 
+## 0. Methodology: derived from observed density
+
+Every per-asset regime, wall tier, dispersion band, and fee floor in §3 and §4 is **derived from the measured
+return density of the asset**, not from a class assumption or a volume ranking. Assumption-first parametrization
+(the retired "USD1 is dominant flow so tighten it", "XAUT is a quiet major so meso") is not used: the parameter is
+read off the shape of the observed tape.
+
+**Data.** NX Rates `/v1/ohlc`, 14-day (2-week) window per asset, paced anon pull (dedup + sorted). Fresh 2026-07-21
+pulls (`dex/research/stable-core/data/nxr_ohlc/{CAKE,FDUSD,USDE,XAUT}-USDC.json`) plus prior-window and local
+cross-check tapes (`dex/research/data/ohlc/{BTC,ETH,BNB}-USDT.csv`) for the majors. Bar TF per asset noted inline
+(10s..300s). Bad-print bars removed before measuring (2 for ETH; the XAUT mirror-cluster subset, see §4).
+
+**Features measured (per asset).**
+- **rvol** (realized vol, bp/day): cross-checked across close-to-close, Parkinson (high-low), and IQR-core
+  estimators; reported only where the three converge (a divergence flags contamination, see XAUT).
+- **kurt** (excess kurtosis of returns): tail-fatness vs a Gaussian bell (excess 0).
+- **tailα** (Hill tail exponent): α > 2 = finite variance; **α < 2 = infinite-variance tail** (rare violent jumps).
+- **skew** (return skew): sign and stability across TF.
+- **b95 / b99** (|return| containment, bp): the 95th and 99th percentile single-bar move = the per-push band the
+  wall tier and `maxDeviation` floor must sit above.
+- **pegMaxDev** (bp): largest observed peg excursion (stables only), bracketed against the `maxDeviation` floor.
+
+**Mapping rules (density feature -> param).**
+1. **Regime** <- (kurt, tailα, skew): kurt near 3 + thin tail = `meso`; high kurt + heavy-but-finite tail
+   (α in ~2.7-3.2) = `lepto`; tightest tail-adjusted core on a mature peg = `hyper` candidate; stable soft-peg
+   with a rolloff = `plateau`; broad low-conviction alt = `platy` (defensive). Unstable-sign skew = NO `skew_*`
+   preset (the pushed mark already prices skew; A-S inventory skew carries asymmetry).
+2. **Wall tier W / dispRef** <- b99 containment: the tier must contain the 99th-percentile move. Widest observed
+   core -> widest shape.
+3. **minFee floor** <- (rvol, pegMaxDev): graded by realized and depeg vol (higher adverse-selection risk ->
+   higher floor). Volatiles are floored at `2θ` by the `lepto` between-push discipline regardless.
+4. **maxDeviation / refBand** <- pegMaxDev (stables) and b99 (volatiles): the acceptance floor must exceed the
+   observed 99% move with margin, or a legitimate push false-halts.
+5. **hyper veto** <- tailα: an asset with `tailα < 2` (infinite-variance tail) is NEVER tightened to `hyper`,
+   even if its normal core is tightest; the needle is only safe on a mature peg behind the κ-wall with a
+   finite-variance tail. `hyper` additionally requires `kappaCovBps > 0` (§1 wall gate).
+
+**Coverage.** No asset is data-missing. USDC = the identity numeraire (price = 1 by construction, 0 bars, not a
+DEFERRED asset). One asset carries a **finalize-blocker**: **XAUT**, whose synthetic XAUT-USDC cross is feed-QC
+contaminated. Its clean-subset density is sufficient to derive a regime *recommendation* but NOT to seal; its
+shipped values are held unchanged until the feed is fixed, and the exact fetch needed is stated in §4.
+
+---
+
 ## 1. What changed: Hermite → quartic-I-spline PRESETS
 
 The pricing engine moved from an inline per-asset Hermite profile (knots + weights baked into `addAsset`) to a
@@ -113,23 +157,41 @@ across peg toll-free).
 gamma = 20000, vega = 10000 for every stable. refFeedId for all non-USDC stables = `USDC_FEED`
 (`0xdacab873…3ba17d`), refPrimary = REF_ORACLE (env). USDC self-reference is suppressed (base = numeraire).
 
-**Per-asset rationale:**
+**Observed density (14d NXR `/v1/ohlc`, per §0):**
 
-- **USDC (base numeraire).** κ = 0 by construction (a base leg is never coverage-walled), so the wall gate bars
-  `hyper`. `plateau` W1 is the tightest legal un-walled peg shape: box + soft rolloff, tolerates a small legitimate
-  repeg without a hard cut. depthAmp = 10000 (base carries the virtual-depth subsidy). No refBand (self).
-- **USDT (Tier-1, hyper).** The one clean `hyper` candidate: mature Tier-1 USD peg, coverage-walled (κ = 100),
-  deepest and least-drifting book. The needle-at-mark shape (8.9x Curve peak density) is only safe here because the
-  convex coverage toll walls a drain. haircutSuppressor MUST be 0. refBand ±1% vs USDC.
-- **USD1 (dominant flow, youngest peg).** $579M 6-month BSC volume, more than USDC/USDT combined, but the youngest
-  peg. Held at `plateau` W1 (not the tighter `hyper` W0.5) until push-confidence and depeg history accumulate;
-  tighten to `hyper` W0.5 / dispRef 50 post-confidence via `requestUpdateProfile`. κ = 100.
-- **USDE (soft-peg, widest).** Near-zero BSC stable-swap flow (lives on Ethereum) and a 477 bp in-window depeg
-  tail. Kept for optionality at the widest stable shape: `plateau` **W2** / dispRef 200, and the widest live disp
-  band lower bound (800). minFee lifted to 75 PBPS (0.75 bp) for the extra adverse-selection risk. Smallest deposit
-  cap (§8).
-- **FDUSD (mid-flow soft-peg).** $31.3M 6-month volume, 56 bp historical depeg. `plateau` W1, minFee 100 PBPS
-  (1 bp) reflecting a thinner, more depeg-prone book than USDT/USD1. Widest maxDisp (8000) for its softer peg.
+| Asset | bars×TF | rvol (bp/d) | kurt | tailα | skew | b95 | b99 | pegMaxDev |
+|---|---|--:|--:|--:|--:|--:|--:|--:|
+| USDC | 0 (identity) | 0 | n/a | n/a | n/a | 0 | 0 | 0 |
+| USDT | 16345×60s | 19.08 | 4.42 | 3.45 | -0.037 | 3.02 | 4.58 | 13.35 |
+| USD1 | 3939×300s | 16.33 | 39.94 | **1.877** | 0.111 | 1.502 | 3.422 | 15.87 |
+| USDE | 19443×60s | **49.29** | 50.29 | 3.21 | -0.027 | 1.9 | 6.65 | 25.2 |
+| FDUSD | 19749×60s | 19.02 | 12.93 | 3.18 | -0.042 | 1.05 | **1.75** | **34.36** |
+
+**Per-asset rationale (observed-density):**
+
+- **USDC (base numeraire).** 0 bars, price = 1 by construction. κ = 0 (a base leg is never coverage-walled), so
+  the wall gate bars `hyper`. `plateau` W1 is the tightest legal un-walled peg shape: box + soft rolloff, tolerates
+  a small legitimate repeg without a hard cut. depthAmp = 10000 (base carries the virtual-depth subsidy). No
+  refBand (self). Identity numeraire, not DEFERRED. No change.
+- **USDT (`hyper`).** The one clean `hyper` candidate on measured density: kurt 4.42 (only mildly super-Gaussian),
+  tailα 3.45 (finite-variance, not heavy), skew ≈ 0, and the tightest tail-adjusted core among the mature pegs.
+  rvol 19.08 bp/d is the lowest of the stables. The needle-at-mark shape (8.9x Curve peak density) is safe only
+  because κ = 100 walls a drain (haircutSuppressor MUST be 0). pegMaxDev 13.35 << refBand 100 and << maxDeviation
+  50, so no false-halt. Only asset that clears the `hyper` bar. No change.
+- **USD1.** Core is the tightest 99% of any peg (b99 3.42) which alone would argue for `hyper` W0.5, BUT
+  **tailα 1.877 < 2 = an infinite-variance tail** (rare violent jumps) on the youngest peg. The tail vetoes `hyper`
+  (§0 rule 5): held at `plateau` W1 / dispRef 100 whose soft rolloff absorbs the jump. rvol 16.33 is lowest ->
+  minFee floor at the base 50 PBPS. κ = 100. Tighten to `hyper` W0.5 only after a clean depeg history accumulates,
+  via `requestUpdateProfile`. tailα 1.877 is the load-bearing trace here. No change now.
+- **USDE.** **Highest stable rvol (49.29 bp/d, 2.6x USDT)** and the **widest stable core (b99 6.65)** -> the widest
+  stable shape: `plateau` **W2** / dispRef 200, widest live disp-band lower bound (800). Soft-peg accrual (kurt is
+  fat but the shape is a plateau, not a needle). minFee lifted to **75 PBPS (0.75 bp)**: the realized-depeg vol
+  (2.6x USDT) directly justifies a floor above USDC/USDT. Smallest deposit cap (§8). Density-vindicated. No change.
+- **FDUSD.** **Tightest normal core of all assets (b99 1.75 bp)** but the **largest rare depeg tail
+  (pegMaxDev 34.36 bp)**: a "tight-then-breaks" density. The tight core alone would allow W0.5; the large depeg
+  tail vetoes it -> `plateau` W1 soft rolloff over a hard box. minFee **100 PBPS (1 bp)**, the highest stable floor,
+  prices the break-adverse-selection of the most depeg-prone book. Widest maxDisp (8000) for the softer peg.
+  pegMaxDev 34.36 < maxDeviation 50 (margin holds). No change.
 
 ---
 
@@ -161,20 +223,76 @@ satisfies the `lepto`/`skew`/`pin` between-push discipline `minFee ≥ 2θ`. Fee
 > regime table is the SSoT), but VERIFY against the sim before `sealBootstrap`: post-seal, curve changes are
 > timelocked-only (`requestSetCurve`, ~5m LOW).
 
-**Per-asset rationale:**
+**Observed density (14d NXR `/v1/ohlc` / local cross tapes, per §0):**
+
+| Asset | bars×TF | rvol (bp/d) | kurt | tailα | skew | b95 | b99 | pegMaxDev |
+|---|---|--:|--:|--:|--:|--:|--:|--:|
+| BTCB | 120960×10s | 227.03 | **252.2** | 2.71 | 0.13 | 5.8 | 10.62 | n/a |
+| ETH | 18644×1min | 237 | 43 | 2.75 | **1.43** | 12.5 | 22.1 | 0 |
+| WBNB | 120960×10s | **290.1** | 17.4 | 3.1 | -0.02 | 5.6 | 9.4 | 0 |
+| CAKE | 3614×300s | **514.5** | 36.2 | 2.96 | **-0.44** | 37.8 | **61.7** | n/a |
+| XAUT | 15102×60s (clean subset) | 118 | 34.6 | **2.0** | 0.15 | 17.5 | **41.3** | 0 |
+
+**Per-asset rationale (observed-density):**
 
 - **USDC (base numeraire).** Un-walled base, `plateau` W1. Depth subsidy on (depthAmp 10000). No refBand.
 - **USDT (stable leg in a volatile pool).** κ = 0 here, so `hyper` is barred: `plateau` W1, not the stable-pool
   `hyper`. refBand ±1% vs USDC (own USDT mark for quotes, USDC ref only for the depeg halt).
-- **BTCB / ETH / WBNB (crypto majors, lepto).** Fat-wing inventory-risk regime is the correct default for a major
-  under stress: `lepto` W5 places depth where informed flow lands and prices the tail honestly. ETH σ > BTC,
-  WBNB is chain-native and high-σ; all three share the archetype. No refBand (no independent peg to guard).
-- **CAKE (mid-cap alt, platy).** Thinner book, lower conviction. `platy` W5 (broad, thin tails) is the defensive
-  choice: minimize capital-at-risk rather than chase a fat-wing view we cannot support on a low-liquidity alt.
-- **XAUT (tokenized gold, meso).** Low-vol quiet major. `meso` W2 (honest Gaussian bell) is the right default: the
-  pushed mark carries no directional skew, so a symmetric shape plus the A-S inventory skew carries any asymmetry;
-  a `skew_*` preset would be arbitrable. refBand ±2% against an **independent** XAUT/USDC oracle
-  (`XAUT_REF_ORACLE` / `XAUT_REF_FEED_ID = keccak(XAUT,USDC)`), NOT the unit USDC feed.
+- **BTCB (`lepto`).** **Extreme kurt 252.2** + tailα 2.71 (heavy but finite-variance) = the fat Student-t wing
+  archetype. b95 5.8 ≈ θ_vol (5 bp), so minFee 2θ = 10 bp brackets the 1-bar move; b99 10.62 << maxDeviation 100.
+  `lepto` W5 / dispRef 500 places depth where informed flow lands and prices the tail honestly. No refBand. No
+  change.
+- **ETH (`lepto`).** kurt 43 + tailα 2.75 heavy = `lepto`. skew 1.43 is high but sign-unstable across TF -> NO
+  `skew_*` (the marked price already carries it; A-S inventory skew carries the asymmetry). b95 12.5 ≈ 2.5σ,
+  b99 22.1 << maxDeviation 100. minFee 2θ = 10 bp. No change.
+  > **ETH density validation (2026-07-21, observed).** NXR `/v1/ohlc` ETH-USDC, 14d @ 1min (18.6k bars) + 5min
+  > cross-check + local ETH-USDT 10s (120k bars, prior window). Robust (2 bad-print bars removed): realized vol
+  > **~230-240 bp/day** (c2c ≈ iqr-core ≈ Parkinson all converge; ~2.3%/day, ~44%/yr); return density
+  > **leptokurtic** (excess kurt 15-40 across tf, Hill tail α≈2.7 → finite variance, heavy tails) → `lepto`
+  > CONFIRMED; mild +skew (0.35-1.4, sign-unstable) → no `skew_*`. Containment: 1min ±12.5bp(95%)/±22bp(99%),
+  > 5min ±27/±50bp → W5 tier + maxDeviation 100 bps sits comfortably above the 99% per-push band. minFee 10 bp
+  > (=2θ, θ_vol 5bp) brackets the 1min 95% move (12.5bp ≈ 2.5σ). Every shipped ETH param is density-consistent;
+  > no change.
+- **WBNB (`lepto`).** **Highest-vol major (rvol 290.1 bp/d)**, kurt 17.4 fat, symmetric (skew -0.02) = `lepto`.
+  b99 9.4 << maxDeviation 100. minFee 2θ. No change.
+- **CAKE (`platy`, kept as defensive posture).** **Highest rvol in the universe (514.5 bp/d)** and the **widest
+  core (b99 61.7 bp)** put it firmly at W5 / dispRef 500. **Density-vs-regime caveat:** the measured density is
+  **leptokurtic** (kurt 36.2, tailα 2.96 = heavy but finite-variance), NOT the thin tails `platy` implies. `platy`
+  was chosen as a **risk posture** (illiquid alt, minimize capital-at-risk), not as a pure density fit; a pure
+  density read = `lepto`. At the same W5 / dispRef 500 the two shapes are numerically identical here, and `platy`
+  is the more defensive (broader, lower-amplitude), so it errs safe. skew -0.44 is notable but on 300s bars and
+  still gets no `skew_*` preset (marked price carries it). b99 61.7 < maxDeviation 100, only a 1.6x margin (the
+  tightest volatile headroom: watch). **Kept `platy` as documented defensive posture; the density-faithful
+  alternative is `lepto` W5 (same numeric params, fatter shape). Owner call.** No value change.
+- **XAUT (tokenized gold, shipped `meso` W2 HELD; finalize-blocked).** Shipped params unchanged pending a feed-QC
+  fix (see blocker below). `meso` W2 (Gaussian bell) is the on-chain value; the pushed mark carries no directional
+  skew so a symmetric shape plus A-S inventory skew carries any asymmetry (a `skew_*` preset would be arbitrable).
+  refBand ±2% against an **independent** XAUT/USDC oracle (`XAUT_REF_ORACLE` /
+  `XAUT_REF_FEED_ID = keccak(XAUT,USDC)`), NOT the unit USDC feed.
+  > **Observed clean-subset density RECOMMENDS `lepto` W5, but the value is HELD (feed-QC blocker).** The clean
+  > subset (kurt 34.6, tailα 2.0 borderline infinite-variance, b99 41.3 bp) is **density-inconsistent with `meso`**
+  > (a Gaussian bell expects kurt ≈ 3), and b99 41.3 exceeds W2 / dispRef 200 containment (needs W5 / 500). A pure
+  > density read = **`lepto` W5 / dispRef 500** (matches kurt 34.6, tailα 2.0, b99 41.3). This is a RECOMMENDATION
+  > only: the shipped `meso` W2 / dispRef 200 is NOT flipped here because the tape is contaminated and the change
+  > must land on clean data. minFee 10 bp (=2θ) HOLDS regardless (brackets the clean 95% move 17.5 bp + weekend
+  > gold-gap adverse-selection). The independent `XAUT_REF_ORACLE` + refBand 200 + maxDeviation 100 are ESSENTIAL
+  > and vindicated: they auto-reject the ~2300 mirror artifact (~44% below truth) as a depeg-halt.
+  >
+  > **Why the tape is contaminated (DO NOT FINALIZE).** NXR `/v1/ohlc` XAUT-USDC, 14d @ 1min (15,102 bars,
+  > 07-07..07-21, paced anon pull; bulk 403-wedges, needs `NXR_API_KEY`). The XAUT-USDC synthetic cross is BROKEN:
+  > bimodal price, a real gold cluster ~4100 interleaved with a spurious mirror cluster ~2300 (12% of bars <3500)
+  > + 21% `tick_count==0` synthetic-fill bars, so raw density is a feed-composition artifact, NOT XAUT behavior
+  > (raw daily vol 8300 bp = garbage). The clean subset (tc>0 & 3500<px<4400, 79% of bars) recovers real gold
+  > micro-structure and is the row in the table above (robust ~118 bp/day, kurt 34.6, α 2.0), but mean-based
+  > estimators on the full tape stay tail-inflated. Real structural feature: **weekend gold-market gaps** (feed
+  > dark Fri ~24:00 → Sun; a 2268-min hole 07-10/12) = gap risk crypto legs lack.
+  >
+  > **BLOCKER + exact fetch needed to finalize.** Do NOT flip `meso`→`lepto` on this tape. First fix the feed:
+  > export `NXR_API_KEY` (unblocks the bulk 403), then from `dex/research/stable-core/` run
+  > `NXR_API_KEY=… TF=60 DAYS=14 python pull_nxr_ohlc.py` scoped to XAUT (or source XAUT/USDT direct + read the
+  > cluster shards), confirm the mirror cluster and `tick_count==0` fills are gone, then re-derive
+  > regime / W / dispRef on the uncontaminated tape and, if it still reads `lepto`, land the change via
+  > `requestUpdateProfile`.
 
 ---
 
