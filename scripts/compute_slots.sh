@@ -29,4 +29,4 @@ compute_slot() {
 }
 
 compute_slot "aimm.storage.v1"
-compute_slot "darkpool.storage.v1"
+
