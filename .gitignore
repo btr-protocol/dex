@@ -170,6 +170,7 @@ sim/Cargo.lock
 # ── Research + sim data (local, regenerable market tapes — never committed) ──
 research/data/
 research/cache/
+research/amm_data.js
 research/**/data_raw/
 research/**/out/
 research/**/output_v2/

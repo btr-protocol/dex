@@ -1722,10 +1722,12 @@ fn real_data_comparison() {
         "/../research/data/amm_comparison.json"
     );
     std::fs::write(out, &json).ok();
-    // also emit a JS-global wrapper so the standalone monitor page opens via file:// (no server)
-    let js_out = concat!(env!("CARGO_MANIFEST_DIR"), "/../research/amm_data.js");
+    // also emit a JS-global wrapper so a monitor page can open via file:// (no server).
+    // Build artifact ⇒ target/, NOT research/: a test that writes a tracked file
+    // re-dirties the working tree on every `cargo test`.
+    let js_out = concat!(env!("CARGO_TARGET_TMPDIR"), "/amm_data.js");
     std::fs::write(js_out, format!("window.AMM_DATA={json};")).ok();
-    println!("  wrote {out}");
+    println!("  wrote {out}\n  wrote {js_out}");
 
     for r in &results {
         assert!(r.net_apr.is_finite(), "{} finite", r.name);
