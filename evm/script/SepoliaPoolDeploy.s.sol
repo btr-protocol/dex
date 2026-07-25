@@ -167,10 +167,13 @@ contract SepoliaPoolDeploy is Deploy {
     volatilePool = _createPool(core, cfg, volSyms, false);
     _fundFaucet(cfg, faucet, stableSyms, volSyms);
 
-    address guardian = vm.envOr("GUARDIAN", address(0));
-    if (guardian != address(0) && guardian != deployer) {
-      AccessControl(core.ac).setGuardian(guardian, true);
-    }
+    // Guardian is MANDATORY, idempotent with the oracle deploy (same AC is reused). A pool fleet
+    // whose only pause/freeze authority is the deployer EOA has no fail-safe at all.
+    address guardian = vm.envAddress("GUARDIAN");
+    require(guardian != address(0), "GUARDIAN unset: fail-safe would not exist");
+    require(guardian != deployer, "GUARDIAN == deployer: not an independent fail-safe");
+    AccessControl(core.ac).setGuardian(guardian, true);
+    require(AccessControl(core.ac).guardianCount() >= 1, "guardian not registered");
     vm.stopBroadcast();
 
     _persist(core, cfg, address(faucet), stablePool, volatilePool, outPath);

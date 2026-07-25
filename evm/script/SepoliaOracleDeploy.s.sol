@@ -38,8 +38,9 @@ import {console2} from "forge-std/Script.sol";
 ///      both seed from BTC, WETH from ETH; syrupUSDC is an ACCRUING wrapper, never a 1.0 peg).
 ///      Peg stables default 1e18, overridable via ORACLE_SEED_<SYMBOL>_1E18 within
 ///      [0.98e18, 1.02e18] (admits real off-peg prints, rejects fat-fingers); volatiles are
-///      bounds-checked per asset (scale-error guard only). Optional: TREASURY, DEPLOY_OUT,
-///      GUARDIAN (second key granted AC guardian in-broadcast), REDEPLOY (override re-run guard).
+///      bounds-checked per asset (scale-error guard only). GUARDIAN is REQUIRED (second key,
+///      != deployer, granted AC guardian in-broadcast). Optional: TREASURY, DEPLOY_OUT,
+///      REDEPLOY (override re-run guard).
 ///      Signer set = canonical NXR 2-of-3 attester set (env-overridable ORACLE_SIGNER_{0,1,2},
 ///      defaults = canonical pins). Public addresses only; the private keys exist solely as raw
 ///      k8s Secrets in cluster etcd (sealing owner-gated — SIGNING_TIER_RUNBOOK.md §3), and the
@@ -56,8 +57,12 @@ import {console2} from "forge-std/Script.sol";
 ///      2. Pull ALL seeds from live NXR quotes <= 5 min pre-broadcast (volatiles + syrupUSDC
 ///         required; env-seed any stable trading > ~25bp off peg — verify U redemption value).
 ///         First signed push has dt=0 ⇒ band = bare maxDev floor (50bp stable / 100bp volatile)
-///         around the SEED — a stale/off seed strands its feed (recovery = owner updateFeed
-///         widen <= 2000bp + push-walk; there is no removeFeed).
+///         around the SEED — a stale/off seed strands its feed. ⚠ RECOVERY CHANGED: `updateFeed`
+///         is now TIGHTEN-ONLY; widening the band/ttl routes through
+///         requestFeedWiden → BASE_TIMELOCK (15 min on Sepolia via govDelay) → executeFeedWiden,
+///         guardian-vetoable. There is still no removeFeed. This is precisely why this ceremony
+///         seeds AT MARKET (step 2, <= 5 min): the old instant-widen hole was the operational
+///         crutch for a bad seed, and it is gone.
 ///      3. forge script script/SepoliaOracleDeploy.s.sol:SepoliaOracleDeploy \
 ///           --sig "deployOracle()" --rpc-url sepolia --broadcast --slow --verify
 ///         (--slow: ~50 sequential txs on a public RPC — avoids nonce gaps/batch drops).
@@ -65,9 +70,22 @@ import {console2} from "forge-std/Script.sol";
 ///         (keepers/scripts/fill-oracle-config.py) and start the keeper IMMEDIATELY in the same
 ///         session (--once, then daemon) so first pushes land while seeds are fresh. NEVER park
 ///         the stack seeded-but-unpushed (>1% drift strands volatile feeds).
-///      5. If GUARDIAN was unset, call AccessControl.setGuardian(<second key>, true) BEFORE the
-///         pool deploy: independent fast-freeze (pauseFeed/revokeSigner/narrowMaxDeviation) must
-///         not depend on the single deployer EOA. Plan 2-step ownership handover pre-pools.
+///      5. Guardian is appointed IN-BROADCAST (step 3) and the script now hard-reverts without it.
+///         Verify: `cast call <ac> "guardianCount()(uint8)"` >= 1 and
+///         `cast call <ac> "isGuardian(address)(bool)" <guardianSafe>` == true.
+///      6. HANDOVER, in this order (ordering is load-bearing — see AccessControl.armQuorumPolicy,
+///         which enforces it on-chain and reverts if guardians are absent):
+///           a. Deploy the guardian Safe (1-of-n; 2-of-n only per guardianQuorumMax) and the admin
+///              Safe (ceil(2n/3): 2-of-3, 3-of-4, 4-of-5 ...).
+///           b. setGuardian(guardianSafe, true) — guardians BEFORE armed, always.
+///           c. bootstrapTreasuryOwner(adminSafe) (one-shot, instant) or queue+execute if already
+///              bootstrapped.
+///           d. adminSafe.requestOwnershipHandover(); deployer.completeOwnershipHandover(adminSafe).
+///           e. setGuardian(deployerHotKey, false) — drop any bootstrap EOA guardian.
+///           f. armQuorumPolicy() from the admin Safe. Post-arm, every principal must satisfy the
+///              formula; EOA principals are refused. THIS is "the system is armed".
+///         `quorumStatus()` is the monitoring read (a Safe self-lowering its threshold post-arm is
+///         sovereign and undetectable to any gate — alert on it).
 contract SepoliaOracleDeploy is DeployBase {
   uint16 internal constant STABLE_TTL = 7200;
   uint16 internal constant VOLATILE_TTL = 600;
@@ -254,17 +272,21 @@ contract SepoliaOracleDeploy is DeployBase {
     o.addFeed(
       toks[0], usd, M.encodeB64(usdRefSeed, 18), SIGMA_SEED, CONF_SEED, STABLE_MAXDEV, STABLE_TTL
     );
-    // F-2: independent fast-freeze from day one. The deployer EOA is the sole AC owner and this
-    // AC is REUSED by the later pool deploy — an optional SECOND key gets guardian in the same
-    // broadcast (pauseFeed / revokeSigner / narrowMaxDeviation / cancel* only; guardians can
-    // halt/tighten, never loosen). If unset, setGuardian BEFORE the pool deploy (runbook step 5).
-    address guardian = vm.envOr("GUARDIAN", address(0));
-    if (guardian != address(0) && guardian != deployer) {
-      AccessControl(ac).setGuardian(guardian, true);
-    }
+    // F-2: independent fast-freeze from day one, MANDATORY. Previously `envOr(..., address(0))`
+    // with a silent skip — which is exactly how the live Sepolia AccessControls ended up with ZERO
+    // guardians (no GuardianSet event in full history), collapsing every fail-safe lever in the
+    // fleet (pauseFeed / freezeAsset / cancel* / UpgradeGate.pause) onto the single deployer EOA
+    // that is simultaneously the entire attack surface. An un-appointed guardian is not a
+    // deferred nicety; it is the fail-safe being absent. Hard-required, and it must be a DIFFERENT
+    // key from the deployer or it protects against nothing.
+    address guardian = vm.envAddress("GUARDIAN");
+    require(guardian != address(0), "GUARDIAN unset: fail-safe would not exist");
+    require(guardian != deployer, "GUARDIAN == deployer: not an independent fail-safe");
+    AccessControl(ac).setGuardian(guardian, true);
+    require(AccessControl(ac).guardianCount() >= 1, "guardian not registered");
     vm.stopBroadcast();
 
-    _persist(ac, oracle, deployer, syms, toks, usd, outPath);
+    _persist(ac, oracle, deployer, guardian, syms, toks, usd, outPath);
   }
 
   function _outPath() internal view returns (string memory) {
@@ -277,6 +299,7 @@ contract SepoliaOracleDeploy is DeployBase {
     address ac,
     address oracle,
     address deployer,
+    address guardian,
     string[N] memory syms,
     address[N] memory toks,
     address usd,
@@ -285,12 +308,18 @@ contract SepoliaOracleDeploy is DeployBase {
     console2.log("=== BTR Sepolia oracle stack ===");
     console2.log("AccessControl: ", ac);
     console2.log("ExternalOracle:", oracle);
+    console2.log("guardian:      ", guardian);
 
     string memory k = "sepolia";
     vm.serializeUint(k, "chainId", block.chainid);
     vm.serializeAddress(k, "deployer", deployer);
     vm.serializeAddress(k, "ac", ac);
     vm.serializeAddress(k, "oracle", oracle);
+    // Recorded so the artifact answers "who can halt this?" without an archive-node log scan. The
+    // absence of this key in the current 11155111.deploy.json is exactly how zero-guardians went
+    // unnoticed. `owner` is recorded separately from `deployer` because they diverge at handover.
+    vm.serializeAddress(k, "guardian", guardian);
+    vm.serializeAddress(k, "owner", AccessControl(ac).owner());
     string memory json;
     for (uint256 i; i < N; ++i) {
       vm.serializeAddress(k, syms[i], toks[i]);

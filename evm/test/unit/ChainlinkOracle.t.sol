@@ -175,4 +175,54 @@ contract ChainlinkOracleTest is Test {
     vm.expectRevert(Err.InvalidInput.selector); // codeless seq feed
     new ChainlinkOracle(address(ac), address(0xDEAD), SEQ_GRACE);
   }
+  // ─── guardian fast-freeze (was entirely absent: the reference oracle had NO halt lever) ───
+
+  function test_guardian_canPauseFeed_failsClosed() public {
+    address g = makeAddr("guardian");
+    ac.setGuardian(g, true);
+    assertTrue(oracle.isFeedFresh(feedId), "fresh before pause");
+
+    vm.prank(g);
+    oracle.pauseFeed(feedId);
+    assertFalse(oracle.isFeedFresh(feedId), "paused feed must read not-fresh");
+    vm.expectRevert(abi.encodeWithSelector(Err.StaleData.selector, 0, uint16(3600)));
+    oracle.getFeed(feedId);
+  }
+
+  /// @notice Un-halting is the reverse power and never a guardian's.
+  function test_guardian_cannotUnpause_ownerCan() public {
+    address g = makeAddr("guardian");
+    ac.setGuardian(g, true);
+    vm.prank(g);
+    oracle.pauseFeed(feedId);
+
+    vm.prank(g);
+    vm.expectRevert(Err.NotOwner.selector);
+    oracle.unpauseFeed(feedId);
+
+    oracle.unpauseFeed(feedId); // owner
+    assertTrue(oracle.isFeedFresh(feedId), "owner unpause restores exactly");
+    assertGt(oracle.getFeed(feedId).lastPriceB64, 0);
+  }
+
+  function test_outsider_cannotPause_andRevokedGuardianLosesIt() public {
+    address g = makeAddr("guardian");
+    vm.prank(makeAddr("outsider"));
+    vm.expectRevert(Err.NotAuth.selector);
+    oracle.pauseFeed(feedId);
+
+    ac.setGuardian(g, true);
+    ac.setGuardian(g, false);
+    vm.prank(g);
+    vm.expectRevert(Err.NotAuth.selector);
+    oracle.pauseFeed(feedId);
+  }
+
+  function test_pause_unknownFeed_reverts() public {
+    bytes32 ghost = keccak256("ghost");
+    vm.expectRevert(abi.encodeWithSelector(Err.FeedNotFound.selector, ghost));
+    oracle.pauseFeed(ghost);
+    vm.expectRevert(abi.encodeWithSelector(Err.FeedNotFound.selector, ghost));
+    oracle.unpauseFeed(ghost);
+  }
 }

@@ -92,10 +92,11 @@ contract PoolFactory is IPoolFactory {
     _;
   }
 
-  /// @dev Guardian gate: owner OR AC.isGuardian. Mirrors Admin._onlyGuardianOrAdmin.
+  /// @dev Guardian gate via the single canonical predicate `AccessControl.isGuardianOrAuth` — one
+  ///      definition of the guardian model, fleet-wide. HALT/CANCEL levers only.
   function _onlyGuardianOrAdmin() internal view {
     AccessControl ac_ = AccessControl(AC);
-    if (msg.sender != ac_.owner() && !ac_.isGuardian(msg.sender)) revert Err.NotAuth();
+    if (!ac_.isGuardianOrAuth(msg.sender, ac_.owner())) revert Err.NotAuth();
   }
 
   // ─── deploy ───

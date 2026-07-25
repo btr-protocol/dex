@@ -206,11 +206,11 @@ contract PoolLifecycleTest is BaseTestSetup {
     assertTrue((pool.getRiskFlags(address(base)) & C.FROZEN_BIT) != 0);
 
     vm.prank(g);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     admin.unfreezeAsset(address(pool), address(base));
 
     vm.prank(USER);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotAuth.selector);
     admin.freezeAsset(address(pool), address(base));
   }
 
@@ -226,7 +226,7 @@ contract PoolLifecycleTest is BaseTestSetup {
     admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Pause);
 
     vm.prank(g);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotAuth.selector);
     admin.batchRiskOp(pools, tokens, IAdmin.BatchOp.Unpause);
   }
 
@@ -239,7 +239,7 @@ contract PoolLifecycleTest is BaseTestSetup {
 
     // Guardian cannot START a timelocked op.
     vm.prank(g);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     admin.requestUpdateRiskConfig(address(pool), address(quote), cfg);
 
     // Owner queues; guardian vetoes it inside the window.
@@ -262,7 +262,7 @@ contract PoolLifecycleTest is BaseTestSetup {
     admin.requestUpdateRiskConfig(address(pool), address(quote), cfg);
     vm.warp(block.timestamp + 1 days + 1);
     vm.prank(g);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     admin.executeUpdateRiskConfig(address(pool), address(quote));
 
     // Owner can still cancel.
@@ -346,7 +346,7 @@ contract PoolLifecycleTest is BaseTestSetup {
     address g = makeAddr("guardian");
     ac.setGuardian(g, true);
     vm.prank(g);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotAuth.selector);
     admin.setAssetParamsBounded(
       address(pool),
       address(base),
@@ -698,7 +698,7 @@ contract PoolLifecycleTest is BaseTestSetup {
 
   function test_admin_only_via_singleton() public {
     vm.prank(USER);
-    vm.expectRevert(Err.NotOwner.selector);
+    vm.expectRevert(Err.NotAuth.selector);
     IPool(address(pool)).adminFreezeAsset(address(base));
   }
 
@@ -708,7 +708,7 @@ contract PoolLifecycleTest is BaseTestSetup {
   function test_wave3a_fallback_dispatch_admin_gate() public {
     // Direct call from non-admin should revert Unauthorized (PoolAux onlyAdmin gate).
     vm.prank(USER);
-    vm.expectRevert(Err.NotOwner.selector);
+    vm.expectRevert(Err.NotAuth.selector);
     IPool(address(pool)).adminSetFlowCooldown(123);
 
     // Call from admin singleton (impersonate) succeeds through fallback.
@@ -919,9 +919,9 @@ contract PoolLifecycleTest is BaseTestSetup {
   /// (d) Only the AC owner may queue/execute a recalibration.
   function test_updateProfile_nonAdmin_reverts() public {
     vm.startPrank(USER);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     admin.requestUpdateProfile(address(pool), address(quote), DEFAULT_PRESET, 1000, 100000);
-    vm.expectRevert(Ownable.Unauthorized.selector);
+    vm.expectRevert(Err.NotOwner.selector);
     admin.executeUpdateProfile(address(pool), address(quote));
     vm.stopPrank();
   }

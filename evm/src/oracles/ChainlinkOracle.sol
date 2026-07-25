@@ -45,6 +45,7 @@ contract ChainlinkOracle is IOracle {
     uint8 aggDecimals; // aggregator.decimals(), cached at addFeed
     uint16 ttl; // max round age (s) before Oracle.gate reverts StaleData
     bool exists;
+    bool paused; // guardian fast-freeze; same slot (160+8+16+8+8 = 200 bits)
   }
 
   mapping(bytes32 => Feed) private feeds;
@@ -53,10 +54,38 @@ contract ChainlinkOracle is IOracle {
   event FeedAdded(
     bytes32 indexed feedId, address indexed base, address indexed quote, address agg, uint16 ttl
   );
+  event FeedPaused(bytes32 indexed feedId);
+  event FeedUnpaused(bytes32 indexed feedId);
 
   modifier onlyAdmin() {
     if (msg.sender != AccessControl(AC).owner()) revert Err.NotOwner();
     _;
+  }
+
+  /// @dev Guardian gate via the single canonical predicate. This contract previously had NO guardian
+  ///      lever at all, which was the worst instance of the gap: it is the INDEPENDENT reference
+  ///      oracle behind every pool's depeg band, so a wrong-but-live Chainlink round had no fast
+  ///      halt — the only response was an owner-only, 2-day-timelocked `Admin.requestOracleUpdate`
+  ///      re-pin per asset. Mirrors ExternalOracle: guardian halts, owner un-halts.
+  function _onlyGuardianOrAdmin() internal view {
+    AccessControl ac_ = AccessControl(AC);
+    if (!ac_.isGuardianOrAuth(msg.sender, ac_.owner())) revert Err.NotAuth();
+  }
+
+  /// @notice Guardian OR owner fast-freeze. Fail-closed: `getFeed` reverts and `isFeedFresh` reads
+  ///         false, so every consuming `Oracle.gate` halts rather than trusting the reference.
+  function pauseFeed(bytes32 feedId) external {
+    _onlyGuardianOrAdmin();
+    if (!feeds[feedId].exists) revert Err.FeedNotFound(feedId);
+    feeds[feedId].paused = true;
+    emit FeedPaused(feedId);
+  }
+
+  /// @notice Un-halt. Owner-only: the reverse is never a guardian's.
+  function unpauseFeed(bytes32 feedId) external onlyAdmin {
+    if (!feeds[feedId].exists) revert Err.FeedNotFound(feedId);
+    feeds[feedId].paused = false;
+    emit FeedUnpaused(feedId);
   }
 
   constructor(address ac_, address seqFeed_, uint32 grace_) {
@@ -97,7 +126,7 @@ contract ChainlinkOracle is IOracle {
     if (d > 18) revert Err.InvalidInput();
     feedId = keccak256(abi.encodePacked(base, quote));
     if (feeds[feedId].exists) revert Err.FeedAlreadyExists(feedId);
-    feeds[feedId] = Feed({agg: agg, aggDecimals: d, ttl: ttl, exists: true});
+    feeds[feedId] = Feed({agg: agg, aggDecimals: d, ttl: ttl, exists: true, paused: false});
     feedIds.push(feedId);
     emit FeedAdded(feedId, base, quote, agg, ttl);
   }
@@ -106,6 +135,7 @@ contract ChainlinkOracle is IOracle {
     if (!_seqUp()) revert Err.StaleData(0, GRACE);
     Feed memory f = feeds[feedId];
     if (!f.exists) revert Err.FeedNotFound(feedId);
+    if (f.paused) revert Err.StaleData(0, f.ttl); // guardian freeze: fail closed, same as a dead round
     (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
       IAggregatorV3(f.agg).latestRoundData();
     // Chainlink liveness: strictly-positive answer + a complete, non-stale round. On any failure
@@ -127,7 +157,7 @@ contract ChainlinkOracle is IOracle {
   function isFeedFresh(bytes32 feedId, uint32 maxAge) public view returns (bool) {
     if (!_seqUp()) return false;
     Feed memory f = feeds[feedId];
-    if (!f.exists) return false;
+    if (!f.exists || f.paused) return false;
     (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
       IAggregatorV3(f.agg).latestRoundData();
     if (answer <= 0 || updatedAt == 0 || answeredInRound < roundId) return false;

@@ -5,7 +5,6 @@ import {IAdmin} from "./interfaces/IAdmin.sol";
 import {IPool} from "./interfaces/IPool.sol";
 import {IHasTreasury} from "./interfaces/IHasTreasury.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Timelock as TL} from "@btr-shared/Timelock.sol";
@@ -57,18 +56,23 @@ contract Admin is IAdmin {
   }
 
   /// @dev Inlined as internal (not modifiers) — EIP-170: modifiers duplicate jumpdests per use site.
+  ///      Revert taxonomy is the ACGated canon (`shared/access/ACGated.sol`): admin-only ->
+  ///      Err.NotOwner, any 2-caller gate -> Err.NotAuth. One failure class, one selector, fleet-wide.
   function _onlyAdmin() internal view {
-    if (msg.sender != AccessControl(AC).owner()) revert Ownable.Unauthorized();
+    if (msg.sender != AccessControl(AC).owner()) revert Err.NotOwner();
   }
 
+  /// @dev Single canonical guardian predicate: `AccessControl.isGuardianOrAuth`. One external call
+  ///      instead of two, and the policy lives in ONE place so a change to the guardian model cannot
+  ///      apply unevenly across the fleet.
   function _onlyGuardianOrAdmin() internal view {
     AccessControl ac_ = AccessControl(AC);
-    if (msg.sender != ac_.owner() && !ac_.isGuardian(msg.sender)) revert Ownable.Unauthorized();
+    if (!ac_.isGuardianOrAuth(msg.sender, ac_.owner())) revert Err.NotAuth();
   }
 
   function _onlyRiskStewardOrAdmin() internal view {
     AccessControl ac_ = AccessControl(AC);
-    if (msg.sender != ac_.owner() && !ac_.isRiskSteward(msg.sender)) revert Ownable.Unauthorized();
+    if (msg.sender != ac_.owner() && !ac_.isRiskSteward(msg.sender)) revert Err.NotAuth();
   }
 
   function _key(address pool, bytes32 opId) internal pure returns (bytes32) {
@@ -138,10 +142,10 @@ contract Admin is IAdmin {
   function batchRiskOp(address[] calldata pools, address[] calldata tokens, BatchOp op) external {
     AccessControl ac_ = AccessControl(AC);
     bool isOwner = msg.sender == ac_.owner();
-    if (!isOwner && !ac_.isGuardian(msg.sender)) revert Ownable.Unauthorized();
-    if (!isOwner && (op == BatchOp.Unfreeze || op == BatchOp.Unpause)) {
-      revert Ownable.Unauthorized();
-    }
+    if (!isOwner && !ac_.isGuardian(msg.sender)) revert Err.NotAuth();
+    // Guardians get the HALT half only; the reverse (unfreeze/unpause) stays owner-only — same
+    // asymmetry as the single-asset twins above.
+    if (!isOwner && (op == BatchOp.Unfreeze || op == BatchOp.Unpause)) revert Err.NotAuth();
     AR.batch(pools, tokens, op);
   }
 
@@ -200,10 +204,23 @@ contract Admin is IAdmin {
     emit BootstrapSealed(pool);
   }
 
+  /// @notice Sweep accrued protocol fees. Caller MUST be the pool's own configured treasury, and the
+  ///         recipient is pinned to that caller.
+  /// @dev GATE RATIONALE (audited divergence, deliberate): this checks `pool.treasury()` and NOT
+  ///      `AccessControl.treasury()`. The two are different concepts and the per-pool one is correct
+  ///      here: fee custody is per-pool routable (one OpsTreasury per chain / per pool cohort), it is
+  ///      already governed — the only writer is `requestTreasuryUpdate`/`executeTreasuryUpdate` under
+  ///      HIGH_TIMELOCK (3d) — and the intended caller is `OpsTreasury.collectProtocolFees`, which is
+  ///      itself `treasuryOwner`-gated. So the role system is not bypassed; it is reached one hop away.
+  /// @dev TIGHTENED: `recipient` was caller-supplied and unconstrained, so whoever held
+  ///      `pool.treasury()` could direct the entire fee balance to an arbitrary address. `OpsTreasury`
+  ///      already hard-pins the recipient to itself; that pin is now enforced HERE too, so the
+  ///      capability is "the treasury may pull its own fees" rather than "the treasury may pay anyone".
+  ///      The parameter is retained (not dropped) because `IOpsTreasury`/`IAdmin`/sdk all encode the
+  ///      3-arg form and the explicit equality check documents the invariant at the trust boundary.
   function collectProtocolFees(address pool, address token, address recipient) external {
-    // Gate: caller must be the pool's treasury (preserves prior semantics from
-    // the former Admin module which checked `msg.sender == $.treasury`).
-    if (msg.sender != IHasTreasury(pool).treasury()) revert Ownable.Unauthorized();
+    if (msg.sender != IHasTreasury(pool).treasury()) revert Err.NotAuth();
+    if (recipient != msg.sender) revert Err.InvalidInput();
     uint256 amount = IPool(pool).adminCollectProtocolFees(token, recipient);
     emit ProtocolFeesCollected(pool, token, recipient, amount);
   }

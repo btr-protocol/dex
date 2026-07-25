@@ -438,10 +438,13 @@ contract ExternalOracleSignedTest is Test {
   }
 
   function test_constructor_rejectsInvalidSignerSets() public {
+    // Build the over-cap set BEFORE arming expectRevert: reading MAX_SIGNERS() is an external
+    // call, and an armed expectRevert would consume it instead of the constructor.
+    address[] memory overCap = _addressSigners(uint256(ext.MAX_SIGNERS()) + 1);
     vm.expectRevert(Err.InvalidInput.selector);
     new ExternalOracle(address(ac), 60, _addressSigners(2), 2);
     vm.expectRevert(Err.InvalidInput.selector);
-    new ExternalOracle(address(ac), 60, _addressSigners(7), 2);
+    new ExternalOracle(address(ac), 60, overCap, 2);
 
     address[] memory zeroSigner = _addressSigners(3);
     zeroSigner[1] = address(0);
@@ -461,10 +464,21 @@ contract ExternalOracleSignedTest is Test {
     new ExternalOracle(address(ac), 60, _addressSigners(3), 4);
   }
 
-  function test_constructor_acceptsSixOfSixCeiling() public {
-    ExternalOracle six = new ExternalOracle(address(ac), 60, _addressSigners(6), 6);
-    assertEq(six.signerCount(), 6);
-    assertEq(six.signerThreshold(), 6);
+  /// @dev n-of-n at the hard cap: the widest quorum a single deploy can install. Cap-relative so
+  ///      raising MAX_SIGNERS never silently stops testing the ceiling.
+  function test_constructor_acceptsMaxOfMaxCeiling() public {
+    uint8 cap = ext.MAX_SIGNERS();
+    ExternalOracle full = new ExternalOracle(address(ac), 60, _addressSigners(cap), cap);
+    assertEq(full.signerCount(), cap);
+    assertEq(full.signerThreshold(), cap);
+  }
+
+  /// @dev 5-of-8 must be installable in ONE constructor call — the growth target that the old
+  ///      MAX_SIGNERS=6 made impossible without a redeploy.
+  function test_constructor_accepts5of8() public {
+    ExternalOracle o = new ExternalOracle(address(ac), 60, _addressSigners(8), 5);
+    assertEq(o.signerCount(), 8);
+    assertEq(o.signerThreshold(), 5);
   }
 
   /// H-INT-01: Oracle.gate ages off authenticated sourceTs, not relay landing time.
@@ -777,21 +791,29 @@ contract ExternalOracleSignedTest is Test {
     assertEq(ext.signerCount(), 2, "revoke decrements");
   }
 
-  function test_grantSigner_timelockAndCapAtSix() public {
+  /// @dev Cap-agnostic: fills the set to MAX_SIGNERS one timelock at a time (only ONE grant may be
+  ///      pending, so this also asserts the ceremony is sequential), then proves the cap binds.
+  function test_grantSigner_timelockAndCapAtMaxSigners() public {
     ext.requestSignerGrant(address(0x4444));
     vm.expectRevert(Err.NotReady.selector);
     ext.executeSignerGrant();
     skip(ext.SIGNER_GOV_TIMELOCK());
     ext.executeSignerGrant();
-    ext.requestSignerGrant(address(0x5555));
-    skip(ext.SIGNER_GOV_TIMELOCK());
-    ext.executeSignerGrant();
-    ext.requestSignerGrant(address(0x6666));
-    skip(ext.SIGNER_GOV_TIMELOCK());
-    ext.executeSignerGrant();
-    assertEq(ext.signerCount(), ext.MAX_SIGNERS());
+    uint256 cap = ext.MAX_SIGNERS();
+    for (uint256 i = ext.signerCount(); i < cap; ++i) {
+      ext.requestSignerGrant(address(uint160(0x5000 + i)));
+      skip(ext.SIGNER_GOV_TIMELOCK());
+      ext.executeSignerGrant();
+    }
+    assertEq(ext.signerCount(), cap, "set fills exactly to the cap");
     vm.expectRevert(Err.InvalidInput.selector);
     ext.requestSignerGrant(address(0x7777));
+  }
+
+  /// @dev The cap must admit 5-of-8 (and 3-of-5) — the stated k-of-n growth target. At the old
+  ///      MAX_SIGNERS=6 this was unrepresentable on a deployed oracle.
+  function test_maxSigners_admits5of8() public view {
+    assertGe(ext.MAX_SIGNERS(), 8, "5-of-8 must be expressible without a redeploy");
   }
 
   function test_pendingSignerGrant_guardianCancelsAndExpiredCannotExecute() public {

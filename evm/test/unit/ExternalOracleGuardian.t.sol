@@ -150,6 +150,105 @@ contract ExternalOracleGuardianTest is Test {
     assertEq(ext.getFeed(feedId).maxDeviation, 250, "owner narrow");
   }
 
+  // ─── loosening asymmetry fix: widening maxDeviation / ttl is timelocked + guardian-vetoable ───
+
+  /// @notice The bug this closes: `updateFeed` used to widen the per-push band to 20% and the ttl to
+  ///         18h INSTANTLY, owner-only, unvetoable — while the tightening twins were guardian-able.
+  function test_updateFeed_cannotWiden_eitherAxis() public {
+    ext.narrowMaxDeviation(feedId, 200); // start from a tight band
+    ext.updateFeed(feedId, 150, 1800); // tighten both axes: allowed, instant
+    assertEq(ext.getFeed(feedId).maxDeviation, 150);
+    assertEq(ext.getFeed(feedId).ttl, 1800);
+
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.updateFeed(feedId, 151, 1800); // band widen
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.updateFeed(feedId, 150, 1801); // ttl widen
+    uint16 maxDev = ext.MAX_DEV_THRESHOLD();
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.updateFeed(feedId, maxDev, 65_534); // the old one-tx max-loosening
+  }
+
+  function test_widen_requiresTimelock_thenApplies() public {
+    ext.updateFeed(feedId, 200, 1800);
+    ext.requestFeedWiden(feedId, 400, 3600);
+
+    // Not matured.
+    vm.expectRevert(Err.NotReady.selector);
+    ext.executeFeedWiden(feedId);
+    assertEq(ext.getFeed(feedId).maxDeviation, 200, "widen leaked before eta");
+
+    vm.warp(block.timestamp + ext.SIGNER_GOV_TIMELOCK() + 1);
+    ext.executeFeedWiden(feedId);
+    assertEq(ext.getFeed(feedId).maxDeviation, 400);
+    assertEq(ext.getFeed(feedId).ttl, 3600);
+  }
+
+  function test_widen_guardianCanVeto() public {
+    ext.updateFeed(feedId, 200, 1800);
+    ext.requestFeedWiden(feedId, 400, 3600);
+
+    vm.prank(GUARDIAN);
+    ext.cancelFeedWiden(feedId);
+
+    vm.warp(block.timestamp + ext.SIGNER_GOV_TIMELOCK() + 1);
+    vm.expectRevert(Err.InvalidState.selector);
+    ext.executeFeedWiden(feedId);
+    assertEq(ext.getFeed(feedId).maxDeviation, 200, "vetoed widen applied anyway");
+  }
+
+  /// @notice Guardian may VETO but never DRIVE the loosening path.
+  function test_widen_guardianCannotRequestOrExecute() public {
+    vm.prank(GUARDIAN);
+    vm.expectRevert(Err.NotOwner.selector);
+    ext.requestFeedWiden(feedId, 400, 3600);
+
+    ext.updateFeed(feedId, 200, 1800);
+    ext.requestFeedWiden(feedId, 400, 3600);
+    vm.warp(block.timestamp + ext.SIGNER_GOV_TIMELOCK() + 1);
+    vm.prank(GUARDIAN);
+    vm.expectRevert(Err.NotOwner.selector);
+    ext.executeFeedWiden(feedId);
+  }
+
+  /// @notice A guardian tighten taken DURING the delay VOIDS the pending widen -- it is never
+  ///         silently reverted by a stale payload. This is the whole point of the request-time snapshot.
+  function test_widen_guardianNarrowDuringDelayVoidsIt() public {
+    ext.updateFeed(feedId, 400, 3600);
+    ext.requestFeedWiden(feedId, 400, 7200); // ttl-only loosening
+
+    vm.prank(GUARDIAN);
+    ext.narrowMaxDeviation(feedId, 100); // guardian tightens the band meanwhile
+
+    vm.warp(block.timestamp + ext.SIGNER_GOV_TIMELOCK() + 1);
+    vm.expectRevert(Err.InvalidState.selector);
+    ext.executeFeedWiden(feedId);
+    assertEq(ext.getFeed(feedId).maxDeviation, 100, "guardian narrow was reverted by widen");
+    assertEq(ext.getFeed(feedId).ttl, 3600, "stale widen applied anyway");
+  }
+
+  function test_widen_rejectsNonLoosening_andDoubleQueue() public {
+    ext.updateFeed(feedId, 200, 1800);
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.requestFeedWiden(feedId, 200, 1800); // no-op: use updateFeed
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.requestFeedWiden(feedId, 100, 900); // a tighten: use updateFeed
+
+    ext.requestFeedWiden(feedId, 400, 1800);
+    vm.expectRevert(abi.encodeWithSelector(Err.PendingTimelock.selector, uint48(block.timestamp)));
+    ext.requestFeedWiden(feedId, 500, 1800); // no silent payload swap
+  }
+
+  function test_widen_stillBoundedByStructuralCaps() public {
+    ext.updateFeed(feedId, 200, 1800);
+    uint16 overCap = ext.MAX_DEV_THRESHOLD() + 1;
+    uint16 lag = uint16(ext.maxRelayLagSecs());
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.requestFeedWiden(feedId, overCap, 1800);
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.requestFeedWiden(feedId, 400, lag); // ttl <= lag
+  }
+
   // ─── rogue-guardian bound: instant owner revocation of the guardian role ───
 
   function test_guardianRevoked_losesPowers() public {

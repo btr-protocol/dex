@@ -43,8 +43,10 @@ contract PoolAux is ReentrancyGuardTransient {
     flash = flash_;
   }
 
-  modifier onlyAdmin() {
-    if (msg.sender != admin) revert Err.NotOwner();
+  /// @dev NOT a role gate: asserts the caller IS the singleton `Admin` CONTRACT. Named distinctly
+  ///      from the fleet-wide `onlyAdminContract` (= AC.owner()) so the two concepts can never be conflated.
+  modifier onlyAdminContract() {
+    if (msg.sender != admin) revert Err.NotAuth();
     _;
   }
 
@@ -60,19 +62,19 @@ contract PoolAux is ReentrancyGuardTransient {
 
   // ── ADMIN setters ──
 
-  function adminFreezeAsset(address token) external onlyAdmin {
+  function adminFreezeAsset(address token) external onlyAdminContract {
     PoolAdminWrite.freezeAsset($, token);
   }
 
-  function adminUnfreezeAsset(address token) external onlyAdmin {
+  function adminUnfreezeAsset(address token) external onlyAdminContract {
     PoolAdminWrite.unfreezeAsset($, token);
   }
 
-  function adminPauseAsset(address token) external onlyAdmin {
+  function adminPauseAsset(address token) external onlyAdminContract {
     PoolAdminWrite.pauseAsset($, token);
   }
 
-  function adminUnpauseAsset(address token) external onlyAdmin {
+  function adminUnpauseAsset(address token) external onlyAdminContract {
     PoolAdminWrite.unpauseAsset($, token);
   }
 
@@ -87,7 +89,7 @@ contract PoolAux is ReentrancyGuardTransient {
     uint32 maxDispersion,
     uint16 gamma,
     uint16 vega
-  ) external onlyAdmin {
+  ) external onlyAdminContract {
     PoolAdminWrite.initAsset(
       $,
       token,
@@ -106,17 +108,17 @@ contract PoolAux is ReentrancyGuardTransient {
   function adminCollectProtocolFees(address token, address recipient)
     external
     nonReentrant
-    onlyAdmin
+    onlyAdminContract
     returns (uint256)
   {
     return PoolEdge.collectProtocolFees($, token, recipient);
   }
 
-  function adminSetFlowCooldown(uint16 cooldownSeconds) external onlyAdmin {
+  function adminSetFlowCooldown(uint16 cooldownSeconds) external onlyAdminContract {
     PoolAdminWrite.setFlowCooldown($, cooldownSeconds);
   }
 
-  function adminSetAnchor(address token, address anchor) external onlyAdmin {
+  function adminSetAnchor(address token, address anchor) external onlyAdminContract {
     PoolAdminWrite.setAnchor($, token, anchor);
   }
 
@@ -130,7 +132,7 @@ contract PoolAux is ReentrancyGuardTransient {
     uint16 haircutSuppressor,
     uint64 reservationPrice,
     uint64 reservationPriceMax
-  ) external onlyAdmin {
+  ) external onlyAdminContract {
     PoolAdminWrite.setAssetParams(
       $,
       token,
@@ -145,11 +147,11 @@ contract PoolAux is ReentrancyGuardTransient {
     );
   }
 
-  function adminSetRiskConfig(address token, IPool.RiskConfig calldata cfg) external onlyAdmin {
+  function adminSetRiskConfig(address token, IPool.RiskConfig calldata cfg) external onlyAdminContract {
     PoolAdminWrite.setRiskConfig($, token, cfg);
   }
 
-  function adminSetOracleConfig(address token, IPool.OracleConfig calldata cfg) external onlyAdmin {
+  function adminSetOracleConfig(address token, IPool.OracleConfig calldata cfg) external onlyAdminContract {
     PoolAdminWrite.setOracleConfig($, token, cfg);
   }
 
@@ -158,7 +160,7 @@ contract PoolAux is ReentrancyGuardTransient {
     uint16 presetId,
     uint32 minDispersion,
     uint32 maxDispersion
-  ) external onlyAdmin {
+  ) external onlyAdminContract {
     PoolAdminWrite.setProfile($, token, presetId, minDispersion, maxDispersion);
   }
 
@@ -168,27 +170,27 @@ contract PoolAux is ReentrancyGuardTransient {
     int256[] calldata wQ,
     uint16 dispRef,
     uint8 flags
-  ) external onlyAdmin {
+  ) external onlyAdminContract {
     PoolAdminWrite.setCurve($, presetId, interior, wQ, dispRef, flags);
   }
 
-  function adminSetFeeParams(IPool.FeeParams calldata params) external onlyAdmin {
+  function adminSetFeeParams(IPool.FeeParams calldata params) external onlyAdminContract {
     PoolAdminWrite.setFeeParams($, params);
   }
 
-  function adminSetTreasury(address newTreasury) external onlyAdmin {
+  function adminSetTreasury(address newTreasury) external onlyAdminContract {
     PoolAdminWrite.setTreasury($, newTreasury);
   }
 
-  function adminSetBaseToken(address newBase, address[] calldata spokes) external onlyAdmin {
+  function adminSetBaseToken(address newBase, address[] calldata spokes) external onlyAdminContract {
     PoolAdminWrite.setBaseToken($, newBase, spokes);
   }
 
-  function adminSetAssetHook(address token, address hook, uint32 flags) external onlyAdmin {
+  function adminSetAssetHook(address token, address hook, uint32 flags) external onlyAdminContract {
     PoolAdminWrite.setAssetHook($, token, hook, flags);
   }
 
-  function adminClearAssetHook(address token) external onlyAdmin {
+  function adminClearAssetHook(address token) external onlyAdminContract {
     PoolAdminWrite.clearAssetHook($, token);
   }
 

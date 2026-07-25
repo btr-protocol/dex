@@ -25,7 +25,18 @@ contract ExternalOracle is IOracle, EIP712 {
   /// @dev Config-validation ceiling for a feed's per-push maxDeviation floor (20%). Runtime bands are
   ///      bounded per-feed at (1 + DEV_BAND_MAX_X)·maxDeviation, not by this constant (M-1).
   uint16 public constant MAX_DEV_THRESHOLD = 2_000;
-  uint8 public constant MAX_SIGNERS = 6;
+  /// @dev Hard ceiling on the granted-signer set. 16, NOT 6: the contract is NOT upgradeable
+  ///      (ctor-installed signers, immutable AC), so raising this later costs a full oracle
+  ///      redeploy + a timelocked `Admin.requestOracleUpdate/executeOracleUpdate` per pool asset
+  ///      + re-`addFeed`/re-seed of every feed. At 6 the deployed fleet cannot express 5-of-8 at
+  ///      all, and a 2-of-3 primary + 3 distinct reference keys already fills it exactly (zero
+  ///      headroom). 16 is free today: `signerCount`/`signerThreshold` stay uint8 in the same
+  ///      slot and no storage layout changes.
+  /// @dev OPERATIONAL: `requestSignerGrant` allows exactly ONE pending grant at a time
+  ///      (anti-queue-farming, see below), so growing a 3-signer set to 8 is 5 SEQUENTIAL
+  ///      timelocks (5 x SIGNER_GOV_TIMELOCK), not one ceremony. Plan key ceremonies against
+  ///      that, and prefer installing the full target set in the constructor on a fresh deploy.
+  uint8 public constant MAX_SIGNERS = 16;
   /// @dev Per-push deviation band = maxDeviation floor + DEV_SIGMA_Z·σ·√(dtSource/SIGMA_INTERVAL_S).
   ///      The band is VOLATILITY-ADAPTIVE: a legitimate move over dtSource seconds for a ticker with
   ///      per-interval volatility σ is ~ Z·σ·√(dtSource/interval) (Brownian). maxDeviation degrades to
@@ -80,6 +91,16 @@ contract ExternalOracle is IOracle, EIP712 {
   ///      compromised owner from queue-farming many candidates that guardians must veto individually.
   address public pendingSigner;
   uint96 public pendingSignerGrantOp;
+  /// @notice Pending per-feed LOOSENING of (maxDeviation, ttl). One slot, one pending per feed:
+  ///         [255:160] packed Timelock op (eta48|grace48)
+  ///         · [63:48] ttl AT REQUEST · [47:32] maxDeviation AT REQUEST
+  ///         · [31:16] requested ttl    · [15:0]  requested maxDeviation.
+  ///         Zero op = nothing pending.
+  /// @dev The request-time snapshot is what makes the pending payload NON-STALE: `executeFeedWiden`
+  ///      requires the live config to still match it, so any tightening taken during the delay
+  ///      (a guardian `narrowMaxDeviation`, an owner `updateFeed`) VOIDS the widen rather than being
+  ///      silently reverted by it. Re-request if the loosening is still wanted.
+  mapping(bytes32 => uint256) public pendingWiden;
 
   /// @notice Immutable absolute freshness bound for the signed path (seconds).
   uint32 public immutable maxRelayLagSecs;
@@ -94,6 +115,8 @@ contract ExternalOracle is IOracle, EIP712 {
     uint16 maxDeviation
   );
   event FeedUpdated(bytes32 indexed feedId, uint16 maxDeviation, uint16 ttl);
+  event FeedWidenRequested(bytes32 indexed feedId, uint16 maxDeviation, uint16 ttl, uint48 eta);
+  event FeedWidenCancelled(bytes32 indexed feedId);
   event SignerGranted(address indexed signer);
   event SignerGrantRequested(address indexed signer, uint48 eta);
   event SignerGrantCancelled(address indexed signer);
@@ -110,12 +133,13 @@ contract ExternalOracle is IOracle, EIP712 {
     _;
   }
 
-  /// @dev Guardian gate: owner OR AC.isGuardian. Guardian may only HALT/TIGHTEN/CANCEL — every reverse
-  ///      (requestSignerGrant, unpauseFeed, widen via updateFeed) stays owner-only. Guardian is owner-set +
-  ///      instant-revocable (AC.isGuardian), the rogue-guardian bound. Mirrors Admin._onlyGuardianOrAdmin.
+  /// @dev Guardian gate via the single canonical predicate `AccessControl.isGuardianOrAuth`. Guardian
+  ///      may only HALT/TIGHTEN/CANCEL — every reverse (requestSignerGrant, unpauseFeed,
+  ///      executeFeedWiden) stays owner-only, and every LOOSENING is timelocked + guardian-vetoable.
+  ///      Guardian is owner-set + instant-revocable (AC.isGuardian), the rogue-guardian bound.
   function _onlyGuardianOrAdmin() internal view {
     AccessControl ac_ = AccessControl(AC);
-    if (msg.sender != ac_.owner() && !ac_.isGuardian(msg.sender)) revert Err.NotAuth();
+    if (!ac_.isGuardianOrAuth(msg.sender, ac_.owner())) revert Err.NotAuth();
   }
 
   constructor(
@@ -188,15 +212,81 @@ contract ExternalOracle is IOracle, EIP712 {
     emit FeedAdded(feedId, base, quote, price, sigmaSample, confidence, maxDeviation);
   }
 
+  /// @notice TIGHTEN a live feed's per-push band and/or freshness window. Immediate, owner-only.
+  /// @dev ⚠ ASYMMETRY FIX (money path): this used to accept ANY `maxDeviation` up to
+  ///      MAX_DEV_THRESHOLD (2000 bps = 20%) and ANY `ttl` up to 65534 s, instantly, owner-only, with
+  ///      no timelock and no guardian veto — while the TIGHTENING twins (`narrowMaxDeviation`,
+  ///      `pauseFeed`) were guardian-able. That is backwards: the loosening direction is the one that
+  ///      enables a single-tx drain (a 20% band on a fresh push) or a stale-mark quote (a 18h ttl), so
+  ///      it is the one that needs the delay. Loosening now goes through
+  ///      `requestFeedWiden`/`executeFeedWiden` (BASE_TIMELOCK, guardian-vetoable via
+  ///      `cancelFeedWiden`). Both directions are protected; neither is instant-and-unvetoable.
   function updateFeed(bytes32 feedId, uint16 maxDeviation, uint16 ttl) external onlyAdmin {
-    if (feeds[feedId].updatedAt == 0) revert Err.FeedNotFound(feedId);
+    FeedData storage f = feeds[feedId];
+    if (f.updatedAt == 0) revert Err.FeedNotFound(feedId);
     // Same ttl > lag coupling as addFeed (stale-on-landing guard).
     if (maxDeviation == 0 || maxDeviation > MAX_DEV_THRESHOLD || ttl <= maxRelayLagSecs) {
       revert Err.InvalidInput();
     }
-    feeds[feedId].ttl = ttl;
-    feeds[feedId].maxDeviation = maxDeviation; // now packed in the feed slot (was a cold mapping)
+    // Tighten-or-equal on BOTH axes. Equality is allowed so a pure-ttl tighten need not also move the
+    // band (and vice versa); any widening on either axis routes to the timelocked path.
+    if (maxDeviation > f.maxDeviation || ttl > f.ttl) revert Err.InvalidInput();
+    f.ttl = ttl;
+    f.maxDeviation = maxDeviation; // packed in the feed slot (was a cold mapping)
     emit FeedUpdated(feedId, maxDeviation, ttl);
+  }
+
+  /// @notice Queue a feed LOOSENING (wider band and/or longer ttl). Same BASE_TIMELOCK tier as an
+  ///         `Admin.requestOracleUpdate` — it changes how much a single push may move the quote, which
+  ///         is an oracle-authority change in everything but name.
+  /// @dev One pending widen per feed. A live pending must be cancelled before re-requesting, so the
+  ///      exit-notice clock can never be silently restarted with a swapped payload (Admin L-9 idiom).
+  function requestFeedWiden(bytes32 feedId, uint16 maxDeviation, uint16 ttl) external onlyAdmin {
+    FeedData storage f = feeds[feedId];
+    if (f.updatedAt == 0) revert Err.FeedNotFound(feedId);
+    if (maxDeviation == 0 || maxDeviation > MAX_DEV_THRESHOLD || ttl <= maxRelayLagSecs) {
+      revert Err.InvalidInput();
+    }
+    // Must actually loosen something, else the caller wanted the instant `updateFeed`.
+    uint16 curDev = f.maxDeviation;
+    uint16 curTtl = f.ttl;
+    if (maxDeviation <= curDev && ttl <= curTtl) revert Err.InvalidInput();
+    if (pendingWiden[feedId] >> 160 != 0) revert Err.PendingTimelock(uint48(block.timestamp));
+    uint48 delay = SC.govDelay(SIGNER_GOV_TIMELOCK);
+    pendingWiden[feedId] = (uint256(TL.pack(delay, SIGNER_GOV_GRACE)) << 160)
+      | (uint256(curTtl) << 48) | (uint256(curDev) << 32) | (uint256(ttl) << 16) | uint256(maxDeviation);
+    emit FeedWidenRequested(feedId, maxDeviation, ttl, uint48(block.timestamp) + delay);
+  }
+
+  /// @notice Apply a matured widen inside its grace window, ONLY if the feed config is untouched since
+  ///         the request. Any intervening tighten (guardian `narrowMaxDeviation`, owner `updateFeed`)
+  ///         makes the payload stale and voids it — the tighten stands and the loosening must be
+  ///         re-requested, restarting the full delay. Fail-safe direction by construction.
+  function executeFeedWiden(bytes32 feedId) external onlyAdmin {
+    uint256 p = pendingWiden[feedId];
+    uint96 op = uint96(p >> 160);
+    if (op == 0) revert Err.InvalidState();
+    TL.validate(op);
+    FeedData storage f = feeds[feedId];
+    if (f.updatedAt == 0) revert Err.FeedNotFound(feedId);
+    // Stale-payload guard: live config must equal the request-time snapshot.
+    if (f.maxDeviation != uint16(p >> 32) || f.ttl != uint16(p >> 48)) revert Err.InvalidState();
+    uint16 maxDeviation = uint16(p);
+    uint16 ttl = uint16(p >> 16);
+    if (ttl <= maxRelayLagSecs) revert Err.InvalidInput(); // re-checked: maxRelayLagSecs is immutable, cheap belt
+    delete pendingWiden[feedId];
+    f.maxDeviation = maxDeviation;
+    f.ttl = ttl;
+    emit FeedUpdated(feedId, maxDeviation, ttl);
+  }
+
+  /// @notice Guardian OR owner veto of a pending loosening, including an expired one. This is the
+  ///         guardian veto the instant `updateFeed` never had.
+  function cancelFeedWiden(bytes32 feedId) external {
+    _onlyGuardianOrAdmin();
+    if (pendingWiden[feedId] >> 160 == 0) revert Err.InvalidState();
+    delete pendingWiden[feedId];
+    emit FeedWidenCancelled(feedId);
   }
 
   /// @notice Queue a signer addition. Adding price authority is a loosening and therefore cannot
