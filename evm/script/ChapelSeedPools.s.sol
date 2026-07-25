@@ -176,6 +176,9 @@ contract ChapelSeedPools is Script {
     if (tok == USDT) refBand = 100;
     else if (stable && tok != USDC) refBand = 150;
     else if (!stable && tok == XAUT) refBand = 200;
+    // M-1: every EXTERNAL spoke needs a cumulative bound; BTCB/ETH/WBNB/CAKE get a 3% cross-oracle
+    // tolerance vs their OWN pair feed on REF_ORACLE (USDC = base, exempt; band unused there).
+    else if (!stable && tok != USDC) refBand = 300;
   }
 
   function _oracleCfg(
@@ -190,7 +193,10 @@ contract ChapelSeedPools is Script {
     o.feedId = keccak256(abi.encodePacked(asset, base));
     if (refBandBps != 0) {
       bool isXaut = asset == XAUT;
-      o.refFeedId = isXaut ? xautRefFeedId : USDC_FEED;
+      bool isVolatileCore = asset == BTCB || asset == ETH || asset == WBNB || asset == CAKE;
+      // Volatile non-pegged assets ref their OWN pair feed on the independent oracle; comparing a
+      // non-USD mark to the unit-price USDC feed would halt permanently.
+      o.refFeedId = isXaut ? xautRefFeedId : isVolatileCore ? o.feedId : USDC_FEED;
       o.refBandBps = refBandBps;
       o.refPrimary = isXaut ? xautRefOracle : refOracle;
     }

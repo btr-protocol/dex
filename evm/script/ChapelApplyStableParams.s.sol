@@ -7,6 +7,7 @@ import {console2} from "forge-std/Script.sol";
 import {Admin} from "../src/Admin.sol";
 import {IAdmin} from "../src/interfaces/IAdmin.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 
 /// @title ChapelApplyStableParams — push stable-core risk params onto the live Chapel stable pool.
 /// @notice Immediate: `setAssetParams` (fees/gamma/vega). Timelocked (Chapel LOW=5m / BASE=15m):
@@ -130,8 +131,8 @@ contract ChapelApplyStableParams is Script {
   }
 
   /// @dev Steward-lite fences: hard band + ±25% risk-up. Tighten is clamp-exempt on-chain.
-  function _fences(address tok) internal pure returns (IAdmin.RiskFences memory f) {
-    f.minFeeHardMin = tok == FDUSD ? 50 : 25;
+  function _fences(address) internal pure returns (IAdmin.RiskFences memory f) {
+    f.minFeeHardMin = 50; // 0.5 bp = 2θ (θ per keepers/oracle.chapel.toml; θ change MUST ship synced fence+minFee)
     f.minFeeHardMax = 2_000;
     f.maxFeeHardMax = 10_000;
     f.gammaHardMin = 5_000;
@@ -140,5 +141,8 @@ contract ChapelApplyStableParams is Script {
     f.vegaHardMax = 20_000;
     f.haircutHardMax = 10_000;
     f.maxDeltaBps = 2_500;
+    // M-2 Δ2: absolute reservation fences (±5% of peg) — mandatory for any live steward band.
+    f.reservationHardLoMin = M.encodeB64(0.95e18, 18);
+    f.reservationHardHiMax = M.encodeB64(1.05e18, 18);
   }
 }

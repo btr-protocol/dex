@@ -2,6 +2,7 @@
 pragma solidity =0.8.35;
 
 import {DeployBase} from "@btr-shared-script/Deploy.base.sol";
+import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
 import {console2} from "forge-std/Script.sol";
 
@@ -54,6 +55,15 @@ contract Deploy is DeployBase {
 
   /// @dev Core singleton + peripheral deploy inside one broadcast session.
   function _broadcastDeploy() internal returns (Addrs memory a) {
+    return _broadcastDeployWith(address(0));
+  }
+
+  /// @dev `acOverride != 0` REUSES an already-deployed AccessControl instead of minting one. A
+  ///      chain whose oracle stack shipped first (Sepolia) must bind pools to that same AC: a
+  ///      second AC would split protocol governance in two and leave the oracle's guardian unable
+  ///      to freeze the pools it feeds. Its owner must be the deployer, else this broadcast cannot
+  ///      execute the owner-gated wiring below.
+  function _broadcastDeployWith(address acOverride) internal returns (Addrs memory a) {
     uint256 pk = vm.envUint("DEPLOYER_PK");
     a.deployer = vm.addr(pk);
     // If DEPLOYER is set it must match the PK-derived address.
@@ -76,8 +86,14 @@ contract Deploy is DeployBase {
 
     vm.startBroadcast(pk);
 
-    // 1. AccessControl (shared singleton).
-    a.ac = address(_deployAC(a.deployer, a.treasury_owner));
+    // 1. AccessControl (shared singleton) — or the pre-existing one this chain already governs by.
+    if (acOverride == address(0)) {
+      a.ac = address(_deployAC(a.deployer, a.treasury_owner));
+    } else {
+      require(acOverride.code.length > 0, "AC override not a contract");
+      require(AccessControl(acOverride).owner() == a.deployer, "AC override not owned by deployer");
+      a.ac = acOverride;
+    }
 
     // 2. Singletons (non-upgradeable; carry immutable AC ref).
     a.admin = address(new Admin(a.ac));

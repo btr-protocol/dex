@@ -13,6 +13,8 @@ docs/
 # Dotenv file
 .env
 .env.chapel
+.env.sepolia
+.env.*
 deployments/local-anvil/
 
 # Accidental Uniswap vendor clones (not part of BTR build)

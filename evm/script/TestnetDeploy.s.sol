@@ -108,7 +108,9 @@ contract TestnetDeploy is Deploy {
     initialSigners[0] = signerSets.primary[0];
     initialSigners[1] = signerSets.primary[1];
     initialSigners[2] = signerSets.primary[2];
-    out.oracle = new ExternalOracle(out.core.ac, 120, initialSigners, 2);
+    // lag 30s couples with Pricing.STALE_GRACE_CAP_S = 30 (L-1): a longer oracle lag would leave a
+    // window where the pool's staleness premium is capped below the actual mark age.
+    out.oracle = new ExternalOracle(out.core.ac, 30, initialSigners, 2);
     require(
       refOracle != address(0) && refOracle != address(out.oracle), "independent REF_ORACLE required"
     );
@@ -122,6 +124,11 @@ contract TestnetDeploy is Deploy {
     );
 
     out.usdcFeedId = _seedFeeds(out.oracle, out.tok, seedMarks);
+
+    // M-1 P3 extension of _validateReferenceOracles (token addresses only exist post-deploy):
+    // the 4 volatile-core asset/USDC ref feeds must EXIST on REF_ORACLE before listing, else the
+    // refBand=300 configs below are unexecutable (validateOracleConfig requires a reachable ref).
+    _requireVolatileRefFeeds(refOracle, out.tok);
 
     out.stablePool = _createPool(
       out,
@@ -295,6 +302,17 @@ contract TestnetDeploy is Deploy {
     require(owner != address(0), errorMessage);
   }
 
+  function _requireVolatileRefFeeds(address refOracle, Tokens memory t) internal view {
+    address usdc = address(t.usdc);
+    address[4] memory vols = [address(t.btcb), address(t.eth), address(t.wbnb), address(t.cake)];
+    for (uint256 i; i < vols.length; ++i) {
+      try ExternalOracle(refOracle).getFeed(keccak256(abi.encodePacked(vols[i], usdc))) {}
+      catch {
+        revert("REF_ORACLE missing volatile asset/USDC feed");
+      }
+    }
+  }
+
   function _seedMark(string memory envName) internal view returns (uint256 mark1e18) {
     mark1e18 = vm.envUint(envName);
     require(mark1e18 != 0 && M.encodeB64(mark1e18, 18) != 0, "invalid oracle seed mark");
@@ -307,13 +325,7 @@ contract TestnetDeploy is Deploy {
     address usdc = address(t.usdc);
     usdcFeed = keccak256(abi.encodePacked(usdc, usdc));
     oracle.addFeed(
-      usdc,
-      usdc,
-      M.encodeB64(m.usdc, 18),
-      SIGMA_SEED,
-      CONF_SEED,
-      STABLE_MAXDEV,
-      STABLE_TTL
+      usdc, usdc, M.encodeB64(m.usdc, 18), SIGMA_SEED, CONF_SEED, STABLE_MAXDEV, STABLE_TTL
     );
 
     _addPairFeed(oracle, address(t.usdt), usdc, M.encodeB64(m.usdt, 18), STABLE_MAXDEV, STABLE_TTL);
@@ -394,6 +406,8 @@ contract TestnetDeploy is Deploy {
     for (uint256 i = 0; i < tokens.length; i++) {
       address tok = tokens[i];
       (uint16 minFee, uint16 refBand) = _assetParams(tok, ctx.tok, stable);
+      bool volatileCore = !stable && tok != address(ctx.tok.usdc) && tok != address(ctx.tok.usdt)
+        && tok != address(ctx.tok.xaut);
       IPool.OracleConfig memory oc = _oracleCfg(
         address(ctx.oracle),
         tok,
@@ -401,6 +415,7 @@ contract TestnetDeploy is Deploy {
         address(ctx.tok.xaut),
         ctx.usdcFeedId,
         refBand,
+        volatileCore,
         refOracle,
         xautRefOracle,
         xautRefFeedId
@@ -424,6 +439,9 @@ contract TestnetDeploy is Deploy {
     if (tok == address(t.usdt)) refBand = 100;
     else if (stable && tok != address(t.usdc)) refBand = 150;
     else if (!stable && tok == address(t.xaut)) refBand = 200;
+    // M-1: every EXTERNAL spoke needs a cumulative bound; BTCB/ETH/WBNB/CAKE get a 3% cross-oracle
+    // tolerance vs their OWN pair feed on REF_ORACLE (USDC = base, exempt; band unused there).
+    else if (!stable && tok != address(t.usdc)) refBand = 300;
   }
 
   function _oracleCfg(
@@ -433,6 +451,7 @@ contract TestnetDeploy is Deploy {
     address xaut,
     bytes32 usdcFeedId,
     uint16 refBandBps,
+    bool volatileCore,
     address refOracle,
     address xautRefOracle,
     bytes32 xautRefFeedId
@@ -441,7 +460,9 @@ contract TestnetDeploy is Deploy {
     o.feedId = keccak256(abi.encodePacked(asset, base));
     if (refBandBps != 0) {
       bool isXaut = asset == xaut;
-      o.refFeedId = isXaut ? xautRefFeedId : usdcFeedId;
+      // Volatile non-pegged assets ref their OWN pair feed on the independent oracle; comparing a
+      // non-USD mark to the unit-price USDC feed would halt permanently.
+      o.refFeedId = isXaut ? xautRefFeedId : volatileCore ? o.feedId : usdcFeedId;
       o.refBandBps = refBandBps;
       o.refPrimary = isXaut ? xautRefOracle : refOracle;
     }

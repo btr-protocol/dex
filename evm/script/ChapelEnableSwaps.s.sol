@@ -6,6 +6,7 @@ import {console2} from "forge-std/Script.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
 import {Pool} from "../src/Pool.sol";
@@ -390,12 +391,16 @@ contract ChapelEnableSwaps is Script {
     f.gammaHardMax = 40_000;
     f.vegaHardMin = 5_000;
     if (stable || tok == USDC || tok == USDT) {
-      f.minFeeHardMin = 50; // SSoT floor 0.5 bp; FDUSD listed at 100
+      f.minFeeHardMin = 50; // 0.5 bp = 2θ (θ per keepers/oracle.chapel.toml; θ change MUST ship synced fence+minFee)
       f.minFeeHardMax = 2_000;
       f.maxFeeHardMax = 10_000;
       f.vegaHardMax = 20_000;
+      // M-2 Δ2: absolute reservation fences (±5% of peg) — mandatory for any live steward band.
+      // XAUT/volatile legs stay 0 (no band).
+      f.reservationHardLoMin = M.encodeB64(0.95e18, 18);
+      f.reservationHardHiMax = M.encodeB64(1.05e18, 18);
     } else {
-      f.minFeeHardMin = 100;
+      f.minFeeHardMin = 1_000; // 10 bp = 2θ (θ per keepers/oracle.chapel.toml; θ change MUST ship synced fence+minFee)
       f.minFeeHardMax = 20_000;
       f.maxFeeHardMax = 50_000;
       f.vegaHardMax = 30_000;
@@ -441,6 +446,9 @@ contract ChapelEnableSwaps is Script {
     maxDisp = 500_000;
     if (tok == USDT) refBand = 100;
     else if (tok == XAUT) refBand = 200;
+    // M-1: every EXTERNAL spoke needs a cumulative bound; BTCB/ETH/WBNB/CAKE get a 3% cross-oracle
+    // tolerance vs their OWN pair feed on REF_ORACLE (USDC = base, exempt; band unused there).
+    else refBand = 300;
   }
 
   function _oracleCfg(
@@ -453,12 +461,16 @@ contract ChapelEnableSwaps is Script {
   ) internal pure returns (IPool.OracleConfig memory o) {
     o.primary = ORACLE;
     o.feedId = asset == USDC ? USDC_FEED : keccak256(abi.encodePacked(asset, base));
-    // Stable legs + volatile USDT use the independent USDC ref. XAUT must use
-    // an independent XAUT/USDC mark; comparing it to the unit-price USDC feed
-    // would halt permanently and provide no meaningful manipulation bound.
+    // Stable legs + volatile USDT use the independent USDC ref. Volatile non-pegged assets
+    // (XAUT + BTCB/ETH/WBNB/CAKE) must ref their OWN pair feed on the independent oracle;
+    // comparing a non-USD mark to the unit-price USDC feed would halt permanently and
+    // provide no meaningful manipulation bound.
     if (asset != USDC && refBandBps != 0) {
       bool isXaut = asset == XAUT;
-      o.refFeedId = isXaut ? xautRefFeedId : USDC_FEED;
+      bool isVolatileCore = asset == BTCB || asset == ETH || asset == WBNB || asset == CAKE;
+      o.refFeedId = isXaut
+        ? xautRefFeedId
+        : isVolatileCore ? keccak256(abi.encodePacked(asset, base)) : USDC_FEED;
       o.refBandBps = refBandBps;
       o.refPrimary = isXaut ? xautRefOracle : refOracle;
     } else {

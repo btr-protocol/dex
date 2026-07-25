@@ -1,0 +1,602 @@
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.35;
+
+import {Deploy} from "./Deploy.s.sol";
+import {Admin} from "../src/Admin.sol";
+import {PoolFactory} from "../src/PoolFactory.sol";
+import {Pool} from "../src/Pool.sol";
+import {IPool} from "../src/interfaces/IPool.sol";
+import {IOracle} from "../src/interfaces/IOracle.sol";
+import {ExternalOracle} from "../src/oracles/ExternalOracle.sol";
+import {TestnetERC20} from "../src/testnet/TestnetERC20.sol";
+import {TestnetFaucet} from "../src/testnet/TestnetFaucet.sol";
+import {AccessControl} from "@btr-shared/access/AccessControl.sol";
+import {OpsTreasury} from "@btr-shared/OpsTreasury.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {Constants as C} from "../src/libraries/Constants.sol";
+import {console2} from "forge-std/Script.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+
+/// @title SepoliaPoolDeploy — Sepolia (11155111) DEX stack on top of the already-deployed oracle.
+/// @notice Core singletons (reusing the oracle stack's AccessControl) + faucet + a reference
+///         ExternalOracle + the two launch pools, both based on USDC:
+///           stable core   = USDC, USDT, USDE, USDS, DAI, USD1, USDG, PYUSD, RLUSD, syrupUSDC,
+///                           USDF, U, GHO, TUSD, USDTB, FDUSD, AUSD
+///           volatile core = USDC, USDT, WETH, WBTC, cbBTC, BNB, XAUT, PAXG, EURC
+///         No incumbent/comparison pools (owner-descoped 2026-07-24) — our stack only.
+/// @dev TWO JSON INPUTS, both consumed, nothing hardcoded:
+///      1. `deployments/11155111.deploy.json` (SoT, written by SepoliaOracleDeploy): `ac`,
+///         `oracle`, one address per symbol, `feed_<SYM>` = keccak(token, USDC), plus `USD` and
+///         `feed_USDC-USD` (the SIGNED USDC/USD reference: keeper idx 24 post-EURC, but this
+///         script keys it by name/keccak, never by numeric index; see base config below).
+///         ERC20 mocks are REUSED from that file, never re-minted: feed_id binds
+///         keccak(asset, USDC) to those exact token addresses forever, so a fresh mock would
+///         point every feed at an asset the pool does not hold.
+///      2. `deployments/sepolia-risk-params.json` (written by
+///         research/stable-core/emit_prod_params.py from the referee-gated central-normal-plateau
+///         fit): curve presets + per-asset minFee/dispersion/wall/refBand. Parallel arrays.
+/// @dev BASE USDC: mark ≡ 1.0, never pushed (Pricing._readBasePriceOrHalt discards the read price
+///      for quoting), κ forbidden (AIMM_PROOFS Thm 2 — a walled numeraire breaks cross-leg
+///      round-trip neutrality). Its OracleConfig points at the SIGNED USDC/USD feed (keeper idx 24) so the
+///      depeg guard and the USD reservation band both read a real market price; refFeedId /
+///      refBandBps / refPrimary stay 0 for the base (it is exempt from requireExternalSpokeBound —
+///      its canonical feed IS its breaker).
+/// @dev REFERENCE ORACLE (why a second contract is deployed): every EXTERNAL non-base spoke must
+///      carry a cumulative bound (PoolAdmin.requireExternalSpokeBound) = a ref band or a two-sided
+///      absolute reservation band. `addAsset` has no reservation-price argument and initAsset
+///      defaults it to 0, so the ref band is the only bound available at listing time — and
+///      validateOracleConfig requires `refPrimary != primary`. The oracle deploy shipped ONE
+///      oracle, so this script deploys the reference tier: a second ExternalOracle under its own
+///      AccessControl, seeded from the primary's live marks. Pegged stables band against
+///      USDC/USD; every other spoke bands against its OWN pair feed (comparing a non-USD mark to
+///      a unit price would halt permanently).
+///      ⚠ ADDRESS DISTINCTNESS IS NOT OPERATIONAL INDEPENDENCE. On Sepolia the reference set
+///      defaults to the same signers and the same deployer-owned governance. Mainnet MUST give it
+///      a disjoint signer set AND a different owner (the Chapel script enforces exactly that in
+///      _validateReferenceOracles); set REF_ORACLE + REF_ORACLE_SIGNER_{0,1,2} to reuse a genuinely
+///      independent tier here.
+/// @dev Env: DEPLOYER_PK (required). Optional: DEPLOY_IN (oracle SoT path), RISK_PARAMS (params
+///      path), POOLS_OUT (output path), TREASURY, GUARDIAN, SEED_USDC (per-pool USDC-equivalent
+///      per leg, default 2,000,000e18), WNATIVE, REF_ORACLE + REF_ORACLE_SIGNER_{0,1,2},
+///      ALLOW_NO_LZ (default true here — Sepolia bring-up ships no bridge), SKIP_UNLISTED
+///      (list only the symbols the oracle stack actually carries), REDEPLOY.
+/// @dev SKIP_UNLISTED is a safety valve, not a routine flag. Every roster symbol (EURC included,
+///      oracle market idx 23) has a feed on the current SepoliaOracleDeploy, so the default FAIL
+///      LOUD path lists the full set. A symbol without an oracle feed would revert in
+///      validateOracleConfig; SKIP_UNLISTED=true lists the rest and logs the omission instead. If
+///      a future roster symbol has no feed, add it to SepoliaOracleDeploy._syms (append-only) first.
+/// @dev RUNBOOK: `forge script script/SepoliaPoolDeploy.s.sol:SepoliaPoolDeploy --sig
+///      "deployPools()" --rpc-url sepolia` (simulate) then re-run with --broadcast --slow.
+///      Swaps are ENABLED at listing (testnet); mainnet gates them behind timelocked risk updates.
+/// @dev REF KEEPER (money-path, do NOT skip): the reference oracle is a SECOND push target. The
+///      deploy seeds it fresh, so spoke swaps work in the TTL window (7200s stable / 600s vol)
+///      right after deploy — but once a ref feed passes TTL with no push it fail-closes, and every
+///      spoke that bands against it reverts (dead DEX). Immediately after broadcast, point the
+///      keeper at BOTH oracles: `oracle` (primary, all feeds) AND `refOracle` (the `refFeeds` set
+///      from 11155111.pools.json). keepers/oracle.sepolia.toml must carry a [reference] block with
+///      refOracle's address + the refFeeds names; keepers/scripts/fill-oracle-config.py resolves
+///      each name to a feed id by keccak(token, USDC) off 11155111.deploy.json (same as primary).
+///      Start the keeper on both in the same session the pools go live.
+contract SepoliaPoolDeploy is Deploy {
+  uint16 internal constant STABLE_TTL = 7200;
+  uint16 internal constant VOLATILE_TTL = 600;
+  uint32 internal constant SIGMA_SEED = 0;
+  uint16 internal constant CONF_SEED = 25;
+  uint16 internal constant STABLE_MAXDEV = 50;
+  uint16 internal constant VOLATILE_MAXDEV = 100;
+  uint8 internal constant SIGNER_THRESHOLD = 2;
+  // Reference-tier signer defaults = the canonical NXR attester set (same pins as the oracle
+  // script). Override per the independence warning above.
+  address internal constant SIGNER_0 = 0x9E34F1120B9a6fD93AAF81e6eF2df187A6CE45cF;
+  address internal constant SIGNER_1 = 0x80F7f57Bd9DF46FA448586bC2Cc5e4ddF765973E;
+  address internal constant SIGNER_2 = 0x672C2dc3CA298eDca4793C700b9C658482966B2c;
+
+  struct Cfg {
+    string sot; // raw deployments/11155111.deploy.json
+    string risk; // raw deployments/sepolia-risk-params.json
+    address oracle; // primary ExternalOracle (marks)
+    address refOracle; // reference ExternalOracle (spoke depeg bands)
+    address usdc;
+    address usd;
+    bytes32 usdcUsdFeed;
+    uint256 gamma;
+    uint256 vega;
+    uint256 seedUsdc;
+    address wnative;
+    bool skipUnlisted;
+  }
+
+  /// @dev One row of deployments/sepolia-risk-params.json, resolved for a single symbol.
+  struct AssetParams {
+    address token;
+    uint16 presetId;
+    uint16 minFeePbps;
+    uint16 maxFeePbps;
+    uint32 minDisp;
+    uint32 maxDisp;
+    uint16 kappaCovBps;
+    uint16 depthAmplifier;
+    uint16 haircutSuppressor;
+    uint16 refBandBps;
+    bool refOwnFeed;
+    bool stable;
+  }
+
+  function deployPools() external returns (address stablePool, address volatilePool) {
+    require(block.chainid == 11155111, "Sepolia only");
+    string memory outPath = _poolsOutPath();
+    // Re-run guard (mirrors the oracle script): a second broadcast mints a duplicate DEX bound to
+    // the SAME feeds and silently overwrites the pool SoT.
+    require(
+      !vm.exists(outPath) || vm.envOr("REDEPLOY", false),
+      "already deployed: 11155111.pools.json exists (REDEPLOY=true to override)"
+    );
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    address deployer = vm.addr(pk);
+
+    Cfg memory cfg = _loadCfg();
+    // NOTE: deliberately NO predict-then-assert on the reference oracle. That pattern exists on
+    // the PRIMARY oracle because NXR's signing tier and keeper configs are pre-filled with its
+    // address, so a mismatch would strand the signed-quote domain. Nothing external is pre-filled
+    // with the reference oracle's address, and the core-singleton deploys below consume an
+    // unpredictable number of nonces first, so a prediction here would be fragile and protect
+    // nothing. The invariant that DOES matter (refPrimary != primary) is asserted after deploy.
+
+    // Core singletons, REUSING the oracle stack's AccessControl (one governance root per chain).
+    Deploy.Addrs memory core = _broadcastDeployWith(vm.parseJsonAddress(cfg.sot, ".ac"));
+    require(core.deployer == deployer, "unexpected core deployer");
+
+    vm.startBroadcast(pk);
+    if (cfg.refOracle == address(0)) {
+      cfg.refOracle = _deployRefOracle(deployer);
+    }
+    // The one invariant that matters: a same-address "reference" cannot bound a walked primary
+    // mark (validateOracleConfig enforces it too; failing here keeps the revert readable).
+    require(
+      cfg.refOracle != cfg.oracle && cfg.refOracle.code.length > 0,
+      "reference oracle must be a distinct contract"
+    );
+
+    TestnetFaucet faucet = new TestnetFaucet(deployer);
+    string[] memory stableSyms = vm.parseJsonStringArray(cfg.risk, ".stablePool");
+    string[] memory volSyms = vm.parseJsonStringArray(cfg.risk, ".volatilePool");
+    stableSyms = _listable(cfg, stableSyms);
+    volSyms = _listable(cfg, volSyms);
+
+    stablePool = _createPool(core, cfg, stableSyms, true);
+    volatilePool = _createPool(core, cfg, volSyms, false);
+    _fundFaucet(cfg, faucet, stableSyms, volSyms);
+
+    address guardian = vm.envOr("GUARDIAN", address(0));
+    if (guardian != address(0) && guardian != deployer) {
+      AccessControl(core.ac).setGuardian(guardian, true);
+    }
+    vm.stopBroadcast();
+
+    _persist(core, cfg, address(faucet), stablePool, volatilePool, outPath);
+  }
+
+  // ── config ────────────────────────────────────────────────────────────────────────────────
+
+  function _loadCfg() internal view returns (Cfg memory cfg) {
+    cfg.sot = vm.readFile(
+      vm.envOr("DEPLOY_IN", string.concat("deployments/", vm.toString(block.chainid), ".deploy.json"))
+    );
+    cfg.risk = vm.readFile(vm.envOr("RISK_PARAMS", string("deployments/sepolia-risk-params.json")));
+    require(
+      vm.parseJsonUint(cfg.risk, ".chainId") == block.chainid, "risk params: wrong chainId"
+    );
+    cfg.oracle = vm.parseJsonAddress(cfg.sot, ".oracle");
+    cfg.usdc = vm.parseJsonAddress(cfg.sot, ".USDC");
+    cfg.usd = vm.parseJsonAddress(cfg.sot, ".USD");
+    cfg.usdcUsdFeed = vm.parseJsonBytes32(cfg.sot, ".feed_USDC-USD");
+    require(
+      cfg.usdcUsdFeed == keccak256(abi.encodePacked(cfg.usdc, cfg.usd)),
+      "USDC/USD reference feed id does not bind the deployed tokens"
+    );
+    cfg.gamma = vm.parseJsonUint(cfg.risk, ".gamma");
+    cfg.vega = vm.parseJsonUint(cfg.risk, ".vega");
+    // gamma/vega are uint16 on-chain (IPool addAsset); a future params file exceeding 65535 would
+    // silently truncate at the cast site. Reject at load so the failure is a clear script revert.
+    require(
+      cfg.gamma <= type(uint16).max && cfg.vega <= type(uint16).max, "gamma/vega exceed uint16"
+    );
+    cfg.refOracle = vm.envOr("REF_ORACLE", address(0));
+    cfg.seedUsdc = vm.envOr("SEED_USDC", uint256(2_000_000 ether));
+    cfg.wnative = vm.envOr("WNATIVE", address(0xCAFE));
+    cfg.skipUnlisted = vm.envOr("SKIP_UNLISTED", false);
+  }
+
+  /// @dev Drop symbols the oracle stack does not carry (no `<SYM>` address in the SoT ⇒ no feed ⇒
+  ///      validateOracleConfig would revert). Fails loud unless SKIP_UNLISTED — a silently short
+  ///      pool is a money-path surprise, not a convenience.
+  function _listable(Cfg memory cfg, string[] memory syms)
+    internal
+    view
+    returns (string[] memory kept)
+  {
+    address[] memory toks = new address[](syms.length);
+    uint256 n;
+    for (uint256 i; i < syms.length; ++i) {
+      address t = _tokenOrZero(cfg.sot, syms[i]);
+      if (t == address(0)) {
+        require(cfg.skipUnlisted, string.concat("no oracle feed for ", syms[i]));
+        console2.log("SKIP (no oracle feed):", syms[i]);
+        continue;
+      }
+      toks[n] = t;
+      syms[n] = syms[i];
+      ++n;
+    }
+    kept = new string[](n);
+    for (uint256 i; i < n; ++i) {
+      kept[i] = syms[i];
+    }
+  }
+
+  function _tokenOrZero(string memory sot, string memory sym) internal view returns (address) {
+    string memory key = string.concat(".", sym);
+    if (!vm.keyExists(sot, key)) return address(0);
+    return vm.parseJsonAddress(sot, key);
+  }
+
+  /// @dev Resolve one symbol's row out of the parallel arrays. Linear scan over ~26 entries at
+  ///      deploy time: keeping the JSON flat (and therefore auditable against the research emit)
+  ///      is worth more than the gas.
+  function _paramsFor(Cfg memory cfg, string memory sym)
+    internal
+    view
+    returns (AssetParams memory p)
+  {
+    string[] memory syms = vm.parseJsonStringArray(cfg.risk, ".symbols");
+    uint256 idx = type(uint256).max;
+    for (uint256 i; i < syms.length; ++i) {
+      if (keccak256(bytes(syms[i])) == keccak256(bytes(sym))) {
+        idx = i;
+        break;
+      }
+    }
+    require(idx != type(uint256).max, string.concat("risk params: missing ", sym));
+    p.token = vm.parseJsonAddress(cfg.sot, string.concat(".", sym));
+    p.presetId = uint16(vm.parseJsonUintArray(cfg.risk, ".presetIds")[idx]);
+    p.minFeePbps = uint16(vm.parseJsonUintArray(cfg.risk, ".minFeePbps")[idx]);
+    p.maxFeePbps = uint16(vm.parseJsonUintArray(cfg.risk, ".maxFeePbps")[idx]);
+    p.minDisp = uint32(vm.parseJsonUintArray(cfg.risk, ".minDisp")[idx]);
+    p.maxDisp = uint32(vm.parseJsonUintArray(cfg.risk, ".maxDisp")[idx]);
+    p.kappaCovBps = uint16(vm.parseJsonUintArray(cfg.risk, ".kappaCovBps")[idx]);
+    p.depthAmplifier = uint16(vm.parseJsonUintArray(cfg.risk, ".depthAmplifier")[idx]);
+    p.haircutSuppressor = uint16(vm.parseJsonUintArray(cfg.risk, ".haircutSuppressor")[idx]);
+    p.refBandBps = uint16(vm.parseJsonUintArray(cfg.risk, ".refBandBps")[idx]);
+    p.refOwnFeed = vm.parseJsonBoolArray(cfg.risk, ".refOwnFeed")[idx];
+    p.stable = keccak256(bytes(vm.parseJsonStringArray(cfg.risk, ".cls")[idx]))
+      == keccak256(bytes("stable"));
+  }
+
+  // ── reference oracle ──────────────────────────────────────────────────────────────────────
+
+  function _deployRefOracle(address deployer) internal returns (address) {
+    address[] memory signers = new address[](3);
+    signers[0] = vm.envOr("REF_ORACLE_SIGNER_0", SIGNER_0);
+    signers[1] = vm.envOr("REF_ORACLE_SIGNER_1", SIGNER_1);
+    signers[2] = vm.envOr("REF_ORACLE_SIGNER_2", SIGNER_2);
+    require(
+      signers[0] != address(0) && signers[1] != address(0) && signers[2] != address(0)
+        && signers[0] != signers[1] && signers[0] != signers[2] && signers[1] != signers[2],
+      "invalid reference signer set (zero or duplicate)"
+    );
+    // Own AccessControl: the reference tier's admin domain must be separable from the primary's
+    // even when (as on Sepolia) the same EOA currently owns both.
+    AccessControl refAc = _deployAC(deployer, _resolveTreasury(deployer));
+    return address(new ExternalOracle(address(refAc), 30, signers, SIGNER_THRESHOLD));
+  }
+
+  /// @dev Mirror + SEED one primary feed onto the reference oracle from the primary's initial mark.
+  ///      This is a real seed, not just a stub: addFeed stamps updatedAt = block.timestamp, and
+  ///      Oracle.observedAt falls back to updatedAt when sourceTs == 0 (legacy-added feed), so the
+  ///      ref feed gates FRESH from the deploy block. That is what lets a spoke swap succeed in the
+  ///      TTL window immediately after deploy (STABLE_TTL 7200s / VOLATILE_TTL 600s) BEFORE the
+  ///      keeper is live. Continuous operation requires the keeper to push this feed too — the ref
+  ///      oracle + its feed manifest are emitted to the pool SoT (see _persist) precisely so the
+  ///      keeper config can target BOTH oracles. Idempotent: a feed already present (REF_ORACLE
+  ///      reuse, or USDC/USD already mirrored for an earlier stable) is left untouched.
+  function _mirrorRefFeed(Cfg memory cfg, address asset, address quote, bool stable) internal {
+    bytes32 id = keccak256(abi.encodePacked(asset, quote));
+    try IOracle(cfg.refOracle).getFeed(id) returns (IOracle.FeedData memory f) {
+      if (f.lastPriceB64 != 0) return;
+    } catch {}
+    IOracle.FeedData memory src = IOracle(cfg.oracle).getFeed(id);
+    require(src.lastPriceB64 != 0, "primary feed unseeded");
+    ExternalOracle(cfg.refOracle).addFeed(
+      asset,
+      quote,
+      src.lastPriceB64,
+      SIGMA_SEED,
+      CONF_SEED,
+      stable ? STABLE_MAXDEV : VOLATILE_MAXDEV,
+      stable ? STABLE_TTL : VOLATILE_TTL
+    );
+  }
+
+  // ── pools ─────────────────────────────────────────────────────────────────────────────────
+
+  function _createPool(Deploy.Addrs memory core, Cfg memory cfg, string[] memory syms, bool stable)
+    internal
+    returns (address poolAddr)
+  {
+    address[] memory tokens = new address[](syms.length);
+    for (uint256 i; i < syms.length; ++i) {
+      tokens[i] = vm.parseJsonAddress(cfg.sot, string.concat(".", syms[i]));
+    }
+    require(tokens[0] == cfg.usdc, "pool base must be USDC (idx 0)");
+
+    IPool.FeeParams memory fp = IPool.FeeParams({protoShare: 20, flashFeePbps: 100});
+    bytes memory initdata =
+      abi.encodeWithSelector(Pool.initialize.selector, tokens[0], cfg.wnative, fp);
+    poolAddr = PoolFactory(payable(core.poolFactory)).createPool(tokens[0], tokens, initdata);
+    Admin admin = Admin(core.admin);
+
+    _installPresets(admin, cfg, poolAddr);
+    for (uint256 i; i < syms.length; ++i) {
+      _listAsset(admin, cfg, poolAddr, syms[i], stable);
+    }
+    // GOV-03: close the direct bootstrap path — every later listing is timelocked.
+    admin.sealBootstrap(poolAddr);
+    _seedPool(cfg, poolAddr, tokens);
+  }
+
+  /// @dev Install EVERY preset in the risk-params file, pre-seal (a curve must exist before the
+  ///      first addAsset that references it). The central-normal plateau is one cell-invariant
+  ///      shape: presets differ only by wall tier W, dispersion reference, and the wall flag.
+  function _installPresets(Admin admin, Cfg memory cfg, address pool) internal {
+    // foundry cannot read an array's length (no `.length`, no `[*]`) — the emit ships an explicit
+    // presetCount for exactly this reason.
+    uint256 n = vm.parseJsonUint(cfg.risk, ".presetCount");
+    require(n != 0, "risk params: no presets");
+    for (uint256 i; i < n; ++i) {
+      string memory base = string.concat(".presets[", vm.toString(i), "]");
+      uint256[] memory interior = vm.parseJsonUintArray(cfg.risk, string.concat(base, ".interiorB"));
+      int256[] memory wQ = vm.parseJsonIntArray(cfg.risk, string.concat(base, ".wQ"));
+      admin.setCurve(
+        pool,
+        uint16(vm.parseJsonUint(cfg.risk, string.concat(base, ".id"))),
+        interior,
+        wQ,
+        uint16(vm.parseJsonUint(cfg.risk, string.concat(base, ".dispRef"))),
+        uint8(vm.parseJsonUint(cfg.risk, string.concat(base, ".flags")))
+      );
+    }
+  }
+
+  function _listAsset(
+    Admin admin,
+    Cfg memory cfg,
+    address pool,
+    string memory sym,
+    bool stablePool
+  ) internal {
+    AssetParams memory p = _paramsFor(cfg, sym);
+    bool isBase = p.token == cfg.usdc;
+    if (!isBase && p.refBandBps != 0) {
+      // The band's reference must EXIST on the reference oracle before the listing validates it.
+      if (p.refOwnFeed) {
+        _mirrorRefFeed(cfg, p.token, cfg.usdc, p.stable);
+      } else {
+        _mirrorRefFeed(cfg, cfg.usdc, cfg.usd, true);
+      }
+    }
+    admin.addAsset(
+      pool,
+      p.token,
+      _oracleCfg(cfg, p, isBase),
+      _riskCfg(p),
+      p.presetId,
+      p.minFeePbps,
+      18,
+      p.minDisp,
+      p.maxDisp,
+      uint16(cfg.gamma),
+      uint16(cfg.vega)
+    );
+    // initAsset defaults maxFeePbps to 1% and haircutSuppressor to BPS; clamp both to the fitted
+    // SSoT. A κ-walled leg is already forced to haircut 0 by setupOracleAndConfig — restating it
+    // here keeps the two paths from silently diverging, and carries the NAV-asset case
+    // (syrupUSDC: κ=0 but haircut MUST be 0 — the haircut path reasons at $1-peg parity).
+    admin.setAssetParams(
+      pool,
+      p.token,
+      0,
+      p.minFeePbps,
+      p.maxFeePbps,
+      uint16(cfg.gamma),
+      uint16(cfg.vega),
+      p.haircutSuppressor,
+      0,
+      0
+    );
+    stablePool; // pool class is carried per-asset in the risk params; kept for call-site clarity
+  }
+
+  function _oracleCfg(Cfg memory cfg, AssetParams memory p, bool isBase)
+    internal
+    view
+    returns (IPool.OracleConfig memory o)
+  {
+    o.primary = cfg.oracle;
+    o.mode = 0; // EXTERNAL — INTERNAL is forbidden for the base and unused for spokes here.
+    // BASE: its mark is the SIGNED USDC/USD reference (keeper idx 24), not a USDC/USDC identity — that is
+    // what makes _readBasePriceOrHalt's 500bp depeg halt bite. Ref band stays 0 (base is exempt).
+    o.feedId = isBase ? cfg.usdcUsdFeed : keccak256(abi.encodePacked(p.token, cfg.usdc));
+    if (isBase || p.refBandBps == 0) return o;
+    o.refFeedId =
+      p.refOwnFeed ? keccak256(abi.encodePacked(p.token, cfg.usdc)) : cfg.usdcUsdFeed;
+    o.refBandBps = p.refBandBps;
+    o.refPrimary = cfg.refOracle;
+  }
+
+  /// @dev κ>0 ⇒ depthAmplifier must be 0 (the c<1 depth subsidy fights the convex wall) and the
+  ///      coverage band must straddle parity. Both come from the risk-params emit; asserted here
+  ///      so a bad params file fails at the script, not mid-broadcast in the pool.
+  function _riskCfg(AssetParams memory p) internal pure returns (IPool.RiskConfig memory r) {
+    require(p.kappaCovBps == 0 || p.depthAmplifier == 0, "kappa>0 requires depthAmplifier==0");
+    require(p.kappaCovBps == 0 || p.haircutSuppressor == 0, "kappa>0 requires haircut==0");
+    r.decayStartRatioBps = 5000;
+    r.coverageMin = 5000;
+    r.coverageMax = 20_000;
+    r.depthAmplifier = p.depthAmplifier;
+    r.kappaCovBps = p.kappaCovBps;
+    // Testnet: swaps live at listing. Mainnet gates these behind timelocked risk updates.
+    r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
+  }
+
+  // ── liquidity + faucet ────────────────────────────────────────────────────────────────────
+
+  /// @dev Seed each leg with SEED_USDC of USDC-equivalent, sized off the live oracle mark (not an
+  ///      env table): a leg seeded at a stale price starts the pool off-parity and the coverage
+  ///      wall immediately tolls honest flow.
+  function _seedPool(Cfg memory cfg, address poolAddr, address[] memory tokens) internal {
+    Pool pool = Pool(payable(poolAddr));
+    for (uint256 i; i < tokens.length; ++i) {
+      uint256 amt = cfg.seedUsdc;
+      if (tokens[i] != cfg.usdc) {
+        uint256 mark = M.b64To1e18(
+          IOracle(cfg.oracle).getFeed(keccak256(abi.encodePacked(tokens[i], cfg.usdc))).lastPriceB64
+        );
+        require(mark != 0, "unseeded mark");
+        amt = cfg.seedUsdc * 1e18 / mark;
+      }
+      TestnetERC20(tokens[i]).mint(msg.sender, amt);
+      IERC20(tokens[i]).approve(poolAddr, type(uint256).max);
+      pool.deposit(tokens[i], amt);
+    }
+  }
+
+  /// @dev Faucet caps: $10k/day of any stable, and a mark-sized ~$10k/day of any volatile, so a
+  ///      claimer gets a comparable notional whatever the unit price is.
+  function _fundFaucet(
+    Cfg memory cfg,
+    TestnetFaucet faucet,
+    string[] memory stableSyms,
+    string[] memory volSyms
+  ) internal {
+    uint256 n = stableSyms.length + volSyms.length;
+    address[] memory toks = new address[](n);
+    uint256[] memory caps = new uint256[](n);
+    uint256 k;
+    for (uint256 i; i < stableSyms.length + volSyms.length; ++i) {
+      bool stable = i < stableSyms.length;
+      string memory sym = stable ? stableSyms[i] : volSyms[i - stableSyms.length];
+      address t = vm.parseJsonAddress(cfg.sot, string.concat(".", sym));
+      bool dup;
+      for (uint256 j; j < k; ++j) {
+        if (toks[j] == t) dup = true;
+      }
+      if (dup) continue;
+      uint256 mark = t == cfg.usdc
+        ? 1e18
+        : M.b64To1e18(
+          IOracle(cfg.oracle).getFeed(keccak256(abi.encodePacked(t, cfg.usdc))).lastPriceB64
+        );
+      require(mark != 0, "unseeded mark");
+      toks[k] = t;
+      caps[k] = 10_000 ether * 1e18 / mark;
+      ++k;
+    }
+    address[] memory tk = new address[](k);
+    uint256[] memory ck = new uint256[](k);
+    for (uint256 i; i < k; ++i) {
+      tk[i] = toks[i];
+      ck[i] = caps[i];
+      // Prefund 1000 claims' worth so the drip survives a demo week without a top-up.
+      uint256 amt = caps[i] * 1000;
+      TestnetERC20(tk[i]).mint(msg.sender, amt);
+      IERC20(tk[i]).approve(address(faucet), type(uint256).max);
+      faucet.fund(tk[i], amt);
+    }
+    faucet.setCaps(tk, ck);
+  }
+
+  // ── output ────────────────────────────────────────────────────────────────────────────────
+
+  function _poolsOutPath() internal view returns (string memory) {
+    // NOT the oracle SoT: vm.writeJson replaces the whole file, and clobbering
+    // 11155111.deploy.json would destroy the token/feed bindings the keeper reads.
+    return vm.envOr(
+      "POOLS_OUT", string.concat("deployments/", vm.toString(block.chainid), ".pools.json")
+    );
+  }
+
+  function _persist(
+    Deploy.Addrs memory core,
+    Cfg memory cfg,
+    address faucet,
+    address stablePool,
+    address volatilePool,
+    string memory outPath
+  ) internal {
+    console2.log("=== BTR Sepolia DEX ===");
+    console2.log("AccessControl (reused):", core.ac);
+    console2.log("Admin:                 ", core.admin);
+    console2.log("PoolFactory:           ", core.poolFactory);
+    console2.log("ExternalOracle (mark): ", cfg.oracle);
+    console2.log("ExternalOracle (ref):  ", cfg.refOracle);
+    console2.log("Faucet:                ", faucet);
+    console2.log("Stable pool:           ", stablePool);
+    console2.log("Volatile pool:         ", volatilePool);
+
+    string memory k = "sepolia_pools";
+    vm.serializeUint(k, "chainId", block.chainid);
+    vm.serializeAddress(k, "deployer", core.deployer);
+    vm.serializeAddress(k, "ac", core.ac);
+    vm.serializeAddress(k, "admin", core.admin);
+    vm.serializeAddress(k, "staking", core.staking);
+    vm.serializeAddress(k, "distributor", core.distributor);
+    vm.serializeAddress(k, "flash", core.flash);
+    vm.serializeAddress(k, "poolAux", core.poolAux);
+    vm.serializeAddress(k, "poolImpl", core.poolImpl);
+    vm.serializeAddress(k, "poolFactory", core.poolFactory);
+    vm.serializeAddress(k, "govToken", core.govToken);
+    vm.serializeAddress(k, "treasuryProxy", core.treasuryProxy);
+    vm.serializeAddress(k, "opsTreasuryProxy", core.opsTreasuryProxy);
+    vm.serializeAddress(k, "oracle", cfg.oracle);
+    vm.serializeAddress(k, "refOracle", cfg.refOracle);
+    vm.serializeAddress(k, "faucet", faucet);
+    vm.serializeAddress(k, "stablePool", stablePool);
+    vm.serializeAddress(k, "volatilePool", volatilePool);
+    // KEEPER MANIFEST: the reference oracle is a first-class push target. It is a SEPARATE contract
+    // from the primary, so the keeper's oracle.sepolia.toml needs its address AND the exact feed
+    // set it carries (a stale ref feed fail-closes every spoke swap that bands against it — TTL
+    // 7200s stable / 600s vol). refFeeds names map to feed ids by keccak(token, USDC) via the token
+    // addresses in 11155111.deploy.json, identically to the primary. See runbook step "REF KEEPER".
+    string memory json = vm.serializeString(k, "refFeeds", _refFeedManifest(cfg));
+
+    try vm.writeJson(json, outPath) {}
+    catch {
+      console2.log("(skip) writeJson not permitted; JSON below:");
+      console2.log(json);
+    }
+  }
+
+  /// @dev The exact feed set seeded onto the reference oracle: every spoke with refOwnFeed=true
+  ///      bands against its OWN pair feed (<SYM>-USDC), and every pegged stable bands against the
+  ///      shared USDC-USD reference. The keeper must push all of these to the ref oracle.
+  function _refFeedManifest(Cfg memory cfg) internal view returns (string[] memory names) {
+    string[] memory syms = vm.parseJsonStringArray(cfg.risk, ".symbols");
+    bool[] memory own = vm.parseJsonBoolArray(cfg.risk, ".refOwnFeed");
+    string[] memory buf = new string[](syms.length + 1);
+    uint256 n;
+    bool needUsdcUsd;
+    for (uint256 i; i < syms.length; ++i) {
+      if (keccak256(bytes(syms[i])) == keccak256(bytes("USDC"))) continue; // base, no ref feed
+      if (own[i]) {
+        buf[n++] = string.concat(syms[i], "-USDC");
+      } else {
+        needUsdcUsd = true; // a pegged stable bands against USDC/USD
+      }
+    }
+    if (needUsdcUsd) buf[n++] = "USDC-USD";
+    names = new string[](n);
+    for (uint256 i; i < n; ++i) {
+      names[i] = buf[i];
+    }
+  }
+}

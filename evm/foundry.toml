@@ -47,3 +47,7 @@ mainnet = "${ETH_RPC_URL}"
 anvil = "http://localhost:8545"
 # Prefer dRPC / bnbchain seeds; override via --rpc-url or FOUNDRY_ETH_RPC_URL
 chapel = "https://bsc-testnet.drpc.org"
+sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
+
+[etherscan]
+sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 11155111 }

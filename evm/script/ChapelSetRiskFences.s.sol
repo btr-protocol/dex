@@ -6,6 +6,7 @@ import {console2} from "forge-std/Script.sol";
 
 import {Admin} from "../src/Admin.sol";
 import {IAdmin} from "../src/interfaces/IAdmin.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 
 /// @title ChapelSetRiskFences — owner-set Steward-lite fences on live testnet pools.
 /// @notice Requires Admin bytecode that exposes `setRiskFences` (post Steward-lite redeploy).
@@ -50,8 +51,10 @@ contract ChapelSetRiskFences is Script {
   }
 
   /// @dev Hard band around current testnet stable-core operating range; ±25% risk-up clamp.
-  function _stableFences(address tok) internal pure returns (IAdmin.RiskFences memory f) {
-    f.minFeeHardMin = 25; // 0.25 bp PBPS
+  function _stableFences(address) internal pure returns (IAdmin.RiskFences memory f) {
+    // 0.5 bp PBPS = 2θ (θ per keepers/oracle.chapel.toml). H-2: ENFORCED on-chain — an armed fence
+    // floors owner setAssetParams too; sub-fence minFee requires setRiskFences first (2-tx intent).
+    f.minFeeHardMin = 50;
     f.minFeeHardMax = 2_000; // 20 bp
     f.maxFeeHardMax = 10_000;
     f.gammaHardMin = 5_000;
@@ -60,12 +63,13 @@ contract ChapelSetRiskFences is Script {
     f.vegaHardMax = 20_000;
     f.haircutHardMax = 10_000;
     f.maxDeltaBps = 2_500;
-    // FDUSD can sit a bit higher on minFee floor intent.
-    if (tok == FDUSD) f.minFeeHardMin = 50;
+    // M-2 Δ2: absolute reservation fences (±5% of peg) — mandatory for any live steward band.
+    f.reservationHardLoMin = M.encodeB64(0.95e18, 18);
+    f.reservationHardHiMax = M.encodeB64(1.05e18, 18);
   }
 
   function _volatileFences(address tok) internal pure returns (IAdmin.RiskFences memory f) {
-    f.minFeeHardMin = 100; // 1 bp
+    f.minFeeHardMin = 1_000; // 10 bp = 2θ; H-2 on-chain-enforced (see _stableFences)
     f.minFeeHardMax = 20_000; // 200 bp
     f.maxFeeHardMax = 50_000;
     f.gammaHardMin = 5_000;
@@ -76,10 +80,13 @@ contract ChapelSetRiskFences is Script {
     f.maxDeltaBps = 2_500;
     // Stable legs inside the volatile pool keep the tighter stable band.
     if (tok == USDC || tok == USDT) {
-      f.minFeeHardMin = 25;
+      f.minFeeHardMin = 50; // = 2θ stable (see above)
       f.minFeeHardMax = 2_000;
       f.maxFeeHardMax = 10_000;
       f.vegaHardMax = 20_000;
+      // M-2 Δ2: pegged legs carry the absolute reservation fences; volatile/XAUT legs stay 0 (no band).
+      f.reservationHardLoMin = M.encodeB64(0.95e18, 18);
+      f.reservationHardHiMax = M.encodeB64(1.05e18, 18);
     }
   }
 }
