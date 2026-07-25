@@ -10,7 +10,7 @@ import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
-import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "./fixtures/BaseTestSetup.sol";
 
 /// @title PoolSwapAccountingTest
 /// @notice Quote-time protoFee + token-conservation (R8) accounting.
@@ -38,9 +38,9 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
-    o.primary = address(oracle);
-    o.feedId = bytes32(uint256(uint160(token)));
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the shared mirror-ref fixture.
+  function _oracleCfg(address token) internal returns (IPool.OracleConfig memory o) {
+    o = externalOracleCfg(oracle, token);
   }
 
   function setUp() public override {
@@ -116,7 +116,7 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
 
     vm.prank(USER);
-    uint256 out = pool.swap(address(base), address(quote), amt, 0, USER);
+    uint256 out = pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
     assertGt(out, 0, "swap out");
 
     uint256 balOut = quote.balanceOf(address(pool));
@@ -149,7 +149,7 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     uint256 protoQBefore = pool.getProtocolFees(address(quote));
 
     vm.prank(USER);
-    pool.swap(address(base), address(quote), amt, 0, USER);
+    pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
 
     uint256 lpAfter =
       uint256(pool.getAsset(address(base)).reserves) + pool.getAsset(address(quote)).reserves;
@@ -169,7 +169,7 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     vm.prank(USER);
     base.approve(address(pool), type(uint256).max);
     vm.prank(USER);
-    try pool.swap(address(base), address(quote), amt, 0, USER) returns (uint256) {
+    try pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE) returns (uint256) {
       uint256 balOut = quote.balanceOf(address(pool));
       uint256 reservesOut = pool.getAsset(address(quote)).reserves;
       uint256 feesOut = pool.getProtocolFees(address(quote));
@@ -187,7 +187,7 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
     for (uint256 i; i < 5; ++i) {
       vm.prank(USER);
-      pool.swap(address(base), address(quote), amt, 0, USER);
+      pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
     }
     uint256 balOut = quote.balanceOf(address(pool));
     uint256 reservesOut = pool.getAsset(address(quote)).reserves;
@@ -203,7 +203,7 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
     uint256 before = quote.balanceOf(USER);
     vm.prank(USER);
-    uint256 out = pool.swap(address(base), address(quote), amt, 0, USER);
+    uint256 out = pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
     assertEq(quote.balanceOf(USER) - before, out, "user received exactly out");
   }
 }

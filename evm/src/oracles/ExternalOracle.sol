@@ -22,7 +22,9 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 ///      signature-less/`msg.sender`-trusting push path exists.
 contract ExternalOracle is IOracle, EIP712 {
   address public immutable AC;
-  uint16 public constant MAX_DEV_THRESHOLD = 65_000;
+  /// @dev Config-validation ceiling for a feed's per-push maxDeviation floor (20%). Runtime bands are
+  ///      bounded per-feed at (1 + DEV_BAND_MAX_X)·maxDeviation, not by this constant (M-1).
+  uint16 public constant MAX_DEV_THRESHOLD = 2_000;
   uint8 public constant MAX_SIGNERS = 6;
   /// @dev Per-push deviation band = maxDeviation floor + DEV_SIGMA_Z·σ·√(dtSource/SIGMA_INTERVAL_S).
   ///      The band is VOLATILITY-ADAPTIVE: a legitimate move over dtSource seconds for a ticker with
@@ -31,8 +33,14 @@ contract ExternalOracle is IOracle, EIP712 {
   ///      that would let a signer inflate its own band) is the adaptive term. SIGMA_INTERVAL_S matches
   ///      NXR's 30-min Parkinson σ window. Z=6 ⇒ a 6σ sanity cap (per-push authenticity backstop; the
   ///      CUMULATIVE bound on a compromised quorum is the independent refPrimary band, not this).
+  /// @dev M-1: the σ term is CAPPED at DEV_BAND_MAX_X·maxDeviation (per-push ceiling = 10·maxDev).
+  ///      Stored σ is floored each push at the realized |Δmark|/mark (spread backstop below), so an
+  ///      uncapped band would self-widen ×~6 per max-band push (σ-ratchet) up to the old 650% ceiling.
+  ///      The cap decouples the band from that ratchet: σ keeps its economic/spread role, the band
+  ///      stays bounded by per-feed config no matter how high σ has been walked.
   uint256 private constant DEV_SIGMA_Z = 6;
   uint256 private constant SIGMA_INTERVAL_S = 1800;
+  uint256 private constant DEV_BAND_MAX_X = 9;
   uint48 public constant SIGNER_GOV_TIMELOCK = SC.BASE_TIMELOCK;
   uint48 public constant SIGNER_GOV_GRACE = SC.GRACE_PERIOD;
   /// @dev Clock-skew allowance (s) for the signed-path future-dated bound. A signed blob whose sourceTs
@@ -425,22 +433,25 @@ contract ExternalOracle is IOracle, EIP712 {
 
   function _validate(uint64 price, uint32 sigmaSample) internal pure returns (uint256 mark1e18) {
     if ((mark1e18 = M.b64To1e18(price)) == 0) revert Err.ZeroValue();
-    if (sigmaSample > C.MAX_SIGMA_PBPS) revert Err.ThresholdViolation(sigmaSample, C.MAX_SIGMA_PBPS);
+    if (sigmaSample > C.MAX_SIGMA_PBPS) {
+      revert Err.ThresholdViolation(sigmaSample, C.MAX_SIGMA_PBPS);
+    }
   }
 
   /// @dev Per-push mark-move SANITY cap (D1/H-2), SOURCE-TIME-driven: `dt` = attested sourceTs delta
-  ///      (s), NOT wall-clock landing delta, hard-capped at MAX_DEV_THRESHOLD (band formula below).
-  ///      Source-time makes the bound
+  ///      (s), NOT wall-clock landing delta. Source-time makes the bound
   ///      identical %/wall-second on a 400ms chain and a 12s chain — a fast chain gets no extra
   ///      cumulative walk from more blocks. Fail-closed on out-of-band and on maxDev==0. The signature
   ///      authorizes AUTHENTICITY, not MAGNITUDE — this clamp backstops a compromised push quorum
   ///      per push; the CUMULATIVE bound is the independent refPrimary band (PoolIO.priceBandGuard),
   ///      not this.
-  /// @dev Volatility-adaptive per-push band. `allowed = maxDev + Z·σ·√(dt/interval)`, where σ is the
-  ///      STORED prior volatility (PBPS). σ_bps = σ_pbps/100; √(dt/interval) = √(dt·1e6/interval)/1000
-  ///      (integer). So the σ term in bps = Z·σ_pbps·√(dt·1e6/interval)/1e5. dt=0 (first push) ⇒ band =
-  ///      maxDev floor. Capped at MAX_DEV_THRESHOLD. prevSigma is trusted (already on-chain, floored
-  ///      each push at |Δmark|/mark) — a signer cannot widen THIS push's band with THIS push's σ.
+  /// @dev Volatility-adaptive per-push band. `allowed = maxDev + min(Z·σ·√(dt/interval), 9·maxDev)`,
+  ///      where σ is the STORED prior volatility (PBPS). σ_bps = σ_pbps/100; √(dt/interval) =
+  ///      √(dt·1e6/interval)/1000 (integer). So the σ term in bps = Z·σ_pbps·√(dt·1e6/interval)/1e5.
+  ///      dt=0 (first push) ⇒ band = maxDev floor. prevSigma is trusted only within the DEV_BAND_MAX_X
+  ///      cap: it is floored each push at |Δmark|/mark, so a compromised quorum pushing max-band moves
+  ///      would otherwise ratchet its OWN future band (M-1). A signer still cannot widen THIS push's
+  ///      band with THIS push's σ; the cap bounds every push at (1+DEV_BAND_MAX_X)·maxDev = 10·maxDev.
   function _checkDeviation(
     uint256 prevMark1e18,
     uint256 mark1e18,
@@ -454,11 +465,12 @@ contract ExternalOracle is IOracle, EIP712 {
     // sqrt (a full Newton routine) in those hot cases; band stays exactly the maxDev floor.
     uint256 allowed = uint256(maxDev);
     if (prevSigmaPbps != 0 && dt != 0) {
-      allowed += (DEV_SIGMA_Z
-          * uint256(prevSigmaPbps)
-          * FixedPointMathLib.sqrt(dt * 1e6 / SIGMA_INTERVAL_S)) / 1e5;
+      uint256 sigTerm =
+        (DEV_SIGMA_Z * uint256(prevSigmaPbps) * FixedPointMathLib.sqrt(dt * 1e6 / SIGMA_INTERVAL_S))
+          / 1e5;
+      uint256 sigCap = uint256(maxDev) * DEV_BAND_MAX_X;
+      allowed += sigTerm > sigCap ? sigCap : sigTerm;
     }
-    if (allowed > MAX_DEV_THRESHOLD) allowed = MAX_DEV_THRESHOLD;
     if (devBps > allowed) revert Err.ThresholdViolation(devBps, allowed);
   }
 
@@ -537,6 +549,9 @@ contract ExternalOracle is IOracle, EIP712 {
     // proportional spread → the round trip is spread-NEGATIVE. Direct-σ, no on-chain smoothing.
     // markMovePbps caps at MAX_SIGMA_PBPS and sigma is already _validate'd ≤ MAX_SIGMA_PBPS, so
     // sigmaStored stays within the validated σ invariant (no extra cap needed).
+    // M-1: this floor is ECONOMIC/SPREAD-ONLY. The deviation band caps its σ term at
+    // DEV_BAND_MAX_X·maxDev (_checkDeviation), so max-band pushes escalating the stored σ can never
+    // ratchet the band itself — band-side and spread-side σ roles are deliberately decoupled.
     uint32 moveFloor = Oracle.markMovePbps(prevMark1e18, mark1e18);
     uint32 sigmaStored = sigma > moveFloor ? sigma : moveFloor;
 

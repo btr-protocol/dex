@@ -64,13 +64,15 @@ contract PoolAdminHarness {
     PoolAdmin.validatePresetAssign($, t, presetId, maxDispersion);
   }
 
-  function callValidateInternalMode(address t, IPool.OracleConfig memory cfg) external view {
-    PoolAdmin.validateInternalMode($, t, cfg);
+  function callValidateOracleMode(address t, IPool.OracleConfig memory cfg) external view {
+    PoolAdmin.validateOracleMode($, t, cfg);
   }
 
   function seedPeg(address t) external {
     $.assets[t].pegB64 = 1; // nonzero peg so INTERNAL passes the pegB64 gate
-    $.assets[t].reservationPrice = 1; // abs depeg band present
+    // TWO-SIDED abs depeg band (M-1a: one side alone no longer satisfies the bound mandate).
+    $.assets[t].reservationPrice = 1;
+    $.assets[t].reservationPriceMax = 1;
   }
 
   function setKappa(address t, uint16 kappa) external {
@@ -166,10 +168,10 @@ contract PoolAdminTest is Test {
     cfg.refFeedId = bytes32(uint256(2));
     cfg.refBandBps = 10;
     vm.expectRevert(Err.BadConfig.selector);
-    h.callValidateInternalMode(BASE, cfg);
+    h.callValidateOracleMode(BASE, cfg);
     // Same config on a NON-base asset is accepted.
     h.seedPeg(TKA);
-    h.callValidateInternalMode(TKA, cfg);
+    h.callValidateOracleMode(TKA, cfg);
   }
 
   function test_presetAssign_minOffsetBoundAtMaxDispersion() public {

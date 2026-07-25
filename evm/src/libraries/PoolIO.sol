@@ -141,9 +141,9 @@ library PoolIO {
   }
 
   /// @dev Depeg guard: absolute reservation band and/or refFeed band. 0 fields = skip.
+  ///      NOT view: cache writes (tstore) on breaker/ref misses — all callers are state-mutating.
   function priceBandGuard(IPool.PoolStorage storage $, address token, IPool.Asset storage a)
     internal
-    view
   {
     uint64 lo = a.reservationPrice;
     uint64 hi = a.reservationPriceMax;
@@ -159,16 +159,20 @@ library PoolIO {
     // EXTERNAL mode: reuse the tx-scoped transient cache — Pricing._readOracle read, TTL/CI-gated
     // and cached this exact feed (same primary/feedId, keyed by token) while quoting earlier in
     // this tx, so a second external getFeed round-trip is pure waste (~1k gas). INTERNAL mode must
-    // NOT touch the cache: there it holds the SYNTHETIC peg feed (the quote source), while this
-    // guard needs the real external feed (the depeg breaker) — always read it fresh.
+    // NOT touch the primary key: there it holds the SYNTHETIC peg feed (the quote source), while
+    // this guard needs the real external feed (the depeg breaker) — cached under its OWN type key,
+    // post-gate, so repeat guards on the same token (batchSwap legs) dedupe to a tload. Intra-tx
+    // feed mutation is blocked (relay-only, 1-push/block), so cached == fresh holds.
     IOracle.FeedData memory gf;
     bool cached;
-    if (oc.mode != C.ORACLE_MODE_INTERNAL) (cached, gf) = TCache.tryLoadOracleFeed(token);
+    uint256 key =
+      oc.mode == C.ORACLE_MODE_INTERNAL ? TCache.TYPE_BREAKER_FEED : TCache.TYPE_ORACLE_FEED;
+    (cached, gf) = TCache.tryLoadFeed(key, token);
     if (!cached) {
       gf = IOracle(oc.primary).getFeed(oc.feedId);
-      // Fail-closed on every cache miss (INTERNAL always misses; EXTERNAL miss if unprimed).
-      // EXTERNAL cache hits were gated at quote prime. Prior code gated INTERNAL only (N-1).
+      // Fail-closed on every cache miss; cache hits were gated when cached (same tx ⇒ same verdict).
       Oracle.gate(gf);
+      if (key == TCache.TYPE_BREAKER_FEED) TCache.cacheFeed(key, token, gf);
     }
     uint64 price = gf.lastPriceB64;
     // Compare in numeric (1e18) space, NOT raw uint64: B64 packs mantissa in the high bits, so
@@ -182,11 +186,15 @@ library PoolIO {
       // INDEPENDENT signer set — so a compromised push quorum cannot walk the mark past refBandBps
       // of the reference without halting swaps. Validation requires a distinct refPrimary whenever
       // the band is armed, so refPrimary is never 0 here — fail-closed (no self-ref fallback).
-      IOracle.FeedData memory ref = IOracle(oc.refPrimary).getFeed(oc.refFeedId);
+      // Own type key (the primary key holds the quote-source feed): first guard in the tx pays the
+      // external getFeed, later guards (batchSwap legs) hit tload. Cached only POST-gate.
+      (bool refHit, IOracle.FeedData memory ref) = TCache.tryLoadFeed(TCache.TYPE_REF_FEED, token);
+      if (!refHit) ref = IOracle(oc.refPrimary).getFeed(oc.refFeedId);
       // ORC-10: fail-closed on a stale/dead/over-uncertain reference. The quoting path gates only
       // feedId — a dead/uncertain refFeed keeper would otherwise anchor the band to a corpse price.
       // Oracle.gate returns the reference mark (1e18).
       uint256 refP = Oracle.gate(ref);
+      if (!refHit) TCache.cacheFeed(TCache.TYPE_REF_FEED, token, ref);
       uint256 dev = p > refP ? p - refP : refP - p;
       if (dev * SC.BPS > refP * uint256(oc.refBandBps)) {
         revert Err.PriceOutsideReservation(price, uint64(refP));

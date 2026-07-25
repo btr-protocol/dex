@@ -7,6 +7,7 @@ import {IOracle} from "../../src/interfaces/IOracle.sol";
 import {Oracle} from "../../src/libraries/Oracle.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
+import {Constants as C} from "../../src/libraries/Constants.sol";
 import {MockAC} from "../fixtures/BaseTestSetup.sol";
 
 /// @notice NXR-signed push path (batchPushSigned) — the SOLE mark-update path. Verifies EIP-712 auth,
@@ -32,9 +33,7 @@ contract ExternalOracleSignedTest is Test {
     address[] memory initialSigners = _initialSigners();
     ext = new ExternalOracle(address(ac), 600, initialSigners, 2);
     vm.warp(1_700_000_000);
-    ext.addFeed(
-      BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, ext.MAX_DEV_THRESHOLD(), 3600
-    );
+    ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, ext.MAX_DEV_THRESHOLD(), 3600);
     feedId = keccak256(abi.encodePacked(BASE, QUOTE)); // feedIds[0], idx = 0
     nxr = vm.addr(NXR_PK);
   }
@@ -276,25 +275,61 @@ contract ExternalOracleSignedTest is Test {
     ext.batchPushSigned(hs, _sign(NXR_PK, hs));
 
     // Same dtSource=900s. Low-vol band = 100 + 6·2e3·√(900e6/1800)/1e5 = 100 + 84 = 184 bps.
-    // High-vol band = 100 + 6·5e4·√(900e6/1800)/1e5 = 100 + 2121 = 2221 bps.
+    // High-vol σ term = 6·5e4·√(900e6/1800)/1e5 = 2121, CAPPED at 9·maxDev = 900 (M-1) → band =
+    // 100 + 900 = 1000 bps.
     skip(900);
-    // A +10% (1000 bps) move: REJECTED on the low-vol feed (> 184)...
-    bytes memory lbad = _rec(1, M.encodeB64(110e18, 18), 2e3, 5, _srcTs());
+    // A +9% (900 bps) move: REJECTED on the low-vol feed (> 184)...
+    bytes memory lbad = _rec(1, M.encodeB64(109e18, 18), 2e3, 5, _srcTs());
     vm.expectRevert(
-      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1000), uint256(184))
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(900), uint256(184))
     );
     ext.batchPushSigned(lbad, _sign(NXR_PK, lbad));
-    // ...but ACCEPTED on the high-vol feed (< 2221), same elapsed source time.
-    bytes memory hok = _rec(2, M.encodeB64(110e18, 18), 5e4, 5, _srcTs());
+    // ...but ACCEPTED on the high-vol feed (< 1000), same elapsed source time.
+    bytes memory hok = _rec(2, M.encodeB64(109e18, 18), 5e4, 5, _srcTs());
     ext.batchPushSigned(hok, _sign(NXR_PK, hok));
     assertApproxEqRel(
-      M.b64To1e18(ext.getFeed(hid).lastPriceB64), 110e18, 0.001e18, "high-vol move within its band"
+      M.b64To1e18(ext.getFeed(hid).lastPriceB64), 109e18, 0.001e18, "high-vol move within its band"
     );
     assertApproxEqRel(
       M.b64To1e18(ext.getFeed(lid).lastPriceB64),
       100e18,
       0.001e18,
       "low-vol feed unchanged (rejected)"
+    );
+  }
+
+  /// M-1 regression: the band's σ term is capped at 9·maxDev, so the stored σ — however high a
+  /// compromised quorum walks it (attested σ and the realized-|Δmark| floor both land in the SAME
+  /// stored field) — can never ratchet the per-push band past 10·maxDev. The old
+  /// MAX_DEV_THRESHOLD=65_000 ceiling (650%/push) is structurally unreachable.
+  function test_sigma_ratchet_band_capped() public {
+    bytes32 id = _seedBandedFeed(); // idx 1, 500-bps floor, mark 100
+    // Walk the stored σ to the validated maximum in one authorized push (flat mark + huge attested
+    // σ — the strongest escalation available; max-band move sequences floor σ strictly lower).
+    skip(10);
+    bytes memory walk = _rec(1, M.encodeB64(100e18, 18), C.MAX_SIGMA_PBPS, 5, _srcTs());
+    ext.batchPushSigned(walk, _sign(NXR_PK, walk));
+    assertEq(ext.getFeed(id).sigma, C.MAX_SIGMA_PBPS, "stored sigma fully walked");
+
+    // 1h source gap: the uncapped σ term would be 6·1e8·√(3600e6/1800)/1e5 ≈ 8.5e6 bps and the OLD
+    // code clamped the band at 65_000 bps (650%/push). New band = 500 + min(σterm, 9·500) = 5000.
+    skip(3600);
+    uint256 prev = M.b64To1e18(M.encodeB64(100e18, 18));
+    // +200% was IN-BAND under the old 650% ceiling — must now revert with allowed = 10·maxDev.
+    uint256 dev300 = ((M.b64To1e18(M.encodeB64(300e18, 18)) - prev) * 10_000) / prev;
+    bytes memory big = _rec(1, M.encodeB64(300e18, 18), 1e4, 5, _srcTs());
+    vm.expectRevert(abi.encodeWithSelector(Err.ThresholdViolation.selector, dev300, uint256(5000)));
+    ext.batchPushSigned(big, _sign(NXR_PK, big));
+    // +60% (just past the 50% ceiling) rejected too...
+    uint256 dev160 = ((M.b64To1e18(M.encodeB64(160e18, 18)) - prev) * 10_000) / prev;
+    bytes memory past = _rec(1, M.encodeB64(160e18, 18), 1e4, 5, _srcTs());
+    vm.expectRevert(abi.encodeWithSelector(Err.ThresholdViolation.selector, dev160, uint256(5000)));
+    ext.batchPushSigned(past, _sign(NXR_PK, past));
+    // ...while a +48% re-sync (< 50%) still lands: the cap bounds the band, it does not freeze it.
+    bytes memory ok = _rec(1, M.encodeB64(148e18, 18), 1e4, 5, _srcTs());
+    ext.batchPushSigned(ok, _sign(NXR_PK, ok));
+    assertApproxEqRel(
+      M.b64To1e18(ext.getFeed(id).lastPriceB64), 148e18, 0.001e18, "in-cap re-sync lands"
     );
   }
 
@@ -355,9 +390,7 @@ contract ExternalOracleSignedTest is Test {
 
   function test_reject_beyondRelayLag() public {
     ext = new ExternalOracle(address(ac), 60, _initialSigners(), 2);
-    ext.addFeed(
-      BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, ext.MAX_DEV_THRESHOLD(), 3600
-    );
+    ext.addFeed(BASE, QUOTE, M.encodeB64(3000e18, 18), 1e4, 5, ext.MAX_DEV_THRESHOLD(), 3600);
     skip(TAU);
     // sourceTs 2 minutes behind wall clock (still monotonic > 0, but stale beyond the 60s bound)
     uint64 stale = uint64((block.timestamp - 120) * 1000);

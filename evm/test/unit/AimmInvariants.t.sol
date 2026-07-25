@@ -11,7 +11,7 @@ import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {BaseTestSetup, MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "../fixtures/BaseTestSetup.sol";
 
 /// @title AimmInvariants
 /// @notice Reproduction + invariant tests for the AIMM pricer at NON-UNITY price.
@@ -48,9 +48,9 @@ contract AimmInvariantsTest is BaseTestSetup {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  function _oracle(address token) internal view returns (IPool.OracleConfig memory o) {
-    o.primary = address(oracle);
-    o.feedId = bytes32(uint256(uint160(token)));
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the shared mirror-ref fixture.
+  function _oracle(address token) internal returns (IPool.OracleConfig memory o) {
+    o = externalOracleCfg(oracle, token);
   }
 
   function _feedId(address token) internal pure returns (bytes32) {
@@ -170,26 +170,31 @@ contract AimmInvariantsTest is BaseTestSetup {
   /// keeper lags, the pool widens instead of being picked off, then halts only if it goes fully stale.
   function test_staleness_widens_spread() public {
     IPool.SwapQuote memory qFresh = pool.getSwapQuote(address(tok), address(base), 1e18);
-    // Grace = ttl/2 = 1800s: a mark aged UNDER the grace must NOT widen (flat-market / live-keeper
-    // case — else we quote wide and lose flow for nothing).
-    vm.warp(block.timestamp + 1500);
+    // Grace = min(ttl/2, 30s cap): a mark aged UNDER the cap must NOT widen (flat-market /
+    // live-keeper case — else we quote wide and lose flow for nothing).
+    vm.warp(block.timestamp + 20);
     IPool.SwapQuote memory qWithinGrace = pool.getSwapQuote(address(tok), address(base), 1e18);
     assertEq(
-      qWithinGrace.spreadPbps, qFresh.spreadPbps, "within grace (age<ttl/2) the premium must stay OFF"
+      qWithinGrace.spreadPbps,
+      qFresh.spreadPbps,
+      "within grace (age<=30s) the premium must stay OFF"
     );
-    // Past the grace (keeper missed its heartbeat) but under the ttl: widen (graceful degradation).
-    vm.warp(block.timestamp + 1000); // total age 2500s: > 1800 grace, < 3600 ttl → excess 700s
+    // L-1 regression: age=100s sat premium-FREE under the old grace = ttl/2 (1800s here; 300s on a
+    // volatile ttl=600 feed — the whole legal relay-lag window). The 30s cap must now widen it.
+    vm.warp(block.timestamp + 80); // total age 100s: > 30s grace cap, ≪ ttl
     IPool.SwapQuote memory qStale = pool.getSwapQuote(address(tok), address(base), 1e18);
     assertGt(
       qStale.spreadPbps, qFresh.spreadPbps, "past grace the staleness premium must widen the spread"
     );
-    // NON-SATURATION: the premium must be a GENTLE ramp, not slam to maxFee the instant age>ttl/2.
+    // NON-SATURATION: the premium must be a GENTLE ramp, not slam to maxFee the instant age>grace.
     // Regression guard for the σ-scaling bug (raw σ·√excess with σ in PBPS saturated maxFee at 1s):
     // a larger excess must quote STRICTLY MORE — if it had saturated, both points would be equal.
-    vm.warp(block.timestamp + 900); // total age 3400s: excess 1600s (> the 700s above, still < ttl)
+    vm.warp(block.timestamp + 2400); // total age 2500s: excess 2470s (> the 70s above, still < ttl)
     IPool.SwapQuote memory qMoreStale = pool.getSwapQuote(address(tok), address(base), 1e18);
     assertGt(
-      qMoreStale.spreadPbps, qStale.spreadPbps, "premium must keep ramping (not saturated to maxFee)"
+      qMoreStale.spreadPbps,
+      qStale.spreadPbps,
+      "premium must keep ramping (not saturated to maxFee)"
     );
   }
 
@@ -214,7 +219,7 @@ contract AimmInvariantsTest is BaseTestSetup {
     vm.startPrank(USER);
     base.approve(address(pool), type(uint256).max);
     vm.expectRevert(); // Err.PriceOutsideReservation — tok mark (PX) > reservationPriceMax (PX/2)
-    pool.swap(address(base), address(tok), 30_000e18, 0, USER);
+    pool.swap(address(base), address(tok), 30_000e18, 0, USER, NO_DEADLINE);
     vm.stopPrank();
   }
 
@@ -239,7 +244,7 @@ contract AimmInvariantsTest is BaseTestSetup {
     vm.startPrank(USER);
     tok.approve(address(pool), type(uint256).max);
     vm.expectRevert(); // Err.PriceOutsideReservation — tok is the INPUT and fails its own band
-    pool.swap(address(tok), address(base), 10e18, 0, USER);
+    pool.swap(address(tok), address(base), 10e18, 0, USER, NO_DEADLINE);
     vm.stopPrank();
   }
 
@@ -249,10 +254,10 @@ contract AimmInvariantsTest is BaseTestSetup {
     // this contract deposited tok in setUp THIS block → lastDepositTime is now → cooldown active.
     uint256 lp = pool.getLPBalance(address(this), address(tok));
     vm.expectRevert(); // Err.CooldownActive
-    pool.swapLiability(address(tok), address(base), lp / 10, 0);
+    pool.swapLiability(address(tok), address(base), lp / 10, 0, NO_DEADLINE);
     // after the cooldown it succeeds.
     skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1);
-    uint256 out = pool.swapLiability(address(tok), address(base), lp / 10, 0);
+    uint256 out = pool.swapLiability(address(tok), address(base), lp / 10, 0, NO_DEADLINE);
     assertGt(out, 0, "liability swap succeeds past the cooldown");
   }
 
@@ -282,11 +287,11 @@ contract AimmInvariantsTest is BaseTestSetup {
     vm.startPrank(USER);
     base.approve(address(pool), type(uint256).max);
     vm.expectPartialRevert(Err.StaleData.selector);
-    pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+    pool.swap(address(base), address(tok), 3_000e18, 0, USER, NO_DEADLINE);
 
     // Fresh reference at parity → band passes, swap resumes.
     refOracle.setFeed(refId, M.encodeB64(PX, 18), 10_000, 0, 3600);
-    uint256 out = pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+    uint256 out = pool.swap(address(base), address(tok), 3_000e18, 0, USER, NO_DEADLINE);
     assertGt(out, 0, "swap resumes once the reference feed is fresh");
     vm.stopPrank();
   }
@@ -336,7 +341,7 @@ contract AimmInvariantsTest is BaseTestSetup {
     uint256 lp = pool.getLPBalance(address(this), address(base));
     skip(20);
     vm.expectRevert(); // Err.PriceOutsideReservation — tok mark (PX) > reservationPriceMax (PX/2)
-    pool.withdrawTo(address(base), address(tok), lp / 10, 0);
+    pool.withdrawTo(address(base), address(tok), lp / 10, 0, NO_DEADLINE);
   }
 
   /// Audit fix: cross-withdraw guards the INPUT (fromTk) band too, not just the output. The
@@ -361,7 +366,7 @@ contract AimmInvariantsTest is BaseTestSetup {
     uint256 lp = pool.getLPBalance(address(this), address(tok)); // tok deposited in setUp
     skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1); // clear JIT cooldown so only the band can revert
     vm.expectRevert(); // Err.PriceOutsideReservation — tok is the INPUT and fails its own band
-    pool.withdrawTo(address(tok), address(base), lp / 10, 0);
+    pool.withdrawTo(address(tok), address(base), lp / 10, 0, NO_DEADLINE);
   }
 
   /// Feed-relative band on cross-withdraw: stale refFeedId must fail-closed exactly like swap.
@@ -386,7 +391,7 @@ contract AimmInvariantsTest is BaseTestSetup {
     uint256 lp = pool.getLPBalance(address(this), address(base));
     skip(20);
     vm.expectPartialRevert(Err.StaleData.selector);
-    pool.withdrawTo(address(base), address(tok), lp / 10, 0);
+    pool.withdrawTo(address(base), address(tok), lp / 10, 0, NO_DEADLINE);
   }
 
   /// @dev Arm tok's ref band (±5%) against `refP` via the timelocked oracle-update path, then
@@ -422,10 +427,10 @@ contract AimmInvariantsTest is BaseTestSetup {
     // Walked mark: primary +10% while the independent reference holds → band (±5%) halts swaps.
     oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 110) / 100, 18), 10_000, 0, 3600);
     vm.expectPartialRevert(Err.PriceOutsideReservation.selector);
-    pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+    pool.swap(address(base), address(tok), 3_000e18, 0, USER, NO_DEADLINE);
     // Within band (+2%) → swap executes.
     oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 102) / 100, 18), 10_000, 0, 3600);
-    uint256 out = pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+    uint256 out = pool.swap(address(base), address(tok), 3_000e18, 0, USER, NO_DEADLINE);
     assertGt(out, 0, "within-band swap executes");
     vm.stopPrank();
   }
@@ -452,7 +457,7 @@ contract AimmInvariantsTest is BaseTestSetup {
     // Even a perfectly in-band mark halts: the ref read targets address(0) → revert. No self-ref bypass.
     oracle.setFeed(_feedId(address(tok)), M.encodeB64((PX * 102) / 100, 18), 10_000, 0, 3600);
     vm.expectRevert();
-    pool.swap(address(base), address(tok), 3_000e18, 0, USER);
+    pool.swap(address(base), address(tok), 3_000e18, 0, USER, NO_DEADLINE);
     vm.stopPrank();
   }
 

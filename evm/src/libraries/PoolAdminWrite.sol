@@ -7,6 +7,7 @@ import {IOracle} from "../interfaces/IOracle.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {AnchorTree} from "./AnchorTree.sol";
 import {NUQuartic} from "./NUQuartic.sol";
 import {Oracle} from "./Oracle.sol";
@@ -21,7 +22,11 @@ import {PoolIO} from "./PoolIO.sol";
 library PoolAdminWrite {
   /// @dev wrap→resolve canonical token, then assert it is a listed asset (decimals!=0). Returns the
   ///      wrapped token so the 8 admin halt/config sites collapse the wrap+require pair to one call.
-  function _wrapRequire(IPool.PoolStorage storage $, address token) private view returns (address t) {
+  function _wrapRequire(IPool.PoolStorage storage $, address token)
+    private
+    view
+    returns (address t)
+  {
     t = PoolIO.wrap($, token);
     if ($.assets[t].decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
   }
@@ -73,7 +78,7 @@ library PoolAdminWrite {
     PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, presetId);
     // After risk config lands: wall-flag gating + min-offset bound read curve + riskConfigs.
     PoolAdmin.validatePresetAssign($, t, presetId, maxDispersion);
-    PoolAdmin.validateInternalMode($, t, oracleCfg); // after asset init: reads reservation band
+    PoolAdmin.validateOracleMode($, t, oracleCfg); // after asset init: reads reservation band
     // REG-02: mirror the newly-listed asset into the factory discovery index so SafetyOps enumeration
     // (pauseAsset/freezeAll over getPoolsForToken/getPoolTokens) finds assets added AFTER createPool.
     // Runs in the pool's context (delegatecall), so msg.sender to the factory is this pool (isPool).
@@ -121,7 +126,10 @@ library PoolAdminWrite {
     // Coverage-wall invariant (AIMM_PROOFS Lemma B): a walled asset (κ>0) MUST run haircutSuppressor==0,
     // else same-asset withdrawal is a toll-exempt coverage-declining path that bypasses the wall.
     if ($.riskConfigs[t].kappaCovBps > 0 && haircutSuppressor != 0) revert Err.InvalidInput();
-    if (reservationPriceMax != 0 && reservationPriceMax < reservationPrice) {
+    // R-1: compare decoded (1e18), never raw packed B64 — raw `<` orders by mantissa first and is
+    // non-monotonic across a decade boundary (min 0.9 / max 0.11 raw-passes inverted → every mark
+    // outside the band → asset-wide swap DoS in priceBandGuard).
+    if (reservationPriceMax != 0 && M.gt64Wad(reservationPrice, reservationPriceMax)) {
       revert Err.InvalidInput();
     }
 
@@ -133,11 +141,11 @@ library PoolAdminWrite {
     asset.haircutSuppressor = haircutSuppressor;
     asset.reservationPrice = reservationPrice;
     asset.reservationPriceMax = reservationPriceMax;
-    // ORC-01: setAssetParams can zero the absolute reservation band, which for an INTERNAL-mode asset
-    // IS the depeg breaker (it quotes off a frozen peg, gating only on this band / a refBand). Re-assert
-    // the INTERNAL eligibility so an operator cannot silently strip the breaker and leave a depegged
-    // stable draining at 1:1. No-op for EXTERNAL mode (validateInternalMode returns early).
-    PoolAdmin.validateInternalMode($, t, $.oracleConfigs[t]);
+    // ORC-01: setAssetParams can zero (or one-side, M-1a) the absolute reservation band — for an
+    // INTERNAL-mode asset that band IS the depeg breaker, and for an EXTERNAL non-base spoke it may
+    // be the only cumulative bound (M-1). Re-assert the mode eligibility so an operator cannot
+    // silently strip/half-strip the breaker: without a ref band, a partial band write reverts here.
+    PoolAdmin.validateOracleMode($, t, $.oracleConfigs[t]);
   }
 
   function setRiskConfig(IPool.PoolStorage storage $, address token, IPool.RiskConfig calldata cfg)
@@ -221,7 +229,7 @@ library PoolAdminWrite {
   ) external {
     address t = _wrapRequire($, token);
     PoolAdmin.validateOracleConfig(cfg);
-    PoolAdmin.validateInternalMode($, t, cfg);
+    PoolAdmin.validateOracleMode($, t, cfg);
     $.oracleConfigs[t] = cfg;
   }
 
@@ -235,7 +243,9 @@ library PoolAdminWrite {
     $.treasury = newTreasury;
   }
 
-  function setBaseToken(IPool.PoolStorage storage $, address newBase) external {
+  function setBaseToken(IPool.PoolStorage storage $, address newBase, address[] calldata spokes)
+    external
+  {
     address oldBase = $.baseToken;
     if (newBase == oldBase || newBase == address(0)) revert Err.InvalidInput();
     IPool.Asset storage newA = $.assets[newBase];
@@ -245,9 +255,14 @@ library PoolAdminWrite {
     // Base-numeraire invariant (AIMM_PROOFS P3 / Thm 2): the coverage wall must never apply to the base.
     if ($.riskConfigs[newBase].kappaCovBps != 0) revert Err.BadConfig();
     // Base must quote off a real EXTERNAL mark so its depeg halt bites; an INTERNAL base reads the
-    // frozen peg (const ~1.0) and silently disables the breaker (validateInternalMode blocks the
+    // frozen peg (const ~1.0) and silently disables the breaker (validateOracleMode blocks the
     // config path, but base MIGRATION would otherwise smuggle an INTERNAL spoke into the numeraire).
     if ($.oracleConfigs[newBase].mode != C.ORACLE_MODE_EXTERNAL) revert Err.BadConfig();
+    // The demoted old base becomes an EXTERNAL spoke and must satisfy the M-1 cumulative-bound
+    // mandate (independent ref band or absolute reservation band). As base it was exempt (numeraire,
+    // priced via _readBasePriceOrHalt's own depeg band) — without this check migration would smuggle
+    // an unbounded EXTERNAL spoke past validateOracleMode.
+    PoolAdmin.requireExternalSpokeBound($, oldBase, $.oracleConfigs[oldBase]);
     // PRC-01: setBaseToken re-numeraires the pool — after migration the base is priced ≡ 1
     // unit-of-account. The prior naked pointer swap added ONLY the κ check, leaving the repricing hole
     // wide open: pointing base at an asset that does NOT currently trade at ~1 (e.g. WETH at ~3000)
@@ -260,14 +275,33 @@ library PoolAdminWrite {
     uint256 dev = nMark > SC.WAD ? nMark - SC.WAD : SC.WAD - nMark;
     if (dev * SC.BPS > SC.WAD * uint256(C.BASE_DEPEG_HALT_BPS)) revert Err.BadConfig();
     // Reroot the star: promote the new base to root (anchor 0); demote the old base to a direct spoke
-    // of it so the anchor graph stays a well-formed depth-1 star for AnchorTree. (Operators re-anchor
-    // the remaining spokes to the new base over the CRITICAL_TIMELOCK window.)
+    // of it so the anchor graph stays a well-formed depth-1 star for AnchorTree. Atomicity invariant
+    // (M-3): after this call returns, NO asset anchors to oldBase — no stale-anchor window.
     newA.anchor = address(0);
     oldA.anchor = newBase;
     $.baseToken = newBase;
+    for (uint256 i = 0; i < spokes.length; i++) {
+      // Each spoke must still anchor to oldBase: a duplicate (already re-anchored), unlisted,
+      // ==newBase (anchor 0) or ==oldBase (anchor newBase) entry all fail this single check.
+      if ($.assets[spokes[i]].anchor != oldBase) revert Err.InvalidAnchor(spokes[i], oldBase);
+      $.assets[spokes[i]].anchor = newBase;
+    }
     // REG-02: keep the factory's cached base in sync (best-effort; skipped for a non-factory clone).
     address f = $.factory;
-    if (f != address(0)) IPoolFactory(f).setPoolBaseToken(newBase);
+    // Completeness (M-3, factory pools): after the re-anchor loop no LISTED asset may still anchor
+    // to oldBase — scan the factory roster (append-only, ≤ MAX_POOL_TOKENS=32) for one `spokes`
+    // missed. Roster entries never initAsset'd (decimals==0: creation-time orphans, raw NATIVE
+    // sentinel aliases) skip naturally — the old `spokes.length+2 == roster.length` proxy wedged
+    // permanently on them (no per-token roster removal ⇒ setBaseToken bricked for the pool).
+    // Factory-less clones: the Safe-batch builder owns completeness.
+    if (f != address(0)) {
+      address[] memory roster = IPoolFactory(f).getPoolTokens(address(this));
+      for (uint256 i = 0; i < roster.length; i++) {
+        IPool.Asset storage rA = $.assets[roster[i]];
+        if (rA.decimals != 0 && rA.anchor == oldBase) revert Err.InvalidAnchor(roster[i], oldBase);
+      }
+      IPoolFactory(f).setPoolBaseToken(newBase);
+    }
   }
 
   /// @notice Install/replace per-asset hook. `hook == address(0)` clears (same as clearAssetHook).

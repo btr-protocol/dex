@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
+import {IPool} from "../../src/interfaces/IPool.sol";
 
 /// @notice Minimal mock AccessControl exposing owner / keeper / guardian / riskSteward.
 contract MockAC {
@@ -102,6 +103,34 @@ contract MockOracle is IOracle {
   }
 }
 
+/// @notice Distinct-address ref oracle mirroring a primary's feeds. Satisfies the M-1 cumulative-
+///         bound mandate plumbing in fixtures (refPrimary != primary, reachable, armed band) with no
+///         second mark to maintain: dev == 0 by construction so the band never trips, and ref
+///         staleness tracks the primary. Band-TRIP behavior is covered by dedicated regressions
+///         with an INDEPENDENT ref (AuditPatchRegressions).
+contract MirrorRefOracle is IOracle {
+  IOracle public immutable src;
+
+  constructor(IOracle s) {
+    src = s;
+  }
+
+  function getFeed(bytes32 id) external view returns (IOracle.FeedData memory) {
+    return src.getFeed(id);
+  }
+
+  function isFeedFresh(bytes32 id, uint32 maxAge) external view returns (bool) {
+    return src.isFeedFresh(id, maxAge);
+  }
+
+  function isFeedFresh(bytes32 id) external view returns (bool) {
+    return src.isFeedFresh(id);
+  }
+}
+
+/// @dev L-10 deadline opt-out for test call sites (no 0-sentinel; max = never expires).
+uint256 constant NO_DEADLINE = type(uint256).max;
+
 /// @title BaseTestSetup
 /// @notice Base contract for all tests, provides common utilities and fixtures
 abstract contract BaseTestSetup is Test {
@@ -164,6 +193,37 @@ abstract contract BaseTestSetup is Test {
     for (uint256 i = 0; i < 9; ++i) {
       wQ[i] = -500e9 + int256(i) * 125e9; // linear ramp −500..+500 pbps·Q
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ORACLE CONFIG FIXTURE (M-1 armed EXTERNAL spokes)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// @dev Wide enough that fixture flows never care about the value (mirror ref ⇒ dev == 0 anyway);
+  ///      above MAX_STABLE_DEPEG_BAND_BPS on purpose — INTERNAL-mode configs must strip it.
+  uint16 internal constant TEST_REF_BAND_BPS = 300;
+
+  mapping(address primary => address mirror) private _mirrorRefs;
+
+  /// @notice EXTERNAL-mode OracleConfig armed with a mirror ref band. M-1 mandates every EXTERNAL
+  ///         non-base spoke carry a cumulative bound (ref band OR reservation band); this arms the
+  ///         ref side once for all pool fixtures.
+  function externalOracleCfg(MockOracle primary, address token)
+    internal
+    returns (IPool.OracleConfig memory o)
+  {
+    o.primary = address(primary);
+    // == MockOracle.feedIdFor(token), computed locally: an external (even static) call here would
+    // consume a pending vm.prank at call sites like `vm.prank(OWNER); admin.addAsset(_oracleCfg(..))`.
+    o.feedId = bytes32(uint256(uint160(token)));
+    address mirror = _mirrorRefs[address(primary)];
+    if (mirror == address(0)) {
+      mirror = address(new MirrorRefOracle(primary));
+      _mirrorRefs[address(primary)] = mirror;
+    }
+    o.refPrimary = mirror;
+    o.refFeedId = o.feedId;
+    o.refBandBps = TEST_REF_BAND_BPS;
   }
 
   /// @notice Build a FeedData directly (external-mark model).

@@ -183,8 +183,12 @@ interface IPool {
   function adminSetRiskConfig(address token, RiskConfig calldata cfg) external;
   function adminSetOracleConfig(address token, OracleConfig calldata cfg) external;
   /// @notice Recalibrate an asset's pricing-shape pointer + dispersion band (pricing-shape only).
-  function adminSetProfile(address token, uint16 presetId, uint32 minDispersion, uint32 maxDispersion)
-    external;
+  function adminSetProfile(
+    address token,
+    uint16 presetId,
+    uint32 minDispersion,
+    uint32 maxDispersion
+  ) external;
   /// @notice Install/recalibrate a shared preset curve (quartic I-spline). Timelocked via Admin.
   function adminSetCurve(
     uint16 presetId,
@@ -195,7 +199,7 @@ interface IPool {
   ) external;
   function adminSetFeeParams(FeeParams calldata params) external;
   function adminSetTreasury(address newTreasury) external;
-  function adminSetBaseToken(address newBase) external;
+  function adminSetBaseToken(address newBase, address[] calldata spokes) external;
   /// @notice Timelocked hook install/replace (Admin.executeSetAssetHook).
   function adminSetAssetHook(address token, address hook, uint32 flags) external;
   /// @notice Immediate hook clear (Admin.clearAssetHook). Requires invested == 0.
@@ -288,6 +292,7 @@ interface IPool {
   // ─── Exchange functions ──────────────────────────────────────────────────
   function owner() external view returns (address);
   function baseToken() external view returns (address);
+  function treasury() external view returns (address);
   function wnative() external view returns (address);
   /// @notice Baked-in immutable wiring (from the impl bytecode) — used by PoolFactory to assert a
   ///         candidate upgrade impl matches the live fleet's AC/admin/flash and has a codeful poolAux.
@@ -303,24 +308,29 @@ interface IPool {
   /// @param amountIn Input amount (token decimals).
   /// @param minAmountOut Slippage floor; reverts if not met.
   /// @param recipient Output recipient.
+  /// @param deadline Unix ts; reverts Expired if block.timestamp > deadline.
   /// @return amountOut Output amount delivered.
   function swap(
     address tokenIn,
     address tokenOut,
     uint256 amountIn,
     uint256 minAmountOut,
-    address recipient
+    address recipient,
+    uint256 deadline
   ) external payable returns (uint256 amountOut);
 
   /// @notice Batch swap (≤8 in, ≤8 out).
   /// @param inputs ABI-packed `(token, amount)` input legs.
   /// @param outputs ABI-packed `(token, minOut)` output legs.
   /// @param recipient Output recipient.
+  /// @param deadline Unix ts; reverts Expired if block.timestamp > deadline.
   /// @return amountsOut Output amounts per leg.
-  function batchSwap(bytes calldata inputs, bytes calldata outputs, address recipient)
-    external
-    payable
-    returns (uint256[] memory amountsOut);
+  function batchSwap(
+    bytes calldata inputs,
+    bytes calldata outputs,
+    address recipient,
+    uint256 deadline
+  ) external payable returns (uint256[] memory amountsOut);
 
   /// @notice Quote a swap without executing (view).
   /// @param tokenIn Input asset.
@@ -348,22 +358,30 @@ interface IPool {
   /// @param token Asset to withdraw.
   /// @param lpAmount LP shares to burn.
   /// @param minAmountOut Slippage floor; reverts if not met.
+  /// @param deadline Unix ts; reverts Expired if block.timestamp > deadline.
   /// @return result `(amountOut, lpBurned)`.
-  function withdraw(address token, uint256 lpAmount, uint256 minAmountOut)
+  function withdraw(address token, uint256 lpAmount, uint256 minAmountOut, uint256 deadline)
     external
     returns (WithdrawResult memory result);
 
   /// @notice Withdraw LP for different asset (swaps via internal quote)
-  function withdrawTo(address tokenFrom, address tokenTo, uint256 lpAmount, uint256 minAmountOut)
-    external
-    returns (WithdrawResult memory result);
+  /// @param deadline Unix ts; reverts Expired if block.timestamp > deadline.
+  function withdrawTo(
+    address tokenFrom,
+    address tokenTo,
+    uint256 lpAmount,
+    uint256 minAmountOut,
+    uint256 deadline
+  ) external returns (WithdrawResult memory result);
 
   /// @notice Swap LP between assets (changes liability exposure)
+  /// @param deadline Unix ts; reverts Expired if block.timestamp > deadline.
   function swapLiability(
     address tokenIn,
     address tokenOut,
     uint256 lpAmountIn,
-    uint256 minLpAmountOut
+    uint256 minLpAmountOut,
+    uint256 deadline
   ) external returns (uint256 lpAmountOut);
 
   /// @notice Donate reserves w/o LP mint (raises liquidity index)

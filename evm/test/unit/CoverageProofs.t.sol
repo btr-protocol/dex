@@ -13,7 +13,7 @@ import {Constants as C} from "../../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Pricing} from "../../src/libraries/Pricing.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {BaseTestSetup, MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "../fixtures/BaseTestSetup.sol";
 
 /// @notice Machine-checked layer for AIMM_PROOFS.md (repo root): shared walled-pool fixture.
 ///         Each test anchors a theorem/lemma of the coverage-safety proof program; doc §9 maps
@@ -44,9 +44,9 @@ abstract contract CoverageProofsBase is BaseTestSetup {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  function _oc(address token) internal view returns (IPool.OracleConfig memory o) {
-    o.primary = address(oracle);
-    o.feedId = bytes32(uint256(uint160(token)));
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the shared mirror-ref fixture.
+  function _oc(address token) internal returns (IPool.OracleConfig memory o) {
+    o = externalOracleCfg(oracle, token);
   }
 
   function setUp() public virtual override {
@@ -260,7 +260,7 @@ contract CoverageProofsTest is CoverageProofsBase {
     base.mint(ATK, amtIn);
     vm.startPrank(ATK);
     base.approve(address(pool), type(uint256).max);
-    try pool.swap(address(base), address(tok), amtIn, 0, ATK) {}
+    try pool.swap(address(base), address(tok), amtIn, 0, ATK, NO_DEADLINE) {}
     catch {
       vm.stopPrank();
       return; // revert = fail-closed wall; floor trivially holds
@@ -275,7 +275,8 @@ contract CoverageProofsTest is CoverageProofsBase {
     drainAmt = bound(drainAmt, 0, SEED / 2);
     atkAmt = bound(atkAmt, 1e12, SEED / 4);
     if (drainAmt > 0) {
-      try pool.swap(address(base), address(tok), drainAmt, 0, address(this)) {} catch {}
+      try pool.swap(address(base), address(tok), drainAmt, 0, address(this), NO_DEADLINE) {}
+        catch {}
     }
     tok.mint(ATK, atkAmt);
     vm.startPrank(ATK);
@@ -283,13 +284,13 @@ contract CoverageProofsTest is CoverageProofsBase {
     base.approve(address(pool), type(uint256).max);
     uint256 tokStart = tok.balanceOf(ATK);
     uint256 baseOut;
-    try pool.swap(address(tok), address(base), atkAmt, 0, ATK) returns (uint256 o) {
+    try pool.swap(address(tok), address(base), atkAmt, 0, ATK, NO_DEADLINE) returns (uint256 o) {
       baseOut = o;
     } catch {
       vm.stopPrank();
       return;
     }
-    try pool.swap(address(base), address(tok), baseOut, 0, ATK) {}
+    try pool.swap(address(base), address(tok), baseOut, 0, ATK, NO_DEADLINE) {}
     catch {
       vm.stopPrank();
       return;
@@ -301,7 +302,7 @@ contract CoverageProofsTest is CoverageProofsBase {
 
   /// Lemma A: a deposit on an under-covered asset strictly restores coverage toward 1.
   function test_deposit_restores_coverage() public {
-    try pool.swap(address(base), address(tok), SEED / 3, 0, address(this)) {} catch {}
+    try pool.swap(address(base), address(tok), SEED / 3, 0, address(this), NO_DEADLINE) {} catch {}
     uint256 cBefore = _cov(address(tok));
     if (cBefore >= WAD) return; // drain didn't take (fail-closed) — nothing to restore
     pool.deposit(address(tok), SEED / 10);
@@ -356,11 +357,11 @@ contract CoverageProofsTest is CoverageProofsBase {
   /// Lemma B: with haircutSuppressor = 0, same-asset withdrawal leaves coverage unchanged
   /// (the withdrawer takes exactly its pro-rata share of any deficit).
   function test_withdraw_coverage_neutral_when_suppressor_zero() public {
-    try pool.swap(address(base), address(tok), SEED / 3, 0, address(this)) {} catch {}
+    try pool.swap(address(base), address(tok), SEED / 3, 0, address(this), NO_DEADLINE) {} catch {}
     uint256 cBefore = _cov(address(tok));
     uint256 lp = pool.getLPBalance(address(this), address(tok));
     skip(30); // > DEFAULT_FLOW_COOLDOWN (15s); marks are ttl=max so no staleness
-    pool.withdrawTo(address(tok), address(tok), lp / 5, 0);
+    pool.withdrawTo(address(tok), address(tok), lp / 5, 0, NO_DEADLINE);
     assertApproxEqAbs(_cov(address(tok)), cBefore, 1e6, "s=0 withdrawal must be coverage-neutral");
   }
 
@@ -375,7 +376,7 @@ contract CoverageProofsTest is CoverageProofsBase {
     pool.deposit(address(tok), SEED);
     vm.stopPrank();
     // Drive tok under-covered (base→tok buy drains tok reserves).
-    pool.swap(address(base), address(tok), SEED / 2, 0, address(this));
+    pool.swap(address(base), address(tok), SEED / 2, 0, address(this), NO_DEADLINE);
     assertLt(_cov(address(tok)), WAD, "tok must be under-covered for the test");
 
     uint256 lp = pool.getLPBalance(ATK, address(tok));
@@ -383,10 +384,12 @@ contract CoverageProofsTest is CoverageProofsBase {
 
     uint256 snap = vm.snapshotState();
     vm.prank(ATK); // fair same-asset exit (haircut on tok)
-    IPool.WithdrawResult memory a = pool.withdrawTo(address(tok), address(tok), lp / 4, 0);
+    IPool.WithdrawResult memory a =
+      pool.withdrawTo(address(tok), address(tok), lp / 4, 0, NO_DEADLINE);
     vm.revertToState(snap);
     vm.prank(ATK); // cross exit into healthy base — must not beat the fair exit
-    IPool.WithdrawResult memory b = pool.withdrawTo(address(tok), address(base), lp / 4, 0);
+    IPool.WithdrawResult memory b =
+      pool.withdrawTo(address(tok), address(base), lp / 4, 0, NO_DEADLINE);
 
     assertLe(
       b.amountOut, a.amountOut + 1e6, "cross exit escaped the coverage haircut (bank-run bypass)"
@@ -402,7 +405,7 @@ contract CoverageProofsTest is CoverageProofsBase {
     tok.approve(address(pool), type(uint256).max);
     pool.deposit(address(tok), SEED);
     vm.stopPrank();
-    pool.swap(address(base), address(tok), SEED / 2, 0, address(this));
+    pool.swap(address(base), address(tok), SEED / 2, 0, address(this), NO_DEADLINE);
     assertLt(_cov(address(tok)), WAD, "tok must be under-covered for the test");
 
     uint256 lp = pool.getLPBalance(ATK, address(tok));
@@ -410,10 +413,11 @@ contract CoverageProofsTest is CoverageProofsBase {
 
     uint256 snap = vm.snapshotState();
     vm.prank(ATK); // fair same-asset exit value (tok out, marks 1.0)
-    IPool.WithdrawResult memory a = pool.withdrawTo(address(tok), address(tok), lp / 4, 0);
+    IPool.WithdrawResult memory a =
+      pool.withdrawTo(address(tok), address(tok), lp / 4, 0, NO_DEADLINE);
     vm.revertToState(snap);
     vm.prank(ATK); // liability-swap into healthy base, then measure the base value it commands
-    uint256 outLp = pool.swapLiability(address(tok), address(base), lp / 4, 0);
+    uint256 outLp = pool.swapLiability(address(tok), address(base), lp / 4, 0, NO_DEADLINE);
     // Reconstruct the base liability the swapped-in LP position commands (index 0 ⇒ INIT convention,
     // since deposit never writes liquidityIndex — only donate does).
     uint64 bIdx = pool.getAsset(address(base)).liquidityIndex;
@@ -444,12 +448,12 @@ contract CoverageFloorHandler is Test {
 
   function drainTok(uint256 amt) external {
     amt = bound(amt, 1e6, SEED);
-    try pool.swap(address(base), address(tok), amt, 0, address(this)) {} catch {}
+    try pool.swap(address(base), address(tok), amt, 0, address(this), NO_DEADLINE) {} catch {}
   }
 
   function refillTok(uint256 amt) external {
     amt = bound(amt, 1e6, SEED);
-    try pool.swap(address(tok), address(base), amt, 0, address(this)) {} catch {}
+    try pool.swap(address(tok), address(base), amt, 0, address(this), NO_DEADLINE) {} catch {}
   }
 
   function depositTok(uint256 amt) external {
@@ -462,7 +466,7 @@ contract CoverageFloorHandler is Test {
     uint256 lp = pool.getLPBalance(address(this), address(tok));
     if (lp == 0) return;
     skip(30);
-    try pool.withdrawTo(address(tok), address(tok), (lp * frac) / 100, 0) {} catch {}
+    try pool.withdrawTo(address(tok), address(tok), (lp * frac) / 100, 0, NO_DEADLINE) {} catch {}
   }
 }
 

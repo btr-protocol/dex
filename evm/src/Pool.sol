@@ -62,6 +62,12 @@ contract Pool is ReentrancyGuardTransient {
     _;
   }
 
+  /// @dev L-10: inclusive deadline (ts == deadline succeeds); opt-out = type(uint256).max, no 0-sentinel.
+  modifier beforeDeadline(uint256 deadline) {
+    if (block.timestamp > deadline) revert Err.Expired();
+    _;
+  }
+
   function initialize(address baseToken_, address wnative_, IPool.FeeParams calldata feeParams)
     external
   {
@@ -101,19 +107,28 @@ contract Pool is ReentrancyGuardTransient {
     PoolLiquidity.donate($, token, amount);
   }
 
-  function withdraw(address token, uint256 lpAmount, uint256 minAmountOut)
+  // deposit/donate carry no deadline: no minOut, LP minted at current mark — nothing stale to protect.
+  function withdraw(address token, uint256 lpAmount, uint256 minAmountOut, uint256 deadline)
     external
     nonReentrant
     whenInitialized
+    beforeDeadline(deadline)
     returns (IPool.WithdrawResult memory)
   {
     return PoolLiquidity.withdrawTo($, token, token, lpAmount, minAmountOut);
   }
 
-  function withdrawTo(address tokenFrom, address tokenTo, uint256 lpAmount, uint256 minAmountOut)
+  function withdrawTo(
+    address tokenFrom,
+    address tokenTo,
+    uint256 lpAmount,
+    uint256 minAmountOut,
+    uint256 deadline
+  )
     external
     nonReentrant
     whenInitialized
+    beforeDeadline(deadline)
     returns (IPool.WithdrawResult memory)
   {
     return PoolLiquidity.withdrawTo($, tokenFrom, tokenTo, lpAmount, minAmountOut);
@@ -123,8 +138,9 @@ contract Pool is ReentrancyGuardTransient {
     address tokenIn,
     address tokenOut,
     uint256 lpAmountIn,
-    uint256 minLpAmountOut
-  ) external nonReentrant whenInitialized returns (uint256 lpAmountOut) {
+    uint256 minLpAmountOut,
+    uint256 deadline
+  ) external nonReentrant whenInitialized beforeDeadline(deadline) returns (uint256 lpAmountOut) {
     return PoolLiquidity.swapLiability($, tokenIn, tokenOut, lpAmountIn, minLpAmountOut);
   }
 
@@ -137,8 +153,9 @@ contract Pool is ReentrancyGuardTransient {
     address tokenOut,
     uint256 amountIn,
     uint256 minAmountOut,
-    address recipient
-  ) external payable nonReentrant whenInitialized returns (uint256 out) {
+    address recipient,
+    uint256 deadline
+  ) external payable nonReentrant whenInitialized beforeDeadline(deadline) returns (uint256 out) {
     return PoolSwap.swap($, tokenIn, tokenOut, amountIn, minAmountOut, recipient);
   }
 
@@ -152,11 +169,17 @@ contract Pool is ReentrancyGuardTransient {
     );
   }
 
-  function batchSwap(bytes calldata inputs, bytes calldata outputs, address recipient)
+  function batchSwap(
+    bytes calldata inputs,
+    bytes calldata outputs,
+    address recipient,
+    uint256 deadline
+  )
     external
     payable
     nonReentrant
     whenInitialized
+    beforeDeadline(deadline)
     returns (uint256[] memory amountsOut)
   {
     return PoolBatch.batchSwap($, inputs, outputs, recipient);

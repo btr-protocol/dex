@@ -30,7 +30,7 @@ We do **not** vendor BunniHub, LDF curves, or their withdraw accounting (exploit
 |----------|------|
 | `RecenterHook` | Shared `afterSwap` → `recenterIfNeeded` |
 | `RangeCLPool` / `RangeCLFactory` | Single-range CLAMM + hook callback |
-| `UniPoolOracle` | `IOracle` pull adapter: `getFeed` ← `slot0().sqrtPriceX96` |
+| `UniPoolOracle` | `IOracle` pull adapter: `getFeed` ← `slot0().sqrtPriceX96`; testnet-only — ctor reverts off chainid 97/31337 (L-2) |
 | `SqrtPrice` | Q64.96 encode/decode + range math |
 
 ## Compare BTR vs Uni (same price)
@@ -50,8 +50,9 @@ untimelocked `setOracleConfig` for listed assets.
 **Source (next Chapel Admin deploy):** `Constants.govDelay` shortens tiers on chainid 97
 only — CRITICAL 1h / HIGH 30m / BASE 15m / LOW 5m (docs §7.2). Anvil + mainnet unchanged.
 
-**Redeploy note:** first queue targeted old `UniPoolOracle` `0xdC6E…803F` (obsolete). Fresh
-`requestOracleUpdate` ops overwrite `pendingOps` → new primary below.
+**Redeploy note:** first queue targeted old `UniPoolOracle` `0xdC6E…803F` (obsolete). Re-queuing a
+live pending op now reverts `PendingTimelock` (L-9) — run `cancelOracleUpdate(pool, token)` first,
+then the fresh `requestOracleUpdate` → new primary below.
 
 Queued on volatile pool `0xEaB818235028bE378c92115099fF206EBb11B621` → primary `UniPoolOracle`
 `0x93D3760b533283Fb471d735C9cA8438860f627bC`, feedIds + RangeCL pools from
@@ -65,7 +66,9 @@ Queued on volatile pool `0xEaB818235028bE378c92115099fF206EBb11B621` → primary
 | XAUT | `0xB779B6fB35A3b1053f8ac4F2067BC1929Ed6F382` | `0x00683c…dfc` |
 
 USDC/USDT stay on `ExternalOracle`. XAUT `refFeedId`/`refBandBps` cleared (USDC ref
-feed is not registered on UniPoolOracle).
+feed is not registered on UniPoolOracle). ⚠ M-1 mandate: an EXTERNAL spoke with the ref band
+cleared MUST carry the absolute fallback instead — arm `reservationPrice`/`reservationPriceMax`
+(`setAssetParams`) BEFORE executing the oracle update, else it reverts `NotConfigured`.
 
 ETA ≈ **2026-07-12 14:27 UTC**. After ETA (within 7d grace):
 

@@ -47,9 +47,9 @@ contract DistributorBridgeIntegrationTest is BaseTestSetup {
     r.flags = C.SWAP_ENABLED_BIT;
   }
 
-  function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
-    o.primary = address(oracle);
-    o.feedId = bytes32(uint256(uint160(token)));
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the shared mirror-ref fixture.
+  function _oracleCfg(address token) internal returns (IPool.OracleConfig memory o) {
+    o = externalOracleCfg(oracle, token);
   }
 
   function setUp() public override {

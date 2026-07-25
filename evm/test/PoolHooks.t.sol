@@ -14,7 +14,7 @@ import {CompoundV2YieldHook} from "../src/hooks/CompoundV2YieldHook.sol";
 import {MockVenus} from "./mocks/MockVenus.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
-import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
@@ -200,9 +200,9 @@ contract PoolHooksTest is BaseTestSetup {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT | C.FLASH_ENABLED_BIT;
   }
 
-  function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
-    o.primary = address(oracle);
-    o.feedId = bytes32(uint256(uint160(token)));
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the shared mirror-ref fixture.
+  function _oracleCfg(address token) internal returns (IPool.OracleConfig memory o) {
+    o = externalOracleCfg(oracle, token);
   }
 
   function setUp() public override {
@@ -304,7 +304,7 @@ contract PoolHooksTest is BaseTestSetup {
 
     uint256 g0 = gasleft();
     vm.prank(USER);
-    pool.swap(address(base), address(quote), amt, 0, USER);
+    pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
     uint256 used = g0 - gasleft();
     // Sanity pin: should stay in the same ballpark as pre-hooks (~warm path).
     assertLt(used, 800_000, "hookless swap gas");
@@ -329,7 +329,7 @@ contract PoolHooksTest is BaseTestSetup {
     vm.prank(USER);
     base.approve(address(pool), type(uint256).max);
     vm.prank(USER);
-    pool.swap(address(base), address(quote), amt, 0, USER);
+    pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
 
     assertEq(hook.preOutflowCalls(), 0, "preOutflow skipped");
   }
@@ -358,7 +358,7 @@ contract PoolHooksTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
     uint256 invBefore = IPool(address(pool)).getInvested(address(quote));
     vm.prank(USER);
-    pool.swap(address(base), address(quote), amt, 0, USER);
+    pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
 
     assertLt(
       IPool(address(pool)).getInvested(address(quote)), invBefore, "invested reduced by recall"
@@ -426,7 +426,7 @@ contract PoolHooksTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
     vm.prank(USER);
     vm.expectRevert();
-    pool.swap(address(base), address(quote), amt, 0, USER);
+    pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
   }
 
   /// @notice MockVenus + CompoundV2YieldHook integration: deposit deploys, swap recalls.
@@ -473,7 +473,7 @@ contract PoolHooksTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
     uint256 invBefore = IPool(address(pool)).getInvested(address(quote));
     vm.prank(USER);
-    uint256 out = pool.swap(address(base), address(quote), amt, 0, USER);
+    uint256 out = pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
     assertGt(out, 0);
     assertLe(
       IPool(address(pool)).getInvested(address(quote)), invBefore, "recall reduced or held invested"
@@ -740,7 +740,8 @@ contract PoolHooksTest is BaseTestSetup {
     uint256 invBefore = IPool(address(pool)).getInvested(address(quote));
     // Withdraw half of USER LP — without cashNeed+minLiq recall this reverts on floor.
     vm.prank(USER);
-    IPool.WithdrawResult memory wr = pool.withdrawTo(address(quote), address(quote), lpBal / 2, 0);
+    IPool.WithdrawResult memory wr =
+      pool.withdrawTo(address(quote), address(quote), lpBal / 2, 0, NO_DEADLINE);
     assertGt(wr.amountOut, 0);
     assertLt(IPool(address(pool)).getInvested(address(quote)), invBefore, "recalled for withdraw");
     assertGe(IPool(address(pool)).getLiquidReserves(address(quote)), minLiq, "floor held");
@@ -776,7 +777,7 @@ contract PoolHooksTest is BaseTestSetup {
     uint256 lpBurn = (targetBurn * 1e18) / idx;
     if (lpBurn > lpSelf) lpBurn = (lpSelf * 8) / 10;
     if (lpBurn > 0) {
-      pool.withdrawTo(address(quote), address(base), lpBurn, 0);
+      pool.withdrawTo(address(quote), address(base), lpBurn, 0, NO_DEADLINE);
     }
 
     uint256 inv = IPool(address(pool)).getInvested(address(quote));
@@ -914,7 +915,7 @@ contract PoolHooksTest is BaseTestSetup {
     uint256 invBefore = IPool(address(pool)).getInvested(address(quote));
     vm.prank(USER);
     vm.expectRevert(ReentrancyGuardTransient.Reentrancy.selector);
-    pool.withdrawTo(address(quote), address(quote), lpBal / 2, 0);
+    pool.withdrawTo(address(quote), address(quote), lpBal / 2, 0, NO_DEADLINE);
 
     assertEq(IPool(address(pool)).getInvested(address(quote)), invBefore, "invested unchanged");
   }

@@ -64,8 +64,10 @@ interface IAdmin {
     uint16 vegaHardMax;
     uint16 haircutHardMax;
     uint16 maxDeltaBps;
-    uint64 reservationHardLoMin; // floor a steward may never set the reservation price below (0 = off).
-    uint64 reservationHardHiMax; // ceiling a steward may never set reservationPriceMax above (0 = off).
+    // 0 = off, but a fence is MANDATORY whenever the matching band side is live on the steward path
+    // (setAssetParamsBounded fails closed) — without it the relative ratchet is unbounded.
+    uint64 reservationHardLoMin; // floor a steward may never set the reservation price below.
+    uint64 reservationHardHiMax; // ceiling a steward may never set reservationPriceMax above.
   }
 
   function setRiskFences(address pool, address token, RiskFences calldata f) external;
@@ -127,7 +129,7 @@ interface IAdmin {
   function requestTreasuryUpdate(address pool, address newTreasury) external;
   function executeTreasuryUpdate(address pool) external;
   function requestBaseMigration(address pool, address newBase) external;
-  function executeBaseMigration(address pool) external;
+  function executeBaseMigration(address pool, address[] calldata spokes) external;
   function requestOracleUpdate(address pool, address token, IPool.OracleConfig calldata cfg)
     external;
   function executeOracleUpdate(address pool, address token) external;
@@ -175,9 +177,7 @@ interface IAdmin {
     address indexed pool, bytes32 indexed id, uint8 opType, uint48 executableAt
   );
   event TimelockCancelled(address indexed pool, bytes32 indexed id, uint8 opType);
-  event RiskConfigUpdated(
-    address indexed pool, address indexed token, uint128 minLiquidity, uint16 flags
-  );
+  event RiskConfigUpdated(address indexed pool, address indexed token, uint16 flags);
   /// @dev Emitted on profile recalibration execute — indexer re-reads the new shape from Pool state.
   event ProfileUpdated(address indexed pool, address indexed token);
   /// @dev Emitted on preset-curve install/recalibration execute (shared shape table).
@@ -190,7 +190,7 @@ interface IAdmin {
   event OracleUpdated(address indexed pool, address indexed token);
   /// @dev GOV-03: direct bootstrap listing path permanently sealed for `pool`.
   event BootstrapSealed(address indexed pool);
-  /// @dev OBS-03: base-token depeg oracle (re-)pinned — untimelocked SAFETY config, now observable.
+  /// @dev Per-asset yield hook (re)installed or cleared (`hook == 0`).
   event AssetHookUpdated(address indexed pool, address indexed token, address hook, uint32 flags);
   /// @dev Steward-lite: owner set hard fences + relative maxDelta for bounded param path.
   event RiskFencesSet(address indexed pool, address indexed token, uint16 maxDeltaBps);

@@ -31,6 +31,12 @@ interface IAggregatorV3 {
 ///      fail-closes on a stale round. Not flash-manipulable, so production-suitable (cf. UniPoolOracle).
 contract ChainlinkOracle is IOracle {
   address public immutable AC;
+  /// @notice L2 sequencer-uptime feed (L-7). Chainlink convention: answer 0 = up, 1 = down;
+  ///         startedAt = timestamp of the latest status change. address(0) = disabled (L1 chain).
+  address public immutable SEQ_FEED;
+  /// @notice Post-restart grace (s): after the sequencer comes back up, reads keep failing closed
+  ///         until GRACE has elapsed (users need time to top up positions before prices act).
+  uint32 public immutable GRACE;
 
   struct Feed {
     address agg; // Chainlink aggregator
@@ -51,10 +57,27 @@ contract ChainlinkOracle is IOracle {
     _;
   }
 
-  constructor(address ac_) {
+  constructor(address ac_, address seqFeed_, uint32 grace_) {
     if (ac_ == address(0)) revert Err.ZeroValue();
     if (ac_.code.length == 0) revert Err.NotCode();
+    // A configured sequencer feed must be a contract with a non-zero grace (grace=0 would let the
+    // first post-restart round price instantly against liquidatable users).
+    if (seqFeed_ != address(0) && (grace_ == 0 || seqFeed_.code.length == 0)) {
+      revert Err.InvalidInput();
+    }
     AC = ac_;
+    SEQ_FEED = seqFeed_;
+    GRACE = grace_;
+  }
+
+  /// @dev L-7 sequencer gate: up iff answer == 0, the round is initialized (startedAt != 0 —
+  ///      Chainlink convention: startedAt 0 = uninitialized round, treat as DOWN) AND the restart
+  ///      is older than GRACE. Disabled (always up) when SEQ_FEED is unset. Fail-closed consumers:
+  ///      getFeed reverts, isFeedFresh reads false.
+  function _seqUp() private view returns (bool) {
+    if (SEQ_FEED == address(0)) return true;
+    (, int256 answer, uint256 startedAt,,) = IAggregatorV3(SEQ_FEED).latestRoundData();
+    return answer == 0 && startedAt != 0 && block.timestamp - startedAt > GRACE;
   }
 
   /// @notice Register a Chainlink aggregator as the reference for `base/quote`.
@@ -78,6 +101,7 @@ contract ChainlinkOracle is IOracle {
   }
 
   function getFeed(bytes32 feedId) external view returns (FeedData memory data) {
+    if (!_seqUp()) revert Err.StaleData(0, GRACE);
     Feed memory f = feeds[feedId];
     if (!f.exists) revert Err.FeedNotFound(feedId);
     (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
@@ -99,6 +123,7 @@ contract ChainlinkOracle is IOracle {
   }
 
   function isFeedFresh(bytes32 feedId, uint32 maxAge) public view returns (bool) {
+    if (!_seqUp()) return false;
     Feed memory f = feeds[feedId];
     if (!f.exists) return false;
     (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
@@ -114,5 +139,4 @@ contract ChainlinkOracle is IOracle {
   function getFeedIds() external view returns (bytes32[] memory) {
     return feedIds;
   }
-
 }

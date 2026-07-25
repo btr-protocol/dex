@@ -11,7 +11,7 @@ import {IPool} from "../src/interfaces/IPool.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
-import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "./fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
 /// @title PoolBaseDepegTest -R44-2 (T3-HIGH2) regression.
@@ -41,9 +41,9 @@ contract PoolBaseDepegTest is BaseTestSetup {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
-    o.primary = address(oracle);
-    o.feedId = bytes32(uint256(uint160(token)));
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the shared mirror-ref fixture.
+  function _oracleCfg(address token) internal returns (IPool.OracleConfig memory o) {
+    o = externalOracleCfg(oracle, token);
   }
 
   function setUp() public override {
@@ -116,7 +116,7 @@ contract PoolBaseDepegTest is BaseTestSetup {
     vm.prank(USER);
     base.approve(address(pool), type(uint256).max);
     vm.prank(USER);
-    uint256 out = pool.swap(address(base), address(quote), amt, 0, USER);
+    uint256 out = pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
     assertGt(out, 0, "parity base price: swap ok");
   }
 
@@ -132,7 +132,7 @@ contract PoolBaseDepegTest is BaseTestSetup {
 
     vm.prank(USER);
     vm.expectRevert(); // Err.BaseDepegged(basePrice, deviationBps)
-    pool.swap(address(base), address(quote), amt, 0, USER);
+    pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
   }
 
   /// @notice R44-2: constant value is 5% (500 BPS) per spec.
@@ -192,6 +192,6 @@ contract PoolBaseDepegTest is BaseTestSetup {
 
     vm.prank(USER);
     vm.expectRevert(); // Err.BaseDepegged via _executeLeg base-token branch
-    pool.swap(address(quote), address(cTok), amt, 0, USER);
+    pool.swap(address(quote), address(cTok), amt, 0, USER, NO_DEADLINE);
   }
 }

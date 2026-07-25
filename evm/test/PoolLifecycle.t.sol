@@ -13,7 +13,7 @@ import {Constants as C} from "../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "./fixtures/BaseTestSetup.sol";
 
 /// @title PoolLifecycleTest
 /// @notice Pool lifecycle sanity -Pool is standalone (no proxy, no modules, no ERC-7201).
@@ -44,9 +44,9 @@ contract PoolLifecycleTest is BaseTestSetup {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
-    o.primary = address(oracle);
-    o.feedId = bytes32(uint256(uint160(token)));
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the shared mirror-ref fixture.
+  function _oracleCfg(address token) internal returns (IPool.OracleConfig memory o) {
+    o = externalOracleCfg(oracle, token);
   }
 
   function setUp() public override {
@@ -152,7 +152,7 @@ contract PoolLifecycleTest is BaseTestSetup {
     skip(60);
 
     vm.prank(USER);
-    pool.withdraw(address(base), lp, 0);
+    pool.withdraw(address(base), lp, 0, NO_DEADLINE);
 
     assertEq(base.balanceOf(USER), amt, "base recovered");
     assertEq(pool.getLPBalance(USER, address(base)), 0, "lp cleared");
@@ -420,7 +420,6 @@ contract PoolLifecycleTest is BaseTestSetup {
     admin.setRiskFences(address(pool), address(base), f);
 
     IPool.Asset memory seeded = pool.getAsset(address(base));
-    uint64 px = uint64(M.encodeB64(1e18, 18));
     vm.prank(OWNER);
     admin.setAssetParams(
       address(pool),
@@ -431,8 +430,8 @@ contract PoolLifecycleTest is BaseTestSetup {
       seeded.gamma,
       seeded.vega,
       seeded.haircutSuppressor,
-      px / 2,
-      px * 2
+      M.encodeB64(0.5e18, 18),
+      M.encodeB64(2e18, 18)
     );
 
     IPool.Asset memory cur = pool.getAsset(address(base));
@@ -456,7 +455,10 @@ contract PoolLifecycleTest is BaseTestSetup {
   function test_steward_reservation_hard_fenced() public {
     address s = makeAddr("steward");
     ac.setRiskSteward(s, true);
-    uint64 px = uint64(M.encodeB64(1e18, 18));
+    // R-1: real encodes only — raw arithmetic on packed B64 (px/2, px*2) mangles the
+    // mantissa/decimals/exp fields and decodes to garbage under the decoded fence compares.
+    uint64 lo = M.encodeB64(0.5e18, 18);
+    uint64 hi = M.encodeB64(2e18, 18);
     IAdmin.RiskFences memory f = IAdmin.RiskFences({
       minFeeHardMin: 100,
       minFeeHardMax: 5_000,
@@ -467,8 +469,8 @@ contract PoolLifecycleTest is BaseTestSetup {
       vegaHardMax: 30_000,
       haircutHardMax: 10_000,
       maxDeltaBps: 10_000, // 100% — relative clamp is loose; the hard fence must bind.
-      reservationHardLoMin: px / 2,
-      reservationHardHiMax: px * 2
+      reservationHardLoMin: lo,
+      reservationHardHiMax: hi
     });
     vm.prank(OWNER);
     admin.setRiskFences(address(pool), address(base), f);
@@ -484,8 +486,8 @@ contract PoolLifecycleTest is BaseTestSetup {
       seeded.gamma,
       seeded.vega,
       seeded.haircutSuppressor,
-      px / 2,
-      px * 2
+      lo,
+      hi
     );
     IPool.Asset memory cur = pool.getAsset(address(base));
 
@@ -502,7 +504,7 @@ contract PoolLifecycleTest is BaseTestSetup {
       cur.vega,
       cur.haircutSuppressor,
       cur.reservationPrice,
-      px * 2 + px / 4
+      M.encodeB64(2.25e18, 18)
     );
 
     // Floor below hardLoMin though within 100% clamp → fence reverts.
@@ -517,7 +519,7 @@ contract PoolLifecycleTest is BaseTestSetup {
       cur.gamma,
       cur.vega,
       cur.haircutSuppressor,
-      px / 2 - px / 8,
+      M.encodeB64(0.375e18, 18),
       cur.reservationPriceMax
     );
 
@@ -532,10 +534,10 @@ contract PoolLifecycleTest is BaseTestSetup {
       cur.gamma,
       cur.vega,
       cur.haircutSuppressor,
-      px / 2 + px / 8,
-      px * 2 - px / 4
+      M.encodeB64(0.625e18, 18),
+      M.encodeB64(1.75e18, 18)
     );
-    assertEq(pool.getAsset(address(base)).reservationPrice, px / 2 + px / 8);
+    assertEq(pool.getAsset(address(base)).reservationPrice, M.encodeB64(0.625e18, 18));
   }
 
   /// Sec-review LOW: zeroing a live reservation bound disables that side of the depeg breaker and
@@ -544,7 +546,8 @@ contract PoolLifecycleTest is BaseTestSetup {
   function test_steward_cannot_zero_reservation_bound() public {
     address s = makeAddr("steward");
     ac.setRiskSteward(s, true);
-    uint64 px = uint64(M.encodeB64(1e18, 18));
+    uint64 lo = M.encodeB64(0.5e18, 18);
+    uint64 hi = M.encodeB64(2e18, 18);
     IAdmin.RiskFences memory f = IAdmin.RiskFences({
       minFeeHardMin: 100,
       minFeeHardMax: 5_000,
@@ -555,8 +558,8 @@ contract PoolLifecycleTest is BaseTestSetup {
       vegaHardMax: 30_000,
       haircutHardMax: 10_000,
       maxDeltaBps: 10_000,
-      reservationHardLoMin: px / 2,
-      reservationHardHiMax: px * 2
+      reservationHardLoMin: lo,
+      reservationHardHiMax: hi
     });
     vm.prank(OWNER);
     admin.setRiskFences(address(pool), address(base), f);
@@ -571,8 +574,8 @@ contract PoolLifecycleTest is BaseTestSetup {
       seeded.gamma,
       seeded.vega,
       seeded.haircutSuppressor,
-      px / 2,
-      px * 2
+      lo,
+      hi
     );
     IPool.Asset memory cur = pool.getAsset(address(base));
     vm.prank(s);
@@ -644,7 +647,7 @@ contract PoolLifecycleTest is BaseTestSetup {
 
     vm.prank(USER);
     vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
-    pool.withdraw(address(base), lp / 2, 0);
+    pool.withdraw(address(base), lp / 2, 0, NO_DEADLINE);
   }
 
   /// ASSET_PAUSED_BIT (bit6) is SEPARATE from FROZEN_BIT (bit0): an emergency pause + an
@@ -815,7 +818,7 @@ contract PoolLifecycleTest is BaseTestSetup {
     quote.mint(USER, 1_000e18);
     vm.startPrank(USER);
     quote.approve(address(pool), type(uint256).max);
-    uint256[] memory outs = pool.batchSwap(inputs, outputs, USER); // sanity: routes pre-freeze
+    uint256[] memory outs = pool.batchSwap(inputs, outputs, USER, NO_DEADLINE); // sanity: routes pre-freeze
     assertGt(outs[0], 0, "spoke->spoke batch routes while base live");
     vm.stopPrank();
 
@@ -823,7 +826,7 @@ contract PoolLifecycleTest is BaseTestSetup {
     admin.freezeAsset(address(pool), address(base));
     vm.prank(USER);
     vm.expectRevert(abi.encodeWithSelector(Err.FeatureDisabled.selector, Err.Resource.ASSET));
-    pool.batchSwap(inputs, outputs, USER);
+    pool.batchSwap(inputs, outputs, USER, NO_DEADLINE);
   }
 
   // ─── perpetual profile recalibration (requestUpdateProfile / executeUpdateProfile) ───
@@ -835,7 +838,7 @@ contract PoolLifecycleTest is BaseTestSetup {
     uint256[] memory interior = new uint256[](0);
     int256[] memory wQ = new int256[](5);
     (wQ[0], wQ[1], wQ[2], wQ[3], wQ[4]) =
-      (int256(-500e9), int256(-250e9), int256(0), int256(250e9), int256(500e9));
+    (int256(-500e9), int256(-250e9), int256(0), int256(250e9), int256(500e9));
     vm.prank(OWNER);
     admin.setCurve(address(pool), RECAL_PRESET, interior, wQ, 1000, 0);
   }
@@ -935,7 +938,7 @@ contract PoolLifecycleTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
 
     vm.prank(USER);
-    uint256 out = pool.swap(address(base), address(quote), amt / 10, 0, USER);
+    uint256 out = pool.swap(address(base), address(quote), amt / 10, 0, USER, NO_DEADLINE);
     assertGt(out, 0, "swap out");
     assertEq(quote.balanceOf(USER), out, "user got quote");
   }
@@ -955,7 +958,7 @@ contract PoolLifecycleTest is BaseTestSetup {
     vm.startPrank(USER);
     base.approve(address(pool), type(uint256).max);
     vm.expectRevert(Err.ZeroValue.selector);
-    pool.swap(address(base), address(quote), 1, 0, USER);
+    pool.swap(address(base), address(quote), 1, 0, USER, NO_DEADLINE);
     vm.stopPrank();
   }
 }

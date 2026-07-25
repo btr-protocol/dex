@@ -19,8 +19,14 @@ library Pricing {
   // Staleness-premium coefficient for the A-S σ√age keeper-lag defense in `_pathSpread` (the term is
   // STALE_Z·σ·√excess/BPS). Global (not per-asset) to avoid a RiskConfig storage change; the
   // deviation-push policy (minFee ≈ 2·θ) is the primary defense, so this only bites past the keeper
-  // grace (age > ttl/2) — a missed push. 100 gives ~10bps at 1% vol / 100s stale (see _staleTerm).
+  // grace (age > min(ttl/2, STALE_GRACE_CAP_S)) — a missed push. 100 gives ~10bps at 1% vol / 100s
+  // stale (see _staleTerm).
   uint256 private constant STALE_Z = 100;
+  // Keeper-grace ceiling (s): grace = min(ttl/2, this). MUST equal the deployed ExternalOracle
+  // maxRelayLagSecs (set in TestnetDeploy.s.sol) — audit L-1: with grace = ttl/2 alone, a volatile
+  // ttl=600 gave a 300s premium-free window, so the ENTIRE legal relay-lag window quoted no
+  // staleness premium. Capping at the relay-lag bound makes any age beyond legal lag widen the quote.
+  uint256 private constant STALE_GRACE_CAP_S = 30;
 
   uint256 private constant MAX_IMPACT = 2 * SC.WAD; // 200%
   uint256 private constant MIN_ADJ = SC.WAD / 1000; // 0.1%
@@ -81,7 +87,7 @@ library Pricing {
 
     // Execution price (base per token, 1e18) from the volume traverse; out = in·px/WAD.
     uint256 executionPrice =
-      _traverseCurveByVolume(mark, dispersion, curve, inventorySkew, amountIn, depth, selling);
+      _traverseCurveByVolume(mark, dispersion, curve, inventorySkew, amountIn, depth, selling, 0);
     amountOut = (amountIn * executionPrice) / SC.WAD;
   }
 
@@ -139,7 +145,8 @@ library Pricing {
     int8 inventorySkew,
     uint256 amountIn,
     uint256 depth,
-    bool selling
+    bool selling,
+    uint256 buyMidHint
   ) internal view returns (uint256 avgPrice) {
     uint256 header = curve.header;
     if (header == 0) {
@@ -159,7 +166,9 @@ library Pricing {
       }
       return (midPrice * (SC.WAD + k)) / SC.WAD;
     }
-    return _traverseCurve(mark, dispersion, curve, header, inventorySkew, amountIn, depth, selling);
+    return _traverseCurve(
+      mark, dispersion, curve, header, inventorySkew, amountIn, depth, selling, buyMidHint
+    );
   }
 
   function _traverseCurve(
@@ -170,7 +179,8 @@ library Pricing {
     int8 inventorySkew,
     uint256 amountIn,
     uint256 depth,
-    bool selling
+    bool selling,
+    uint256 buyMidHint
   ) private view returns (uint256 avgPrice) {
     uint256 startDepth = _skewToDepth(inventorySkew);
     uint256 volumeFraction = (amountIn * SC.BPS) / depth;
@@ -186,7 +196,12 @@ library Pricing {
     uint256 hi = selling ? startDepth : endDepth;
     uint256 width = hi - lo;
     if (width == 0) {
-      return _flooredOffsetPrice(mark, _scaleY(NUQ.evalQ(curve, header, startDepth), header, dispersion));
+      // Dust buy: _priceEdgeHop just computed this exact expression (same curve/header/startDepth/
+      // dispersion) as its sizing mid — reuse it instead of re-running evalQ. 0 = no hint (the mid
+      // is floored at 5% of mark, never 0); sell path has no precomputed mid, unchanged.
+      if (!selling && buyMidHint != 0) return buyMidHint;
+      return
+        _flooredOffsetPrice(mark, _scaleY(NUQ.evalQ(curve, header, startDepth), header, dispersion));
     }
     int256 avgOffsetPbps =
       _scaleY(NUQ.areaQ(curve, header, lo, hi) / int256(width), header, dispersion);
@@ -321,18 +336,10 @@ library Pricing {
     quote.amountOut = acc.currentAmount - feeOut;
     if (analytics) {
       quote.skewIn = computeInventorySkew(
-        cIn.reserves,
-        cIn.liabilities,
-        cIn.coverageMin,
-        cIn.coverageMax,
-        cIn.gamma
+        cIn.reserves, cIn.liabilities, cIn.coverageMin, cIn.coverageMax, cIn.gamma
       );
       quote.skewOut = computeInventorySkew(
-        cOut.reserves,
-        cOut.liabilities,
-        cOut.coverageMin,
-        cOut.coverageMax,
-        cOut.gamma
+        cOut.reserves, cOut.liabilities, cOut.coverageMin, cOut.coverageMax, cOut.gamma
       );
     }
   }
@@ -364,7 +371,7 @@ library Pricing {
   }
 
   /// @dev Staleness term (PBPS) = STALE_Z·σ·√(staleExcess)/BPS, where staleExcess = age beyond the
-  ///      keeper grace (ttl/2). σ is PBPS-scaled (1e4 = 1%), so it MUST be normalized by
+  ///      keeper grace (min(ttl/2, STALE_GRACE_CAP_S)). σ is PBPS-scaled (1e4 = 1%), so it MUST be normalized by
   ///      BPS here exactly as `sVol` normalizes σ·vega by 100·BPS — otherwise the raw σ·√excess term
   ///      is ~1e4× too large and saturates the spread to maxFee the instant age crosses ttl/2 (a step,
   ///      not the intended gentle ramp). Now: σ=1% (1e4), excess=100s → ~10bps; excess=1800s → ~42bps
@@ -386,7 +393,10 @@ library Pricing {
     // Authenticated source age when present (same clock as Oracle.gate / observedAt).
     uint32 obs = Oracle.observedAt(feed);
     uint256 age = block.timestamp >= obs ? block.timestamp - obs : 0;
+    // L-1: clamp the premium-free grace at the legal relay-lag bound; ttl/2 alone exempted the
+    // whole relay window. No revert path — past-grace age only widens, clamped by maxFeePath.
     uint256 grace = uint256(feed.ttl) / 2;
+    if (grace > STALE_GRACE_CAP_S) grace = STALE_GRACE_CAP_S;
     staleExcess = age > grace ? uint32(age - grace) : 0;
   }
 
@@ -428,7 +438,7 @@ library Pricing {
     // spoke→spoke reads the base mark on BOTH legs. View path unchanged (tload is view-safe).
     // A cache hit was already gated at prime time (same tx, same timestamp ⇒ identical verdict) —
     // decode the mark and skip straight to the depeg band, matching _readOracle's cached-feed model.
-    (bool found, IOracle.FeedData memory feed) = TCache.tryLoadOracleFeed(base);
+    (bool found, IOracle.FeedData memory feed) = TCache.tryLoadFeed(TCache.TYPE_ORACLE_FEED, base);
     if (found) {
       basePrice = Oracle.mark(feed);
     } else {
@@ -593,7 +603,7 @@ library Pricing {
       uint256 estChild =
         decShift >= 0 ? estOut * (10 ** uint256(decShift)) : estOut / (10 ** uint256(-decShift));
       uint256 execPrice =
-        _traverseCurveByVolume(mark, dispersion, curve, skew, estChild, depth, false);
+        _traverseCurveByVolume(mark, dispersion, curve, skew, estChild, depth, false, midPrice);
       amountOut = (amountIn * SC.WAD) / execPrice;
     }
   }
@@ -607,7 +617,7 @@ library Pricing {
     returns (IOracle.FeedData memory data)
   {
     bool found;
-    (found, data) = TCache.tryLoadOracleFeed(token);
+    (found, data) = TCache.tryLoadFeed(TCache.TYPE_ORACLE_FEED, token);
     if (found) return data;
     return _fetchFeed($, token);
   }
@@ -648,9 +658,9 @@ library Pricing {
   }
 
   function _cacheFeed(IPool.PoolStorage storage $, address token) private {
-    (bool found,) = TCache.tryLoadOracleFeed(token);
+    (bool found,) = TCache.tryLoadFeed(TCache.TYPE_ORACLE_FEED, token);
     if (found) return;
-    TCache.cacheOracleFeed(token, _fetchFeed($, token));
+    TCache.cacheFeed(TCache.TYPE_ORACLE_FEED, token, _fetchFeed($, token));
   }
 
   /// @dev Convex coverage toll — port of `dex/sim/src/amm/aimm.rs` `cov_q` (sim-validated, commit 2d21a29). Charges

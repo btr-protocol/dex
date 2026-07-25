@@ -70,6 +70,8 @@ change; it is asserted in the deploy checklist. Note the leak is not value-extra
 withdrawer receives strictly less than face value (`amt < w` whenever `c < 1`) — it only
 weakens the *floor*, not LP solvency ordering.
 
+*Remark (one-sidedness).* Lemma B addresses `c < 1` only. At `c >= 1` the haircut is identity (face pay, no surplus bonus): over-coverage is deliberately non-redeemable; an index-accretive design would reopen the P1 extraction surface.
+
 **Cross-path symmetry (code-enforced).** The same `face·min(1,c_from)` haircut is applied on the
 *input* leg of the cross exits (`_withdrawCross`, `swapLiability`: PoolLiquidity.sol) BEFORE the
 mark conversion, while the from/in liability still drops by the full face. Without it an

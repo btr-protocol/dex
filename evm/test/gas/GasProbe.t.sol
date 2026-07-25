@@ -21,7 +21,7 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Pricing} from "../../src/libraries/Pricing.sol";
 import {NUQuartic} from "../../src/libraries/NUQuartic.sol";
-import {MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {MirrorRefOracle, MockAC, MockOracle, NO_DEADLINE} from "../fixtures/BaseTestSetup.sol";
 
 /// @dev Internal-component harness: holds the SAME preset curve as the pool fixture in its own
 ///      storage and times Pricing/NUQuartic internals with the gasleft() pattern.
@@ -70,7 +70,7 @@ contract PricingHarness {
     returns (uint256 g, uint256 px)
   {
     uint256 g0 = gasleft();
-    px = Pricing._traverseCurveByVolume(1e18, 1010, curve, 0, amtIn, depth, selling);
+    px = Pricing._traverseCurveByVolume(1e18, 1010, curve, 0, amtIn, depth, selling, 0);
     g = g0 - gasleft();
   }
 
@@ -112,6 +112,7 @@ contract GasProbeTest is Test {
   Admin admin;
   MockAC ac;
   MockOracle oracle;
+  MirrorRefOracle mirrorRef;
   Pool pool; // EIP-1167 clone (prod shape)
   Pool poolDirect; // direct deployment (no clone hop) — isolates the proxy cost
   PricingHarness harness;
@@ -142,9 +143,13 @@ contract GasProbeTest is Test {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the mirror ref (dev == 0).
   function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
     o.primary = address(oracle);
     o.feedId = bytes32(uint256(uint160(token)));
+    o.refPrimary = address(mirrorRef);
+    o.refFeedId = o.feedId;
+    o.refBandBps = 300;
   }
 
   /// @dev Direct pool initializes with $.factory = this test => adminInitAsset best-effort syncs
@@ -177,6 +182,7 @@ contract GasProbeTest is Test {
     poolDirect.initialize(address(usdc), address(0xCAFE), fp);
 
     oracle = new MockOracle();
+    mirrorRef = new MirrorRefOracle(oracle);
     oracle.setMark(address(usdc), M.encodeB64(1e18, 18));
     oracle.setMark(address(usdt), M.encodeB64(1e18, 18));
     oracle.setMark(address(usd1), M.encodeB64(1e18, 18));
@@ -264,7 +270,7 @@ contract GasProbeTest is Test {
   function _gswap(Pool p, address tin, address tout) internal returns (uint256 g) {
     vm.prank(USER);
     uint256 g0 = gasleft();
-    p.swap(tin, tout, AMT, 0, USER);
+    p.swap(tin, tout, AMT, 0, USER, NO_DEADLINE);
     g = g0 - gasleft();
   }
 
@@ -431,10 +437,10 @@ contract GasProbeTest is Test {
   // sanity: fixture actually swaps
   function test_probe_sanity() public {
     vm.prank(USER);
-    uint256 out = pool.swap(address(usdt), address(usd1), AMT, 0, USER);
+    uint256 out = pool.swap(address(usdt), address(usd1), AMT, 0, USER, NO_DEADLINE);
     assertGt(out, 0, "cross swap outputs");
     vm.prank(USER);
-    uint256 out2 = poolDirect.swap(address(usdt), address(usd1), AMT, 0, USER);
+    uint256 out2 = poolDirect.swap(address(usdt), address(usd1), AMT, 0, USER, NO_DEADLINE);
     assertGt(out2, 0, "direct pool cross swap outputs");
   }
 }

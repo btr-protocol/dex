@@ -12,7 +12,8 @@ import {SqrtPrice} from "../incumbents/univ4/SqrtPrice.sol";
 /// @notice No keeper push: `getFeed` samples `slot0().sqrtPriceX96` each call and stamps
 ///         `updatedAt = block.timestamp` so BTR freshness gates always pass.
 /// @dev TESTNET/INCUMBENT BENCHMARK ONLY: the instantaneous spot is flash-manipulable and MUST NOT
-///      secure a production BTR pool. feedId = keccak256(abi.encodePacked(base, quote)).
+///      secure a production BTR pool (enforced: constructor reverts off chainid 97/31337).
+///      feedId = keccak256(abi.encodePacked(base, quote)).
 contract UniPoolOracle is IOracle {
   address public immutable AC;
 
@@ -39,6 +40,8 @@ contract UniPoolOracle is IOracle {
 
   constructor(address ac_) {
     if (ac_ == address(0)) revert Err.ZeroValue();
+    // L-2: testnet-only guard — flash-manipulable spot must never deploy to a production chain.
+    if (block.chainid != 97 && block.chainid != 31337) revert Err.InvalidInput();
     AC = ac_;
   }
 
@@ -114,7 +117,6 @@ contract UniPoolOracle is IOracle {
   function getFeedIds() external view returns (bytes32[] memory) {
     return feedIds;
   }
-
 
   function getPool(bytes32 feedId) external view returns (address) {
     return feeds[feedId].pool;

@@ -6,6 +6,7 @@ import {IPool} from "../interfaces/IPool.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {AdminTimelock as ATL} from "./AdminTimelock.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 
 /// @title AdminRiskSteward - Steward-lite fences for setAssetParamsBounded (EIP-170 relief).
 /// @notice Hard min/max + single relative `maxDeltaBps` on risk-increasing changes.
@@ -24,7 +25,8 @@ library AdminRiskSteward {
     if (f.maxFeeHardMax < f.minFeeHardMin) revert Err.BadConfig();
     if (f.gammaHardMin > f.gammaHardMax) revert Err.BadConfig();
     if (f.vegaHardMin > f.vegaHardMax) revert Err.BadConfig();
-    if (f.reservationHardLoMin > f.reservationHardHiMax) revert Err.BadConfig();
+    // R-1: decoded compare — raw packed B64 `>` is non-monotonic across a decade boundary.
+    if (M.gt64Wad(f.reservationHardLoMin, f.reservationHardHiMax)) revert Err.BadConfig();
     fences[pool][token] = f;
     emit IAdmin.RiskFencesSet(pool, token, f.maxDeltaBps);
   }
@@ -46,11 +48,28 @@ library AdminRiskSteward {
     IAdmin.RiskFences memory f = fences[pool][token];
     if (f.maxDeltaBps == 0) revert Err.NotConfigured(Err.Resource.ASSET, token);
 
+    // dex-core-sec-01 (M-2): a live reservation band on the steward path REQUIRES the matching
+    // absolute fence — with the fence off (0), the relative clamp alone lets repeated steward calls
+    // ratchet the band arbitrarily far (unbounded walk). Fail closed until the owner sets fences.
+    if (
+      (reservationPrice != 0 && f.reservationHardLoMin == 0)
+        || (reservationPriceMax != 0 && f.reservationHardHiMax == 0)
+    ) {
+      revert Err.NotConfigured(Err.Resource.ASSET, token);
+    }
+
     IPool.Asset memory cur = IPool(pool).getAsset(token);
     if (minLiquidity != cur.minLiquidity) revert Err.BadConfig();
 
     _enforceHard(
-      f, minFeePbps, maxFeePbps, gamma, vega, haircutSuppressor, reservationPrice, reservationPriceMax
+      f,
+      minFeePbps,
+      maxFeePbps,
+      gamma,
+      vega,
+      haircutSuppressor,
+      reservationPrice,
+      reservationPriceMax
     );
 
     // maxFee ceiling caps stress spread — raising it is defensive; lowering is risk-up.
@@ -68,7 +87,8 @@ library AdminRiskSteward {
     // dex-core-sec-01: the reservation (depeg-breaker) band is ALWAYS relatively clamped, even when
     // the param bundle tightens — so a single call can neither disable it, over-widen it, nor narrow
     // it to exclude the live mark (a `PriceOutsideReservation` swap-DoS). The hard fence above bounds it
-    // absolutely; this bounds each step.
+    // absolutely (mandatory whenever a band is live — see the fail-closed fence check above); this
+    // bounds each step.
     bool resTighten = _narrowsReservation(
       cur.reservationPrice, cur.reservationPriceMax, reservationPrice, reservationPriceMax
     );
@@ -117,13 +137,14 @@ library AdminRiskSteward {
     }
     // Absolute depeg-band fence: floor may not drop below hardLoMin, ceiling may not rise above
     // hardHiMax (0 = fence off). A steward can never over-widen the reservation band past these.
+    // R-1: decoded compares — raw packed B64 `<`/`>` is non-monotonic across a decade boundary.
     if (
       f.reservationHardLoMin != 0 && reservationPrice != 0
-        && reservationPrice < f.reservationHardLoMin
+        && M.gt64Wad(f.reservationHardLoMin, reservationPrice)
     ) {
       revert Err.ThresholdViolation(reservationPrice, f.reservationHardLoMin);
     }
-    if (f.reservationHardHiMax != 0 && reservationPriceMax > f.reservationHardHiMax) {
+    if (f.reservationHardHiMax != 0 && M.gt64Wad(reservationPriceMax, f.reservationHardHiMax)) {
       revert Err.ThresholdViolation(reservationPriceMax, f.reservationHardHiMax);
     }
   }

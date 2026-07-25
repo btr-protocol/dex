@@ -10,7 +10,7 @@ import {Flash} from "../../src/Flash.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
-import {BaseTestSetup, MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "../fixtures/BaseTestSetup.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
 /// @dev A-07: batchSwap must deliver WETH when output packs wnative, not unwrap to ETH.
@@ -37,9 +37,9 @@ contract BatchSwapNativeParityTest is BaseTestSetup {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
   }
 
-  function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
-    o.primary = address(oracle);
-    o.feedId = oracle.feedIdFor(token);
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the shared mirror-ref fixture.
+  function _oracleCfg(address token) internal returns (IPool.OracleConfig memory o) {
+    o = externalOracleCfg(oracle, token);
   }
 
   function setUp() public override {
@@ -124,7 +124,7 @@ contract BatchSwapNativeParityTest is BaseTestSetup {
     uint256 wethBefore = weth.balanceOf(USER);
 
     vm.prank(USER);
-    uint256[] memory outs = pool.batchSwap(inputs, outputs, USER);
+    uint256[] memory outs = pool.batchSwap(inputs, outputs, USER, NO_DEADLINE);
 
     assertGt(outs[0], 0);
     assertEq(USER.balance, ethBefore, "must not unwrap to ETH");
@@ -154,7 +154,7 @@ contract BatchSwapNativeParityTest is BaseTestSetup {
     vm.deal(USER, 1 ether);
     vm.prank(USER);
     vm.expectRevert(Err.InvalidInput.selector);
-    pool.batchSwap{value: 1 ether}(inputs, outputs, USER);
+    pool.batchSwap{value: 1 ether}(inputs, outputs, USER, NO_DEADLINE);
 
     assertEq(address(pool).balance, 0, "stray ETH must not enter the pool");
   }
@@ -162,7 +162,7 @@ contract BatchSwapNativeParityTest is BaseTestSetup {
   function test_batchSwap_zero_input_leg_cannot_hide_behind_direct_base_input() public {
     skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1);
     uint256 baseLp = pool.getLPBalance(address(this), address(usdc));
-    pool.withdraw(address(usdc), baseLp, 0); // base reserves = 0, so WETH→base quote caps to zero
+    pool.withdraw(address(usdc), baseLp, 0, NO_DEADLINE); // base reserves = 0, so WETH→base quote caps to zero
 
     weth.mint(USER, 100e18);
     vm.prank(USER);
@@ -181,7 +181,7 @@ contract BatchSwapNativeParityTest is BaseTestSetup {
 
     vm.prank(USER);
     vm.expectRevert(Err.ZeroValue.selector);
-    pool.batchSwap(inputs, outputs, USER);
+    pool.batchSwap(inputs, outputs, USER, NO_DEADLINE);
     assertEq(weth.balanceOf(USER), wethBefore, "zero-output input leg must roll back");
   }
 
@@ -200,7 +200,7 @@ contract BatchSwapNativeParityTest is BaseTestSetup {
     );
     vm.prank(USER);
     vm.expectRevert(Err.ZeroValue.selector);
-    pool.batchSwap(inputs, outputs, USER);
+    pool.batchSwap(inputs, outputs, USER, NO_DEADLINE);
   }
 
   receive() external payable {}

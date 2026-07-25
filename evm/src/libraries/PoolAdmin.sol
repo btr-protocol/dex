@@ -36,9 +36,9 @@ library PoolAdmin {
     if (presetId == 0) return;
     uint256 header = $.curves[presetId].header;
     if (header == 0) revert Err.NotConfigured(Err.Resource.ASSET, token);
-    if (
-      (header >> 248) & NUQ.FLAG_REQUIRES_WALL != 0 && $.riskConfigs[token].kappaCovBps == 0
-    ) revert Err.BadConfig();
+    if ((header >> 248) & NUQ.FLAG_REQUIRES_WALL != 0 && $.riskConfigs[token].kappaCovBps == 0) {
+      revert Err.BadConfig();
+    }
     uint32 mx = maxDispersion == 0 ? 100000 : maxDispersion;
     uint256 dispRef = (header >> 232) & 0xffff;
     // min offset (pbps) at max dispersion: monotone ⇒ min = y(0) = wQ[0].
@@ -73,31 +73,58 @@ library PoolAdmin {
     if (mn > mx || mx > MAX_DISPERSION_PBPS) revert Err.BadConfig();
   }
 
-  /// @notice Validate oracle config: primary set + reachable, plus INTERNAL-mode gating.
+  /// @notice Validate oracle config: primary set + reachable, plus per-mode breaker gating.
   /// @dev INTERNAL (constant-peg) mode requires: pegB64>0; a live gate feed (primary+feedId); a depeg
-  ///      breaker (absolute reservation band on the asset OR refFeedId+refBandBps); and — the on-chain
-  ///      ELIGIBILITY rule — any ref band be TIGHT (≤ MAX_STABLE_DEPEG_BAND_BPS), so a loosely/variable-
-  ///      pegged unit (which cannot hold so tight a band) is rejected and must use EXTERNAL mode.
-  function validateInternalMode(
+  ///      breaker (`requireExternalSpokeBound`: ref band OR a TWO-SIDED absolute reservation band);
+  ///      and — the on-chain ELIGIBILITY rule — any ref band be TIGHT (≤ MAX_STABLE_DEPEG_BAND_BPS),
+  ///      so a loosely/variable-pegged unit (which cannot hold so tight a band) is rejected and must
+  ///      use EXTERNAL mode. EXTERNAL non-base spokes carry the same breaker mandate (M-1) via the
+  ///      shared predicate. The INTERNAL tightness cap does NOT apply to EXTERNAL ref bands (volatile
+  ///      refs need ~300 bps cross-oracle tolerance).
+  ///      Base is exempt: it is the numeraire, priced via _readBasePriceOrHalt's own depeg band.
+  function validateOracleMode(
     IPool.PoolStorage storage $,
     address token,
     IPool.OracleConfig memory cfg
   ) internal view {
-    if (cfg.mode == C.ORACLE_MODE_EXTERNAL) return;
+    if (cfg.mode == C.ORACLE_MODE_EXTERNAL) {
+      if (token != $.baseToken) {
+        requireExternalSpokeBound($, token, cfg);
+      }
+      return;
+    }
     if (cfg.mode != C.ORACLE_MODE_INTERNAL) revert Err.BadConfig();
     // Base is the numeraire, priced via _readBasePriceOrHalt's EXTERNAL depeg band. An INTERNAL base
     // would make that reader quote the frozen peg (const ~1.0) and no-op the depeg breaker on every
     // base hop. Forbid it: base must be EXTERNAL so its mark is real and its depeg halt bites.
     if (token == $.baseToken) revert Err.BadConfig();
-    IPool.Asset storage a = $.assets[token];
-    if (a.pegB64 == 0) revert Err.BadConfig();
+    if ($.assets[token].pegB64 == 0) revert Err.BadConfig();
     if (cfg.primary == address(0) || cfg.feedId == bytes32(0)) {
       revert Err.NotConfigured(Err.Resource.ORACLE, token);
     }
-    bool refBand = cfg.refFeedId != bytes32(0) && cfg.refBandBps != 0;
-    bool absBand = a.reservationPrice != 0 || a.reservationPriceMax != 0;
-    if (!refBand && !absBand) revert Err.NotConfigured(Err.Resource.ORACLE, token);
-    if (refBand && cfg.refBandBps > C.MAX_STABLE_DEPEG_BAND_BPS) revert Err.BadConfig();
+    // ONE bound predicate for both modes (M-1a fork prevention) + the INTERNAL-only tightness cap.
+    requireExternalSpokeBound($, token, cfg);
+    if (cfg.refFeedId != bytes32(0) && cfg.refBandBps > C.MAX_STABLE_DEPEG_BAND_BPS) {
+      revert Err.BadConfig();
+    }
+  }
+
+  /// @notice Cumulative-bound mandate (M-1): per-push maxDeviation bounds each step only — a walked
+  ///         mark needs an independent ref band (refFeedId+refBandBps) or an absolute reservation
+  ///         band. M-1a: the abs band must be TWO-SIDED — one side alone leaves the other price
+  ///         direction unbounded (a compromised quorum walks the mark the open way, e.g. a stable
+  ///         spoke depegged downward draining at a collapsing mark); the ref band is symmetric
+  ///         (|p−refP|) by construction. Shared by setOracleConfig/setAssetParams validation and
+  ///         base migration (the demoted old base re-enters spoke-hood and must be armed).
+  function requireExternalSpokeBound(
+    IPool.PoolStorage storage $,
+    address token,
+    IPool.OracleConfig memory cfg
+  ) internal view {
+    IPool.Asset storage a = $.assets[token];
+    bool bound = (cfg.refFeedId != bytes32(0) && cfg.refBandBps != 0)
+      || (a.reservationPrice != 0 && a.reservationPriceMax != 0);
+    if (!bound) revert Err.NotConfigured(Err.Resource.ORACLE, token);
   }
 
   /// @notice Validate oracle config: primary set + reachable; an armed ref band (refBandBps != 0)

@@ -1,9 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {BaseTestSetup} from "../fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "../fixtures/BaseTestSetup.sol";
 import {Pricing as P} from "../../src/libraries/Pricing.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
+import {MockERC20} from "../../.deps/solady/test/utils/mocks/MockERC20.sol";
+import {Pool} from "../../src/Pool.sol";
+import {PoolAux} from "../../src/PoolAux.sol";
+import {PoolFactory} from "../../src/PoolFactory.sol";
+import {Admin} from "../../src/Admin.sol";
+import {Flash} from "../../src/Flash.sol";
+import {Constants as C} from "../../src/libraries/Constants.sol";
+import {Constants as SC} from "@btr-shared/Constants.sol";
+import {B64 as M} from "@btr-shared/libs/B64.sol";
 
 /// @title LibPricingTest
 /// @notice Comprehensive unit tests for LibPricing core functions
@@ -361,5 +370,162 @@ contract LibPricingTest is BaseTestSetup {
   ///         mid = 50% mark. Confirms the guard only bites degenerate configs, not legitimate ones.
   function test_skewToPrice_honest_wide_band_unfloored() public pure {
     assertEq(P._skewToPrice(1e18, -100, 500_000), 5e17); // 50% mark, above both floors
+  }
+}
+
+/// @notice Numeric PoC pinning the σ→spread claw-back magnitude — refutes audit H-2's claim that
+///         "the σ-floor alone makes a stale-mark round trip spread-negative". S_vol = minFeePath +
+///         σ·vega/(100·BPS): a σ-floor engaged at the push move δ widens the spread by only
+///         vega·δ/1e6 — ≤ 6.55% of δ at the uint16 vega ceiling, 1% of δ at the shipped vega=10000.
+///         The real defense is minFee ≥ 2θ (machine-enforced: risk fences + keeper deviation gate):
+///         a flat-truth attacker enters at a mark θ stale-low and exits θ stale-high (mark walks 2θ
+///         across two θ-pushes), paying spread/2 per leg ⇒ round-trip PnL ≈ 2θ − minFee, sign
+///         flipping at minFee = 2θ (exact boundary 2θ/(1+θ) + O(θ²)).
+contract SigmaFloorClawbackTest is BaseTestSetup {
+  address internal constant OWNER = address(0xA11CE);
+  address internal constant ATK = address(0xBAD);
+  uint256 internal constant THETA_PBPS = 10_000; // θ = 1% per-push deviation trigger
+  uint16 internal constant SHIPPED_VEGA = 10_000;
+
+  Admin internal admin;
+  PoolFactory internal factory;
+  MockAC internal ac;
+
+  function setUp() public override {
+    ac = new MockAC(OWNER);
+    admin = new Admin(address(ac));
+    Flash flash = new Flash();
+    PoolAux aux = new PoolAux(address(ac), address(admin), address(flash));
+    Pool implementation = new Pool(address(ac), address(admin), address(flash), address(aux));
+    factory = new PoolFactory(address(implementation), address(this), address(ac));
+  }
+
+  /// @dev Fresh 2-asset pool (base + tok, marks 1.0, 1M seed each) with per-asset `minFeePbps`.
+  function _newPool(uint16 minFeePbps)
+    internal
+    returns (Pool pool, MockERC20 base, MockERC20 tok, MockOracle oracle)
+  {
+    base = new MockERC20("Base", "BASE", 18);
+    tok = new MockERC20("Tok", "TOK", 18);
+    address[] memory tokens = new address[](2);
+    tokens[0] = address(base);
+    tokens[1] = address(tok);
+    bytes memory initdata = abi.encodeWithSelector(
+      Pool.initialize.selector,
+      address(base),
+      address(base),
+      IPool.FeeParams({protoShare: 25, flashFeePbps: 100})
+    );
+    pool = Pool(payable(factory.createPool(address(base), tokens, initdata)));
+
+    oracle = new MockOracle();
+    IPool.RiskConfig memory r;
+    r.decayStartRatioBps = 5000;
+    r.coverageMin = 5000;
+    r.coverageMax = 20000;
+    r.depthAmplifier = 10000;
+    r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT;
+    oracle.setMark(address(base), M.encodeB64(1e18, 18));
+    oracle.setMark(address(tok), M.encodeB64(1e18, 18));
+    vm.startPrank(OWNER);
+    admin.setCurve(address(pool), DEFAULT_PRESET, defaultCurveInterior(), defaultCurveWQ(), 1000, 0);
+    admin.addAsset(
+      address(pool),
+      address(base),
+      externalOracleCfg(oracle, address(base)),
+      r,
+      DEFAULT_PRESET,
+      minFeePbps,
+      18,
+      1000,
+      100000,
+      10000,
+      SHIPPED_VEGA
+    );
+    admin.addAsset(
+      address(pool),
+      address(tok),
+      externalOracleCfg(oracle, address(tok)),
+      r,
+      DEFAULT_PRESET,
+      minFeePbps,
+      18,
+      1000,
+      100000,
+      10000,
+      SHIPPED_VEGA
+    );
+    // addAsset defaults maxFee to 1% (ONE_PCT_PBPS) which would clamp the >2θ parametrization —
+    // lift it so the spread floor (minFee), not the cap, is what the boundary test measures.
+    admin.setAssetParams(
+      address(pool), address(base), 0, minFeePbps, 50_000, 10000, SHIPPED_VEGA, 0, 0, 0
+    );
+    admin.setAssetParams(
+      address(pool), address(tok), 0, minFeePbps, 50_000, 10000, SHIPPED_VEGA, 0, 0, 0
+    );
+    vm.stopPrank();
+
+    for (uint256 i = 0; i < 2; i++) {
+      MockERC20 t = MockERC20(tokens[i]);
+      t.mint(address(this), 1_000_000e18);
+      t.approve(address(pool), type(uint256).max);
+      pool.deposit(tokens[i], 1_000_000e18);
+    }
+  }
+
+  /// @dev σ=0 feeds (isolates the minFee term); pushes marks with full control. Advances time 1s
+  ///      first — a same-timestamp overwrite is not a new push to the pool (and via_ir caches raw
+  ///      block.timestamp reads across warps, hence getBlockTimestamp).
+  function _push(MockOracle o, address token, uint256 px, uint32 sigma) internal {
+    vm.warp(vm.getBlockTimestamp() + 1);
+    o.setFeed(o.feedIdFor(token), M.encodeB64(px, 18), sigma, 0, type(uint16).max);
+  }
+
+  /// @dev Flat-truth staleness round trip: buy tok at mark (1−θ), keeper walks the mark 2θ (two
+  ///      θ-pushes) to (1+θ), sell back. Returns PnL in PBPS of the base notional.
+  function _roundTripPnlPbps(uint16 minFeePbps) internal returns (int256) {
+    (Pool pool, MockERC20 base, MockERC20 tok, MockOracle o) = _newPool(minFeePbps);
+    _push(o, address(base), 1e18, 0);
+    _push(o, address(tok), 0.99e18, 0); // mark θ stale-low vs truth 1.0
+    uint256 baseIn = 100e18;
+    base.mint(ATK, baseIn);
+    vm.startPrank(ATK);
+    base.approve(address(pool), type(uint256).max);
+    tok.approve(address(pool), type(uint256).max);
+    uint256 tokOut = pool.swap(address(base), address(tok), baseIn, 0, ATK, NO_DEADLINE);
+    vm.stopPrank();
+    _push(o, address(tok), 1.01e18, 0); // mark walks +2θ; now θ stale-high vs flat truth
+    vm.prank(ATK);
+    uint256 baseOut = pool.swap(address(tok), address(base), tokOut, 0, ATK, NO_DEADLINE);
+    return ((int256(baseOut) - int256(baseIn)) * int256(SC.PBPS)) / int256(baseIn);
+  }
+
+  /// forge-config: default.isolate = true
+  function test_sigmaFloor_clawback_bounded_and_2theta_boundary() public {
+    // isolate: each pool call is its own tx — otherwise the pool's tx-scoped TransientCache serves
+    // leg 2 the leg-1 mark (a foundry single-tx artifact; real txs clear tstore).
+    // ── Part A: σ-floor claw-back is bounded by vega·δ/1e6 — a few % of the move, not a defense.
+    (Pool pool, MockERC20 base, MockERC20 tok, MockOracle o) = _newPool(1000);
+    _push(o, address(base), 1e18, 0);
+    _push(o, address(tok), 1e18, 0);
+    uint256 s0 = pool.getSwapQuote(address(base), address(tok), 100e18).spreadPbps;
+    uint256 delta = THETA_PBPS; // δ = 1% mark move, PBPS-scaled (σ units)
+    _push(o, address(tok), 1.01e18, uint32(delta)); // σ-floor engaged: σ = δ
+    uint256 s1 = pool.getSwapQuote(address(base), address(tok), 100e18).spreadPbps;
+    uint256 claw = s1 - s0;
+    assertEq(
+      claw, (delta * SHIPPED_VEGA) / (100 * SC.BPS), "claw-back = vega*delta/1e6 (1% of delta)"
+    );
+    assertLe(
+      claw,
+      (delta * type(uint16).max) / (100 * SC.BPS),
+      "claw-back ceiling: <=6.55% of delta at uint16 vega max"
+    );
+
+    // ── Part B: the real defense — round-trip PnL flips sign exactly at the minFee = 2θ boundary.
+    int256 below = _roundTripPnlPbps(uint16((2 * THETA_PBPS * 95) / 100)); // 19_000 < 2θ
+    int256 above = _roundTripPnlPbps(uint16((2 * THETA_PBPS * 105) / 100)); // 21_000 > 2θ
+    assertGt(below, 0, "minFee < 2theta: 2theta staleness capture beats fees (extractive)");
+    assertLt(above, 0, "minFee >= 2theta: fees dominate the 2theta staleness capture");
   }
 }

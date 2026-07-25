@@ -82,6 +82,10 @@ contract Admin is IAdmin {
   function _emitQueued(bytes32 key, uint48 delay, bytes memory data, address pool, uint8 opType)
     internal
   {
+    // L-9: a live pending op must not be silently re-queued (payload swap + eta reset would restart
+    // the LP exit-notice clock unobserved). Cancel first, then re-request.
+    uint96 prev = pendingOps[key];
+    if (prev != 0) revert Err.PendingTimelock(uint48(prev >> 48));
     pendingOps[key] = TL.pack(delay, SC.GRACE_PERIOD);
     pendingData[key] = data;
     uint48 eta;
@@ -227,6 +231,12 @@ contract Admin is IAdmin {
     uint64 reservationPriceMax
   ) external {
     _onlyAdmin();
+    // H-2 Tier-1: an armed fence (minFeeHardMin != 0; setFences rejects 0) floors even the owner
+    // path — deliberate sub-fence lowering requires setRiskFences first (explicit 2-tx intent).
+    uint16 feeFloor = riskFences[pool][token].minFeeHardMin;
+    if (feeFloor != 0 && minFeePbps < feeFloor) {
+      revert Err.ThresholdViolation(minFeePbps, feeFloor);
+    }
     ATL.setAssetParams(
       pool,
       token,
@@ -340,7 +350,7 @@ contract Admin is IAdmin {
       abi.decode(_consume(key), (address, IPool.RiskConfig));
     if (storedToken != token) revert Err.InvalidInput();
     IPool(pool).adminSetRiskConfig(token, cfg);
-    emit RiskConfigUpdated(pool, token, cfg.flags, 0);
+    emit RiskConfigUpdated(pool, token, cfg.flags);
   }
 
   /// @notice Queue a perpetual profile recalibration: repoint an asset at a preset curve +
@@ -453,8 +463,9 @@ contract Admin is IAdmin {
   function executeTreasuryUpdate(address pool) external {
     _onlyAdmin();
     address newTreasury = abi.decode(_consume(_key(pool, OP_UPDATE_TREASURY)), (address));
+    address oldTreasury = IPool(pool).treasury();
     IPool(pool).adminSetTreasury(newTreasury);
-    emit TreasuryUpdated(pool, address(0), newTreasury);
+    emit TreasuryUpdated(pool, oldTreasury, newTreasury);
   }
 
   function requestBaseMigration(address pool, address newBase) external {
@@ -468,11 +479,16 @@ contract Admin is IAdmin {
     );
   }
 
-  function executeBaseMigration(address pool) external {
+  /// @dev M-3: `spokes` (every listed token except old+new base) is supplied at EXECUTE time, not in
+  ///      the request payload — listings can change during the 7d timelock; the pool re-anchors the
+  ///      full set atomically with the numeraire flip and enforces completeness against the factory
+  ///      roster.
+  function executeBaseMigration(address pool, address[] calldata spokes) external {
     _onlyAdmin();
     address newBase = abi.decode(_consume(_key(pool, OP_BASE_MIGRATION)), (address));
-    IPool(pool).adminSetBaseToken(newBase);
-    emit BaseTokenMigrated(pool, address(0), newBase);
+    address oldBase = IPool(pool).baseToken();
+    IPool(pool).adminSetBaseToken(newBase, spokes);
+    emit BaseTokenMigrated(pool, oldBase, newBase);
   }
 
   function requestOracleUpdate(address pool, address token, IPool.OracleConfig calldata cfg)

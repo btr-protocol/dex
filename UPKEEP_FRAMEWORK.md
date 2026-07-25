@@ -168,6 +168,8 @@ Hourly stat-accumulate. Daily eval and regime-classify. Daily act on fast scalar
 - NEVER auto-move a static param. `MIN_EXEC_PRICE_BPS` / `SPLINE_MIN_OFFSET_PBPS` are compile consts; coverage band, kappa-wall, depthAmp, haircut are owner-only via `requestUpdateRiskConfig`.
 - Coupling gates:
   - `minFee_vol >= 2*theta` (between-push mean-arb).
+  - theta updates ONLY via the atomic (theta, minFee=2theta, fence resync, minDisp) bundle (section 5.6); a
+    lone `oracle.*.toml` edit is a violation the sigma-PoC test and keeper 2theta boot-gate reject.
   - `hyper` implies `kappa > 0 AND tailalpha-lowerCI > 2` (finite variance).
   - `kappa > 0` implies `depthAmp = 0 AND haircutSuppressor = 0` (coverage-wall-bypass fix).
   - Any `tau` above ~1% is kappa-gated to coverage-walled legs only.
@@ -196,8 +198,17 @@ Class legend: CONT = on-chain automatic (no keeper act); FAST = hot scalar, `set
 | MIN_EXEC_PRICE_BPS / SPLINE_MIN_OFFSET_PBPS | NO | - | NEVER (compile const) | hard exec-price backstops |
 | coverage band | NO (sim: non-load-bearing) | manual | NEVER auto | owner, `requestUpdateRiskConfig` |
 | kappa wall + depthAmp + haircut | NO (structural invariant) | manual | NEVER auto | owner; enforce kappa>0 implies depthAmp=0 AND haircut=0 |
-| theta / heartbeat / ttl | YES (theta IS the horizon) | weekly | OFF-CHAIN, push daemon owns | `oracle.*.toml`; risk routine only recommends tighten via X_tail; hard theta <= ttl/2 |
+| theta (feed deviation threshold) + heartbeat | YES (ADAPTIVE, owner mandate: theta sets push cadence, cadence sets the offset-density basis, the basis sets every curve param; recomputed JOINTLY with curve params by the divergence keeper, NOT the price-push keeper) | weekly (with task 12 fit) | FAST (off-chain toml + on-chain bundle) | bounded delta (RiskFences-style): max +/-25% per update, cadence cap 100/h, floor = spec class theta; heartbeat <= ttl/2; ships ONLY as the atomic (theta, minFee=2theta, fence resync, minDisp) bundle below |
+| ttl | NO (safety envelope for theta/heartbeat) | rare | OFF-CHAIN, push daemon owns | `oracle.*.toml`; heartbeat <= ttl/2 hard-enforced at keeper boot |
 | signer set / threshold | NO (security) | event/rare | NEVER | guardian revoke instant / owner grant BASE |
+
+Theta coupling (HARD): theta and the curve params are one optimization variable, not two. A theta change moves
+the push cadence, which moves the offset-from-mark density the presets are fitted to, so the risk keeper
+recomputes theta jointly with (regime, W, S, minDisp) and ships the result ATOMICALLY as one bundle of three
+artifacts: (1) keeper trigger config `keepers/oracle.*.toml` (theta + heartbeat per feed), (2) on-chain
+`minFee = 2*theta` via `setAssetParamsBounded`, (3) RiskFences resync (`setRiskFences` minFee bands) + the
+`minDisp >= 2*theta` floor via `requestUpdateProfile`. Partial deploys silently break the between-push
+discipline; the sigma-PoC test and the keeper 2theta boot-gate already enforce the parity invariant at startup.
 
 ---
 
@@ -230,7 +241,7 @@ adapt-class: CONT (on-chain auto), FAST (hot scalar, RiskFences), SLOW (shape/ba
 | 14 | RiskConfig (coverage / kappa / depth / haircut) | risk-param-update | listing change | manual | `requestUpdateRiskConfig` | owner; LOW timelock; F4 re-assert pause bits | NEVER (auto) | built (lever, manual) |
 | 15 | refBand / oracle cfg widen | security-guardrail (floor) | never auto | manual | `requestOracleUpdate` / `updateFeed` | owner; BASE timelock (2d/15m) | NEVER | built (lever) |
 | 16 | rebalance (coverage restore) | liveness | coverage skew | continuous | swap / rebalance | keeper (~2-4% won vol) | CONT | partial |
-| 17 | theta / heartbeat / ttl tighten reco | liveness (feeds oracle) | realized LVR / X_tail | on X_tail | edits `oracle.chapel.toml` | price-push daemon owns; hard theta <= ttl/2 | NEVER (auto) | partial |
+| 17 | theta / heartbeat retune (merged into the density -> risk-param-update group, joint with task 12 fit) | risk-param-update | joint optimizer divergence (D_scale / D_fee / X_tail) | weekly | atomic bundle: `oracle.*.toml` theta/heartbeat + `setAssetParamsBounded` (minFee=2theta) + `setRiskFences` resync + `requestUpdateProfile` (minDisp 2theta floor) | risk-steward; bounded +/-25%/update, cadence cap 100/h, floor = spec class theta, heartbeat <= ttl/2 | FAST | TODO (`keepers/src/risk/`) |
 
 ### 6.1 No duplication
 
@@ -240,7 +251,7 @@ The risk-param routine (tasks 9-14) runs UNDER the RiskFences plus the guardian 
 
 ### 6.2 Status summary
 
-All 18 on-chain LEVERS exist and are verified in source. What is built: the guardian/oracle security half (tasks 0-8, 14-15 levers) plus offline-derived static params. What is TODO: the entire adaptive `keepers/src/risk/` daemon (tasks 9-13 automation) and the offset-density methodology fix to `RISK_PARAMS_TESTNET.md` sections 3/4. Nothing is partial-built on the risk-param automation side. The hooks are ready; the perpetual keeper is not written.
+All 18 on-chain LEVERS exist and are verified in source. What is built: the guardian/oracle security half (tasks 0-8, 14-15 levers) plus offline-derived static params. What is TODO: the entire adaptive `keepers/src/risk/` daemon (tasks 9-13 + 17 automation) and the offset-density methodology fix to `RISK_PARAMS_TESTNET.md` sections 3/4. Nothing is partial-built on the risk-param automation side. The hooks are ready; the perpetual keeper is not written.
 
 Key source paths:
 - `keepers/src/main.rs` (add `RiskDaemon`)
@@ -278,6 +289,9 @@ Single source of truth for every unbuilt keeper/upkeep task. Levers marked built
 - [ ] **Registry task 11** (minDisp/maxDisp band) - automation.
 - [ ] **Registry task 12** (curve shape preset+W+dispRef) - automation.
 - [ ] **Registry task 13** (deposit-cap tier raise) - automation.
+- [ ] **Registry task 17** (theta/heartbeat joint retune): recompute theta jointly with the task-12 fit
+      (theta -> cadence -> offset basis -> params) and build the atomic bundle plan (toml emit + minFee=2theta +
+      fence resync + minDisp floor) with the bounded-delta guard (+/-25%, cadence cap 100/h, spec-theta floor).
 
 ### C. Calibration before arming
 
@@ -290,7 +304,9 @@ Single source of truth for every unbuilt keeper/upkeep task. Levers marked built
 - [ ] **Registry task 1** (signer reconcile): PARTIAL. Complete the ~2s on-chain-set-vs-pinned enforcement loop with guardian `revokeSigner` on drift.
 - [ ] **Registry task 8** (halt-pool/protocol macro): PARTIAL. Off-chain Safe MultiSend macro exists; formalize the incident-triggered `batchRiskOp` (bit6) macro path and its runbook.
 - [ ] **Registry task 16** (rebalance / coverage restore): PARTIAL. Continuous coverage-skew keeper (~2-4% won vol) not fully wired.
-- [ ] **Registry task 17** (theta/heartbeat/ttl tighten recommendation): PARTIAL. Wire the X_tail -> `oracle.chapel.toml` tighten recommendation feed from the risk routine into the push daemon (hard theta <= ttl/2).
+
+(Registry task 17 moved to section B: theta/heartbeat are ADAPTIVE risk params owned by the divergence keeper,
+not a push-daemon liveness recommendation.)
 
 ### E. Built levers requiring only manual/ops procedure (no new keeper code)
 

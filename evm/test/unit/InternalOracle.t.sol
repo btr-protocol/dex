@@ -11,7 +11,7 @@ import {IPool} from "../../src/interfaces/IPool.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {BaseTestSetup, MockAC, MockOracle} from "../fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "../fixtures/BaseTestSetup.sol";
 
 /// @title InternalOracleTest
 /// @notice INTERNAL-mode stableswap: constant peg quote + external gate feed (depeg breaker).
@@ -77,7 +77,11 @@ contract InternalOracleTest is BaseTestSetup {
     refOracle = new MockOracle();
     oracle.setMark(address(base), M.encodeB64(1e18, 18));
     oracle.setFeed(
-      bytes32(uint256(uint160(address(stable)))), M.encodeB64(1e18, 18), C.STABLE_SIGMA_PBPS, 0, 3600
+      bytes32(uint256(uint160(address(stable)))),
+      M.encodeB64(1e18, 18),
+      C.STABLE_SIGMA_PBPS,
+      0,
+      3600
     );
     refOracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA_PBPS, 0, 3600);
 
@@ -121,7 +125,11 @@ contract InternalOracleTest is BaseTestSetup {
 
   function test_walk_off_peg_quotes_constant_peg() public {
     oracle.setFeed(
-      bytes32(uint256(uint160(address(stable)))), M.encodeB64(995e15, 18), C.STABLE_SIGMA_PBPS, 0, 3600
+      bytes32(uint256(uint160(address(stable)))),
+      M.encodeB64(995e15, 18),
+      C.STABLE_SIGMA_PBPS,
+      0,
+      3600
     );
     refOracle.setFeed(REF_ID, M.encodeB64(1e18, 18), C.STABLE_SIGMA_PBPS, 0, 3600);
 
@@ -133,14 +141,18 @@ contract InternalOracleTest is BaseTestSetup {
 
   function test_band_halt_when_gate_depegs() public {
     oracle.setFeed(
-      bytes32(uint256(uint160(address(stable)))), M.encodeB64(101e16, 18), C.STABLE_SIGMA_PBPS, 0, 3600
+      bytes32(uint256(uint160(address(stable)))),
+      M.encodeB64(101e16, 18),
+      C.STABLE_SIGMA_PBPS,
+      0,
+      3600
     );
 
     base.mint(USER, 1000e18);
     vm.startPrank(USER);
     base.approve(address(pool), type(uint256).max);
     vm.expectRevert();
-    pool.swap(address(base), address(stable), 500e18, 0, USER);
+    pool.swap(address(base), address(stable), 500e18, 0, USER, NO_DEADLINE);
     vm.stopPrank();
   }
 
@@ -153,7 +165,7 @@ contract InternalOracleTest is BaseTestSetup {
     IPool.SwapQuote memory q = pool.getSwapQuote(address(base), address(stable), 500e18);
     assertGt(q.amountOut, 0, "quote off synthetic peg");
     vm.expectPartialRevert(Err.StaleData.selector);
-    pool.swap(address(base), address(stable), 500e18, 0, USER);
+    pool.swap(address(base), address(stable), 500e18, 0, USER, NO_DEADLINE);
     vm.stopPrank();
   }
 
@@ -165,8 +177,8 @@ contract InternalOracleTest is BaseTestSetup {
     stable.approve(address(pool), type(uint256).max);
 
     uint256 baseBefore = base.balanceOf(USER);
-    uint256 outStable = pool.swap(address(base), address(stable), amt, 0, USER);
-    uint256 outBase = pool.swap(address(stable), address(base), outStable, 0, USER);
+    uint256 outStable = pool.swap(address(base), address(stable), amt, 0, USER, NO_DEADLINE);
+    uint256 outBase = pool.swap(address(stable), address(base), outStable, 0, USER, NO_DEADLINE);
     uint256 baseAfter = base.balanceOf(USER);
 
     assertLt(outBase, baseBefore, "round trip must not mint base");

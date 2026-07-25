@@ -10,6 +10,7 @@ import {UniPoolOracle} from "../../src/oracles/UniPoolOracle.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 import {MockAC} from "../fixtures/BaseTestSetup.sol";
 import {Oracle} from "../../src/libraries/Oracle.sol";
+import {Err} from "@btr-shared/Errors.sol";
 
 /// @notice Forge tests for Uni piggyback: oracle reads sqrtPrice; hook recenters on >5% drift.
 contract UniPiggybackTest is Test {
@@ -101,6 +102,20 @@ contract UniPiggybackTest is Test {
 
     assertEq(pool.sqrtLowerX96(), loBefore, "lower unchanged");
     assertEq(pool.sqrtUpperX96(), hiBefore, "upper unchanged");
+  }
+
+  /// L-2: the flash-manipulable spot oracle is testnet-only — ctor reverts off chainid 97/31337.
+  function test_oracle_ctorRejectsNonTestnetChains() public {
+    vm.chainId(8453); // Base mainnet
+    vm.expectRevert(Err.InvalidInput.selector);
+    new UniPoolOracle(address(ac));
+    vm.chainId(56); // BSC mainnet
+    vm.expectRevert(Err.InvalidInput.selector);
+    new UniPoolOracle(address(ac));
+    vm.chainId(97); // BSC Chapel testnet — allowed
+    UniPoolOracle ok = new UniPoolOracle(address(ac));
+    assertEq(ok.AC(), address(ac), "chapel deploy allowed");
+    vm.chainId(31337); // restore the forge default for any later assertions
   }
 
   function test_sqrtPrice_encodeDecodeRoundtrip() public pure {

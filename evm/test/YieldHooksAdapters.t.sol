@@ -23,7 +23,7 @@ import {IMorphoBlue, MorphoId} from "../src/interfaces/external/IMorphoBlue.sol"
 import {IAaveRewardsController} from "../src/interfaces/external/IAaveV3.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
-import {BaseTestSetup, MockAC, MockOracle} from "./fixtures/BaseTestSetup.sol";
+import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "./fixtures/BaseTestSetup.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Err} from "@btr-shared/Errors.sol";
 
@@ -180,9 +180,9 @@ contract YieldHooksAdaptersTest is BaseTestSetup {
     r.flags = C.SWAP_ENABLED_BIT | C.LIABILITY_SWAP_ENABLED_BIT | C.FLASH_ENABLED_BIT;
   }
 
-  function _oracleCfg(address token) internal view returns (IPool.OracleConfig memory o) {
-    o.primary = address(oracle);
-    o.feedId = bytes32(uint256(uint160(token)));
+  /// @dev M-1: EXTERNAL spokes must carry a cumulative bound; armed via the shared mirror-ref fixture.
+  function _oracleCfg(address token) internal returns (IPool.OracleConfig memory o) {
+    o = externalOracleCfg(oracle, token);
   }
 
   function setUp() public override {
@@ -309,7 +309,7 @@ contract YieldHooksAdaptersTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
     uint256 invBefore = IPool(address(pool)).getInvested(address(quote));
     vm.prank(address(0xBEEF));
-    uint256 out = pool.swap(address(base), address(quote), amt, 0, address(0xBEEF));
+    uint256 out = pool.swap(address(base), address(quote), amt, 0, address(0xBEEF), NO_DEADLINE);
     assertGt(out, 0);
     assertLe(IPool(address(pool)).getInvested(address(quote)), invBefore);
   }
@@ -401,7 +401,7 @@ contract YieldHooksAdaptersTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
     uint256 invBefore = IPool(address(pool)).getInvested(address(quote));
     vm.prank(address(0xBEEF));
-    assertGt(pool.swap(address(base), address(quote), amt, 0, address(0xBEEF)), 0);
+    assertGt(pool.swap(address(base), address(quote), amt, 0, address(0xBEEF), NO_DEADLINE), 0);
     assertLe(IPool(address(pool)).getInvested(address(quote)), invBefore);
   }
 
@@ -598,7 +598,7 @@ contract YieldHooksAdaptersTest is BaseTestSetup {
     base.approve(address(pool), type(uint256).max);
     uint256 invBefore = IPool(address(pool)).getInvested(address(quote));
     vm.prank(address(0xBEEF));
-    assertGt(pool.swap(address(base), address(quote), amt, 0, address(0xBEEF)), 0);
+    assertGt(pool.swap(address(base), address(quote), amt, 0, address(0xBEEF), NO_DEADLINE), 0);
     assertLe(IPool(address(pool)).getInvested(address(quote)), invBefore);
   }
 
@@ -672,7 +672,7 @@ contract YieldHooksAdaptersTest is BaseTestSetup {
     // Swap needs more liquid than leave+thin buffer → fail-closed if cash insufficient,
     // or succeeds with recall ≤ leave. Either way: no over-redeem past getCash.
     uint256 cashBefore = vToken.getCash();
-    try pool.swap(address(base), address(quote), amt, 0, address(0xBEEF)) {
+    try pool.swap(address(base), address(quote), amt, 0, address(0xBEEF), NO_DEADLINE) {
       assertLe(cashBefore - vToken.getCash(), cashBefore, "redeem <= cash");
     } catch {
       // Fail-closed shortfall is acceptable when cash ≪ need.

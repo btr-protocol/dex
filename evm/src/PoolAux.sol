@@ -180,8 +180,8 @@ contract PoolAux is ReentrancyGuardTransient {
     PoolAdminWrite.setTreasury($, newTreasury);
   }
 
-  function adminSetBaseToken(address newBase) external onlyAdmin {
-    PoolAdminWrite.setBaseToken($, newBase);
+  function adminSetBaseToken(address newBase, address[] calldata spokes) external onlyAdmin {
+    PoolAdminWrite.setBaseToken($, newBase, spokes);
   }
 
   function adminSetAssetHook(address token, address hook, uint32 flags) external onlyAdmin {
@@ -251,8 +251,14 @@ contract PoolAux is ReentrancyGuardTransient {
   // `nonReentrant` shares Solady's guard slot with Pool under DELEGATECALL, so writers
   // cannot run during deposit/swap/flash while PoolHooks is booking Δbalance (double-book /
   // phantom R_liq). Hot-path recall/deploy MUST use transfer + Δbalance, not these writers.
+  // requireNoFlash on ALL FOUR writers: Pool's reentrancy slot is NOT held during the ERC-3156
+  // borrower callback (Flash is a separate singleton making sequential calls), so a mid-flash
+  // writer would slip both guards and mutate reserves/invested that flashAccount's Δ math
+  // double-counts. Unlike HALT_MASK (recall/writedown stay open for fund exit), the flash window
+  // is single-tx — blocking all four costs no liveness.
 
   function hookDeploy(address token, uint256 amount) external nonReentrant {
+    PoolIO.requireNoFlash();
     address t = PoolIO.wrap($, token);
     IPool.HookSlot memory h = $.assetHooks[t];
     if (msg.sender != h.target) revert Err.NotOwner();
@@ -280,6 +286,7 @@ contract PoolAux is ReentrancyGuardTransient {
   ///      R_liq + protocolFees + amount (transfer-before-notify; fees are escrowed in the same
   ///      token balance). Mutex blocks callback reentry; stale NAV / harvest SLA is ops.
   function hookRecall(address token, uint256 amount) external nonReentrant {
+    PoolIO.requireNoFlash();
     address t = PoolIO.wrap($, token);
     if (msg.sender != $.assetHooks[t].target) revert Err.NotOwner();
     if (amount == 0) return;
@@ -296,6 +303,7 @@ contract PoolAux is ReentrancyGuardTransient {
 
   /// @notice Credit yield (donate-equivalent): reserves + liabilities + invested.
   function hookCreditYield(address token, uint256 amount) external nonReentrant {
+    PoolIO.requireNoFlash();
     address t = PoolIO.wrap($, token);
     IPool.HookSlot memory h = $.assetHooks[t];
     if (msg.sender != h.target) revert Err.NotOwner();
@@ -320,6 +328,7 @@ contract PoolAux is ReentrancyGuardTransient {
   ///      Never reverts on loss ≥ liabilities (would strand fictional R_inv).
   ///      No on-chain NAV breaker: harvest SLA / pause is ops control for stale book.
   function hookWriteDown(address token, uint256 amount) external nonReentrant {
+    PoolIO.requireNoFlash();
     address t = PoolIO.wrap($, token);
     if (msg.sender != $.assetHooks[t].target) revert Err.NotOwner();
     if (amount == 0) return;

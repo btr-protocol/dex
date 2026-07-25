@@ -25,6 +25,9 @@ library AdminHooks {
     // target could wedge invested funds (no recall code) — require real contract code.
     if (hook.code.length == 0) revert Err.NotCode();
     bytes32 key = keccak256(abi.encode(pool, OP_UPDATE_HOOK, token));
+    // L-9: a live pending op must not be silently re-queued (payload swap + eta reset). Cancel first.
+    uint96 prev = pendingOps[key];
+    if (prev != 0) revert Err.PendingTimelock(uint48(prev >> 48));
     // HOOK-TIMELOCK: a hook takes fund custody (deploys reserves to Venus), so install rides the
     // HIGH tier used for owner/custody ops (bridge/treasury), not the LOW listing/fees tier.
     uint48 delay = SC.govDelay(SC.HIGH_TIMELOCK);
