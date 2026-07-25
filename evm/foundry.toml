@@ -1,4 +1,4 @@
-# NOTE: foundry.lock is a symlink to ../../alm/evm/foundry.lock — lockfile centralized in alm/evm.
+# foundry.lock is committed HERE: this repo must build from a standalone clone.
 [profile.default]
 src = "src"
 out = "out"
