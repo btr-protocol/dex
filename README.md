@@ -45,7 +45,19 @@ Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`,
 
 ## Build & test
 
+⚠ Requires a sibling `shared` checkout at `../../shared` — `evm/foundry.toml` remaps
+`@btr-shared/` out of tree, so a lone clone of this repo does NOT build:
+
+```
+Error (6275): Source "../../shared/evm/src/libs/B64.sol" not found
+```
+
+Clone both under one parent (`~/Work/btr/{dex,shared}`). This is deliberate: `shared`
+holds Solidity primitives consumed by source, not as a published package. Do not "fix"
+it by vendoring a copy of those files — that forks singletons the deployed system shares.
+
 ```bash
+git clone git@github.com:btr-protocol/shared.git   # sibling, required
 cd evm
 forge build
 forge test

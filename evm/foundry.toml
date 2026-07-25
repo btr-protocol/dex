@@ -1,4 +1,13 @@
-# foundry.lock is committed HERE: this repo must build from a standalone clone.
+# foundry.lock is committed HERE so dependency versions are pinned for every checkout.
+# ⚠ A LONE CLONE OF THIS REPO DOES NOT BUILD. The remappings below reach OUT OF TREE
+# into a sibling `shared` checkout, so `~/Work/btr/{dex,shared}` (or any parent holding
+# both) must exist. A fresh standalone clone fails with:
+#   Error (6275): Source "../../shared/evm/src/libs/B64.sol" not found
+# This is DELIBERATE: `shared` holds Solidity primitives (AccessControl, Treasury,
+# Staking, GovToken, StakedAsset, Errors, Constants) consumed BY SOURCE, not as a
+# published package — one compiled definition, upgraded in lockstep with dex + alm.
+# Fix it by cloning `shared` as a sibling, NEVER by vendoring a copy of those files:
+# a second copy silently forks the singletons the deployed system shares.
 [profile.default]
 src = "src"
 out = "out"
