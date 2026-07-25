@@ -45,8 +45,7 @@ quote_style = "double"
 [rpc_endpoints]
 mainnet = "${ETH_RPC_URL}"
 anvil = "http://localhost:8545"
-# Prefer dRPC / bnbchain seeds; override via --rpc-url or FOUNDRY_ETH_RPC_URL
-chapel = "https://bsc-testnet.drpc.org"
+# Chapel (BSC testnet 97) endpoint removed 2026-07-25: Sepolia is the only testnet.
 sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
 
 [etherscan]

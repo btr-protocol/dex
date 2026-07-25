@@ -11,6 +11,9 @@ contract GovDelayTest is Test {
   uint256 internal constant ETH_MAINNET = 1;
   uint256 internal constant BSC_MAINNET = 56;
   uint256 internal constant ANVIL = 31_337;
+  /// @dev BSC Chapel. Retired 2026-07-25 and REMOVED from the allow-list; kept here as a
+  ///      literal so the test can prove it is no longer granted short delays.
+  uint256 internal constant CHAPEL_RETIRED = 97;
 
   /// @dev via_ir LANDMINE (same class as the known warp/timestamp one): `block.chainid` is an
   ///      environment read the optimizer treats as loop-invariant and HOISTS above `vm.chainId`,
@@ -38,7 +41,7 @@ contract GovDelayTest is Test {
   }
 
   function test_testnetsGetShortDelays() public {
-    uint256[2] memory testnets = [uint256(SC.CHAPEL_CHAIN_ID), SC.SEPOLIA_CHAIN_ID];
+    uint256[1] memory testnets = [uint256(SC.SEPOLIA_CHAIN_ID)];
     uint48[4] memory prod = _prodTiers();
     uint48[4] memory short_ = _shortTiers();
     for (uint256 c; c < testnets.length; ++c) {
@@ -51,9 +54,11 @@ contract GovDelayTest is Test {
   }
 
   /// @dev The allow-list is positive, so any chain that is not explicitly a testnet MUST keep
-  ///      full production delays — including anvil, whose tests encode mainnet assumptions.
+  ///      full production delays — including anvil, whose tests encode mainnet assumptions, and
+  ///      retired Chapel (97): a de-supported chain must LOSE its relaxed governance, so this
+  ///      deliberately asserts the opposite of what it asserted before 2026-07-25.
   function test_nonTestnetChainsKeepProductionDelays() public {
-    uint256[3] memory chains = [uint256(ETH_MAINNET), BSC_MAINNET, ANVIL];
+    uint256[4] memory chains = [uint256(ETH_MAINNET), BSC_MAINNET, ANVIL, CHAPEL_RETIRED];
     uint48[4] memory prod = _prodTiers();
     for (uint256 c; c < chains.length; ++c) {
       vm.chainId(chains[c]);

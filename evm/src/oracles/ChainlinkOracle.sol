@@ -28,7 +28,9 @@ interface IAggregatorV3 {
 ///         `refBandBps` of Chainlink's price without halting swaps. Chainlink's DON IS the independent
 ///         signer set — there is no second NX quorum to operate. feedId = keccak256(base, quote).
 /// @dev getFeed stamps `updatedAt` from the CHAINLINK round (true data age), so `Oracle.gate`'s TTL
-///      fail-closes on a stale round. Not flash-manipulable, so production-suitable (cf. UniPoolOracle).
+///      fail-closes on a stale round. Not flash-manipulable, so production-suitable — unlike a
+///      spot-reading pool adapter (the Chapel-era UniPoolOracle, deleted 2026-07-25 with the
+///      incumbents harness; see tag archive/chapel-incumbents-2026-07-25).
 contract ChainlinkOracle is IOracle {
   address public immutable AC;
   /// @notice L2 sequencer-uptime feed (L-7). Chainlink convention: answer 0 = up, 1 = down;
