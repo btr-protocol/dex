@@ -49,6 +49,8 @@ cross-check tapes (`dex/research/data/ohlc/{BTC,ETH,BNB}-USDT.csv`) for the majo
    core -> widest shape.
 3. **minFee floor** <- (rvol, pegMaxDev): graded by realized and depeg vol (higher adverse-selection risk ->
    higher floor). Volatiles are floored at `2θ` by the `lepto` between-push discipline regardless.
+   Pools sit at minFee = 2θ EXACT (zero margin): any θ change MUST ship atomically with the matching
+   minFee and steward-fence resync, or the between-push discipline silently breaks.
 4. **maxDeviation / refBand** <- pegMaxDev (stables) and b99 (volatiles): the acceptance floor must exceed the
    observed 99% move with margin, or a legitimate push false-halts.
 5. **hyper veto** <- tailα: an asset with `tailα < 2` (infinite-variance tail) is NEVER tightened to `hyper`,
@@ -59,6 +61,84 @@ cross-check tapes (`dex/research/data/ohlc/{BTC,ETH,BNB}-USDT.csv`) for the majo
 DEFERRED asset). One asset carries a **finalize-blocker**: **XAUT**, whose synthetic XAUT-USDC cross is feed-QC
 contaminated. Its clean-subset density is sufficient to derive a regime *recommendation* but NOT to seal; its
 shipped values are held unchanged until the feed is fixed, and the exact fetch needed is stated in §4.
+
+### 0.1. Density-fit v4 final (two-kernel fee/LVR basis, referee-locked, owner 2026-07-22)
+
+**BASIS v4 (owner 2026-07-22): two-kernel, referee-locked.** The shape target moved from the v3
+offset-from-mark law to the two-kernel fee core `ell = g_theta CONV pi_inv`: the push-offset bridge G
+(θ_final-cross + heartbeat mark sim) convolved with the arb tether U(±θ) and the rail-clipped channel
+divergence Y = clip(d_tau, ±2θ) weighted by dt·σ² (winsorized flow-EMA center, τ_inv 4h stable / 1h volatile /
+2h fx-metal, TF mixture ×{1/2, 1, 2}). Offset-from-mark was retired as shape target because |G| alone is the
+Green's function of θ-killed BM: it measures the PUSH POLICY, not where the quote offset dwells (65-93% of v3
+mass inside 1θ vs 12-25% measured traded-volume dwell). The LVR half of v3 was correct and is KEPT verbatim:
+walls and floors are exceedance-only (wall floor = max(push-instant exceedance q99, 6-min b99, session-open
+b99); S_dep >= 2θ; minFee = 2θ, effective floor 2θ + E[(|G|-θ)+]). Deployed params are FROZEN by the
+consumption-replay referee (`referee_sim.py`, damped λ 0.4, J = (fee - LVR)/TVL over a latency × turnover
+sweep): ADOPT v2 refit for USD1 + USDE, KEEP v3 shapes for USDT/FDUSD/BTCB/ETH/WBNB/CAKE, provisional keep-v3
+EURC/XAUT/PAXG (feed QC); density-match KL is demoted to a diagnostic (J-rank inverts KL-rank on 6/8 assets:
+fees are a crossing measure concentrated near the mark, dwell-matching over-widens). Source:
+`make_density_overlay.py` -> `out/fit_results.json` (gen v4) + `out/density_basis_v2.json` (referee decisions);
+any preset/θ/cadence change re-runs `referee_sim.py` before adoption (param-freeze gate).
+
+The §0 bar-return basis is SUPERSEDED for dispersion/fee sizing by the fit
+(`make_density_overlay.py`, `out/fit_results.json`, `out/density_overlay.html`). The v3 G-kernel basis, still
+the fast kernel of the v4 convolution: the **log-offset from the last θ-pushed mark** over the between-push
+horizon (push process simulated on the 10s NXR tape).
+
+**HIGH-CADENCE DECISION (owner, 2026-07-21).** The θ basis is the SPEC θ (stables 0.25 bp, volatiles 5 bp)
+with a dynamic cadence cap: if the simulated cadence at spec θ exceeds 100 pushes/h, θ is raised minimally to
+hit <= 100/h, i.e. `theta_final = max(spec, theta_100perH)`. This supersedes the v2 10/h multi-θ mixture target
+(gas allows ~100/h). Consequences: stable θ_final lands at 0.26-0.37 bp (cap binding, realized 100/h), stable
+minFee = 2θ_final lands at 51-73 PBPS (same scale as the LIVE 50-100 floors, versus 212-710 at θ10), and the
+`S_dep >= 2 theta_final` floor is now a REAL tail cut (deployed cut 12-16% for stables versus 0.1-0.7% at θ10).
+**POOL RE-CLASS (owner, same date): EURC, XAUT, PAXG move to the VOLATILE pool class** (θ spec 5 bp) with a
+session-gap-aware FX/metals basis: frozen/weekend bars and tape holes are excluded from the offset distribution
+(moving-regime fit only) and the wall tier is floored by session-open vol (b99 of the first post-reopen hour).
+Two independent expert verifications ran on the v2 output; the reconciled rules below remain FINAL and encoded
+in the optimizer (v3 re-states them on the new basis):
+
+1. **Shape-cut decoupled from deployed scale.** The 25-35% tail-cut band (owner mandate ~30%) selects the SHAPE
+   (regime + W) only. The deployed support is floored at `S_dep = max(S_fit, 2 * theta_final)`: the curve's price
+   defense must reach at least the fee defense (minFee = 2θ), otherwise every routine θ-crossing exhausts the
+   entire curve side at an average offset inside the fee (expert 2, adverse-selection finding). At spec θ the
+   floor is ~0.5-0.7 bp for stables, so the deployed cut is 12-16%: the mandate-vs-parity tension of the θ10
+   basis is materially resolved by the high-cadence decision (the LP-safer 2θ floor still ships).
+2. **maxDisp HELD at deployed values.** The σ-adaptive dispersion gain is numerically inert
+   (`Pricing.sol:105`: `sigma * vega / (1000 * BPS)` adds approx +3 pbps at BTC-stress σ), so minDisp is the
+   de-facto support in stress too, and deployed maxDisp is the only stress headroom over a 14d calm window with
+   no in-tape depeg regime. Do not slash it on the fit; re-derive after the gain is fixed or a stress-mix
+   (historical depeg tapes at 5-10% weight) lands in the objective.
+3. **Volatile regimes kept lepto/platy W5.** The optimizer's plateau-W0.5 winner (bootstrap P(alt better)=0.00)
+   is contradicted by the challenge review: regime selection ran AFTER cutting the tails that distinguish
+   regimes (plateau W0.5 won all 10 assets; measured kurt 252/43/17 is leptokurtic), and volatiles have no
+   κ-wall + refBand 0, so "cut mass maps to the wall" is false there. Reconciliation picked the LP-safer
+   tail-holding shapes (BTCB/ETH/WBNB `lepto` W5, CAKE `platy` W5). The reported truncated-KL for the forced
+   shapes (0.25-0.28) is the honest price of holding tail depth.
+4. **Atomic θ gate (HARD).** Every fitted row is conditional on deploying θ = the fitted θ_final ladder +
+   minFee = 2·θ_final + steward-fence resync in ONE change (the fitted supports assume exactly that ladder).
+   The owner took the high-cadence branch (2026-07-21): expert 2's "refit at spec θ for tighter books if gas
+   allows ~100/h" alternative IS the shipped basis; the θ10 LP-regression concern is moot. The keeper 2θ
+   boot-gate and the σ-PoC test enforce the parity invariant at deploy.
+5. **Known fit biases (accepted, direction-safe or flagged).** Push-sim re-marks in the same 10s bar (no keeper
+   latency), close-only sampling (no intra-bar excursions), glitch-clip skip (survivorship on >clip depeg
+   moves), time-weighted KL (a depeg carries approx 0 time-mass: FDUSD's in-window 34.4bp depeg is invisible to
+   the loss). All understate tail mass; the 2θ floor + held maxDisp are the compensating controls until a
+   flow/jump-weighted term lands.
+
+**Reconciled verdicts (v3).** SHIP: USDC (identity); USDT, USD1, USDE, FDUSD (stables, 14d, cap-bound 100/h);
+BTCB, ETH, WBNB, CAKE, PAXG (volatile, 14d). PROVISIONAL (fitted, flagged): XAUT (clean-subset px window; §4
+feed-QC caveat stands until the NXR mirror-cluster fix is confirmed), EURC (4.5d tape, all NXR history has;
+refit at >= 10d). FALLBACK rows (param-complete class defaults, conservative sibling envelope,
+`fallback = true`, `tapeStatus = TAPE_PENDING`): U / USDG (bad feed), USDF / USDTB (no data). Every launch
+asset now has a param-complete row in `fit_results.json`. Fitted tables live in §3.1 and §4.1.
+
+**SEPOLIA ROSTER (2026-07-22):** the 23-asset Sepolia launch roster (`keepers/oracle.sepolia.toml` idx 0-22)
+is param-complete in `fit_results.json` (gen v4): USDS / DAI / PYUSD / RLUSD / GHO / TUSD / AUSD fitted for
+real on fresh 14d 10s tapes (UNREFEREED, provisional; `hyper` excluded unrefereed); syrupUSDC = NAV-aware
+2x-widened class-default fallback (NON-PEG, NAV ~1.17: base κ=0 + haircutSuppressor=0, oracle seeded from
+live NAV); WETH / WBTC / cbBTC = ROUTED rows inheriting the ETH / BTC referee-locked feed params (mark =
+ETH/BTC feed, NXR symbol mapping). Class-default fallbacks pending tape maturity + adaptive-keeper refit +
+`referee_sim.py` before any freeze. Rows in §3.2 and §4.2.
 
 ---
 
@@ -193,6 +273,82 @@ gamma = 20000, vega = 10000 for every stable. refFeedId for all non-USDC stables
   prices the break-adverse-selection of the most depeg-prone book. Widest maxDisp (8000) for the softer peg.
   pegMaxDev 34.36 < maxDeviation 50 (margin holds). No change.
 
+### 3.1. Fitted params, stable-core (density-basis v4, two-kernel, referee-locked, owner 2026-07-22)
+
+Supersedes the "No change" verdicts above for regime / minDisp / minFee on the NEXT redeploy; the §3 table stays
+the LIVE values until the **atomic θ resync deploy** (§0.1 rule 4) lands. Source: `out/fit_results.json` (gen
+v4), params REFEREE-LOCKED per §0.1. Keep-v3 rows keep `S dep = 2 * theta_final` (fit support inside the push
+trigger, floored); the two ADOPT-v2 rows (USD1, USDE) deploy the fitted flat-W1 support directly (S dep = S fit,
+no floor slack). The 100/h cadence cap binds for all four fitted stables. `cut dep` = fee-kernel (ell) mass
+beyond the deployed support (v4 semantics: the ell law is wider than the old |G| law by construction, so cut
+percentages are NOT comparable to the v3 table). `KL diag` = truncated-KL of the locked shape on the ell target
+(diagnostic only). `J` = referee-replayed (fee - LVR)/TVL APR% at the minFee floor (deploy criterion).
+
+| Asset | Regime | Preset (W / dispRef) | minDisp | maxDisp (HELD) | minFee = 2θ (PBPS) | θ final (bp) | cad /h | S dep (bp) | S fit (bp) | cut dep | KL diag | J APR% | Status |
+|---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|---|
+| USDC (base) | `plateau` | W1 / 100 | 200 | 2000 | 50 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | SHIP (identity, lock) |
+| USDT | `plateau` | W0.5 / 100 | **103** | 6000 | **51** | 0.257 | 100 | 0.513 | 0.276 | 41.0% | 0.0361 | -121.4 | SHIP (KEEP v3) |
+| USD1 | **`flat`** | **W1 / 100** | **75** | 5000 | **64** | 0.322 | 100 | 0.748 | 0.748 | 29.9% | 0.0367 | -567.2 | SHIP (ADOPT v2) |
+| USDE | **`flat`** | **W1 / 100** | **101** | 5000 | **73** | 0.365 | 100 | 1.008 | 1.008 | 29.0% | 0.2595 | -2381.3 | SHIP (ADOPT v2) |
+| FDUSD | `plateau` | W0.5 / 100 | **107** | 8000 | **53** | 0.267 | 100 | 0.534 | 0.270 | 45.1% | 0.0630 | -152.5 | SHIP (KEEP v3) |
+| U | `plateau` | W1 / 100 (FALLBACK) | 73 | 8000 | 73 | 0.365 | est | 0.730 | n/a | n/a | n/a | n/a | TAPE_PENDING (bad feed) |
+| USDG | `plateau` | W1 / 100 (FALLBACK) | 73 | 8000 | 73 | 0.365 | est | 0.730 | n/a | n/a | n/a | n/a | TAPE_PENDING (bad feed) |
+| USDF | `plateau` | W1 / 100 (FALLBACK) | 73 | 8000 | 73 | 0.365 | est | 0.730 | n/a | n/a | n/a | n/a | TAPE_PENDING (no data) |
+| USDTB | `plateau` | W1 / 100 (FALLBACK) | 73 | 8000 | 73 | 0.365 | est | 0.730 | n/a | n/a | n/a | n/a | TAPE_PENDING (no data) |
+
+- **ADOPT v2 (referee, 2026-07-22): USD1 + USDE only.** USD1: J-tie with v3 (gap 13.2 < tolerance 27.7) broken
+  by KL 0.0365 vs 0.0446 and traded-volume dwell 52.0% -> 60.5%; minDisp 129 -> 75, wall band top 437
+  (push-exceedance q99 4.37 bp floors it, not the 6-min b99). USDE: the only stable where widening pays
+  (J +58.5 vs v3; depeg-tail tape, 6-min b99 7.07 bp); minDisp 146 -> 101, wall band top 864. All other stables
+  KEEP v3: narrow beats wide in all 9 replay cells (USDT gap 10.8, FDUSD 12.3, both > tolerance).
+- **Structural minFee-floor deficit (referee finding):** every cadence-capped stable runs J < 0 at the 2θ fee
+  floor (θ_final inflated by the 100/h cap: the pool pays adverse edge faster than floor fees accrue). The
+  levers are fee/cadence (dynamic vol fees, push-cost reduction, wider minFee), NOT shape: shape deltas move J
+  by <15% of the deficit. Effective referee floor incl. exceedance premium: minFeeEff = 2θ + E[(|G|-θ)+] =
+  62/80/106/63 PBPS (USDT/USD1/USDE/FDUSD), emitted per asset in `fit_results.json`.
+- **High-cadence dividend:** stable minFee = 2θ_final lands at 51-73 PBPS, the same scale as the LIVE 50-100
+  floors (no fee regression) and above the steward fence `minFeeHardMin = 50`. Books tighten ~4-7x versus the
+  θ10 fit (minDisp 75-146 versus 423-1421).
+- **USDT `hyper` -> `plateau` demotion** removes the only wall-gated preset (safe direction on-chain; both
+  experts concur, referee upholds). κ / depthAmp / haircut columns of §3 are UNTOUCHED by the fit (κ = 100 wall
+  stays; the wall, not the needle, is the drain defense).
+- Depeg stress annotations HOLD: USD1 tailα 1.877 < 2 and USDE 477bp / FDUSD 34.4bp historical depegs are the
+  reason maxDisp is HELD and the walls are exceedance-floored (fitted supports 0.27-1.01 bp sit far inside the
+  historical depeg moves).
+- FALLBACK rows (U / USDG / USDF / USDTB): referee-frozen class defaults, plateau W1 at the 2θ sibling envelope
+  (adopted-v2 widened supports NOT inherited: the widening was asset-specific depeg-tail evidence),
+  `fallback = true` in the JSON. Deploy scripts can ship them; refit + referee the moment a clean tape exists.
+- Per-pool note: these rows bind the STABLE-pool legs. The optimizer gate is pool-blind; never copy a `hyper`
+  row onto a κ=0 leg (reverts at `PoolAdmin.sol:39`).
+- EURC left this table: POOL RE-CLASS to VOLATILE (owner 2026-07-21), fitted row in §4.1.
+
+### 3.2. Sepolia roster stable adds (v4 fits UNREFEREED + fallbacks, 2026-07-22)
+
+The 8 stables the 23-asset Sepolia launch adds over the Chapel roster (`keepers/oracle.sepolia.toml`).
+Rows 1-7 = REAL v4 two-kernel fits on fresh 14d 10s NXR tapes, but **UNREFEREED**: diagnostic-optimizer picks
+(`hyper` excluded unrefereed; USD1 precedent), provisional until a `referee_sim.py` run; deploy-usable under the
+same atomic θ gate. maxDisp floored at the stable sibling envelope 8000 (no in-tape depeg on a 14d calm window;
+maxDisp-HELD rationale). All satisfy S_dep >= 2θ_final and minFee = 2θ_final.
+
+| Asset | Regime | Preset (W / dispRef) | minDisp | maxDisp | minFee = 2θ (PBPS) | minFeeEff | θ final (bp) | cad /h | S dep (bp) | cut dep | KL diag | Status |
+|---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|---|
+| USDS | `flat` | W1 / 100 | 61 | 8000 | 52 | 65 | 0.259 | 100 | 0.605 | 29.1% | 0.0094 | UNREFEREED (fit) |
+| DAI | `flat` | W1 / 100 | 131 | 8000 | 105 | 183 | 0.524 | 100 | 1.306 | 29.0% | 0.0099 | UNREFEREED (fit) |
+| PYUSD | `flat` | W1 / 100 | 225 | 8000 | 173 | 226 | 0.866 | 100 | 2.252 | 29.0% | 0.0758 | UNREFEREED (fit; widest stable core) |
+| RLUSD | `flat` | W1 / 100 | 66 | 8000 | 58 | 69 | 0.288 | 100 | 0.661 | 29.1% | 0.0088 | UNREFEREED (fit) |
+| GHO | `flat` | W1 / 100 | 68 | 8000 | 54 | 67 | 0.268 | 100 | 0.677 | 28.4% | 0.0262 | UNREFEREED (fit) |
+| TUSD | `flat` | W1 / 100 | 115 | 8000 | 92 | 116 | 0.458 | 100 | 1.152 | 29.7% | 0.1083 | UNREFEREED (fit; peg drifting 0.996-0.999) |
+| AUSD | `flat` | W1 / 100 | 79 | 8000 | 50 | 111 | 0.250 | 66.8 | 0.786 | 29.5% | 0.0353 | UNREFEREED PROVISIONAL (sparse tape, ~1/3 bars) |
+| syrupUSDC | `plateau` | W1 / 100 (FALLBACK, 2x widened) | 146 | 8000 | 73 | n/a | 0.365 est | est | 1.460 | n/a | n/a | TAPE_PENDING (no NXR history; NAV-aware) |
+
+- **syrupUSDC is NOT a $1 peg**: Maple NAV-accruing (~1.17, drifts up). NAV-aware deploy config: base
+  **κ = 0 + haircutSuppressor = 0** (the coverage wall assumes $1-peg parity; a NAV asset must not be walled at
+  1.0, i.e. the `stableSpoke` RiskConfig template does NOT apply), oracle seeded from live NAV
+  (`ORACLE_SEED_syrupUSDC_1E18`), refBand vs the NAV mark not USDC=1. Band = stable class default WIDENED 2x
+  (NAV drift, zero tape); refit + referee the moment an NXR tape exists.
+- The UNREFEREED envelope does NOT feed the U/USDG/USDF/USDTB fallback rows: their 2θ sibling envelope stays
+  pinned to the referee-frozen fits (θ 0.365, minDisp 73), so the frozen rows are byte-identical to §3.1.
+
 ---
 
 ## 4. Volatile-core per-asset defaults (base = USDC, κ = 0 all, no hyper)
@@ -209,6 +365,7 @@ gamma = 20000, vega = 10000 for every stable. refFeedId for all non-USDC stables
 
 gamma = 20000, vega = 10000 for every volatile asset. minFee 1000 PBPS = 10 bp = 2θ (θ_vol = 5 bp), which
 satisfies the `lepto`/`skew`/`pin` between-push discipline `minFee ≥ 2θ`. Fee charged is half the path spread.
+Pools sit at minFee = 2θ EXACT (zero margin): a θ change MUST ship atomically with minFee + fence resync.
 
 > **maxDeviation is per-FEED, not per-pool-asset.** USDC and USDT in the volatile pool reference the SHARED stable
 > feeds (`USDC_FEED` and `keccak(USDT, USDC)`), which `addFeed` already set to **50 bps** for the stable idx 0/1
@@ -293,6 +450,77 @@ satisfies the `lepto`/`skew`/`pin` between-push discipline `minFee ≥ 2θ`. Fee
   > cluster shards), confirm the mirror cluster and `tick_count==0` fills are gone, then re-derive
   > regime / W / dispRef on the uncontaminated tape and, if it still reads `lepto`, land the change via
   > `requestUpdateProfile`.
+
+### 4.1. Fitted params, volatile-core (density-basis v4, two-kernel, referee-locked, owner 2026-07-22)
+
+Supersedes the "No change" verdicts above for minDisp / minFee on the NEXT redeploy; §4 stays the LIVE values
+until the **atomic θ resync deploy** (§0.1 rule 4). Regimes KEPT at the tail-holding shapes, now
+referee-CONFIRMED by replayed J instead of the truncation-artifact rule alone: lepto W5 beats the KL-optimal
+wide flat/plateau by +778..+1328 APR pts on BTCB/ETH/WBNB (concentration near the mark earns more crossings per
+unit depth). `KL diag` = truncated-KL of the locked shape on the v4 fee-kernel (ell) target at the deployed
+support: DIAGNOSTIC only, 0.84-1.05 on the majors is the priced-in cost of holding tail depth against a
+dwell-wide target. `cut dep` = ell mass beyond the deployed support (v4 semantics, not comparable to the v3
+table). `S dep = 2 * theta_final`. Spec θ = 5 bp is UNDER the 100/h cap for every major (cadence 21-49/h), so
+θ_final = spec and minFee = 1000 PBPS = the LIVE 10 bp floor; only CAKE hits the cap (θ_final 6.43 bp @ 100/h).
+**POOL RE-CLASS (owner 2026-07-21): EURC, XAUT, PAXG join this pool class**, fitted on the session-gap-aware
+basis (frozen/weekend bars dropped, moving-regime fit, wall tier floored by session-open vol).
+
+| Asset | Regime | Preset (W / dispRef) | minDisp | maxDisp (HELD) | minFee = 2θ (PBPS) | θ final (bp) | cad /h | S dep (bp) | cut dep | KL diag | J APR% | Status |
+|---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|---|
+| BTCB | `lepto` | W5 / 500 | **1000** | 500000 | **1000** | 5.0 | 24.4 | 10.0 | 42.9% | 1.018 | +1211.1 | SHIP (KEEP v3) |
+| ETH | `lepto` | W5 / 500 | **1000** | 500000 | **1000** | 5.0 | 39.9 | 10.0 | 43.3% | 0.928 | +2468.4 | SHIP (KEEP v3) |
+| WBNB | `lepto` | W5 / 500 | **1000** | 500000 | **1000** | 5.0 | 21.3 | 10.0 | 43.1% | 1.046 | +1320.3 | SHIP (KEEP v3) |
+| CAKE | `platy` | W5 / 500 | **1286** | 500000 | **1286** | 6.432 | 100 | 12.9 | 46.4% | 0.839 | -4779.3 | SHIP (KEEP v3) |
+| XAUT | `lepto` | W5 / 500 | **1000** | 500000 | **1000** | 5.0 | 46.7 | 10.0 | 42.8% | 0.856 | n/a | PROVISIONAL (feed-QC) |
+| EURC | `lepto` | W5 / 500 | **1000** | 1223 | **1000** | 5.0 | 10.1 | 10.0 | 21.9% | 0.514 | n/a | PROVISIONAL (4.5d tape) |
+| PAXG | `lepto` | W5 / 500 | **1000** | 22804 | **1000** | 5.0 | 49.4 | 10.0 | 55.2% | 1.492 | n/a | PROVISIONAL (feed noise) |
+
+- Volatile-pool USDC / USDT legs: unchanged (§4 rows; stable feeds shared, per-FEED maxDeviation note).
+- **Referee economics (2026-07-22): J > 0 exactly on the cadence-uncapped majors** (BTCB 24.4, WBNB 21.3,
+  ETH 39.9 pushes/h all clear the 100/h cap at spec θ); every cell of the latency x turnover sweep is positive.
+  CAKE, pinned at the cap like the stables, runs the same structural minFee-floor deficit (-4779 APR%); its
+  deficit is cadence, not shape (platy W5 is still the least-bad of the candidate set, +708.6 over wide
+  plateau). Effective referee floor minFeeEff = 2θ + E[(|G|-θ)+] = 1015/1032/1011/1560 PBPS
+  (BTCB/ETH/WBNB/CAKE), emitted per asset in `fit_results.json`.
+- **Books tighten ~50x** versus live (minDisp 1000 versus 50000: S_dep 10 bp versus 500 bp support) at the SAME
+  live 10 bp minFee; the spec-θ basis keeps the fee floor and cadence economics unchanged for the majors.
+- **CAKE commercial flag RESOLVED:** the θ10 fit priced minFee at 78.3 bp; at high cadence CAKE caps at 100/h
+  with θ_final 6.43 bp, minFee 12.9 bp. Expert 2's "support/cadence too tight" diagnosis was correct.
+- Drain-event exposure stays structural: b99_6min (BTCB 39.9 / ETH 55.6 / CAKE 61.8 bp) is 2-6x the 2θ fee
+  floor with refBand 0 and κ 0; approx 3 gap-events/day/asset exceed both defenses. Mitigations pending: fix the
+  σ->dispersion gain (`Pricing.sol:105`), stress-mix objective, or a jump-loss term. maxDisp 500000 held as the
+  only stress headroom meanwhile.
+- **Session-gap annotations (FX/metals):** tape holes EURC 32 / XAUT 20 / PAXG 6; session-open b99 EURC 12.2 /
+  XAUT 49.3 / PAXG 109.7 bp floors the band top (PAXG maxDispB99 22804 is driven by the weekend-gap reopen vol;
+  XAUT/majors stay HELD at 500000). Weekend gap risk is priced by the wall tier, not the fitted core.
+- **XAUT PROVISIONAL:** fitted on the clean subset (px window 3500-4400 drops the ~2300 mirror cluster,
+  tick_count>0 drops synth fills), re-classed and fitted per the owner call, but the §4 feed-QC caveat stands:
+  confirm the NXR mirror-cluster fix before sealing (px-window subset != clean feed).
+- **EURC PROVISIONAL:** 4.5 d is ALL the history NXR has (2026-07-21, EURC-USDC and EURC-USDT both start
+  2026-07-17); the moving-regime basis kills the old frozen-quote atom objection, but KL 1.35 says the forced
+  lepto W5 is a conservative posture on a tight FX core, not a density fit. Class-default fallback shape held;
+  refit at >= 10 d. No listing config yet (refBand/oracle absent).
+- **PAXG PROVISIONAL:** 14 d PAXG/USD tape landed on NXR (backfill live) and the v3 shape fit was clean, but
+  the referee held it out (indicative-feed noise, q99.9 |r1| ~286 bp -> KL mismatch tier on the fee-kernel
+  target); keep-v3 lepto W5 until feed QC. New listing: needs feed + refBand config before deploy (gold ref
+  oracle, mirror the XAUT pattern).
+
+### 4.2. Sepolia wrapper legs (ROUTED rows, 2026-07-22)
+
+The Sepolia roster lists WETH / WBTC / cbBTC (idx 17-19); their marks ROUTE to the fitted ETH / BTC feeds (NXR
+owns the symbol mapping, `keepers/oracle.sepolia.toml`). The deploy needs a param row per `addAsset` target, so
+`fit_results.json` carries explicit rows inheriting the source referee-locked params (`status = routed`,
+`tapeStatus = ROUTED:<src>`). Never refit these rows directly; they follow the source row.
+
+| Asset | Routes to | Regime | Preset (W / dispRef) | minDisp | maxDisp (HELD) | minFee = 2θ (PBPS) | θ final (bp) | S dep (bp) | Status |
+|---|---|---|---|--:|--:|--:|--:|--:|---|
+| WETH | ETH feed | `lepto` | W5 / 500 | 1000 | 500000 | 1000 | 5.0 | 10.0 | ROUTED (ETH referee-locked, J +2468.4) |
+| WBTC | BTC feed | `lepto` | W5 / 500 | 1000 | 500000 | 1000 | 5.0 | 10.0 | ROUTED (BTC referee-locked, J +1211.1) |
+| cbBTC | BTC feed | `lepto` | W5 / 500 | 1000 | 500000 | 1000 | 5.0 | 10.0 | ROUTED (BTC referee-locked, J +1211.1) |
+
+- Wrapper-vs-underlying basis risk (WBTC/cbBTC custody depeg vs BTC, WETH unwrap parity) is NOT modeled by the
+  routed inheritance; a wrapper depeg would be invisible to the routed mark. Mitigation is the per-asset refBand
+  layer, not the curve params.
 
 ---
 

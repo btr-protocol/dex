@@ -1,1 +1,11 @@
 data/
+
+# out/ is gitignored repo-wide (dex/.gitignore: research/**/out/). These two are the exception:
+# they are consumed as INPUTS, not produced as scratch.
+#   fit_results.json    — machine interface read by the deploy scripts + collector density service
+#   fit_results.v4.json — frozen 2026-07-22 v4 emit; lognormal_fit.py reads it for the old/delta
+#                         legs (it can no longer read fit_results.json, which it now overwrites)
+!out/
+out/*
+!out/fit_results.json
+!out/fit_results.v4.json
