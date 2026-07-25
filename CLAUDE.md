@@ -3,7 +3,7 @@
 Custom AIMM: adaptive multi-asset AMM (hub-and-spoke routing, dynamic fees, keeper-pushed external-mark oracle, internal non-transferable LP ledger (`lpBalances` mapping + liquidity index — NOT an ERC-1155/ERC-20 token), piecewise bonding curve). Flat-`Pool` arch — no Diamond/proxy/ERC-7201; EIP-1167 clones via `PoolFactory`. Solidity contracts ONLY — front/back/sdk/docs live in sibling repos under `~/Work/btr/` (see `~/Work/btr/CLAUDE.md`); do NOT recreate them here.
 
 ## Layout
-- `evm/`     — Solidity 0.8.35 (Foundry). `src/`, `test/`, `script/`. Deps: `@btr-shared/` → `../../shared/evm/src/` remap; `foundry.lock` symlinked to `../../alm/evm/foundry.lock`.
+- `evm/`     — Solidity 0.8.35 (Foundry). `src/`, `test/`, `script/`. `foundry.lock` + `.deps/` are committed here, so this repo needs no other repo's files to resolve dependencies. **One required sibling: a `shared` checkout at `../../shared/`** — `@btr-shared/` remaps to `../../shared/evm/src/` (`remappings.txt:7-9`), so `forge build` fails outside the `~/Work/btr/<repo>` sibling layout. Deliberate (shared Solidity primitives are consumed by source, not as a published package), not an accident.
 - `sim/`     — Rust AIMM simulation crate (`aimm-sim`). `src/amm/` = the reference model mirroring
   `evm/src/libraries/Pricing.sol` (aimm + Curve/Uni/Wombat/A-S baselines); `tests/amm_sim.rs` replays
   real NX tapes via `nxr-sdk::BarFile`. `cargo test` (data-backed tests skip if `../research/data` absent).
