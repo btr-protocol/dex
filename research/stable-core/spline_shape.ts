@@ -144,8 +144,8 @@ export function densityAtUniformOffsets(
 // a tight dome. First attempt: 4 knots, tiny-weight outer pair (≈1% each) spanning the FULL ±50 range in a
 // razor-thin volume slice for a near-vertical wall. SHIPPED, then owner reported it STILL bounces/tails.
 //
-// DESIGN PIVOT #2, CRITICAL BUG FOUND (owner: "have fable extensively review... make sure strictly
-// consistent"): re-verification (both an independent Fable audit AND direct hand re-derivation against
+// DESIGN PIVOT #2, CRITICAL BUG FOUND (owner: "review this extensively... make sure strictly
+// consistent"): re-verification (both an independent audit gate AND direct hand re-derivation against
 // the exact cubic Hermite basis) found the #1 "compact" shapes above have a REAL ~98-99% tangent
 // DISCONTINUITY at their transition knot — not a sampling artifact, not "just a steep cliff". Root cause:
 // the α²+β²≤9 overshoot clamp (Spline.sol:_tangents, also this file's tangents()) applies PER-SEGMENT using
@@ -210,7 +210,7 @@ export const PROFILES: Record<string, { knots: number[]; weights: number[]; labe
 // break) but was found — via a direct owner screenshot — to have SEVEN separate ~15-27% local density
 // bumps, one at every segment boundary, a visible sawtooth up the whole slope. Continuity (no JUMP) is
 // necessary but not sufficient — a continuous derivative can still be non-monotonic (real, textbook cubic-
-// Hermite property, independently confirmed by the Fable audit). maxBumpPct() below is the second, now also
+// Hermite property, independently confirmed under audit). maxBumpPct() below is the second, now also
 // mandatory gate: it directly measures the worst local density INCREASE while moving away from center,
 // which is exactly what a screenshot exposes and continuity alone cannot catch.
 

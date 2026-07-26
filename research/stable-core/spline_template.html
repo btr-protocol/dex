@@ -438,7 +438,7 @@ const NOTES_DENSITY =
  `the owner spotted immediately in a screenshot. A continuous derivative can still be locally `+
  `non-monotonic — a single cubic segment's derivative is a quadratic in its own parameter, and can have an `+
  `interior extremum outside the range of its two endpoint tangents (textbook cubic-Hermite property, `+
- `independently confirmed by the Fable audit). Continuity alone never catches this. Added a SECOND hard gate, `+
+ `independently confirmed under audit). Continuity alone never catches this. Added a SECOND hard gate, `+
  `<span class='k'>maxBumpPct</span> — walks outward from center and flags any genuine local density INCREASE, `+
  `the literal definition of a visible bump — and re-tuned every profile (gentler per-step growth, 2-2.5x `+
  `instead of 4-4.5x) to pass BOTH gates. <b>Max bump on the actual shipped output is now ≤2.1%</b>, down `+
