@@ -174,8 +174,15 @@ contract SepoliaOracleDeploy is DeployBase {
   /// @dev idx of syrupUSDC in _syms(): the one non-peg "stable" (accruing Maple wrapper ~1.1x).
   uint256 internal constant SYRUP_IDX = 9;
 
+  /// @dev Seeds come from the ceremony's ONE NXR snapshot (deployments/<chain>.seed-marks.json,
+  ///      written by sdk/scripts/fetch-seed-marks.ts), which SepoliaPoolDeploy also sizes its legs
+  ///      from. A second source — 24 hand-set ORACLE_SEED_* env vars — is a second thing that can
+  ///      disagree with the pool seeding, and `envOr(..., 1e18)` on a peg stable silently seeded a
+  ///      wrong mark whenever an export was forgotten. Absent file or absent mark ⇒ revert.
   function _loadSeeds(string[N] memory syms) internal view returns (uint256[N] memory m) {
-    string[7] memory volKeys = [string("ETH"), "BTC", "BTC", "BNB", "XAUT", "PAXG", "EURC"];
+    string memory marks = vm.readFile(
+      string.concat("deployments/", vm.toString(block.chainid), ".seed-marks.json")
+    );
     // Volatile plausibility bounds (1e18 units): coarse SCALE-error guards (1e15-vs-1e18
     // fat-finger), not market views. A >20% off seed is near-unrecoverable (updateFeed caps
     // maxDeviation at 2000 = 20%/push walk) — runbook: seeds from live NXR <= 5 min pre-broadcast.
@@ -189,9 +196,7 @@ contract SepoliaOracleDeploy is DeployBase {
       // syrupUSDC accrues — its true mark sits well above 1.0, so it takes the REQUIRED-env +
       // wide-bound path; the peg clamp below would reject its true mark and strand the feed.
       bool pegStable = stable && i != SYRUP_IDX;
-      string memory env =
-        string.concat("ORACLE_SEED_", stable ? syms[i] : volKeys[i - N_STABLE], "_1E18");
-      m[i] = pegStable ? vm.envOr(env, uint256(1e18)) : vm.envUint(env);
+      m[i] = vm.parseJsonUint(marks, string.concat(".marks.", syms[i], ".mark1e18"));
       require(m[i] != 0 && M.encodeB64(m[i], 18) != 0, "invalid oracle seed mark");
       // First signed push has dt=0 ⇒ band = bare maxDev floor around the SEED (50bp stable /
       // 100bp volatile); a seed off the live mark strands the bootstrap push behind the band.

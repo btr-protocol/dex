@@ -32,6 +32,7 @@
   "PAXG",
   "EURC"
  ],
+ "seedUsdPerLeg": 50000,
  "gamma": 20000,
  "vega": 10000,
  "presets": [

@@ -56,8 +56,8 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///      _validateReferenceOracles); set REF_ORACLE + REF_ORACLE_SIGNER_{0,1,2} to reuse a genuinely
 ///      independent tier here.
 /// @dev Env: DEPLOYER_PK (required). Optional: DEPLOY_IN (oracle SoT path), RISK_PARAMS (params
-///      path), POOLS_OUT (output path), TREASURY, GUARDIAN, SEED_USDC (per-pool USDC-equivalent
-///      per leg, default 2,000,000e18), WNATIVE, REF_ORACLE + REF_ORACLE_SIGNER_{0,1,2},
+///      path), POOLS_OUT (output path), TREASURY, GUARDIAN, WNATIVE,
+///      REF_ORACLE + REF_ORACLE_SIGNER_{0,1,2},
 ///      ALLOW_NO_LZ (default true here — Sepolia bring-up ships no bridge), SKIP_UNLISTED
 ///      (list only the symbols the oracle stack actually carries), REDEPLOY.
 /// @dev SKIP_UNLISTED is a safety valve, not a routine flag. Every roster symbol (EURC included,
@@ -85,6 +85,9 @@ contract SepoliaPoolDeploy is Deploy {
   uint16 internal constant STABLE_MAXDEV = 50;
   uint16 internal constant VOLATILE_MAXDEV = 100;
   uint8 internal constant SIGNER_THRESHOLD = 2;
+  // Faucet drip as a FRACTION of a leg, never its own USD figure: 1/50 = 2%/day, 200 days prefunded.
+  uint256 internal constant FAUCET_CAP_DIVISOR = 50;
+  uint256 internal constant FAUCET_PREFUND_CLAIMS = 200;
   // Reference-tier signer defaults = the canonical NXR attester set (same pins as the oracle
   // script). Override per the independence warning above.
   address internal constant SIGNER_0 = 0x9E34F1120B9a6fD93AAF81e6eF2df187A6CE45cF;
@@ -94,6 +97,7 @@ contract SepoliaPoolDeploy is Deploy {
   struct Cfg {
     string sot; // raw deployments/11155111.deploy.json
     string risk; // raw deployments/sepolia-risk-params.json
+    string marks; // raw deployments/<chain>.seed-marks.json (the ceremony's NXR snapshot)
     address oracle; // primary ExternalOracle (marks)
     address refOracle; // reference ExternalOracle (spoke depeg bands)
     address usdc;
@@ -186,6 +190,14 @@ contract SepoliaPoolDeploy is Deploy {
       vm.envOr("DEPLOY_IN", string.concat("deployments/", vm.toString(block.chainid), ".deploy.json"))
     );
     cfg.risk = vm.readFile(vm.envOr("RISK_PARAMS", string("deployments/sepolia-risk-params.json")));
+    cfg.marks = vm.readFile(
+      string.concat("deployments/", vm.toString(block.chainid), ".seed-marks.json")
+    );
+    require(
+      vm.parseJsonUint(cfg.marks, ".seedUsdPerLeg")
+        == vm.parseJsonUint(cfg.risk, ".seedUsdPerLeg"),
+      "seed-marks: fetched for a different seedUsdPerLeg than the params file"
+    );
     require(
       vm.parseJsonUint(cfg.risk, ".chainId") == block.chainid, "risk params: wrong chainId"
     );
@@ -205,7 +217,10 @@ contract SepoliaPoolDeploy is Deploy {
       cfg.gamma <= type(uint16).max && cfg.vega <= type(uint16).max, "gamma/vega exceed uint16"
     );
     cfg.refOracle = vm.envOr("REF_ORACLE", address(0));
-    cfg.seedUsdc = vm.envOr("SEED_USDC", uint256(2_000_000 ether));
+    // Seed scale is CONFIG, never an env default: `envOr("SEED_USDC", 2_000_000 ether)` is exactly
+    // how the 2026-07-24 Sepolia seed landed 40x over spec, and no on-chain cap exists to catch it.
+    // parseJsonUint reverts on a missing key ⇒ a params file without a seed aborts the deploy.
+    cfg.seedUsdc = vm.parseJsonUint(cfg.risk, ".seedUsdPerLeg") * 1e18;
     cfg.wnative = vm.envOr("WNATIVE", address(0xCAFE));
     cfg.skipUnlisted = vm.envOr("SKIP_UNLISTED", false);
   }
@@ -344,7 +359,7 @@ contract SepoliaPoolDeploy is Deploy {
     }
     // GOV-03: close the direct bootstrap path — every later listing is timelocked.
     admin.sealBootstrap(poolAddr);
-    _seedPool(cfg, poolAddr, tokens);
+    _seedPool(cfg, poolAddr, syms, tokens);
   }
 
   /// @dev Install EVERY preset in the risk-params file, pre-seal (a curve must exist before the
@@ -453,19 +468,39 @@ contract SepoliaPoolDeploy is Deploy {
 
   // ── liquidity + faucet ────────────────────────────────────────────────────────────────────
 
-  /// @dev Seed each leg with SEED_USDC of USDC-equivalent, sized off the live oracle mark (not an
-  ///      env table): a leg seeded at a stale price starts the pool off-parity and the coverage
-  ///      wall immediately tolls honest flow.
-  function _seedPool(Cfg memory cfg, address poolAddr, address[] memory tokens) internal {
+  /// @dev The one mark source for the whole ceremony: the NX Rates snapshot in
+  ///      deployments/<chain>.seed-marks.json, which SepoliaOracleDeploy seeded the feeds from.
+  ///      Cross-checked against the on-chain feed so "the operator seeded both halves from the same
+  ///      snapshot" is an assertion, not a hope — a disagreement between the seed conversion and the
+  ///      feed seed is the bug class this whole path exists to close.
+  function _mark(Cfg memory cfg, string memory sym, address token) internal view returns (uint256) {
+    if (token == cfg.usdc) return 1e18;
+    uint256 mark = vm.parseJsonUint(cfg.marks, string.concat(".marks.", sym, ".mark1e18"));
+    require(mark != 0, "seed-marks: absent or zero mark");
+    require(
+      mark
+        == M.b64To1e18(
+          IOracle(cfg.oracle).getFeed(keccak256(abi.encodePacked(token, cfg.usdc))).lastPriceB64
+        ),
+      "seed mark != feed seed: oracle and pool halves used different snapshots"
+    );
+    return mark;
+  }
+
+  /// @dev Seed each leg with seedUsdPerLeg of USDC-equivalent, sized off the ceremony's NXR mark: a
+  ///      leg seeded at a stale price starts the pool off-parity and the coverage wall immediately
+  ///      tolls honest flow.
+  function _seedPool(
+    Cfg memory cfg,
+    address poolAddr,
+    string[] memory syms,
+    address[] memory tokens
+  ) internal {
     Pool pool = Pool(payable(poolAddr));
     for (uint256 i; i < tokens.length; ++i) {
       uint256 amt = cfg.seedUsdc;
       if (tokens[i] != cfg.usdc) {
-        uint256 mark = M.b64To1e18(
-          IOracle(cfg.oracle).getFeed(keccak256(abi.encodePacked(tokens[i], cfg.usdc))).lastPriceB64
-        );
-        require(mark != 0, "unseeded mark");
-        amt = cfg.seedUsdc * 1e18 / mark;
+        amt = cfg.seedUsdc * 1e18 / _mark(cfg, syms[i], tokens[i]);
       }
       TestnetERC20(tokens[i]).mint(msg.sender, amt);
       IERC20(tokens[i]).approve(poolAddr, type(uint256).max);
@@ -473,8 +508,9 @@ contract SepoliaPoolDeploy is Deploy {
     }
   }
 
-  /// @dev Faucet caps: $10k/day of any stable, and a mark-sized ~$10k/day of any volatile, so a
-  ///      claimer gets a comparable notional whatever the unit price is.
+  /// @dev Faucet caps DERIVE from seedUsdPerLeg (2% of a leg per day, 200 claims prefunded) so the
+  ///      drip stays proportionate to pool depth from one config figure. A cap carrying its own USD
+  ///      number is how a $10k/day faucet ended up 20% of a $50k leg.
   function _fundFaucet(
     Cfg memory cfg,
     TestnetFaucet faucet,
@@ -494,14 +530,8 @@ contract SepoliaPoolDeploy is Deploy {
         if (toks[j] == t) dup = true;
       }
       if (dup) continue;
-      uint256 mark = t == cfg.usdc
-        ? 1e18
-        : M.b64To1e18(
-          IOracle(cfg.oracle).getFeed(keccak256(abi.encodePacked(t, cfg.usdc))).lastPriceB64
-        );
-      require(mark != 0, "unseeded mark");
       toks[k] = t;
-      caps[k] = 10_000 ether * 1e18 / mark;
+      caps[k] = cfg.seedUsdc / FAUCET_CAP_DIVISOR * 1e18 / _mark(cfg, sym, t);
       ++k;
     }
     address[] memory tk = new address[](k);
@@ -509,8 +539,8 @@ contract SepoliaPoolDeploy is Deploy {
     for (uint256 i; i < k; ++i) {
       tk[i] = toks[i];
       ck[i] = caps[i];
-      // Prefund 1000 claims' worth so the drip survives a demo week without a top-up.
-      uint256 amt = caps[i] * 1000;
+      // Prefund FAUCET_PREFUND_CLAIMS days of the cap so the drip survives a demo week untouched.
+      uint256 amt = caps[i] * FAUCET_PREFUND_CLAIMS;
       TestnetERC20(tk[i]).mint(msg.sender, amt);
       IERC20(tk[i]).approve(address(faucet), type(uint256).max);
       faucet.fund(tk[i], amt);
