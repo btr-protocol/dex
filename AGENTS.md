@@ -1,7 +1,7 @@
 # BTR DEX: contributor guide
 
 ## What this is
-BTR DEX is the adaptive multi-asset AMM (AIMM): hub-and-spoke routing, dynamic fees, a keeper-pushed external-mark oracle, and an internal non-transferable LP ledger. Contracts are Solidity under `evm/`, the Rust reference model mirroring `evm/src/libraries/Pricing.sol` is `sim/` (`aimm-sim`), AMM studies are in `research/`, and `svm/` is a reserved Solana port holding only a README.
+BTR DEX is the adaptive multi-asset AMM (AIMM): hub-and-spoke routing, dynamic fees, a keeper-pushed external-mark oracle, and an internal non-transferable LP ledger. Contracts are Solidity under `evm/`, the Rust reference model mirroring `evm/src/libraries/Pricing.sol` is `sim/` (`aimm-sim`), and AMM studies are in `research/`.
 
 Siblings live under the same parent directory: `shared` (Solidity primitives, required to build), `sdk` (ABIs and RPC client), `back`, `front`, `docs`, and `keepers` (the oracle mark pusher). No front end or back end lives here.
 

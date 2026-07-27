@@ -170,10 +170,10 @@ whose continuous target is v4 lepto exactly; CAKE's wider 0.55 cell absorbs the 
 4. `keepers/src/risk/fit.rs` + `keepers/src/risk/fences.rs` (unbuilt): streaming quantiles,
    closed-form legs, class-gated family select, deadband/fence pre-tx mirror; arm
    `RISK_EXECUTE=1` only after faithful_sim.ts tau/halflife calibration (no-thrash).
-5. `UPKEEP_FRAMEWORK.md`: sections 2.2/3/4 + tasks 12/17; minFee text 2theta -> 2theta + excPrem;
+5. Keeper risk module (`keepers/src/risk/`, when built): minFee text 2theta -> 2theta + excPrem;
    document the family gate (class-static, not keeper-switchable).
-6. evm scripts: Chapel/testnet preset install to the two-family cell library (`requestSetCurve`
-   ids), pool deploy class-cell install; no interface/ABI change (presetId assignment only).
+6. Sepolia pool deploy: class-cell preset install via `SepoliaPoolDeploy.s.sol` /
+   `sepolia-risk-params.json`; no interface/ABI change (presetId assignment only).
 7. Adoption gates before any of the above: owner review -> referee J-replay on the certified
    cells (done for the 8 taped assets, this doc) -> faithful_sim tau calibration -> code deltas.
 

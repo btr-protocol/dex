@@ -1,8 +1,6 @@
 # BTR AIMM vs Peer Oracle/RFQ AMMs — Architecture Comparison
 
-*Scope: DoDo (PMM), Lifinity (oracle-AMM), Hashflow (signed RFQ) — the three venues the auditor
-named — versus the BTR AIMM. Every BTR claim is verified against `dex/evm/src/**` at the cited
-`file:line`. Peer claims are cited to public docs (Sources at end). Date: 2026-07-08.*
+*Scope: DoDo (PMM), Lifinity (oracle-AMM), Hashflow (signed RFQ) versus the BTR AIMM. Every BTR claim is verified against `dex/evm/src/**` at the cited `file:line`. Peer claims are cited to public docs (Sources at end). Date: 2026-07-08.*
 
 ---
 
@@ -193,7 +191,7 @@ middle is free.
 
 **Contrast.** Curve/Balancer charge **one** joint-curve impact on a cross; BTR charges **two**
 independent spoke splines (X and Y) but makes the hub itself **zero-cost**. So BTR has already
-eliminated the *double-numeraire tax* the auditor worried about — the base is free. The remaining
+eliminated the *double-numeraire tax* that a hub-and-spoke design invites — the base is free. The remaining
 structural difference is **1 joint impact (Curve) vs 2 half-impacts (BTR spokes)**, which is a
 *calibration* question, not an architectural double-tax:
 

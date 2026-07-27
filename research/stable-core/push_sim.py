@@ -46,7 +46,7 @@ SETS = {"base+FDUSD": ["USDC", "USDe", "USD1", "FDUSD"],
         "base_no5th": ["USDC", "USDe", "USD1"]}
 THETAS = [0.1, 0.2, 0.3, 0.5, 1.0, 2.0, 5.0]          # bps — incl. tight centering (owner: 2bp too loose)
 HEARTBEATS = [60, 300, 900, 3600]      # s
-# Deployed depeg-guard band (dex/evm/deploy/testnet-asset-params.json, stable-core). Swaps HALT if the
+# Deployed depeg-guard band (evm/deployments/sepolia-risk-params.json, stable-core). Swaps HALT if the
 # mark leaves ±refBand of the reference feed. INTERNAL oracle mode (fixed 1.0 peg, ~zero pricing push)
 # is only safe if the asset's true peg sits within minFee of 1.0 ~always; else EXTERNAL mark-tracking.
 DEPLOYED_REFBAND = {"USDC": 50, "USDT": 100, "USD1": 150, "USDe": 150, "FDUSD": 200, "TUSD": 150}
@@ -381,7 +381,7 @@ def main():
             "bnb_usd": bnb, "bsc_gas_gwei_now": gwei_now,
             "gwei_scenarios": GAS_GWEI_SCENARIOS,
             "deployed_baseline": {
-                "src": "dex/evm/deploy/testnet-asset-params.json stable-core (base=USDC)",
+                "src": "evm/deployments/sepolia-risk-params.json stable-core (base=USDC)",
                 "thetaBps": 1, "heartbeatS": 3600, "ttlS": 7200, "oracleMode": "EXTERNAL",
                 "minFeeBps_PBPS": 1, "note": "minFeeBps on-chain = PBPS (100 PBPS = 1 bp)"},
             "oracle_mode_note": "EXTERNAL = quote off keeper mark (θ-push priced here). INTERNAL = "

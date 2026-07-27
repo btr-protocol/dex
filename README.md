@@ -12,7 +12,6 @@ This repo = Solidity contracts (`evm/`) + simulation harness. Keepers (oracle pu
 | Off-chain services (collector, agents, docs, envio) | `back` (`@btr-protocol/back`) |
 | Shared TS types + ABIs + RPC client | `sdk` (`@btr-protocol/sdk`) |
 | Product + protocol docs | `docs` |
-| ALM vaults (consume DEX via `BtrPoolAdapter`) | `alm` |
 | Shared Solidity primitives (AccessControl, Treasury, Staking, GovToken, StakedAsset, PriceProvider, Errors, Constants) | `shared` (`@btr-shared/` remap) |
 
 Local layout:
@@ -92,4 +91,13 @@ Only standard, non-rebasing ERC-20s without sender/receiver transfer taxes may b
 
 ## Documentation
 
-Canonical docs in `~/Work/btr/docs/`: `dex/`, `protocol/`, `legal/`, `security/`, `concepts/`, `reference/`.
+| Doc | Role |
+|---|---|
+| `SEPOLIA_BRINGUP.md` | Live Sepolia stack SoT |
+| `ORACLE_SIGNED_PUSH_SPEC.md` | Signed-push wire contract |
+| `ORACLE_DEPLOYMENT_SYSTEM.md` | Config-driven oracle deploy model |
+| `AIMM_PROOFS.md` | Formal inventory / coverage proofs |
+| `CROSS_SWAP_FAIRNESS.md` | Cross-swap fairness verification |
+| `AGENTS.md` / `CONTRIBUTING.md` | Contributor conventions |
+
+Canonical product docs also live in `~/Work/btr/docs/`.

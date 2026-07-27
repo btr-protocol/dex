@@ -276,8 +276,8 @@ regime 1.
   (`maxDev·(1+dt/ttl)`, capped); (b) **at most one mark update per feed per block** — a same-block
   re-push reverts (`dt==0` guard in `_pushInternal`), and a duplicate feedId in a `batchPush`
   fail-closes the batch. Without (b), N same-block pushes each pass the band (dt=0 ⇒ band never
-  grows) yet compound geometrically to an unbounded one-tx move — the cumulative bypass all three
-  audit cohorts independently found (cycle 1). With (a)+(b) a compromised key is confined to a
+  grows) yet compound geometrically to an unbounded one-tx move — the cumulative bypass a
+  multi-pass review independently found. With (a)+(b) a compromised key is confined to a
   monitorable, one-band-per-block walk, and the confidence/TTL halts still fire. Full defeat still
   needs multisig compromise; **2-of-N pusher quorum remains recommended mainnet hardening**
   (defense-in-depth), no longer a single-point drain.

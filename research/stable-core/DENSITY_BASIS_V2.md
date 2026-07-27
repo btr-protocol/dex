@@ -152,19 +152,11 @@ q99.9 |r1| ~286bp; keep v3 deploy until feed QC).
 
 ## 7. Downstream to regenerate if adopted
 
-1. `dex/research/stable-core/make_density_overlay.py`: swap the shape-target basis to
-   ell_hat (LVR half stays); regen `out/fit_results.json` + `out/density_overlay.html`
-   for ALL assets including fallback rows.
-2. `dex/research/stable-core/RISK_PARAMS_TESTNET.md`: regime/W/dispRef/minDisp/support
-   tables + section 0/1.1 methodology text.
-3. Back density service TS port: `back/services/collector/src/density/pushsim.ts` +
-   `service.ts` currently mirror the v3 push-sim basis; port the flow-EMA channel,
-   tether and rail-clip components; resync the mirrored
-   `back/services/collector/config/fit_results.json`; update `pushsim.test.ts`.
-4. Deploy scripts: `dex/evm/script/ChapelApplyStableParams.s.sol`,
-   `ChapelWidenVolatileDisp.s.sol`, `ChapelEnableSwaps.s.sol` (regime, dispRef, minDisp,
-   maxDisp constants per asset).
-5. Rerun `consumption_sim.py` referee on the adopted presets before any param freeze.
+1. `make_density_overlay.py`: swap the shape-target basis to ell_hat (LVR half stays); regen
+   `out/fit_results.json` + `out/density_overlay.html` for ALL assets including fallback rows.
+2. Back density service TS port: `back/services/collector/src/density/pushsim.ts` + `service.ts`.
+3. Sepolia risk params: `evm/deployments/sepolia-risk-params.json` (live deploy SoT).
+4. Rerun `consumption_sim.py` referee on the adopted presets before any param freeze.
 
 ## 8. REFEREE: damped consumption replay, FINAL per-asset params (2026-07-22)
 
@@ -240,11 +232,10 @@ LVR kernel; wall span >= push-exceedance q99 verified on every refereed asset.
 ### Downstream (supersedes the section 7 scope)
 
 Adoption = USD1 + USDE rows only. Regen limited to: `out/fit_results.json` USD1/USDE
-rows, `RISK_PARAMS_TESTNET.md` fitted tables (2 rows), collector density TS mirror
-(2 rows), Chapel deploy-script constants (2 assets). All other assets keep v3 params
-unchanged; the fee-kernel estimator stays as the diagnostic layer. The consumption-sim
-referee is the param freeze gate: rerun `referee_sim.py` on any preset, theta ladder,
-or feed-cadence change.
+rows, collector density TS mirror (2 rows), and Sepolia risk-param rows for those assets.
+All other assets keep v3 params unchanged; the fee-kernel estimator stays as the diagnostic
+layer. The consumption-sim referee is the param freeze gate: rerun `referee_sim.py` on any
+preset, theta ladder, or feed-cadence change.
 
 2026-07-22 addendum: the 23-asset Sepolia roster was completed in `fit_results.json` via
 UNREFEREED v4 fits (USDS/DAI/PYUSD/RLUSD/GHO/TUSD/AUSD, fresh 14d tapes), a NAV-aware

@@ -9,8 +9,9 @@ code on the promotion path.
 Companion docs (SoT per surface):
 - Wire contract: `dex/ORACLE_SIGNED_PUSH_SPEC.md` (frozen; 24 B/feed records, EIP-712).
 - Bring-up choreography: `nx/ops/k0s/nxr/SIGNING_TIER_RUNBOOK.md` (phases A-F, gates G1-G7).
-- Guard registry: `keepers/GUARDS.md` + `dex/UPKEEP_FRAMEWORK.md` section 6.
+- Guard registry: `keepers/GUARDS.md`.
 - Observability: `keepers/OBSERVABILITY.md`.
+- Sepolia stack: `dex/SEPOLIA_BRINGUP.md`.
 
 ## 1. Strict config-driven model
 
@@ -97,8 +98,7 @@ strictly off the money path. Public `/api/oracle/*` proxy = spec-only
 ## 4. Guard registry
 
 17 declarative rows in `guards.sepolia.toml` (mainnet twin tighter), schema
-`keepers/src/guards.rs`, docs `keepers/GUARDS.md`, tasks traced to
-`dex/UPKEEP_FRAMEWORK.md` section 6 and the guardian role matrix:
+`keepers/src/guards.rs`, docs `keepers/GUARDS.md`, and the guardian role matrix:
 - security-guardrail (10): signer set reconcile/equivocation revoke, feed
   divergence pause, asset anomaly pause / drain freeze, band narrow
   (tighten-only), upgrade / signer-grant / threshold-decrease vetoes, manual
@@ -110,8 +110,8 @@ strictly off the money path. Public `/api/oracle/*` proxy = spec-only
 Root invariant (validator-enforced): guardian = freeze/tighten/cancel ONLY;
 param writes are risk-steward; every reverse (unpause, widen, grant) is owner.
 Validation gate: `btr-keeper guards --config guards.sepolia.toml [--unarmed]`;
-armed boot requires filled contract addresses. Guard EXECUTION keeper = TODO
-(UPKEEP_FRAMEWORK Implementation TODO B/D); registry + validator + CI gate are
+armed boot requires filled contract addresses. Guard execution keeper is not shipped yet;
+registry + validator + CI gate are
 live today.
 
 ## 5. Owner-gated decisions (EXACT, nothing else blocks)
@@ -147,7 +147,7 @@ funded 0x57b3, keeper fill + keeper start, guardian drill, guards validation.
 
 READY (authored, validated, staged; zero cluster mutation):
 - `SepoliaOracleDeploy.s.sol` (predictOracle + assert), deployer funded.
-- `oracle.sepolia.toml` + `oracle.mainnet.toml` (+ chapel/example aligned),
+- `oracle.sepolia.toml` + `oracle.mainnet.toml` (+ example aligned),
   `guards.sepolia.toml` + `guards.mainnet.toml`: all parse + validate
   (unarmed), 86/86 keeper tests green.
 - Signer + keeper Deployment values files; ConfigMap mirror safe-to-resync

@@ -1,9 +1,8 @@
-# BSC Stable-Core — Launch Parameters (empirical, 2026-07-08)
+# Stable-Core — Launch Parameters (empirical, 2026-07-08)
 
-> **Live SSoT (2026-07-12):** keeper θ stables = **0.25 bp** / heartbeat **1800 s**;
-> volatiles θ = **5 bp** / heartbeat **300 s** — see `keepers/oracle.chapel.toml` and
-> `dex/research/oracle-price-discovery/results/LAUNCH_PARAMS.md`. Numbers below are the
-> 2026-07-08 tape study (historical).
+> **Live SSoT:** Sepolia deploy params live in `evm/deployments/sepolia-risk-params.json`
+> and keeper config in `keepers/oracle.sepolia.toml`. Numbers below are the 2026-07-08
+> BSC tape study (historical research record).
 
 Source: 6mo BSC HyperSync tape (3.24M swaps, 6 active pools) → microstructure → push economics → capture
 simulation through the REAL quote law (`front/src/lib/amm/aimm.ts`). All numbers trace to `out/*.json`.
