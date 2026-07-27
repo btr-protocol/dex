@@ -84,6 +84,12 @@ contract SepoliaPoolDeploy is Deploy {
   uint16 internal constant CONF_SEED = 25;
   uint16 internal constant STABLE_MAXDEV = 50;
   uint16 internal constant VOLATILE_MAXDEV = 100;
+  // FX tier (fx-core, 2026-07-27). Its own class because a fiat-FX leg is NEITHER ~1.0 against the
+  // USDC base (so the pegged-stable band would strand it) NOR crypto-volatile (so the volatile band
+  // is 2x looser than the tape warrants). Both figures derive from measured NXR FX tape — the
+  // derivation + per-leg sigma live in deployments/sepolia-risk-params.json `basis.fx`.
+  uint16 internal constant FX_TTL = 3600;
+  uint16 internal constant FX_MAXDEV = 75;
   uint8 internal constant SIGNER_THRESHOLD = 2;
   // Faucet drip as a FRACTION of a leg, never its own USD figure: 1/50 = 2%/day, 200 days prefunded.
   uint256 internal constant FAUCET_CAP_DIVISOR = 50;
@@ -124,6 +130,15 @@ contract SepoliaPoolDeploy is Deploy {
     uint16 refBandBps;
     bool refOwnFeed;
     bool stable;
+    bool fx;
+  }
+
+  /// @dev ttl/maxDeviation tier for one asset class. Kept as one switch so the primary-feed add
+  ///      (addFxFeeds) and the reference mirror (_mirrorRefFeed) can never disagree on a class.
+  function _tier(bool stable, bool fx) internal pure returns (uint16 maxDev, uint16 ttl) {
+    if (stable) return (STABLE_MAXDEV, STABLE_TTL);
+    if (fx) return (FX_MAXDEV, FX_TTL);
+    return (VOLATILE_MAXDEV, VOLATILE_TTL);
   }
 
   function deployPools() external returns (address stablePool, address volatilePool) {
@@ -189,7 +204,7 @@ contract SepoliaPoolDeploy is Deploy {
     cfg.sot = vm.readFile(
       vm.envOr("DEPLOY_IN", string.concat("deployments/", vm.toString(block.chainid), ".deploy.json"))
     );
-    cfg.risk = vm.readFile(vm.envOr("RISK_PARAMS", string("deployments/sepolia-risk-params.json")));
+    cfg.risk = vm.readFile(_riskPath());
     cfg.marks = vm.readFile(
       string.concat("deployments/", vm.toString(block.chainid), ".seed-marks.json")
     );
@@ -286,8 +301,12 @@ contract SepoliaPoolDeploy is Deploy {
     p.haircutSuppressor = uint16(vm.parseJsonUintArray(cfg.risk, ".haircutSuppressor")[idx]);
     p.refBandBps = uint16(vm.parseJsonUintArray(cfg.risk, ".refBandBps")[idx]);
     p.refOwnFeed = vm.parseJsonBoolArray(cfg.risk, ".refOwnFeed")[idx];
-    p.stable = keccak256(bytes(vm.parseJsonStringArray(cfg.risk, ".cls")[idx]))
-      == keccak256(bytes("stable"));
+    bytes32 cls = keccak256(bytes(vm.parseJsonStringArray(cfg.risk, ".cls")[idx]));
+    p.stable = cls == keccak256(bytes("stable"));
+    p.fx = cls == keccak256(bytes("fx"));
+    // An unknown class would silently take the volatile tier — the loosest band in the file — so
+    // reject it here instead. Adding a class is a deliberate act in BOTH files, never a fallthrough.
+    require(p.stable || p.fx || cls == keccak256(bytes("volatile")), "risk params: unknown cls");
   }
 
   // ── reference oracle ──────────────────────────────────────────────────────────────────────
@@ -317,21 +336,18 @@ contract SepoliaPoolDeploy is Deploy {
   ///      oracle + its feed manifest are emitted to the pool SoT (see _persist) precisely so the
   ///      keeper config can target BOTH oracles. Idempotent: a feed already present (REF_ORACLE
   ///      reuse, or USDC/USD already mirrored for an earlier stable) is left untouched.
-  function _mirrorRefFeed(Cfg memory cfg, address asset, address quote, bool stable) internal {
+  function _mirrorRefFeed(Cfg memory cfg, address asset, address quote, bool stable, bool fx)
+    internal
+  {
     bytes32 id = keccak256(abi.encodePacked(asset, quote));
     try IOracle(cfg.refOracle).getFeed(id) returns (IOracle.FeedData memory f) {
       if (f.lastPriceB64 != 0) return;
     } catch {}
     IOracle.FeedData memory src = IOracle(cfg.oracle).getFeed(id);
     require(src.lastPriceB64 != 0, "primary feed unseeded");
+    (uint16 maxDev, uint16 ttl) = _tier(stable, fx);
     ExternalOracle(cfg.refOracle).addFeed(
-      asset,
-      quote,
-      src.lastPriceB64,
-      SIGMA_SEED,
-      CONF_SEED,
-      stable ? STABLE_MAXDEV : VOLATILE_MAXDEV,
-      stable ? STABLE_TTL : VOLATILE_TTL
+      asset, quote, src.lastPriceB64, SIGMA_SEED, CONF_SEED, maxDev, ttl
     );
   }
 
@@ -397,9 +413,9 @@ contract SepoliaPoolDeploy is Deploy {
     if (!isBase && p.refBandBps != 0) {
       // The band's reference must EXIST on the reference oracle before the listing validates it.
       if (p.refOwnFeed) {
-        _mirrorRefFeed(cfg, p.token, cfg.usdc, p.stable);
+        _mirrorRefFeed(cfg, p.token, cfg.usdc, p.stable, p.fx);
       } else {
-        _mirrorRefFeed(cfg, cfg.usdc, cfg.usd, true);
+        _mirrorRefFeed(cfg, cfg.usdc, cfg.usd, true, false);
       }
     }
     admin.addAsset(
@@ -548,6 +564,152 @@ contract SepoliaPoolDeploy is Deploy {
     faucet.setCaps(tk, ck);
   }
 
+  // ── FX core (third pool, 2026-07-27) ──────────────────────────────────────────────────────
+  // A stablecoin-FX pool of fiat-backed stables (Circle StableFX/Arc asset set), USDC-based like
+  // the other two. Three entrypoints, run IN ORDER, because each needs the previous one's artifact
+  // committed to the SoT and because a 30-leg ceremony in one broadcast is unreviewable:
+  //   1. mintFxTokens  — the mock ERC20s (18 dp, matching every existing mock; the pool listing
+  //      hardcodes 18 and _seedPool mints raw 1e18 units, so a 6-dp mock would misprice by 1e12).
+  //   2. fetch marks   — `bun run sdk/scripts/fetch-seed-marks.ts` now covers the FX legs.
+  //   3. addFxFeeds    — primary-oracle feeds, seeded from THAT snapshot.
+  //   4. deployFxPool  — the pool itself + the existing faucet.
+  // ⚠ NON-PEG LEGS: every FX leg's mark is a REAL rate (CAD/USD ~0.71, JPY/USD ~0.0061,
+  // KRW/USD ~0.00068), never a 1.0 peg assumption. A defaulted or peg-clamped seed here misprices
+  // by up to 1500x, so both the seed and the class tier are REQUIRED file inputs with no fallback.
+
+  function _deployInPath() internal view returns (string memory) {
+    return vm.envOr(
+      "DEPLOY_IN", string.concat("deployments/", vm.toString(block.chainid), ".deploy.json")
+    );
+  }
+
+  function _riskPath() internal view returns (string memory) {
+    return vm.envOr("RISK_PARAMS", string("deployments/sepolia-risk-params.json"));
+  }
+
+  /// @dev vm.writeJson(value, path, key) parses `value` as JSON, so an address/bytes32 must be
+  ///      QUOTED to land as the JSON string every other value in the SoT already is.
+  function _jsonStr(string memory raw) internal pure returns (string memory) {
+    return string.concat("\"", raw, "\"");
+  }
+
+  /// @notice Step 1: mint the FX mock ERC20s missing from the SoT. Idempotent — an existing symbol
+  ///         is REUSED, never re-minted (feed_id binds keccak(asset, USDC) to an address forever).
+  function mintFxTokens() external {
+    require(block.chainid == 11155111, "Sepolia only");
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    string memory sotPath = _deployInPath();
+    string memory sot = vm.readFile(sotPath);
+    string[] memory syms = vm.parseJsonStringArray(vm.readFile(_riskPath()), ".fxPool");
+    address[] memory minted = new address[](syms.length);
+    vm.startBroadcast(pk);
+    for (uint256 i; i < syms.length; ++i) {
+      if (_tokenOrZero(sot, syms[i]) != address(0)) continue; // USDC + EURC already exist
+      minted[i] = address(new TestnetERC20(syms[i], syms[i], 18));
+      console2.log("minted", syms[i], minted[i]);
+    }
+    vm.stopBroadcast();
+    for (uint256 i; i < syms.length; ++i) {
+      if (minted[i] == address(0)) continue;
+      vm.writeJson(_jsonStr(vm.toString(minted[i])), sotPath, string.concat(".", syms[i]));
+    }
+  }
+
+  /// @notice Step 3: add each FX leg's primary-oracle feed, seeded from the ceremony's NXR snapshot.
+  ///         Append-only: new feeds take feedIds[] idx 25.. and disturb no existing feed.
+  function addFxFeeds() external {
+    require(block.chainid == 11155111, "Sepolia only");
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    Cfg memory cfg = _loadCfg();
+    string memory sotPath = _deployInPath();
+    string[] memory syms = vm.parseJsonStringArray(cfg.risk, ".fxPool");
+    bytes32[] memory ids = new bytes32[](syms.length);
+    vm.startBroadcast(pk);
+    for (uint256 i; i < syms.length; ++i) {
+      AssetParams memory p = _paramsFor(cfg, syms[i]);
+      if (p.token == cfg.usdc) continue; // base: identity feed + USDC/USD reference already exist
+      bytes32 id = keccak256(abi.encodePacked(p.token, cfg.usdc));
+      ids[i] = id;
+      if (_feedSeeded(cfg.oracle, id)) continue; // EURC already carries idx 23
+      // parseJsonUint reverts on a missing key: a leg absent from the snapshot aborts the add
+      // rather than defaulting to a peg. THIS is the 1500x guard for JPYC/KRW1.
+      uint256 mark = vm.parseJsonUint(cfg.marks, string.concat(".marks.", syms[i], ".mark1e18"));
+      require(mark != 0, "seed-marks: absent or zero FX mark");
+      (uint16 maxDev, uint16 ttl) = _tier(p.stable, p.fx);
+      ExternalOracle(cfg.oracle).addFeed(
+        p.token, cfg.usdc, M.encodeB64(mark, 18), SIGMA_SEED, CONF_SEED, maxDev, ttl
+      );
+      console2.log("feed added", syms[i]);
+    }
+    vm.stopBroadcast();
+    for (uint256 i; i < syms.length; ++i) {
+      if (ids[i] == bytes32(0)) continue;
+      vm.writeJson(
+        _jsonStr(vm.toString(ids[i])), sotPath, string.concat(".feed_", syms[i])
+      );
+    }
+  }
+
+  function _feedSeeded(address oracle, bytes32 id) internal view returns (bool) {
+    try IOracle(oracle).getFeed(id) returns (IOracle.FeedData memory f) {
+      return f.lastPriceB64 != 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /// @notice Step 4: create + list + seed the FX pool on the ALREADY-DEPLOYED core singletons.
+  /// @dev Core, faucet and the REFERENCE oracle are all REUSED from 11155111.pools.json — a third
+  ///      pool must share the one governance root and the one reference tier, or a spoke would band
+  ///      against an oracle no keeper pushes.
+  function deployFxPool() external returns (address fxPool) {
+    require(block.chainid == 11155111, "Sepolia only");
+    string memory outPath = _poolsOutPath();
+    string memory pools = vm.readFile(outPath);
+    require(
+      !vm.keyExists(pools, ".fxPool") || vm.envOr("REDEPLOY", false),
+      "already deployed: pools.json carries fxPool (REDEPLOY=true to override)"
+    );
+    uint256 pk = vm.envUint("DEPLOYER_PK");
+    Cfg memory cfg = _loadCfg();
+
+    Deploy.Addrs memory core;
+    core.deployer = vm.addr(pk);
+    core.ac = vm.parseJsonAddress(pools, ".ac");
+    core.admin = vm.parseJsonAddress(pools, ".admin");
+    core.poolFactory = vm.parseJsonAddress(pools, ".poolFactory");
+    cfg.refOracle = vm.parseJsonAddress(pools, ".refOracle");
+    require(
+      cfg.refOracle != address(0) && cfg.refOracle != cfg.oracle
+        && cfg.refOracle.code.length > 0,
+      "reference oracle must be the distinct deployed contract"
+    );
+    require(vm.parseJsonAddress(pools, ".oracle") == cfg.oracle, "pools.json/SoT oracle mismatch");
+    TestnetFaucet faucet = TestnetFaucet(vm.parseJsonAddress(pools, ".faucet"));
+
+    string[] memory fxSyms = _listable(cfg, vm.parseJsonStringArray(cfg.risk, ".fxPool"));
+    vm.startBroadcast(pk);
+    fxPool = _createPool(core, cfg, fxSyms, false);
+    // Register the new tokens with the EXISTING faucet so the front can dispense them. USDC/EURC
+    // recur harmlessly: the cap DERIVES from seedUsdPerLeg, so a re-set is the same number.
+    _fundFaucet(cfg, faucet, fxSyms, new string[](0));
+    vm.stopBroadcast();
+
+    console2.log("FX pool:", fxPool);
+    vm.writeJson(_jsonStr(vm.toString(fxPool)), outPath, ".fxPool");
+    // Keeper manifest for the FX legs' reference-oracle bands (see the REF KEEPER runbook note):
+    // a stale ref feed fail-closes every spoke that bands against it.
+    vm.writeJson(_jsonArr(_refFeedManifest(cfg, fxSyms)), outPath, ".fxRefFeeds");
+  }
+
+  function _jsonArr(string[] memory items) internal pure returns (string memory out) {
+    out = "[";
+    for (uint256 i; i < items.length; ++i) {
+      out = string.concat(out, i == 0 ? "" : ",", "\"", items[i], "\"");
+    }
+    out = string.concat(out, "]");
+  }
+
   // ── output ────────────────────────────────────────────────────────────────────────────────
 
   function _poolsOutPath() internal view returns (string memory) {
@@ -600,7 +762,9 @@ contract SepoliaPoolDeploy is Deploy {
     // set it carries (a stale ref feed fail-closes every spoke swap that bands against it — TTL
     // 7200s stable / 600s vol). refFeeds names map to feed ids by keccak(token, USDC) via the token
     // addresses in 11155111.deploy.json, identically to the primary. See runbook step "REF KEEPER".
-    string memory json = vm.serializeString(k, "refFeeds", _refFeedManifest(cfg));
+    string memory json = vm.serializeString(
+      k, "refFeeds", _refFeedManifest(cfg, vm.parseJsonStringArray(cfg.risk, ".symbols"))
+    );
 
     try vm.writeJson(json, outPath) {}
     catch {
@@ -612,15 +776,17 @@ contract SepoliaPoolDeploy is Deploy {
   /// @dev The exact feed set seeded onto the reference oracle: every spoke with refOwnFeed=true
   ///      bands against its OWN pair feed (<SYM>-USDC), and every pegged stable bands against the
   ///      shared USDC-USD reference. The keeper must push all of these to the ref oracle.
-  function _refFeedManifest(Cfg memory cfg) internal view returns (string[] memory names) {
-    string[] memory syms = vm.parseJsonStringArray(cfg.risk, ".symbols");
-    bool[] memory own = vm.parseJsonBoolArray(cfg.risk, ".refOwnFeed");
+  function _refFeedManifest(Cfg memory cfg, string[] memory syms)
+    internal
+    view
+    returns (string[] memory names)
+  {
     string[] memory buf = new string[](syms.length + 1);
     uint256 n;
     bool needUsdcUsd;
     for (uint256 i; i < syms.length; ++i) {
       if (keccak256(bytes(syms[i])) == keccak256(bytes("USDC"))) continue; // base, no ref feed
-      if (own[i]) {
+      if (_paramsFor(cfg, syms[i]).refOwnFeed) {
         buf[n++] = string.concat(syms[i], "-USDC");
       } else {
         needUsdcUsd = true; // a pegged stable bands against USDC/USD
