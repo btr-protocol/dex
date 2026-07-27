@@ -501,5 +501,27 @@
   "PROVISIONAL",
   "ok",
   "PROVISIONAL"
+ ],
+ "bootstrapOps": [
+  {
+   "date": "2026-07-27",
+   "op": "one-shot maxDeviation widen -> first signed push -> immediate narrow-back",
+   "scope": "TESTNET (Sepolia 11155111) ONLY. MUST NEVER propagate to oracle.mainnet.toml.",
+   "reason": "Deploy-seeded lastPriceB64 was ~4 months stale, so the FIRST batchPushSigned exceeded the per-feed band and reverted Err.ThresholdViolation(424,100). Stale BOOTSTRAP DATA, not a risk-appetite change.",
+   "feeds": [
+    { "idx": 17, "feed": "WETH-USDC", "seed": 1885.03, "live": 1965.02, "measuredDevBps": 424.3, "bandFrom": 100, "widenedTo": 500, "narrowedBackTo": 100 },
+    { "idx": 20, "feed": "BNB-USDC", "seed": 567.79, "live": 574.33, "measuredDevBps": 115.2, "bandFrom": 100, "widenedTo": 150, "narrowedBackTo": 100 }
+   ],
+   "txs": {
+    "widenWeth": "0xc44e26ff554892d79b104227823a104528eff2beb36ac07596838c749ccb7871",
+    "widenBnb": "0x3f5acb6573c776202283168edbee9d3a8661a9a607c2e2759f2b709e1ea7aa94",
+    "firstPush": "0x23f1f7255248e7e11cfdfead6ba400e2ae702d7b442f1d51ed502afd66f79b76",
+    "narrowWeth": "0x95fea922fbd3960ed1e422e6d89cc14111d86a031316977426d271e0527965f0",
+    "narrowBnb": "0x4adbd7c4589c8bc19ce281fc050172eb778f582f1bc049a254d98e86bbea6f5e"
+   },
+   "expiry": "CLOSED - narrow-back executed in the same session; both bands verified back at 100 bps on-chain.",
+   "cannotRecur": "ONE-TIME by construction: once any push lands, sourceTs != 0 and the band is measured against the last PUSHED price, not the deploy seed. Verified: pushes continue at band 100.",
+   "note": "The DEPLOYED oracle bytecode predates requestFeedWiden/executeFeedWiden (selectors absent on-chain), so its updateFeed still permits an instant widen. Local source has since made updateFeed tighten-or-equal and routed loosening through a 2d timelock (15m on Sepolia via SC.govDelay). A redeployed oracle will NOT offer this instant path."
+  }
  ]
 }
