@@ -10,11 +10,11 @@ client's proactive_rate_limit_sleep + a poll interval.
 
 Reuses the proven hs_pull primitives (client, decode, V_active, endpoints, token).
 NXR live mid via the same GET {base}/v1/ohlc/{SYM}?tf=30 endpoint the keeper uses
-(keepers/src/daemon/nxr.rs) — last 30s bar close.
+(keepers/src/oracle/nxr.rs) — last 30s bar close.
 
 Run:
   python3 collector.py once     # one poll cycle for every pool (test)
-  python3 collector.py          # continuous daemon
+  python3 collector.py          # continuous keeper loop
 Env (optional): NXR_API_KEY (sent as x-api-key if present), NXR_API_URL
 (default https://api.nxrates.com), BTR_LIVE_DIR (default ../../data/live),
 BTR_POLL_S (default 45), BTR_WINDOW_DAYS (default 7).
@@ -327,7 +327,7 @@ async def main():
     states = [PoolState(c) for c in POOLS]
     for st in states:
         st.load()
-    print(f"BTR live collector → {LIVE_DIR}  ({'once' if once else f'daemon poll={POLL_S}s'})", flush=True)
+    print(f"BTR live collector → {LIVE_DIR}  ({'once' if once else f'keeper poll={POLL_S}s'})", flush=True)
     while True:
         t0 = time.time()
         await cycle(states)

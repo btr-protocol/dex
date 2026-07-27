@@ -14,7 +14,7 @@ NX-Rates (production, nxrates k0s)          BTR Sepolia (11155111)
   feeds -----------------------------> signing tier
                                               |
                                               v
-                                        ExternalOracle  <---- oracle push daemon
+                                        ExternalOracle  <---- oracle push keeper
                                               |                (theta triggers)
                                               v
                                    AccessControl + Admin/Flash/PoolAux/PoolFactory
@@ -37,7 +37,7 @@ NX-Rates (production, nxrates k0s)          BTR Sepolia (11155111)
 | 0 | NX-Rates feeds | CEX + Pyth Lazer aggregation, TDWAP composite marks | LIVE |
 | 1 | Signing tier | `udp_auth` sealed ingest, `signed_quotes`, 3 attester pods, 2-of-3 quorum | BUILD |
 | 2 | ExternalOracle | 24 feeds, k-of-n signed marks, deviation + staleness guards | READY |
-| 3 | Push daemon | dynamic theta triggers, cadence cap, trigger observability | READY |
+| 3 | Push keeper | dynamic theta triggers, cadence cap, trigger observability | READY |
 | 4 | Core contracts | AccessControl, Admin, Flash, PoolAux, PoolFactory, Pool impl | READY |
 | 5 | Pools | stable core (17 assets), volatile core (8 assets), EIP-1167 clones | BUILD |
 | 6 | Keepers | liquidity + bot solvency, adaptive risk-param upkeep | BUILD |

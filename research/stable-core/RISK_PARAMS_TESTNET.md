@@ -653,7 +653,7 @@ Price authority is a k-of-n set of distinct EIP-712 signers, DECOUPLED from the 
 - **Relayer (public, unpermissioned).** Dedicated Chapel gas pusher
   `0xc4B4635B76ed49A7239291F6fbB33455D059a5B9` (segregated 2026-07-11). `msg.sender` is unpermissioned; distinctness
   and quorum are enforced on the signatures, not the sender.
-- **Cadence.** Keeper daemon polls `/v1/quote/signed` every `poll_interval_ms = 5`; pushes `batchPushSigned(blob,
+- **Cadence.** The keeper polls `/v1/quote/signed` every `poll_interval_ms = 5`; pushes `batchPushSigned(blob,
   sigs)` when any tracked feed is due (§6.3). All-or-nothing blob (one digest, k sigs, no per-feed fallback).
   Budgets: 50 ms submission, 500 ms settlement, 600 ms loop. Multi-keeper: deterministic soft-leader
   `keeper_set[H(sourceTs) % n]` + jittered fallback kills the SPOF and the O(N) revert storm. Runtime signer

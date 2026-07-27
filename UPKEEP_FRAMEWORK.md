@@ -6,7 +6,7 @@ Scope: the perpetual off-chain automation that keeps the on-chain AIMM risk surf
 
 Grounded against source. Every lever named below is verified to exist on-chain:
 
-- `keepers/src/main.rs` (single `OracleDaemon` subcommand today)
+- `keepers/src/main.rs` (single `OracleKeeper` subcommand today)
 - `dex/evm/src/Admin.sol`, `dex/evm/src/libraries/AdminRiskSteward.sol`
 - `dex/evm/src/oracles/ExternalOracle.sol`
 - `dex/evm/src/libraries/NUQuartic.sol` (`set`, `_validate`, `FLAG_REQUIRES_WALL`)
@@ -33,7 +33,7 @@ d_t = (P_t - M_t) / M_t          # signed relative offset [pbps], center identic
 
 Center is 0 by construction. The mark absorbs drift on every theta-crossing, so A-S inventory skew carries the asymmetry, not the density. The fit is symmetric and there are no `skew_*` presets.
 
-This is the single load-bearing methodology fix. It replaces the `RISK_PARAMS_TESTNET.md` sections 3 and 4 single-bar-return tables (the `heartbeat -> 0` degenerate limit) with a deterministic replay of the live trigger. The mark path is reconstructed exactly as the push daemon produces it, reading the live trigger config from `oracle.chapel.toml`:
+This is the single load-bearing methodology fix. It replaces the `RISK_PARAMS_TESTNET.md` sections 3 and 4 single-bar-return tables (the `heartbeat -> 0` degenerate limit) with a deterministic replay of the live trigger. The mark path is reconstructed exactly as the push keeper produces it, reading the live trigger config from `oracle.chapel.toml`:
 
 ```
 M <- p_0
@@ -141,7 +141,7 @@ Stability condition: EWMA halflife >> loop period AND per-step clamp < deadband-
 
 ### 5.1 Placement
 
-New `Command::RiskDaemon{config, execute, once}` in `keepers/src/main.rs` beside `OracleDaemon`. This is a sibling slow-scheduler daemon, NOT the 5ms push loop.
+New `Command::RiskKeeper{config, execute, once}` in `keepers/src/main.rs` beside `OracleKeeper`. This is a sibling slow-scheduler keeper, NOT the 5ms push loop.
 
 - Dry-run default. LIVE gated by `--execute AND RISK_EXECUTE=1` (distinct from `KEEPER_EXECUTE`).
 - Signs with a dedicated risk-steward multisig cosigner key, never the hot money-path `KEEPER_PRIVATE_KEY`.
@@ -149,7 +149,7 @@ New `Command::RiskDaemon{config, execute, once}` in `keepers/src/main.rs` beside
 
 ### 5.2 Modules (`keepers/src/risk/`)
 
-- `density.rs`: subscribe to the push daemon's existing theta-trigger error stream (zero extra market-data cost); EWMA-accumulate `p_obs` and sufficient stats; log W1 telemetry.
+- `density.rs`: subscribe to the push keeper's existing theta-trigger error stream (zero extra market-data cost); EWMA-accumulate `p_obs` and sufficient stats; log W1 telemetry.
 - `fit.rs`: stats to preset cell via the section 3 map plus `spline_shared_grid.json` cell selection (hyper veto on tailalpha-CI < 2, kappa wall-gate).
 - `fences.rs`: off-chain mirror of `AdminRiskSteward._relOk` (+/-25%) plus deadband / dwell / rate-limit state; reject sub-deadband BEFORE building a tx.
 - `submit.rs`: two plan builders, `setAssetParamsBounded` (fast, fenced) and `requestUpdateProfile` / `requestSetCurve` (slow, one-pending check); route X_tail to guardian levers via `protocols/dex.rs`.
@@ -199,7 +199,7 @@ Class legend: CONT = on-chain automatic (no keeper act); FAST = hot scalar, `set
 | coverage band | NO (sim: non-load-bearing) | manual | NEVER auto | owner, `requestUpdateRiskConfig` |
 | kappa wall + depthAmp + haircut | NO (structural invariant) | manual | NEVER auto | owner; enforce kappa>0 implies depthAmp=0 AND haircut=0 |
 | theta (feed deviation threshold) + heartbeat | YES (ADAPTIVE, owner mandate: theta sets push cadence, cadence sets the offset-density basis, the basis sets every curve param; recomputed JOINTLY with curve params by the divergence keeper, NOT the price-push keeper) | weekly (with task 12 fit) | FAST (off-chain toml + on-chain bundle) | bounded delta (RiskFences-style): max +/-25% per update, cadence cap 100/h, floor = spec class theta; heartbeat <= ttl/2; ships ONLY as the atomic (theta, minFee=2theta, fence resync, minDisp) bundle below |
-| ttl | NO (safety envelope for theta/heartbeat) | rare | OFF-CHAIN, push daemon owns | `oracle.*.toml`; heartbeat <= ttl/2 hard-enforced at keeper boot |
+| ttl | NO (safety envelope for theta/heartbeat) | rare | OFF-CHAIN, push keeper owns | `oracle.*.toml`; heartbeat <= ttl/2 hard-enforced at keeper boot |
 | signer set / threshold | NO (security) | event/rare | NEVER | guardian revoke instant / owner grant BASE |
 
 Theta coupling (HARD): theta and the curve params are one optimization variable, not two. A theta change moves
@@ -251,10 +251,10 @@ The risk-param routine (tasks 9-14) runs UNDER the RiskFences plus the guardian 
 
 ### 6.2 Status summary
 
-All 18 on-chain LEVERS exist and are verified in source. What is built: the guardian/oracle security half (tasks 0-8, 14-15 levers) plus offline-derived static params. What is TODO: the entire adaptive `keepers/src/risk/` daemon (tasks 9-13 + 17 automation) and the offset-density methodology fix to `RISK_PARAMS_TESTNET.md` sections 3/4. Nothing is partial-built on the risk-param automation side. The hooks are ready; the perpetual keeper is not written.
+All 18 on-chain LEVERS exist and are verified in source. What is built: the guardian/oracle security half (tasks 0-8, 14-15 levers) plus offline-derived static params. What is TODO: the entire adaptive `keepers/src/risk/` keeper (tasks 9-13 + 17 automation) and the offset-density methodology fix to `RISK_PARAMS_TESTNET.md` sections 3/4. Nothing is partial-built on the risk-param automation side. The hooks are ready; the perpetual keeper is not written.
 
 Key source paths:
-- `keepers/src/main.rs` (add `RiskDaemon`)
+- `keepers/src/main.rs` (add `RiskKeeper`)
 - `dex/evm/src/Admin.sol` + `dex/evm/src/libraries/AdminRiskSteward.sol` (levers + fences)
 - `dex/evm/src/oracles/ExternalOracle.sol` (push / pause / narrow)
 - `dex/evm/src/libraries/NUQuartic.sol` (`set` / `_validate` / `FLAG_REQUIRES_WALL`)
@@ -272,11 +272,11 @@ Single source of truth for every unbuilt keeper/upkeep task. Levers marked built
 - [ ] Port `push_sim.py` mark-path reconstruction to Rust, sharing `nxr-sdk::BarFile`.
 - [ ] Build the estimator stack: Parkinson-EWMA sigma, Student-t/NIG MLE shape, GPD tail quantiles, Hill tail-index with bootstrap CI, cross-estimator convergence gate.
 
-### B. Risk-param-upkeep daemon (`keepers/src/risk/`) - entirely unbuilt
+### B. Risk-param-upkeep keeper (`keepers/src/risk/`) - entirely unbuilt
 
-- [ ] `Command::RiskDaemon{config, execute, once}` in `keepers/src/main.rs`, dry-run default, gated by `--execute AND RISK_EXECUTE=1`.
+- [ ] `Command::RiskKeeper{config, execute, once}` in `keepers/src/main.rs`, dry-run default, gated by `--execute AND RISK_EXECUTE=1`.
 - [ ] Dedicated risk-steward multisig cosigner key wiring (never `KEEPER_PRIVATE_KEY`). Confirm multisig membership and auto-submit-vs-propose (pending owner call).
-- [ ] `risk/density.rs`: subscribe to push daemon theta-trigger error stream; EWMA-accumulate p_obs + sufficient stats; W1 telemetry.
+- [ ] `risk/density.rs`: subscribe to push keeper theta-trigger error stream; EWMA-accumulate p_obs + sufficient stats; W1 telemetry.
 - [ ] `risk/fit.rs`: stats -> regime -> whitelist cell selection from `spline_shared_grid.json`; hyper veto on tailalpha-CI < 2; kappa wall-gate.
 - [ ] `risk/fences.rs`: off-chain mirror of `AdminRiskSteward._relOk` (+/-25%) + deadband/dwell/rate-limit state; reject sub-deadband before tx build.
 - [ ] `risk/submit.rs`: `setAssetParamsBounded` (fast) + `requestUpdateProfile`/`requestSetCurve` (slow, one-pending) plan builders; route X_tail to guardian levers.
@@ -306,7 +306,7 @@ Single source of truth for every unbuilt keeper/upkeep task. Levers marked built
 - [ ] **Registry task 16** (rebalance / coverage restore): PARTIAL. Continuous coverage-skew keeper (~2-4% won vol) not fully wired.
 
 (Registry task 17 moved to section B: theta/heartbeat are ADAPTIVE risk params owned by the divergence keeper,
-not a push-daemon liveness recommendation.)
+not a push-keeper liveness recommendation.)
 
 ### E. Built levers requiring only manual/ops procedure (no new keeper code)
 

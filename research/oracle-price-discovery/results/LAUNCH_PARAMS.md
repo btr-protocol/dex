@@ -21,7 +21,7 @@ Mean arb gate (launch): center error ≤ half one-sided fee. With fee charged =
 
 - Stable θ=0.1 was ~118 pushes/h/feed on sub-bp NXR jitter → raised to **0.25 bp**.
 - Volatile θ=**5 bp** + heartbeat **ttl/2 = 300 s**.
-- Poll **12 s**. CI-spike ≥25 bp still in daemon.
+- Poll **12 s**. CI-spike ≥25 bp still in keeper.
 
 Testnet pusher (segregated from deployer; BNB testnet / chainId 97):
 `0xc4B4635B76ed49A7239291F6fbB33455D059a5B9` → ExternalOracle

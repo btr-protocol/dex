@@ -68,7 +68,7 @@ import {console2} from "forge-std/Script.sol";
 ///         (--slow: ~50 sequential txs on a public RPC — avoids nonce gaps/batch drops).
 ///      4. Fill keepers/oracle.sepolia.toml feed_ids from deployments/11155111.deploy.json
 ///         (keepers/scripts/fill-oracle-config.py) and start the keeper IMMEDIATELY in the same
-///         session (--once, then daemon) so first pushes land while seeds are fresh. NEVER park
+///         session (--once, then keeper loop) so first pushes land while seeds are fresh. NEVER park
 ///         the stack seeded-but-unpushed (>1% drift strands volatile feeds).
 ///      5. Guardian is appointed IN-BROADCAST (step 3) and the script now hard-reverts without it.
 ///         Verify: `cast call <ac> "guardianCount()(uint8)"` >= 1 and

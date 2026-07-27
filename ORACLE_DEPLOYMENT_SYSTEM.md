@@ -110,7 +110,7 @@ strictly off the money path. Public `/api/oracle/*` proxy = spec-only
 Root invariant (validator-enforced): guardian = freeze/tighten/cancel ONLY;
 param writes are risk-steward; every reverse (unpause, widen, grant) is owner.
 Validation gate: `btr-keeper guards --config guards.sepolia.toml [--unarmed]`;
-armed boot requires filled contract addresses. Guard EXECUTION daemon = TODO
+armed boot requires filled contract addresses. Guard EXECUTION keeper = TODO
 (UPKEEP_FRAMEWORK Implementation TODO B/D); registry + validator + CI gate are
 live today.
 
@@ -141,7 +141,7 @@ GATE 2 - Prod signing-tier bring-up authorization:
   (commented block, 0x0 placeholders, undeployed manifests).
 
 Not owner-gated (ready, executes inside the runbook): Sepolia ETH deploy from
-funded 0x57b3, keeper fill + daemon start, guardian drill, guards validation.
+funded 0x57b3, keeper fill + keeper start, guardian drill, guards validation.
 
 ## 6. Ready-to-deploy vs gated (status 2026-07-22)
 

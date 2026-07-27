@@ -27,7 +27,7 @@
 - **Testnet chain: BNB testnet (chapel, id 97).**
 - **Feed IDs = `keccak256(abi.encodePacked(base, quote))`** on `ExternalOracle` (code won: `ExternalOracle.addFeed` derives the id; keeper maps MITCH tickers → keccak ids off-chain, see `keepers/oracle.example.toml`). ~~MITCH ticker u64 both sides~~ — superseded.
 - **Heartbeat = staleness bound, not liveness watchdog.** `heartbeat_s` is the max
-  interval between on-chain price pushes per feed. The same K0S `oracle-daemon`
+  interval between on-chain price pushes per feed. The same K0S oracle keeper
   pushes NX marks when `|Δ|>θ` **or** heartbeat elapsed — not a separate “keeper
   alive” process. Size on-chain `ttl` relative to heartbeat (`ttl ≈ 2·heartbeat`).
 - **Stable-core oracle mode at launch:** all stable-core assets **EXTERNAL** (keeper
@@ -36,13 +36,13 @@
 
 ## OPS (oracle keeper + HA)
 
-### Push triggers (single daemon)
-One `btr-keeper oracle-daemon` per cluster instance. Per feed, push when:
+### Push triggers (single keeper)
+One `btr-keeper oracle` per cluster instance. Per feed, push when:
 - cold-start (no prior on-chain mark), **or**
 - `|m − p_last| / p_last > θ` (±0.25 bp stables, ±5 bp volatiles), **or**
 - `heartbeat_s` elapsed since last on-chain push for that feed.
 
-Heartbeat is the staleness ceiling the daemon enforces — not an independent
+Heartbeat is the staleness ceiling the keeper enforces — not an independent
 watchdog. Missed heartbeats widen spreads via on-chain staleness premium until
 `ttl`; do not conflate with process health checks.
 

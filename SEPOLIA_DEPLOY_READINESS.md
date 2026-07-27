@@ -39,8 +39,8 @@ Order matters; money-path.
 6. Start keeper IMMEDIATELY (same session; parked seeded-unpushed stack strands volatile feeds after ~1% drift):
    ```sh
    cd ~/Work/btr/keepers && set -a && source .env.sepolia && set +a && \
-   cargo run --release -- oracle-daemon --config oracle.sepolia.toml --once && \
-   KEEPER_EXECUTE=1 cargo run --release -- oracle-daemon --config oracle.sepolia.toml --execute
+   cargo run --release -- oracle --config oracle.sepolia.toml --once && \
+   KEEPER_EXECUTE=1 cargo run --release -- oracle --config oracle.sepolia.toml --execute
    ```
    Double gate: LIVE needs both `--execute` and `KEEPER_EXECUTE=1`.
 7. If `GUARDIAN` was unset: `AccessControl.setGuardian(<second key>, true)` BEFORE pool deploy (independent fast-freeze must not depend on the single deployer EOA).
@@ -61,14 +61,14 @@ Deploy order:
 9. `admin.setAssetParams` / `setRiskFences` per asset (RISK_PARAMS_TESTNET.md section 3/4 tables)
 10. `admin.sealBootstrap(pool)` x2 (LAST; post-seal curve changes restricted to the requestUpdateProfile path)
 11. Seed liquidity: `pool.deposit(tok, amt)` per asset (`SEED_USDC` default 2,000,000e18 per pool) + faucet fund
-12. Wire keeper -> pools: fill `pools = []` + per-feed `token =` in `oracle.sepolia.toml`; restart daemon. H-2 startup gate enforces every pool x feed satisfies `minFeePbps >= 2*theta`
+12. Wire keeper -> pools: fill `pools = []` + per-feed `token =` in `oracle.sepolia.toml`; restart keeper. H-2 startup gate enforces every pool x feed satisfies `minFeePbps >= 2*theta`
 
 ## 3. READY NOW vs BLOCKED on v4 density
 
 v4 density work regenerates: regime selection, wall tier W, dispersion (dispRef), minDisp. Density = curve shaping only. Theta/deviation/heartbeat/minFee policy is DECIDED and independent.
 
 READY NOW (can execute the moment oracle is live + keys funded):
-- Oracle stack broadcast + keeper daemon (section 1, zero density dependency)
+- Oracle stack broadcast + keeper (section 1, zero density dependency)
 - Core contract deploys: Admin, Flash, PoolAux, Pool impl, PoolFactory (steps 1-5)
 - `createPool` x2 (step 6)
 - addAsset SKELETON: token set (23), decimals, oracle wiring, minFee = 2*theta (stable 0.5bp = 50 PBPS, volatile 10bp = 1000 PBPS), oracle-side maxDeviation floors (50/100bp), refBand 300 for volatiles
@@ -105,5 +105,5 @@ Practical split: steps 1-6 CAN be broadcast ahead of the v4 drop to save time, b
 8. [BLOCKED-V4] Sim-verify new param map (RISK_PARAMS_TESTNET.md gate)
 9. [BLOCKED-V4] Broadcast pool stack: core chain -> createPool x2 -> setCurve presets -> addAsset x23 -> setAssetParams/setRiskFences -> sealBootstrap
 10. [BLOCKED-V4] Seed liquidity (SEED_USDC per pool) + faucet fund
-11. [BLOCKED-V4] Wire keeper -> pools (pools=[] + token= per feed, H-2 minFee >= 2*theta gate) + daemon restart
+11. [BLOCKED-V4] Wire keeper -> pools (pools=[] + token= per feed, H-2 minFee >= 2*theta gate) + keeper restart
 12. [READY] Post-deploy: on-chain reads (feed freshness, pool mid vs NXR), monitor relay revert rate (30s lag ~ 2.5 Sepolia blocks)

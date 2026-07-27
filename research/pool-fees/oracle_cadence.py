@@ -183,7 +183,7 @@ def simulate(
                 max_deviation_bps * (1.0 + dt_s / ttl_s),
             )
             # Mirrors ExternalOracle._pushInternal: an outlier is attempted but the
-            # on-chain mark stays unchanged. The daemon may retry on the next poll.
+            # on-chain mark stays unchanged. The keeper may retry on the next poll.
             if jump_bps > allowed_bps:
                 rejected += 1
                 continue
