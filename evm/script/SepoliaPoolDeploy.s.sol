@@ -512,13 +512,17 @@ contract SepoliaPoolDeploy is Deploy {
     string[] memory syms,
     address[] memory tokens
   ) internal {
+    // mint/approve/deposit must target the broadcaster EOA. `msg.sender` inside a forge script is
+    // the script contract (or DefaultSender under simulation), NOT the DEPLOYER_PK account —
+    // minting there strands the seed and deposit reverts TransferFromFailed (FX ceremony 2026-07-27).
+    address recipient = vm.addr(vm.envUint("DEPLOYER_PK"));
     Pool pool = Pool(payable(poolAddr));
     for (uint256 i; i < tokens.length; ++i) {
       uint256 amt = cfg.seedUsdc;
       if (tokens[i] != cfg.usdc) {
         amt = cfg.seedUsdc * 1e18 / _mark(cfg, syms[i], tokens[i]);
       }
-      TestnetERC20(tokens[i]).mint(msg.sender, amt);
+      TestnetERC20(tokens[i]).mint(recipient, amt);
       IERC20(tokens[i]).approve(poolAddr, type(uint256).max);
       pool.deposit(tokens[i], amt);
     }
@@ -557,7 +561,8 @@ contract SepoliaPoolDeploy is Deploy {
       ck[i] = caps[i];
       // Prefund FAUCET_PREFUND_CLAIMS days of the cap so the drip survives a demo week untouched.
       uint256 amt = caps[i] * FAUCET_PREFUND_CLAIMS;
-      TestnetERC20(tk[i]).mint(msg.sender, amt);
+      address recipient = vm.addr(vm.envUint("DEPLOYER_PK"));
+      TestnetERC20(tk[i]).mint(recipient, amt);
       IERC20(tk[i]).approve(address(faucet), type(uint256).max);
       faucet.fund(tk[i], amt);
     }

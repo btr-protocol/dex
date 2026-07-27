@@ -27,5 +27,14 @@
   "stablePool": "0xA9207BE6f1D33828b98508C6c77f51cdeC4951eE",
   "staking": "0x079E0a0F18dd2Bb29a611749f06cbF060187eA7c",
   "treasuryProxy": "0x0A2082dD7Aa8cf17E2F9d32Ec316Ea24fFB82f79",
-  "volatilePool": "0x1f997b7dCcE0A956e431A24D58622e32656C8537"
+  "volatilePool": "0x1f997b7dCcE0A956e431A24D58622e32656C8537",
+  "fxPool": "0x18c7376A4F9B3C3fb8A0A33fAf3c55aD225CB229",
+  "fxRefFeeds": [
+    "EURC-USDC",
+    "QCAD-USDC",
+    "AUDF-USDC",
+    "BRLA-USDC",
+    "JPYC-USDC",
+    "KRW1-USDC"
+  ]
 }

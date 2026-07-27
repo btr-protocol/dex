@@ -10,12 +10,17 @@ out/
 # Docs
 docs/
 
-# Dotenv file
+# Dotenv / secrets — never commit
 .env
 .env.chapel
 .env.sepolia
 .env.*
+*.env
+!.env.example
 deployments/local-anvil/
+deployments/scratch-*/
+deployments/*.bak
+deployments/*.backup
 
 # Accidental Uniswap vendor clones (not part of BTR build)
 .deps/v2-core/
@@ -24,3 +29,7 @@ deployments/local-anvil/
 
 # Local anvil deploy artifact (testnet is the target now)
 deployments/31337.deploy.json
+
+# Retired Chapel (BSC testnet 97) broadcast — do not re-add
+/broadcast/RedeployFaucet.s.sol/97/
+/broadcast/Chapel*/

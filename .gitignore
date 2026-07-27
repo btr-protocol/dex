@@ -1,7 +1,15 @@
-# Environment variables
+# Environment variables / secrets — never commit
 .env
 .env.*
+*.env
 !.env.example
+!**/.env.example
+secrets/
+private/
+*.pem
+*.key
+**/mnemonic*
+**/*private*key*
 
 # Editor directories and files
 .vscode/

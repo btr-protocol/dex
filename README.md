@@ -71,7 +71,7 @@ bun run dev          # anvil BSC fork + deploy + collector
 bun run dev --reset  # clear state, redeploy from scratch
 ```
 
-Anvil `:8545`. Collector `:3001`. Front (`:3000`) served from `~/Work/btr/front`. Test account `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` / pk `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`.
+Anvil `:8545`. Collector `:3001`. Front (`:3000`) served from `~/Work/btr/front`. Test account: Anvil/Hardhat account #0 (`0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`). Never paste private keys into the repo.
 
 ### CREATE3 deploys
 

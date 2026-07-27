@@ -162,7 +162,12 @@
   "BNB",
   "XAUT",
   "PAXG",
-  "EURC"
+  "EURC",
+  "QCAD",
+  "AUDF",
+  "BRLA",
+  "JPYC",
+  "KRW1"
  ],
  "presetIds": [
   1,
@@ -182,6 +187,11 @@
   2,
   2,
   2,
+  5,
+  5,
+  5,
+  5,
+  5,
   5,
   5,
   5,
@@ -214,7 +224,12 @@
   "volatile",
   "volatile",
   "volatile",
-  "volatile"
+  "volatile",
+  "fx",
+  "fx",
+  "fx",
+  "fx",
+  "fx"
  ],
  "minFeePbps": [
   50,
@@ -240,7 +255,12 @@
   1011,
   1138,
   2003,
-  1017
+  1017,
+  400,
+  400,
+  400,
+  400,
+  400
  ],
  "maxFeePbps": [
   2000,
@@ -266,7 +286,12 @@
   10000,
   10000,
   10000,
-  10000
+  10000,
+  5000,
+  5000,
+  5000,
+  5000,
+  5000
  ],
  "minDisp": [
   200,
@@ -292,7 +317,12 @@
   1126,
   1143,
   1336,
-  1000
+  1000,
+  400,
+  400,
+  400,
+  400,
+  400
  ],
  "maxDisp": [
   2000,
@@ -318,7 +348,12 @@
   500000,
   500000,
   500000,
-  500000
+  500000,
+  100000,
+  100000,
+  100000,
+  100000,
+  100000
  ],
  "kappaCovBps": [
   0,
@@ -338,6 +373,11 @@
   100,
   100,
   100,
+  0,
+  0,
+  0,
+  0,
+  0,
   0,
   0,
   0,
@@ -370,6 +410,11 @@
   10000,
   10000,
   10000,
+  10000,
+  10000,
+  10000,
+  10000,
+  10000,
   10000
  ],
  "haircutSuppressor": [
@@ -390,6 +435,11 @@
   0,
   0,
   0,
+  10000,
+  10000,
+  10000,
+  10000,
+  10000,
   10000,
   10000,
   10000,
@@ -422,7 +472,12 @@
   300,
   200,
   200,
-  300
+  300,
+  250,
+  250,
+  250,
+  250,
+  250
  ],
  "refOwnFeed": [
   false,
@@ -442,6 +497,11 @@
   false,
   false,
   false,
+  true,
+  true,
+  true,
+  true,
+  true,
   true,
   true,
   true,
@@ -474,7 +534,12 @@
   606.8,
   -6567.5,
   -71754.4,
-  -131.2
+  -131.2,
+  null,
+  null,
+  null,
+  null,
+  null
  ],
  "tapeStatus": [
   "N/A (identity numeraire)",
@@ -500,6 +565,11 @@
   "ok",
   "PROVISIONAL",
   "ok",
+  "PROVISIONAL",
+  "PROVISIONAL",
+  "PROVISIONAL",
+  "PROVISIONAL",
+  "PROVISIONAL",
   "PROVISIONAL"
  ],
  "bootstrapOps": [
@@ -509,8 +579,26 @@
    "scope": "TESTNET (Sepolia 11155111) ONLY. MUST NEVER propagate to oracle.mainnet.toml.",
    "reason": "Deploy-seeded lastPriceB64 was ~4 months stale, so the FIRST batchPushSigned exceeded the per-feed band and reverted Err.ThresholdViolation(424,100). Stale BOOTSTRAP DATA, not a risk-appetite change.",
    "feeds": [
-    { "idx": 17, "feed": "WETH-USDC", "seed": 1885.03, "live": 1965.02, "measuredDevBps": 424.3, "bandFrom": 100, "widenedTo": 500, "narrowedBackTo": 100 },
-    { "idx": 20, "feed": "BNB-USDC", "seed": 567.79, "live": 574.33, "measuredDevBps": 115.2, "bandFrom": 100, "widenedTo": 150, "narrowedBackTo": 100 }
+    {
+     "idx": 17,
+     "feed": "WETH-USDC",
+     "seed": 1885.03,
+     "live": 1965.02,
+     "measuredDevBps": 424.3,
+     "bandFrom": 100,
+     "widenedTo": 500,
+     "narrowedBackTo": 100
+    },
+    {
+     "idx": 20,
+     "feed": "BNB-USDC",
+     "seed": 567.79,
+     "live": 574.33,
+     "measuredDevBps": 115.2,
+     "bandFrom": 100,
+     "widenedTo": 150,
+     "narrowedBackTo": 100
+    }
    ],
    "txs": {
     "widenWeth": "0xc44e26ff554892d79b104227823a104528eff2beb36ac07596838c749ccb7871",
@@ -523,5 +611,14 @@
    "cannotRecur": "ONE-TIME by construction: once any push lands, sourceTs != 0 and the band is measured against the last PUSHED price, not the deploy seed. Verified: pushes continue at band 100.",
    "note": "The DEPLOYED oracle bytecode predates requestFeedWiden/executeFeedWiden (selectors absent on-chain), so its updateFeed still permits an instant widen. Local source has since made updateFeed tighten-or-equal and routed loosening through a 2d timelock (15m on Sepolia via SC.govDelay). A redeployed oracle will NOT offer this instant path."
   }
+ ],
+ "fxPool": [
+  "USDC",
+  "EURC",
+  "QCAD",
+  "AUDF",
+  "BRLA",
+  "JPYC",
+  "KRW1"
  ]
 }
