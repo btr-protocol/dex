@@ -12,7 +12,7 @@ import {MockAC} from "../fixtures/BaseTestSetup.sol";
 
 /// @notice NXR-signed push path (batchPushSigned) — the SOLE mark-update path. Verifies EIP-712 auth,
 ///         monotonic-sourceTs replay guard, one-per-block, deviation band + staleness scaling, and gas.
-///         See ORACLE_SIGNED_PUSH_SPEC.md. Money path — pre-security-review reference tests.
+///         Signed-push wire format: br.market/docs. Money-path reference tests.
 contract ExternalOracleSignedTest is Test {
   ExternalOracle ext;
   MockAC ac;
@@ -619,7 +619,7 @@ contract ExternalOracleSignedTest is Test {
   }
 
   /// Gas: signed path (packed, no event, direct σ) N=10, COLD slots (matches steady-state keeper cadence).
-  /// Execution-only (forge gasleft() excludes the 21k base tx + L1 calldata). See ORACLE_SIGNED_PUSH_SPEC.md.
+  /// Execution-only (forge gasleft() excludes the 21k base tx + L1 calldata). Signed-push wire format: br.market/docs.
   function test_gas_signed_batch10() public {
     uint256 n = 10;
     _addFeedsFrom(n, 0); // idx 1..10, addr 0x10000.. (cold)

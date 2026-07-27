@@ -1,12 +1,10 @@
 # Contributing
 
-Build/test: see [README.md](./README.md#build--test).
+Build/test: see [README.md](./README.md). Product docs: https://br.market/docs.
 
 ## Rules
-- `bun` exclusively — never npm/yarn.
-- Git: your own identity only, no AI names/mentions in commits; atomic commits, prefixes `feat|fix|docs|refac|ops`.
-- Dead code = zero tolerance — delete unused/commented-out code immediately.
-- Comments explain WHY, not WHAT; keep invariants/safety notes.
+- Git: your own identity only; no AI names in commits. Prefixes: `feat|fix|docs|refac|ops`.
+- Dead code = delete it. Comments explain WHY, not WHAT.
 - Keep PRs and commits scoped and small.
 
-Repo layout and contributor conventions: [AGENTS.md](./AGENTS.md).
+Contributor conventions: [AGENTS.md](./AGENTS.md).

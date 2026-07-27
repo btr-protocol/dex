@@ -31,7 +31,7 @@ FEE kernel (spline SHAPE target): law of the tethered quote offset,
         C = winsorized flow-EMA gravity center (two-pass: pass1 raw -> h_w = q70|d|;
         pass2 winsorizes the center input at +-h_w). Equal-weight mixture over
         tau in {tau_inv/2, tau_inv, 2*tau_inv}. The clip is the AIMM restoring band
-        (AIMM_PROOFS.md par 6b): quote offsets beyond minFee/2 + theta = 2*theta_final
+        (restoring-band invariant): quote offsets beyond minFee/2 + theta = 2*theta_final
         are arb-restored, so channel divergence beyond the band piles up AT the rail
         (shoulder mass), it cannot occupy larger offsets.
 
@@ -52,7 +52,7 @@ walls 35-40% (USDE chan 5.3 vs push-exc 8.6).
 |---|---|---|
 | theta_final | per asset | v3 cadence-cap ladder: max(spec theta, theta@100/h), from fit_results.json |
 | tether h | theta_final | protocol identity minFee = 2*theta -> h = minFee/2 |
-| rail clip | 2*theta_final | AIMM_PROOFS 6b restoring band = minFee/2 + theta |
+| rail clip | 2*theta_final | restoring-band restoring band = minFee/2 + theta |
 | tau_inv | 4h stable / 1h volatile / 2h fx-metal | iteration-0 class defaults; derive TVL*dc_band/flow once pool flow data exists |
 | TFs | tau_inv * {1/2, 1, 2} | robustness ensemble around unknown tau_inv |
 | winsor h_w | q70(|d|) pass-1, per (asset, tau) | containment-70 = the 30% cut target |

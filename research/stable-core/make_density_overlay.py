@@ -15,7 +15,7 @@ FEE kernel (spline SHAPE target) = tethered quote-offset law,
       SLOW kernel only): d = 1e4·(ln P − ln C_τ), C = winsorized flow-EMA center
       (2-pass, h_w = q70|d|), equal-weight mixture τ_inv·{1/2,1,2}
       (τ_inv 4h stable / 1h volatile / 2h fx-metal). The 2θ clip is the AIMM
-      restoring band (AIMM_PROOFS.md 6b): divergence beyond it piles up AT the
+      restoring band (restoring-band invariant): divergence beyond it piles up AT the
       rail, it cannot occupy larger offsets.
 θ basis unchanged: θ_final = max(spec θ, θ@100/h cap); FX/metals session-gap
 basis unchanged (frozen bars dropped, moving-regime fit).

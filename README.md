@@ -1,103 +1,44 @@
-# BTR DEX
+# BTR
 
-Adaptive multi-asset AMM with hub-and-spoke routing, dynamic fees, a keeper-relayed external-mark oracle, an internal non-transferable LP ledger (per-user `lpBalances` mapping + liquidity index — not an ERC-1155/ERC-20 token), and a piecewise bonding curve. The lean `Pool` implementation is shared by ERC-1967 beacon proxies; cold paths delegate to `PoolAux`. There is no Diamond or ERC-7201 namespacing.
+Adaptive multi-asset AMM (AIMM): hub-and-spoke routing, dynamic fees, keeper-relayed external-mark oracle, internal non-transferable LP ledger, piecewise bonding curve.
 
-## Repo scope
+Product docs: **[br.market/docs](https://br.market/docs)**. Protocol documentation is not maintained in this repository.
 
-This repo = Solidity contracts (`evm/`) + simulation harness. Keepers (oracle pusher + executor) are Rust, in the sibling `~/Work/btr/keepers` repo. Other concerns live in sibling repos under `~/Work/btr/`:
+## This repository
+
+| Path | Contents |
+|---|---|
+| `evm/` | Solidity contracts + Foundry tests (AIMM pools, oracle, admin, flash) |
+| `sim/` | Rust reference model (`aimm-sim`) mirroring `Pricing.sol` |
+| `research/` | AMM research notebooks and studies |
+| `scripts/` | Local tooling (plots, anvil helpers) |
+| `salts/` | CREATE3 salt registry |
+
+## Related repositories
+
+Some siblings may remain private.
 
 | Concern | Repo |
 |---|---|
-| dApp UI | `front` (`@btr-protocol/front`) |
-| Off-chain services (collector, agents, docs, envio) | `back` (`@btr-protocol/back`) |
-| Shared TS types + ABIs + RPC client | `sdk` (`@btr-protocol/sdk`) |
-| Product + protocol docs | `docs` |
-| Shared Solidity primitives (AccessControl, Treasury, Staking, GovToken, StakedAsset, PriceProvider, Errors, Constants) | `shared` (`@btr-shared/` remap) |
-
-Local layout:
-- `evm/` - Solidity (Foundry). Contracts + tests.
-- `sim/` - Rust AIMM simulation crate (`aimm-sim`): `src/amm/` mirrors `evm/src/libraries/Pricing.sol` (aimm + Curve/Uni/Wombat/A-S baselines); tests replay real NX tapes.
-- `research/` - AMM research studies (stable-core, pool-fees LVR, peer architectures); data blobs gitignored.
-- `scripts/` - tooling (search index, slot computation, plotting, local dev orchestrator).
-- `salts/` - CREATE3 salt registry for deterministic addresses.
-
-## On-chain surface (DEX-local)
-
-| Contract | Role |
-|---|---|
-| `Pool.sol` | Flat AMM pool. Hot-path entries (swap, deposit, withdraw, fast views); cold paths dispatched via `fallback` -> `PoolAux`. |
-| `PoolAux.sol` | Singleton cold-path dispatcher (admin setters + flash send/account). DELEGATECALL'd by every Pool clone via `fallback`. |
-| `PoolFactory.sol` | Deterministic ERC-1967 beacon-proxy deployer. A 7-day timelock upgrades the entire pool fleet atomically after immutable-wiring validation. |
-| `Admin.sol` | Per-chain singleton: protocol-fee collection, risk-flag/fee curation, pool-side admin setters. |
-| `Flash.sol` | ERC-3156-style (postFlashLoan variant) flash-loan singleton — loans a pool's reserves (no minting); repay by raising the pool's token balance. |
-| `oracles/ExternalOracle.sol` | Permissionless relay of EIP-712 NXR-signed mark/σ/confidence records. Authenticated source time, immutable relay-lag ceiling, monotonic replay protection, deviation clamps, and TTL gates fail closed. No Chainlink or lagging price EMA is in the quote path. |
-
-On-chain `Router` was retired; routing is off-chain by design: route-finding in `sdk/src/amm` (`rankSwap`, direct + 2-hop routes across BTR's own pools) + execution calldata in `sdk/src/router` (`planToLegs` + `buildSwapCalls`).
-
-Cross-cutting singletons (`AccessControl`, `Treasury`, `Staking`, `Distributor`, `GovToken`, `StakedAsset`, `Bridge`, `tokens/BridgeableERC20`) live in `~/Work/btr/shared` and are consumed via `@btr-shared/` remap. `Bridge.sol` = LayerZero OFT bridge; `BridgeableERC20` = ERC-7802 bridgeable token mixin.
-
-## Libraries (`evm/src/libraries/`)
-
-`AdminTimelock`, `AnchorTree`, `Constants`, `Maths`, `Oracle`, `PoolAdmin`, `PoolAdminWrite`, `PoolBatch`, `PoolDecay`, `PoolEdge`, `PoolIO`, `PoolLiquidity`, `PoolSwap`, `PoolView`, `Pricing`, `Spline`, `TransientCache`.
-
-`PoolSwap` inlines post-quote `PoolIO.exec` (former `PoolSwapQuote` trampoline removed — EIP-170 headroom remains on `PoolSwap`).
+| Shared Solidity primitives (`@btr-shared/`) | [`btr-protocol/shared`](https://github.com/btr-protocol/shared) (required to build) |
+| ABIs + TS client | `btr-protocol/sdk` |
+| Keepers (oracle pusher) | `btr-protocol/keepers` |
+| dApp | `btr-protocol/front` |
+| Off-chain services | `btr-protocol/back` |
+| Product docs (served at br.market/docs) | `btr-protocol/docs` |
 
 ## Build & test
 
-⚠ Requires a sibling `shared` checkout at `../../shared` — `evm/foundry.toml` remaps
-`@btr-shared/` out of tree, so a lone clone of this repo does NOT build:
-
-```
-Error (6275): Source "../../shared/evm/src/libs/B64.sol" not found
-```
-
-Clone both under one parent (`~/Work/btr/{dex,shared}`). This is deliberate: `shared`
-holds Solidity primitives consumed by source, not as a published package. Do not "fix"
-it by vendoring a copy of those files — that forks singletons the deployed system shares.
+`evm/foundry.toml` remaps `@btr-shared/` to a sibling `shared` checkout (`../../shared/evm/src`). A lone clone of this repo does not build. Clone `shared` next to `dex`; do not vendor a copy (that forks deployed singletons).
 
 ```bash
-git clone git@github.com:btr-protocol/shared.git   # sibling, required
-cd evm
+git clone git@github.com:btr-protocol/shared.git
+git clone git@github.com:btr-protocol/dex.git
+cd dex/evm
 forge build
 forge test
 ```
 
-## Local dev stack
-
-```bash
-bun install
-bun run dev          # anvil BSC fork + deploy + collector
-bun run dev --reset  # clear state, redeploy from scratch
-```
-
-Anvil `:8545`. Collector `:3001`. Front (`:3000`) served from `~/Work/btr/front`. Test account: Anvil/Hardhat account #0 (`0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`). Never paste private keys into the repo.
-
-### CREATE3 deploys
-
-Salt = `keccak256(DEPLOYER || NONCE)`. Deployer `0x0a37aEc263CbA0aaBC09Bac56A0F2074a22E69A3`. CreateX factory `0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed` (Anvil 31337 / BNB 56 / ETH 1 / Base 8453 / Arbitrum 42161). Same address per salt across chains.
-
-Salt files: `salts/b712_b712.txt` (Pool Zero / Stable / Treasury / Bridge); `salts/bbbb_bb.txt` (mocks).
-
 ## Security
 
-`DEPLOYER_PK` controls all CREATE3 deploys across chains. Never commit. Use `.env.local` (gitignored) or a secret manager. `.env.example` is the template.
-
-Only standard, non-rebasing ERC-20s without sender/receiver transfer taxes may be listed. Inflow accounting supports received-amount tokens, but output minimums and reserve debits intentionally use nominal amounts to keep the swap hot path lean.
-
-## Troubleshooting
-
-- Anvil port stuck: `lsof -ti:8545 | xargs kill -9`.
-- Manual deploy: `forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast --code-size-limit 100000`.
-
-## Documentation
-
-| Doc | Role |
-|---|---|
-| `SEPOLIA_BRINGUP.md` | Live Sepolia stack SoT |
-| `ORACLE_SIGNED_PUSH_SPEC.md` | Signed-push wire contract |
-| `ORACLE_DEPLOYMENT_SYSTEM.md` | Config-driven oracle deploy model |
-| `AIMM_PROOFS.md` | Formal inventory / coverage proofs |
-| `CROSS_SWAP_FAIRNESS.md` | Cross-swap fairness verification |
-| `AGENTS.md` / `CONTRIBUTING.md` | Contributor conventions |
-
-Canonical product docs also live in `~/Work/btr/docs/`.
+Never commit private keys or env files. Use `.env.example` as the template only. Only standard, non-rebasing ERC-20s without transfer taxes may be listed.

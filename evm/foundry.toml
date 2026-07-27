@@ -1,6 +1,6 @@
 # foundry.lock is committed HERE so dependency versions are pinned for every checkout.
 # ⚠ A LONE CLONE OF THIS REPO DOES NOT BUILD. The remappings below reach OUT OF TREE
-# into a sibling `shared` checkout, so `~/Work/btr/{dex,shared}` (or any parent holding
+# into a sibling `shared` checkout, so a parent directory holding
 # both) must exist. A fresh standalone clone fails with:
 #   Error (6275): Source "../../shared/evm/src/libs/B64.sol" not found
 # This is DELIBERATE: `shared` holds Solidity primitives (AccessControl, Treasury,

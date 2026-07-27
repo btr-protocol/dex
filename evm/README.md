@@ -1,6 +1,6 @@
-# BTR DEX — EVM Contracts
+# BTR — EVM Contracts
 
-Solidity (Foundry) implementation of the BTR adaptive multi-asset AMM: hub-and-spoke routing, dynamic fees, NXR-signed external-mark oracle, internal non-transferable LP ledger (`lpBalances` mapping + liquidity index — not an ERC-1155/ERC-20 token), and piecewise bonding curve. A lean `Pool` implementation serves deterministic ERC-1967 beacon proxies; cold paths delegate to `PoolAux`. There is no Diamond or ERC-7201 namespacing.
+Solidity (Foundry) AIMM implementation. Product docs: https://br.market/docs
 
 Solidity pragma: `=0.8.35` (exact, see `foundry.toml`). Solady is vendored under `.deps/solady/`.
 
@@ -74,7 +74,7 @@ src/
 
 `PoolSwap` inlines `PoolIO.exec` after quoting (EIP-170 headroom on `PoolSwap` ~8 KB; `Pool` stays near the 24 576-byte cap so the Pool→PoolSwap DELEGATECALL remains).
 
-Shared cross-cutting singletons live in `~/Work/btr/shared/evm/src/` and are consumed via the `@btr-shared/` Foundry remapping (`evm/foundry.toml` / `remappings.txt` → `@btr-shared/=../../shared/src/`):
+Shared cross-cutting singletons live in the sibling `btr-protocol/shared` repo (`shared/evm/src/`) and are consumed via the `@btr-shared/` Foundry remapping (`../../shared/evm/src`):
 
 - `access/AccessControl.sol` — Owner / Keeper / Treasury / Swapper registry.
 - `oracle/PriceProvider.sol` — Chainlink USD feeds + L2 sequencer guard.

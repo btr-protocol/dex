@@ -64,7 +64,7 @@ contract ExternalOracle is IOracle, EIP712 {
   uint32 public constant SOURCE_TS_FUTURE_SKEW_S = 5;
 
   /// @dev EIP-712 typehash for a signed batch. The signature commits to `keccak256(blob)` — the exact
-  ///      packed calldata (24 B/feed, idx-based). See ORACLE_SIGNED_PUSH_SPEC.md.
+  ///      packed calldata (24 B/feed, idx-based). Signed-push wire format: br.market/docs.
   bytes32 private constant BATCH_TYPEHASH = keccak256("BatchQuote(bytes32 blobHash)");
   uint256 private constant RECORD_BYTES = 24;
   /// @dev FeedData.flags bit0 = paused (guardian fast-freeze). In-slot, no new storage. Value single-
@@ -433,7 +433,7 @@ contract ExternalOracle is IOracle, EIP712 {
   ///         recovering to a DISTINCT granted signer. Distinctness is enforced by strictly-increasing
   ///         recovered address — rejects duplicates AND unsorted input (the standard cheap multisig
   ///         check). The relayer (`msg.sender`) needs no permission. Single push = a 24-byte blob
-  ///         (n=1). Packed record layout + digest: see ORACLE_SIGNED_PUSH_SPEC.md.
+  ///         (n=1). Packed record layout + digest: signed-push wire format: br.market/docs.
   /// @param blob Packed records, 24 B each: idx(u16)|price(u64)|sigma(u32)|conf(u16)|sourceTs(u64).
   /// @param sigs k concatenated 65-byte ECDSA signatures, sorted by recovered signer address.
   function batchPushSigned(bytes calldata blob, bytes calldata sigs) external {

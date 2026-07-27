@@ -15,7 +15,7 @@ import {Pricing} from "../../src/libraries/Pricing.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "../fixtures/BaseTestSetup.sol";
 
-/// @notice Machine-checked layer for AIMM_PROOFS.md (repo root): shared walled-pool fixture.
+/// @notice Machine-checked layer for coverage proofs (br.market/docs): shared walled-pool fixture.
 ///         Each test anchors a theorem/lemma of the coverage-safety proof program; doc §9 maps
 ///         claim → test. Unit fuzzes hit Pricing._covToll/_covQ directly (internal); boundary
 ///         fuzzes + the invariant campaign exercise the same claims through Pool entrypoints.
