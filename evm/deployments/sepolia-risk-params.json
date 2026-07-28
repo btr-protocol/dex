@@ -33,6 +33,15 @@
   "PAXG",
   "EURC"
  ],
+ "fxPool": [
+  "USDC",
+  "EURC",
+  "QCAD",
+  "AUDF",
+  "BRLA",
+  "JPYC",
+  "KRW1"
+ ],
  "gamma": 20000,
  "vega": 10000,
  "presets": [

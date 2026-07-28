@@ -39,6 +39,10 @@ CHAIN_ID = 11155111
 STABLE_POOL = ["USDC", "USDT", "USDE", "USDS", "DAI", "USD1", "USDG", "PYUSD", "RLUSD",
                "syrupUSDC", "USDF", "U", "GHO", "TUSD", "USDTB", "FDUSD", "AUSD"]
 VOLATILE_POOL = ["USDC", "USDT", "WETH", "WBTC", "cbBTC", "BNB", "XAUT", "PAXG", "EURC"]
+# FX core: mock ERC20s of real fiat-backed tokens, marked by the REAL NXR FX feeds
+# (CAD/AUD/BRL/JPY/KRW-USD). Its own class because a fiat leg is neither ~1.0 against
+# USDC nor as wide as a crypto major.
+FX_POOL = ["USDC", "EURC", "QCAD", "AUDF", "BRLA", "JPYC", "KRW1"]
 # Wrapper legs carry no tape of their own: the mark ROUTES to the wrapped asset's feed, so the
 # params are that asset's fit verbatim (a wrapper cannot have a different offset law than its mark).
 ROUTE = {"WETH": "ETH", "WBTC": "BTC", "cbBTC": "BTC"}
@@ -214,7 +218,7 @@ def emit_artifacts():
             "executeUpdateProfile (or adminSetProfile). Sepolia majors (2026-07-28): "
             "WETH 2034, WBTC/cbBTC 1887, BNB 1842 @ preset 5."
         ),
-        stablePool=STABLE_POOL, volatilePool=VOLATILE_POOL,
+        stablePool=STABLE_POOL, volatilePool=VOLATILE_POOL, fxPool=FX_POOL,
         gamma=GAMMA, vega=VEGA,
         presets=presets,
         presetCount=len(presets),
