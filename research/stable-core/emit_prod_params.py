@@ -118,7 +118,8 @@ def prod_row(sym):
         W=risk["W"], dispRef=risk["dispRef"], minDisp=risk["minDisp"], maxDisp=risk["maxDisp"],
         maxDispB99=risk["maxDispB99"],
         supportBp=ln["S_fit"], supportDeployBp=ln["S_dep"], floor2Theta=ln["floor2Theta"],
-        cutDeployPct=ln["cutDepPct"], lossKL=fit["klDataVsSpline"],
+        floorBreadth=ln.get("floorBreadth"), breadth=ln.get("breadth"),
+        feeQ99=ln.get("feeQ99"), cutDeployPct=ln["cutDepPct"], lossKL=fit["klDataVsSpline"],
         minFee2Theta=int(round(2 * f["theta"] * 100)), minFeeEff=risk["minFeeBp"],
         minFeeEffPbps=risk["minFeePbps"],
         curve=dict(knotsB=fit["knotsB"], wQ=fit["wQ"], dispRef=fit["dispRef"], flags=fit["flags"],
@@ -152,83 +153,118 @@ for s in FITS:
     if s not in ROWS:
         ROWS[s] = prod_row(s)
 
-# ── out/fit_results.json ────────────────────────────────────────────────────────────────────
-json.dump(dict(
-    gen="emit_prod_params.py <- lognormal_fit.py (central-normal plateau, m=3, q70 cut; "
-        "owner-FINAL 2026-07-24)",
-    generated=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    basis=LN["spec"],
-    referee=dict(gate="referee_lognormal.py damped consumption replay, lambda=0.4, 4 rounds; "
-                      "J = (fee - LVR)/TVL annualized %, mean over L{1,3,6} x T{0.25,1,4}",
-                 file="out/referee_lognormal.json"),
-    shape=dict(family="cnplateau", m=3, interiorKnotsB=[1314, 8686],
-               qTrunc=0.70, note="S-normalized curve is cell-invariant; classes differ only by S_dep"),
-    gas=LN["gas"],
-    assets=ROWS), open(HERE / "out" / "fit_results.json", "w"), indent=1)
-print("wrote out/fit_results.json", len(ROWS), "assets")
 
-# ── evm/deployments/sepolia-risk-params.json (parallel arrays; foundry-readable) ─────────────
-shapes = {}
-for s, r in ROWS.items():
-    c = r.get("curve")
-    if c:
-        shapes.setdefault(tuple(c["wQ"]), set()).add(r["W"])
-assert len(shapes) <= 1 or all(len(v) == 1 for v in shapes.values()), \
-    "shape is not W-determined — preset identity (W, dispRef, flags) is unsound"
+def emit_artifacts():
+    """Write fit_results + sepolia-risk-params. Never run on import (clobbers FX legs)."""
+    # ── out/fit_results.json ────────────────────────────────────────────────
+    json.dump(dict(
+        gen="emit_prod_params.py <- lognormal_fit.py (cnplateau m=3; S_dep=max(q70,2θ,feeQ99))",
+        generated=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        basis=LN["spec"],
+        referee=dict(gate="referee_lognormal.py damped consumption replay, lambda=0.4, 4 rounds; "
+                          "J = (fee - LVR)/TVL annualized %, mean over L{1,3,6} x T{0.25,1,4}",
+                     file="out/referee_lognormal.json"),
+        shape=dict(family="cnplateau", m=3, interiorKnotsB=[1314, 8686],
+                   qTrunc=0.70, note="S-normalized curve is cell-invariant; classes differ only by S_dep"),
+        breadth="S_dep = max(S_fit=q70(|ell|), 2θ, feeQ99); W = ceil_ladder(max(S_fit, 2θ)); "
+                "narrow hard floor = 2θ only (no constant UX widen)",
+        gas=LN["gas"],
+        assets=ROWS), open(HERE / "out" / "fit_results.json", "w"), indent=1)
+    print("wrote out/fit_results.json", len(ROWS), "assets")
 
-presets, pid_of = [], {}
-for s in ALL:
-    r = ROWS[s]
-    key = (r["W"], r["dispRef"], 1 if r["wall"]["flag"] else 0)
-    if key not in pid_of:
-        pid_of[key] = len(presets) + 1
-        presets.append(dict(id=pid_of[key], W=r["W"], interiorB=None, wQ=None,
-                            dispRef=r["dispRef"], flags=key[2]))
-    r["_pid"] = pid_of[key]
-    # A preset takes its weights from any REAL fit in its group; base/fallback rows contribute
-    # nothing (order of first appearance must not decide whether a preset is measured or derived).
-    c = r.get("curve")
-    p = presets[pid_of[key] - 1]
-    if c and p["wQ"] is None:
-        p["interiorB"], p["wQ"], p["from"] = c["knotsB"], c["wQ"], s
-# A fallback/base row has no fitted wQ of its own; it borrows the shape at its own wall tier.
-byW = {p["W"]: p for p in presets if p["wQ"]}
-for p in presets:
-    if not p["wQ"]:
-        src = byW.get(p["W"]) or next(iter(byW.values()))
-        p["wQ"] = [int(round(x * p["W"] / src["W"])) for x in src["wQ"]]
-        p["interiorB"] = src["interiorB"]
-        p["derived"] = f"W-rescaled from preset {src['id']} (no own tape)"
+    # ── evm/deployments/sepolia-risk-params.json (parallel arrays) ───────────
+    shapes = {}
+    for s, r in ROWS.items():
+        c = r.get("curve")
+        if c:
+            shapes.setdefault(tuple(c["wQ"]), set()).add(r["W"])
+    assert len(shapes) <= 1 or all(len(v) == 1 for v in shapes.values()), \
+        "shape is not W-determined — preset identity (W, dispRef, flags) is unsound"
 
-dep = dict(
-    chainId=CHAIN_ID,
-    gen="emit_prod_params.py (central-normal plateau, m=3; owner-FINAL 2026-07-24)",
-    generated=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    stablePool=STABLE_POOL, volatilePool=VOLATILE_POOL,
-    gamma=GAMMA, vega=VEGA,
-    presets=presets,
-    # Explicit count: foundry can index `.presets[i].field` but cannot ask an array for its
-    # length (no `.length`, no `[*]`), so consumers need this to iterate.
-    presetCount=len(presets),
-    symbols=ALL,
-    presetIds=[ROWS[s]["_pid"] for s in ALL],
-    cls=[ROWS[s]["cls"] for s in ALL],
-    minFeePbps=[ROWS[s]["minFeeEffPbps"] for s in ALL],
-    maxFeePbps=[MAXFEE[ROWS[s]["cls"]] for s in ALL],
-    minDisp=[ROWS[s]["minDisp"] for s in ALL],
-    maxDisp=[ROWS[s]["maxDisp"] for s in ALL],
-    kappaCovBps=[ROWS[s]["wall"]["kappaCovBps"] for s in ALL],
-    depthAmplifier=[ROWS[s]["wall"]["depthAmplifier"] for s in ALL],
-    haircutSuppressor=[ROWS[s]["wall"]["haircutSuppressor"] for s in ALL],
-    refBandBps=[ref_band(s, ROWS[s]["cls"], ROSTER.get(ROUTE.get(s, s), {})) for s in ALL],
-    refOwnFeed=[bool(s != "USDC" and (ROWS[s]["cls"] == "volatile"
-                                      or ROSTER.get(ROUTE.get(s, s), {}).get("nowall")))
-                for s in ALL],
-    refereeJ=[ROWS[s]["referee"]["J"] for s in ALL],
-    tapeStatus=[ROWS[s]["tapeStatus"] for s in ALL],
-)
-(EVM / "deployments" / "sepolia-risk-params.json").write_text(json.dumps(dep, indent=1))
-print("wrote evm/deployments/sepolia-risk-params.json", len(ALL), "symbols,", len(presets), "presets")
+    presets, pid_of = [], {}
+    for s in ALL:
+        r = ROWS[s]
+        key = (r["W"], r["dispRef"], 1 if r["wall"]["flag"] else 0)
+        if key not in pid_of:
+            pid_of[key] = len(presets) + 1
+            presets.append(dict(id=pid_of[key], W=r["W"], interiorB=None, wQ=None,
+                                dispRef=r["dispRef"], flags=key[2]))
+        r["_pid"] = pid_of[key]
+        c = r.get("curve")
+        p = presets[pid_of[key] - 1]
+        if c and p["wQ"] is None:
+            p["interiorB"], p["wQ"], p["from"] = c["knotsB"], c["wQ"], s
+    byW = {p["W"]: p for p in presets if p["wQ"]}
+    for p in presets:
+        if not p["wQ"]:
+            src = byW.get(p["W"]) or next(iter(byW.values()))
+            p["wQ"] = [int(round(x * p["W"] / src["W"])) for x in src["wQ"]]
+            p["interiorB"] = src["interiorB"]
+            p["derived"] = f"W-rescaled from preset {src['id']} (no own tape)"
 
-for s in ALL:
-    ROWS[s].pop("_pid", None)
+    dep = dict(
+        chainId=CHAIN_ID,
+        gen="emit_prod_params.py (cnplateau m=3; S_dep=max(q70,2θ,feeQ99); no UX quiet floor)",
+        generated=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        noteBreadth=(
+            "Quiet support is dynamic: S_dep = max(S_fit=q70(|ell|), 2θ, feeQ99) from the ~2w "
+            "fee-kernel density. Majors land near feeQ99 (~19-21 bp → minDisp ~1900-2100 @ "
+            "preset5), not the q70 shape cut (~11 bp) and not a constant 25 bp floor. "
+            "JSON alone does not move live density; apply via requestUpdateProfile / "
+            "executeUpdateProfile (or adminSetProfile). Sepolia majors (2026-07-28): "
+            "WETH 2034, WBTC/cbBTC 1887, BNB 1842 @ preset 5."
+        ),
+        stablePool=STABLE_POOL, volatilePool=VOLATILE_POOL,
+        gamma=GAMMA, vega=VEGA,
+        presets=presets,
+        presetCount=len(presets),
+        symbols=list(ALL),
+        presetIds=[ROWS[s]["_pid"] for s in ALL],
+        cls=[ROWS[s]["cls"] for s in ALL],
+        minFeePbps=[ROWS[s]["minFeeEffPbps"] for s in ALL],
+        maxFeePbps=[MAXFEE[ROWS[s]["cls"]] for s in ALL],
+        minDisp=[ROWS[s]["minDisp"] for s in ALL],
+        maxDisp=[ROWS[s]["maxDisp"] for s in ALL],
+        kappaCovBps=[ROWS[s]["wall"]["kappaCovBps"] for s in ALL],
+        depthAmplifier=[ROWS[s]["wall"]["depthAmplifier"] for s in ALL],
+        haircutSuppressor=[ROWS[s]["wall"]["haircutSuppressor"] for s in ALL],
+        refBandBps=[ref_band(s, ROWS[s]["cls"], ROSTER.get(ROUTE.get(s, s), {})) for s in ALL],
+        refOwnFeed=[bool(s != "USDC" and (ROWS[s]["cls"] == "volatile"
+                                          or ROSTER.get(ROUTE.get(s, s), {}).get("nowall")))
+                    for s in ALL],
+        refereeJ=[ROWS[s]["referee"]["J"] for s in ALL],
+        tapeStatus=[ROWS[s]["tapeStatus"] for s in ALL],
+    )
+
+    # Preserve FX / extra legs already in the deploy file (emit roster is core-only).
+    dep_path = EVM / "deployments" / "sepolia-risk-params.json"
+    if dep_path.exists():
+        old = json.loads(dep_path.read_text())
+        for k in ("seedUsdPerLeg",):
+            if k in old and k not in dep:
+                dep[k] = old[k]
+        old_syms = old.get("symbols") or []
+        extra = [s for s in old_syms if s not in dep["symbols"]]
+        if extra:
+            idx = {s: i for i, s in enumerate(old_syms)}
+            parallel = [k for k, v in old.items() if isinstance(v, list) and len(v) == len(old_syms)
+                        and k != "symbols"]
+            for s in extra:
+                i = idx[s]
+                dep["symbols"].append(s)
+                for k in parallel:
+                    if k not in dep:
+                        continue
+                    dep[k].append(old[k][i])
+            print(f"preserved {len(extra)} extra deploy symbols: {extra}")
+
+    dep_path.write_text(json.dumps(dep, indent=1) + "\n")
+    print("wrote", dep_path.relative_to(HERE.parent.parent), len(dep["symbols"]),
+          "symbols,", len(presets), "presets")
+
+    for s in ALL:
+        ROWS[s].pop("_pid", None)
+
+
+if __name__ == "__main__":
+    emit_artifacts()

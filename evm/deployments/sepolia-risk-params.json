@@ -1,7 +1,8 @@
 {
  "chainId": 11155111,
- "gen": "emit_prod_params.py (central-normal plateau, m=3; owner-FINAL 2026-07-24)",
- "generated": "2026-07-24T02:11:47Z",
+ "gen": "emit_prod_params.py (cnplateau m=3; S_dep=max(q70,2\u03b8,feeQ99); no UX quiet floor)",
+ "generated": "2026-07-28T12:42:36Z",
+ "noteBreadth": "Quiet support is dynamic: S_dep = max(S_fit=q70(|ell|), 2\u03b8, feeQ99) from the ~2w fee-kernel density. Majors land near feeQ99 (~19-21 bp \u2192 minDisp ~1900-2100 @ preset5), not the q70 shape cut (~11 bp) and not a constant 25 bp floor. JSON alone does not move live density; apply via requestUpdateProfile / executeUpdateProfile (or adminSetProfile). Sepolia majors (2026-07-28): WETH 2034, WBTC/cbBTC 1887, BNB 1842 @ preset 5.",
  "stablePool": [
   "USDC",
   "USDT",
@@ -32,7 +33,6 @@
   "PAXG",
   "EURC"
  ],
- "seedUsdPerLeg": 50000,
  "gamma": 20000,
  "vega": 10000,
  "presets": [
@@ -295,29 +295,29 @@
  ],
  "minDisp": [
   200,
-  58,
-  49,
-  56,
-  62,
-  71,
-  69,
-  44,
-  60,
-  76,
-  68,
-  68,
-  64,
-  56,
-  66,
-  65,
-  75,
-  1142,
-  1139,
-  1139,
-  1126,
-  1143,
-  1336,
-  1000,
+  161,
+  311,
+  229,
+  559,
+  241,
+  1440,
+  158,
+  178,
+  215,
+  319,
+  216,
+  222,
+  264,
+  470,
+  172,
+  850,
+  2034,
+  1887,
+  1887,
+  1842,
+  3601,
+  16747,
+  1566,
   400,
   400,
   400,
@@ -528,10 +528,10 @@
   -327.9,
   -159.8,
   -1810.2,
-  1247.1,
-  456.6,
-  456.6,
-  606.8,
+  619.5,
+  163.7,
+  163.7,
+  339.5,
   -6567.5,
   -71754.4,
   -131.2,
@@ -572,53 +572,5 @@
   "PROVISIONAL",
   "PROVISIONAL"
  ],
- "bootstrapOps": [
-  {
-   "date": "2026-07-27",
-   "op": "one-shot maxDeviation widen -> first signed push -> immediate narrow-back",
-   "scope": "TESTNET (Sepolia 11155111) ONLY. MUST NEVER propagate to oracle.mainnet.toml.",
-   "reason": "Deploy-seeded lastPriceB64 was ~4 months stale, so the FIRST batchPushSigned exceeded the per-feed band and reverted Err.ThresholdViolation(424,100). Stale BOOTSTRAP DATA, not a risk-appetite change.",
-   "feeds": [
-    {
-     "idx": 17,
-     "feed": "WETH-USDC",
-     "seed": 1885.03,
-     "live": 1965.02,
-     "measuredDevBps": 424.3,
-     "bandFrom": 100,
-     "widenedTo": 500,
-     "narrowedBackTo": 100
-    },
-    {
-     "idx": 20,
-     "feed": "BNB-USDC",
-     "seed": 567.79,
-     "live": 574.33,
-     "measuredDevBps": 115.2,
-     "bandFrom": 100,
-     "widenedTo": 150,
-     "narrowedBackTo": 100
-    }
-   ],
-   "txs": {
-    "widenWeth": "0xc44e26ff554892d79b104227823a104528eff2beb36ac07596838c749ccb7871",
-    "widenBnb": "0x3f5acb6573c776202283168edbee9d3a8661a9a607c2e2759f2b709e1ea7aa94",
-    "firstPush": "0x23f1f7255248e7e11cfdfead6ba400e2ae702d7b442f1d51ed502afd66f79b76",
-    "narrowWeth": "0x95fea922fbd3960ed1e422e6d89cc14111d86a031316977426d271e0527965f0",
-    "narrowBnb": "0x4adbd7c4589c8bc19ce281fc050172eb778f582f1bc049a254d98e86bbea6f5e"
-   },
-   "expiry": "CLOSED - narrow-back executed in the same session; both bands verified back at 100 bps on-chain.",
-   "cannotRecur": "ONE-TIME by construction: once any push lands, sourceTs != 0 and the band is measured against the last PUSHED price, not the deploy seed. Verified: pushes continue at band 100.",
-   "note": "The DEPLOYED oracle bytecode predates requestFeedWiden/executeFeedWiden (selectors absent on-chain), so its updateFeed still permits an instant widen. Local source has since made updateFeed tighten-or-equal and routed loosening through a 2d timelock (15m on Sepolia via SC.govDelay). A redeployed oracle will NOT offer this instant path."
-  }
- ],
- "fxPool": [
-  "USDC",
-  "EURC",
-  "QCAD",
-  "AUDF",
-  "BRLA",
-  "JPYC",
-  "KRW1"
- ]
+ "seedUsdPerLeg": 50000
 }

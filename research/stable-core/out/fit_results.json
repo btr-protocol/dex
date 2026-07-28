@@ -1,0 +1,2186 @@
+{
+ "gen": "emit_prod_params.py <- lognormal_fit.py (cnplateau m=3; S_dep=max(q70,2\u03b8,feeQ99))",
+ "generated": "2026-07-28T12:42:36Z",
+ "basis": {
+  "qTrunc": 0.7,
+  "tolKlRep": 0.25,
+  "sigmaCells": [
+   0.3,
+   0.35,
+   0.4,
+   0.45,
+   0.5,
+   0.55,
+   0.6,
+   0.65
+  ],
+  "sigmaBand": [
+   0.275,
+   0.675
+  ],
+  "knotsU": {
+   "3": [
+    0.4444,
+    0.5556
+   ],
+   "4": [
+    0.375,
+    0.5,
+    0.625
+   ],
+   "5": [
+    0.32,
+    0.48,
+    0.52,
+    0.68
+   ]
+  },
+  "knotsUPk": {
+   "4": [
+    0.1464,
+    0.5,
+    0.8536
+   ],
+   "5": [
+    0.1127,
+    0.2764,
+    0.7236,
+    0.8873
+   ]
+  },
+  "familyGate": {
+   "stable": "cnplateau",
+   "volatile": "cnplateau"
+  },
+  "nuPk": 1.5,
+  "cOfSigma": 0.55,
+  "peaked": "truncated Student-t(nu=1.5) core, c = cOfSigma*sigma_cell (cell 0.40 -> c = 0.22 = v4 lepto sFat/W)",
+  "mGate": {
+   "stable": [
+    3,
+    4,
+    5
+   ],
+   "volatile": [
+    3,
+    4,
+    5
+   ]
+  },
+  "wLadder": [
+   0.5,
+   1,
+   2,
+   5
+  ],
+  "dispRef": {
+   "stable": 100,
+   "volatile": 500
+  },
+  "minFeeHardPbps": {
+   "stable": 50,
+   "volatile": 100
+  },
+  "fenceRel": 0.25,
+  "deadbands": {
+   "sigma": 0.05,
+   "scaleTight": 0.22,
+   "scaleLoose": 0.41,
+   "feeTight": 0.18,
+   "feeLoose": 0.41,
+   "note": "SEED values; calibrate tau_*/halflives on faithful_sim.ts before arming"
+  },
+  "softSat": "Y = 2theta*tanh(d/2theta)",
+  "minFee": "2theta + E[(|G|-theta)+]",
+  "nDraws": 400000,
+  "seed": 7,
+  "breadth": "S_dep = max(S_fit=q70(|ell|), 2theta, feeQ99); W = ceil_ladder(max(S_fit, 2theta))",
+  "dipNull": {
+   "n": 5000,
+   "reps": 200,
+   "q95": 0.00802
+  }
+ },
+ "referee": {
+  "gate": "referee_lognormal.py damped consumption replay, lambda=0.4, 4 rounds; J = (fee - LVR)/TVL annualized %, mean over L{1,3,6} x T{0.25,1,4}",
+  "file": "out/referee_lognormal.json"
+ },
+ "shape": {
+  "family": "cnplateau",
+  "m": 3,
+  "interiorKnotsB": [
+   1314,
+   8686
+  ],
+  "qTrunc": 0.7,
+  "note": "S-normalized curve is cell-invariant; classes differ only by S_dep"
+ },
+ "breadth": "S_dep = max(S_fit=q70(|ell|), 2\u03b8, feeQ99); W = ceil_ladder(max(S_fit, 2\u03b8)); narrow hard floor = 2\u03b8 only (no constant UX widen)",
+ "gas": {
+  "2": {
+   "slots": 5,
+   "update": 195585,
+   "firstSet": 281085
+  },
+  "3": {
+   "slots": 7,
+   "update": 289831,
+   "firstSet": 409531
+  },
+  "4": {
+   "slots": 9,
+   "update": 384171,
+   "firstSet": 538071
+  },
+  "5": {
+   "slots": 11,
+   "update": 478628,
+   "firstSet": 666728
+  },
+  "6": {
+   "slots": 13,
+   "update": 573229,
+   "firstSet": 795529
+  },
+  "10": {
+   "slots": 21,
+   "update": 951321,
+   "firstSet": 1310421
+  },
+  "14": {
+   "slots": 29,
+   "update": 1330532,
+   "firstSet": 1826432
+  }
+ },
+ "assets": {
+  "USDC": {
+   "status": "base-identity",
+   "cls": "stable",
+   "tape": null,
+   "fallback": true,
+   "tapeStatus": "N/A (identity numeraire)",
+   "sessionGap": null,
+   "thetaFinal": 0.25,
+   "hb_s": 1800,
+   "cadencePerH": null,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 200,
+   "maxDisp": 2000,
+   "maxDispB99": null,
+   "supportBp": null,
+   "supportDeployBp": 2.0,
+   "floor2Theta": true,
+   "cutDeployPct": null,
+   "lossKL": null,
+   "minFee2Theta": 50,
+   "minFeeEff": 0.5,
+   "minFeeEffPbps": 50,
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "referee": {
+    "J": null,
+    "gate": "exempt",
+    "reason": "identity numeraire, no tape to replay"
+   },
+   "route": null,
+   "note": "Base numeraire: price = 1 by construction, exempt from the pushed mark (Pricing._readBasePriceOrHalt), kappa forbidden (AIMM_PROOFS Thm 2). The signed USDC/USD reference feed (oracle idx 23) is its depeg breaker."
+  },
+  "USDT": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "USDT-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 95827,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.257,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.60-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 161,
+   "maxDisp": 6000,
+   "maxDispB99": 185,
+   "supportBp": 0.584,
+   "supportDeployBp": 1.612,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 1.612,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.2766,
+   "minFee2Theta": 51,
+   "minFeeEff": 0.6148,
+   "minFeeEffPbps": 61,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 5.59,
+    "loCI": 5.41,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 1.85,
+   "referee": {
+    "J": -125.9,
+    "cells": null,
+    "vsV4": -4.5,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": null
+  },
+  "USDE": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "USDE-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 13.8,
+   "bars": 95861,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.365,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.60-m3-wall",
+   "W": 2,
+   "dispRef": 100,
+   "minDisp": 311,
+   "maxDisp": 5000,
+   "maxDispB99": 433,
+   "supportBp": 0.985,
+   "supportDeployBp": 6.211,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 6.211,
+   "cutDeployPct": 1.0,
+   "lossKL": 1.1689,
+   "minFee2Theta": 73,
+   "minFeeEff": 1.0592,
+   "minFeeEffPbps": 106,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -200000000000,
+     -180107438698,
+     -76079409151,
+     0,
+     76079409151,
+     180107438698,
+     200000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 1.68,
+    "loCI": 1.63,
+    "k": 4000,
+    "veto": true
+   },
+   "wallFloorBp": 8.64,
+   "referee": {
+    "J": -2388.9,
+    "cells": null,
+    "vsV4": 50.9,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": null
+  },
+  "USDS": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "USDS-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 105147,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.259,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 229,
+   "maxDisp": 8000,
+   "maxDispB99": 383,
+   "supportBp": 0.563,
+   "supportDeployBp": 2.286,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 2.286,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.5748,
+   "minFee2Theta": 52,
+   "minFeeEff": 0.649,
+   "minFeeEffPbps": 65,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 4.78,
+    "loCI": 4.63,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 3.83,
+   "referee": {
+    "J": -509.8,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Sepolia roster add 2026-07-22 (14d NXR tape)"
+  },
+  "DAI": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "DAI-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 105140,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.524,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3-wall",
+   "W": 2,
+   "dispRef": 100,
+   "minDisp": 559,
+   "maxDisp": 8000,
+   "maxDispB99": 717,
+   "supportBp": 1.233,
+   "supportDeployBp": 11.177,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 11.177,
+   "cutDeployPct": 1.0,
+   "lossKL": 1.1671,
+   "minFee2Theta": 105,
+   "minFeeEff": 1.8346,
+   "minFeeEffPbps": 183,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -200000000000,
+     -180107438698,
+     -76079409151,
+     0,
+     76079409151,
+     180107438698,
+     200000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 12.34,
+    "loCI": 11.96,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 14.33,
+   "referee": {
+    "J": -7744.2,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Sepolia roster add 2026-07-22 (14d NXR tape)"
+  },
+  "USD1": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "USD1-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 97778,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.322,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.60-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 241,
+   "maxDisp": 5000,
+   "maxDispB99": 437,
+   "supportBp": 0.71,
+   "supportDeployBp": 2.407,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 2.407,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.4674,
+   "minFee2Theta": 64,
+   "minFeeEff": 0.7992,
+   "minFeeEffPbps": 80,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 2.91,
+    "loCI": 2.82,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 4.37,
+   "referee": {
+    "J": -558.2,
+    "cells": null,
+    "vsV4": -4.2,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": null
+  },
+  "USDG": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "USDG-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 54768,
+   "tapeStatus": "PROVISIONAL",
+   "sessionGap": null,
+   "thetaFinal": 0.25,
+   "hb_s": 1800,
+   "cadencePerH": 1.9,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3-wall",
+   "W": 5,
+   "dispRef": 100,
+   "minDisp": 1440,
+   "maxDisp": 8000,
+   "maxDispB99": 1445,
+   "supportBp": 3.427,
+   "supportDeployBp": 72.0,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 72.0,
+   "cutDeployPct": 1.0,
+   "lossKL": 2.4156,
+   "minFee2Theta": 50,
+   "minFeeEff": 4.9609,
+   "minFeeEffPbps": 496,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 21.85,
+    "loCI": 21.18,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 72.22,
+   "referee": {
+    "J": -331.3,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Refit 2026-07-24 on the USDG/USD landing (composed vs USDC/USD). PARTIAL feed fix only: the 1..1e15 glitch prints PERSIST (18% of live bars out of a +-2x window, max ~1e15). Fit on the CLEAN SUBSET (px window 0.99-1.01, 82% of live prints; q99 |r1| 2.45bp = peer-normal). PROVISIONAL: a px-window subset is not a clean feed. DEPLOY RISK: the keeper marks off the same NXR series, so glitch pushes will be rejected by the 50bp maxDeviation floor and the feed goes STALE rather than wrong. Fix NXR USDG QC before mainnet."
+  },
+  "PYUSD": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "PYUSD-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 105238,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.866,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.55-m3-wall",
+   "W": 5,
+   "dispRef": 100,
+   "minDisp": 158,
+   "maxDisp": 8000,
+   "maxDispB99": 241,
+   "supportBp": 2.191,
+   "supportDeployBp": 7.894,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 7.894,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.5277,
+   "minFee2Theta": 173,
+   "minFeeEff": 2.2584,
+   "minFeeEffPbps": 226,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 3.41,
+    "loCI": 3.3,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 12.03,
+   "referee": {
+    "J": -2230.9,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Sepolia roster add 2026-07-22 (14d NXR tape)"
+  },
+  "RLUSD": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "RLUSD-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 105150,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.288,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 178,
+   "maxDisp": 8000,
+   "maxDispB99": 204,
+   "supportBp": 0.603,
+   "supportDeployBp": 1.779,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 1.779,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.302,
+   "minFee2Theta": 58,
+   "minFeeEff": 0.6898,
+   "minFeeEffPbps": 69,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 4.97,
+    "loCI": 4.81,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 2.04,
+   "referee": {
+    "J": -196.6,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Sepolia roster add 2026-07-22 (14d NXR tape)"
+  },
+  "syrupUSDC": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "syrupUSDC-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 18499,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.25,
+   "hb_s": 1800,
+   "cadencePerH": 34.3,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 215,
+   "maxDisp": 8000,
+   "maxDispB99": 216,
+   "supportBp": 0.756,
+   "supportDeployBp": 2.146,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 2.146,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.3404,
+   "minFee2Theta": 50,
+   "minFeeEff": 0.7686,
+   "minFeeEffPbps": 77,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 6.32,
+    "loCI": 6.13,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 2.16,
+   "referee": {
+    "J": -51.5,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "NON-PEG: Maple syrupUSDC is NAV-accruing (~1.17 and drifting up), NOT a $1 peg. Refit 2026-07-24 on the SYRUPUSDC/USD landing (composed vs USDC/USD): the fit is on log-offsets from the pushed mark, so the NAV level is immaterial and the shape is honest. NAV-aware deploy config UNCHANGED: kappa=0 + haircutSuppressor=0 (the coverage wall assumes $1-peg parity; a NAV asset must not be walled at 1.0) + oracle seed ORACLE_SEED_syrupUSDC_1E18 from live NAV, refBand vs the NAV mark not USDC=1."
+  },
+  "USDF": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "USDF-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 18523,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.25,
+   "hb_s": 1800,
+   "cadencePerH": 21.3,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.60-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 319,
+   "maxDisp": 8000,
+   "maxDispB99": 428,
+   "supportBp": 0.677,
+   "supportDeployBp": 3.191,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 3.191,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.9015,
+   "minFee2Theta": 50,
+   "minFeeEff": 0.6896,
+   "minFeeEffPbps": 69,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 24.65,
+    "loCI": 23.88,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 4.27,
+   "referee": {
+    "J": -150.5,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Refit 2026-07-24 on the USDF/USD landing (composed vs USDC/USD); trades a persistent ~35bp under peg \u2014 a real level, not a glitch."
+  },
+  "U": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "U-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 18483,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.25,
+   "hb_s": 1800,
+   "cadencePerH": 25.8,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 216,
+   "maxDisp": 8000,
+   "maxDispB99": 229,
+   "supportBp": 0.678,
+   "supportDeployBp": 2.159,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 2.159,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.3136,
+   "minFee2Theta": 50,
+   "minFeeEff": 0.7326,
+   "minFeeEffPbps": 73,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 6.99,
+    "loCI": 6.77,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 2.29,
+   "referee": {
+    "J": -112.4,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Refit 2026-07-24 on the U/USD landing (composed vs USDC/USD). Supersedes the U-USDC feed collision (19% of prints at ~0.00034 = the other 'U' token) \u2014 the /USD series is clean."
+  },
+  "GHO": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "GHO-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 105153,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.268,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.55-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 222,
+   "maxDisp": 8000,
+   "maxDispB99": 554,
+   "supportBp": 0.638,
+   "supportDeployBp": 2.224,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 2.224,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.4764,
+   "minFee2Theta": 54,
+   "minFeeEff": 0.6708,
+   "minFeeEffPbps": 67,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 5.94,
+    "loCI": 5.76,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 5.53,
+   "referee": {
+    "J": -580.3,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Sepolia roster add 2026-07-22 (14d NXR tape)"
+  },
+  "TUSD": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "TUSD-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 105141,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.458,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.55-m3-wall",
+   "W": 2,
+   "dispRef": 100,
+   "minDisp": 264,
+   "maxDisp": 8000,
+   "maxDispB99": 265,
+   "supportBp": 1.118,
+   "supportDeployBp": 5.276,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 5.276,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.8267,
+   "minFee2Theta": 92,
+   "minFeeEff": 1.1616,
+   "minFeeEffPbps": 116,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -200000000000,
+     -180107438698,
+     -76079409151,
+     0,
+     76079409151,
+     180107438698,
+     200000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 4.16,
+    "loCI": 4.03,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 5.29,
+   "referee": {
+    "J": -1379.8,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Sepolia roster add 2026-07-22 (14d NXR tape; peg drifting soft, 0.996-0.999 in-window)"
+  },
+  "USDTB": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "USDTB-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 13.6,
+   "bars": 17996,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.25,
+   "hb_s": 1800,
+   "cadencePerH": 21.8,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 470,
+   "maxDisp": 8000,
+   "maxDispB99": 536,
+   "supportBp": 0.664,
+   "supportDeployBp": 4.702,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 4.702,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.9928,
+   "minFee2Theta": 50,
+   "minFeeEff": 0.7791,
+   "minFeeEffPbps": 78,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 7.25,
+    "loCI": 7.02,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 5.36,
+   "referee": {
+    "J": -327.9,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Refit 2026-07-24 on the USDTB/USD landing (composed vs USDC/USD)."
+  },
+  "FDUSD": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "FDUSD-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 102581,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 0.267,
+   "hb_s": 1800,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.55-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 172,
+   "maxDisp": 8000,
+   "maxDispB99": 250,
+   "supportBp": 0.645,
+   "supportDeployBp": 1.721,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 1.721,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.2787,
+   "minFee2Theta": 53,
+   "minFeeEff": 0.6346,
+   "minFeeEffPbps": 63,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 3.5,
+    "loCI": 3.39,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 2.5,
+   "referee": {
+    "J": -159.8,
+    "cells": null,
+    "vsV4": -7.3,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": null
+  },
+  "AUSD": {
+   "status": "fit",
+   "cls": "stable",
+   "tape": "AUSD-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 39750,
+   "tapeStatus": "PROVISIONAL",
+   "sessionGap": null,
+   "thetaFinal": 0.25,
+   "hb_s": 1800,
+   "cadencePerH": 66.8,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3-wall",
+   "W": 1,
+   "dispRef": 100,
+   "minDisp": 850,
+   "maxDisp": 8000,
+   "maxDispB99": 1165,
+   "supportBp": 0.754,
+   "supportDeployBp": 8.497,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 8.497,
+   "cutDeployPct": 1.0,
+   "lossKL": 1.4105,
+   "minFee2Theta": 50,
+   "minFeeEff": 1.1077,
+   "minFeeEffPbps": 111,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -100000000000,
+     -90053719349,
+     -38039704575,
+     0,
+     38039704575,
+     90053719349,
+     100000000000
+    ],
+    "dispRef": 100,
+    "flags": 1,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": true,
+    "kappaCovBps": 100,
+    "depthAmplifier": 0,
+    "haircutSuppressor": 0
+   },
+   "tailAlpha": {
+    "alphaHat": 23.01,
+    "loCI": 22.3,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 11.64,
+   "referee": {
+    "J": -1810.2,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "Sepolia roster add 2026-07-22 (14d NXR tape, SPARSE: ~1/3 of hourly bars populated; refit on a dense tape before referee)"
+  },
+  "WETH": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "ETH-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 100112,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 39.9,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.40-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 2034,
+   "maxDisp": 500000,
+   "maxDispB99": 5074,
+   "supportBp": 11.425,
+   "supportDeployBp": 20.336,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 20.336,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.1032,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.3241,
+   "minFeeEffPbps": 1032,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 36.37,
+    "loCI": 35.24,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 50.74,
+   "referee": {
+    "J": 619.5,
+    "cells": null,
+    "vsV4": -1848.9,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": "ETH",
+   "note": null
+  },
+  "WBTC": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "BTC-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 98653,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 24.4,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.40-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 1887,
+   "maxDisp": 500000,
+   "maxDispB99": 3657,
+   "supportBp": 11.387,
+   "supportDeployBp": 18.866,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 18.866,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.0976,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.1537,
+   "minFeeEffPbps": 1015,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 31.77,
+    "loCI": 30.79,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 36.57,
+   "referee": {
+    "J": 163.7,
+    "cells": null,
+    "vsV4": -1047.4,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": "BTC",
+   "note": null
+  },
+  "cbBTC": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "BTC-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 98653,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 24.4,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.40-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 1887,
+   "maxDisp": 500000,
+   "maxDispB99": 3657,
+   "supportBp": 11.387,
+   "supportDeployBp": 18.866,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 18.866,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.0976,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.1537,
+   "minFeeEffPbps": 1015,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 31.77,
+    "loCI": 30.79,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 36.57,
+   "referee": {
+    "J": 163.7,
+    "cells": null,
+    "vsV4": -1047.4,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": "BTC",
+   "note": null
+  },
+  "BNB": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "BNB-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 98723,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 21.3,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.40-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 1842,
+   "maxDisp": 500000,
+   "maxDispB99": 3152,
+   "supportBp": 11.256,
+   "supportDeployBp": 18.418,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 18.418,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.1028,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.1077,
+   "minFeeEffPbps": 1011,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 48.78,
+    "loCI": 47.27,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 31.52,
+   "referee": {
+    "J": 339.5,
+    "cells": null,
+    "vsV4": -980.8,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": null
+  },
+  "XAUT": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "XAUT-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 87067,
+   "tapeStatus": "PROVISIONAL",
+   "sessionGap": {
+    "frozenPct": 0.0,
+    "holes": 20,
+    "b99OpenBp": 49.27
+   },
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 46.7,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.45-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 3601,
+   "maxDisp": 500000,
+   "maxDispB99": 7030,
+   "supportBp": 11.435,
+   "supportDeployBp": 36.014,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 36.014,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.4716,
+   "minFee2Theta": 1000,
+   "minFeeEff": 11.3755,
+   "minFeeEffPbps": 1138,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 6.79,
+    "loCI": 6.58,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 70.29,
+   "referee": {
+    "J": -6567.5,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "POOL RE-CLASS (owner 2026-07-21): session-gap-aware metals basis. Fit on the CLEAN SUBSET only (px window 3500-4400 drops the ~2300 mirror cluster; tick_count>0 drops synth fills; frozen/weekend bars dropped). PROVISIONAL: \u00a74 feed-QC caveat stands until the NXR mirror-cluster fix is confirmed; px-window subset != clean feed. Deployed meso W2 held as cur for delta display."
+  },
+  "PAXG": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "PAXG-USD.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 74118,
+   "tapeStatus": "ok",
+   "sessionGap": {
+    "frozenPct": 0.0,
+    "holes": 6,
+    "b99OpenBp": 109.71
+   },
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 49.4,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 16747,
+   "maxDisp": 500000,
+   "maxDispB99": 25451,
+   "supportBp": 13.363,
+   "supportDeployBp": 167.472,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 167.472,
+   "cutDeployPct": 1.0,
+   "lossKL": 1.6485,
+   "minFee2Theta": 1000,
+   "minFeeEff": 20.0281,
+   "minFeeEffPbps": 2003,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 18.86,
+    "loCI": 18.27,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 254.51,
+   "referee": {
+    "J": -71754.4,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "POOL RE-CLASS (owner 2026-07-21): VOLATILE (gold, session-gap-aware basis). PAXG/USD from NXR; if the tape is absent (backfill not yet on prod) a lepto-W5 class-default fallback row ships (TAPE_PENDING)."
+  },
+  "EURC": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "EURC-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 4.5,
+   "bars": 10708,
+   "tapeStatus": "PROVISIONAL",
+   "sessionGap": {
+    "frozenPct": 0.0,
+    "holes": 32,
+    "b99OpenBp": 12.23
+   },
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 10.1,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.60-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 1566,
+   "maxDisp": 500000,
+   "maxDispB99": 2594,
+   "supportBp": 7.646,
+   "supportDeployBp": 15.66,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 15.66,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.1544,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.1705,
+   "minFeeEffPbps": 1017,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 15.3,
+    "loCI": 14.83,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 25.93,
+   "referee": {
+    "J": -131.2,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "POOL RE-CLASS (owner 2026-07-21): stable -> VOLATILE (\u03b8 spec 5bp). Session-gap-aware FX basis: frozen/weekend bars dropped (moving-regime fit), wall tier floored by session-open vol. Prior BLOCK (4.4d tape, KL 1.18 frozen-quote atom) addressed by the moving-regime basis; PROVISIONAL until a >=10d tape spanning FX sessions lands."
+  },
+  "BTC": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "BTC-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 98653,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 24.4,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.40-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 1887,
+   "maxDisp": 500000,
+   "maxDispB99": 3657,
+   "supportBp": 11.387,
+   "supportDeployBp": 18.866,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 18.866,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.0976,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.1537,
+   "minFeeEffPbps": 1015,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 31.77,
+    "loCI": 30.79,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 36.57,
+   "referee": {
+    "J": 163.7,
+    "cells": null,
+    "vsV4": -1047.4,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": null
+  },
+  "ETH": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "ETH-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 100112,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 39.9,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.40-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 2034,
+   "maxDisp": 500000,
+   "maxDispB99": 5074,
+   "supportBp": 11.425,
+   "supportDeployBp": 20.336,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 20.336,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.1032,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.3241,
+   "minFeeEffPbps": 1032,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 36.37,
+    "loCI": 35.24,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 50.74,
+   "referee": {
+    "J": 619.5,
+    "cells": null,
+    "vsV4": -1848.9,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": null
+  },
+  "CAKE": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "CAKE-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 97799,
+   "tapeStatus": "ok",
+   "sessionGap": null,
+   "thetaFinal": 6.432,
+   "hb_s": 300,
+   "cadencePerH": 100.0,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.55-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 4475,
+   "maxDisp": 500000,
+   "maxDispB99": 5758,
+   "supportBp": 15.983,
+   "supportDeployBp": 44.754,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 44.754,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.3202,
+   "minFee2Theta": 1286,
+   "minFeeEff": 15.6008,
+   "minFeeEffPbps": 1560,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 25.01,
+    "loCI": 24.23,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 57.58,
+   "referee": {
+    "J": -5427.3,
+    "cells": null,
+    "vsV4": -648.0,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": null
+  }
+ }
+}
