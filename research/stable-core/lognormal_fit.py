@@ -181,6 +181,30 @@ def kl_bins(P, Qm):
     m = P > 0
     return float(np.sum(P[m] * np.log(P[m] / Qm[m])))
 
+#: KL above which the fitted density no longer describes the tape. Clean 24/7
+#: majors sit at 0.10; every asset that produced an implausible breadth sat >1.0.
+KL_TRUST_MAX = 1.0
+
+def tape_status(span_d, klData, sess, feeQ99):
+    """Is this tape trustworthy enough to deploy its breadth unattended?
+
+    Span alone is not the question. PAXG carried 14 clean-looking days and was
+    labelled `ok` while its feeQ99 came out at 167 bp against a 13.4 bp q70 shape
+    (8x WETH's ratio, klData 1.65) -- the tail was the session-gap open, not
+    tradable dispersion, and it would have deployed a 1.7% flat quiet band on
+    gold. Meanwhile EURC, the best-fitting non-major at klData 0.15, was
+    PROVISIONAL purely for having 4.5 days.
+
+    So: enough span, a density the fit actually reproduces, and -- for assets
+    with a session calendar -- a gap-open tail that does not dominate the
+    breadth it feeds.
+    """
+    if span_d < 10 or klData > KL_TRUST_MAX:
+        return "PROVISIONAL"
+    if sess and feeQ99 and sess.get("b99OpenBp", 0.0) > feeQ99:
+        return "PROVISIONAL"
+    return "ok"
+
 def kl_data_vs_ln(ell, mu, sg, S, Sd, nb=NB_KL):
     edges = np.linspace(-Sd, Sd, nb + 1)
     P, _ = np.histogram(ell[np.abs(ell) <= Sd], bins=edges)
@@ -398,9 +422,10 @@ def steps25(new, old):
 # v4 as-deployed, FROZEN snapshot: emit_prod_params.py now overwrites out/fit_results.json with
 # this script's own output, so reading it back for the `old`/`delta` legs would compare the fit to
 # itself. out/fit_results.v4.json is the 2026-07-22 make_density_overlay emit, kept immutable.
-V4 = json.load(open(HERE / "out" / "fit_results.v4.json"))["assets"]
+_v4_path = HERE / "out" / "fit_results.v4.json"
+V4 = json.load(open(_v4_path))["assets"] if _v4_path.exists() else {}
 CFG = {c["sym"]: c for c in A}
-OUT = {"gen": "lognormal_fit.py (central-normal plateau, m=3, q70 cut - owner-FINAL 2026-07-24)",
+OUT = {"gen": "lognormal_fit.py (central-normal plateau, m=3, q70 shape / feeQ99 breadth)",
        "spec": dict(qTrunc=Q_TRUNC, tolKlRep=TOL_KL_REP, sigmaCells=[float(x) for x in SIGMA_CELLS],
                     sigmaBand=list(SIGMA_BAND), knotsU=KNOTS_U, knotsUPk=KNOTS_U_PK,
                     familyGate=FAMILY, nuPk=NU_PK, cOfSigma=C_OF_SIGMA,
@@ -410,6 +435,7 @@ OUT = {"gen": "lognormal_fit.py (central-normal plateau, m=3, q70 cut - owner-FI
                     wLadder=list(W_LADDER), dispRef=DISP_REF, minFeeHardPbps=MINFEE_HARD_PBPS,
                     fenceRel=FENCE_REL, deadbands=DEADBANDS, softSat="Y = 2theta*tanh(d/2theta)",
                     minFee="2theta + E[(|G|-theta)+]", nDraws=N_DRAWS, seed=7,
+                    breadth="S_dep = max(S_fit=q70(|ell|), 2theta, feeQ99); W = ceil_ladder(max(S_fit, 2theta))",
                     dipNull=dict(n=N_DIP, reps=N_DIP_NULL,
                                  q95=round(float(np.quantile(DIP_NULL, 0.95)), 5))),
        "gas": {str(m): GAS[m] for m in sorted(GAS)},
@@ -435,12 +461,17 @@ for sym in TARGETS:
     Dd = rng.choice(c["d3"], N_DRAWS, p=c["d3w"])
     ell = Gd + Ud + R * np.tanh(Dd / R)          # LOCKED soft-sat (kills the clip-rail Dirac)
     ell_raw = Gd + Ud + Dd                       # unsaturated: physical tail for the Hill veto
-    # ── closed-form fits: LN sigma drives the cell/reporting; the central-normal fit drives
-    #    the DEPLOYED scale (S_fit = A_WALL*sigma_g = the plateau's own 30% cut) ──
+    # ── closed-form fits: LN sigma drives the cell/reporting; CN q70 drives SHAPE scale;
+    #    DEPLOYED quiet support tracks fee-kernel density support (feeQ99), not q70.
+    #    Soft-sat compresses LVR so q70 collapses majors to ~11 bp while ~99% of fee mass
+    #    sits near ~20 bp (matches observed density / ~2w quiet chart range). Narrow hard
+    #    floor remains 2θ only — no constant UX widen. ──
     mu, sg, _S_fit_ln = ln_fit(ell)
-    sig_g, S_fit = nm_fit(ell)                   # central-normal plateau scale (owner 2026-07-24)
-    S_dep = max(S_fit, R)
+    sig_g, S_fit = nm_fit(ell)                   # shape scale: empirical q70 (30% cut)
     a = np.abs(ell)
+    feeQ50, feeQ70, feeQ90, feeQ99 = (float(x) for x in np.quantile(a, [0.50, 0.70, 0.90, 0.99]))
+    S_breadth = feeQ99                           # density support over the tape window
+    S_dep = max(S_fit, R, S_breadth)
     cutFit = float(np.mean(a > S_fit)); cutDep = float(np.mean(a > S_dep))
     dip = dip_test(a[a <= S_dep])
     modeBp = 0.0                                 # central-normal: mode AT the mark (no LN offset mode)
@@ -480,9 +511,11 @@ for sym in TARGETS:
     m, kl, maxerr, nmod, trough = pickF["m"], pickF["kl"], pickF["maxerr"], pickF["nmod"], pickF["trough"]
     mPath, gateFail, wl, klData = pickF["mPath"], pickF["gateFail"], pickF["wl"], pickF["klData"]
     # ── RISK leg ──
+    # W ladder snaps on shape+2θ (q70 / trigger band), NOT on feeQ99: breadth widens
+    # minDisp inside the same σ-rung so stables do not flip W=1→2 from density support alone.
     dref = DISP_REF[cfg["cls"]]
     tail = hill_tail(ell_raw)
-    W = ceil_ladder(S_dep)
+    W = ceil_ladder(max(S_fit, R))
     vetoW = tail["veto"] and W <= 1
     if vetoW: W = 2                               # tail-alpha loCI<2: no W<=1 cell
     # kappa>0 class (base USDC never walled). `nowall` opts a listed stable out: the convex coverage
@@ -515,13 +548,18 @@ for sym in TARGETS:
                       note="plateau diagnostic on the SAME S_dep/cell (referee 3-way baseline)")
     row = dict(
         cls=cfg["cls"], tape=cfg["tape"], spanD=round(c["span_d"], 1), bars=c["bars"],
-        tapeStatus=cfg.get("tapeStatus") or ("ok" if c["span_d"] >= 10 else "PROVISIONAL"),
+        tapeStatus=cfg.get("tapeStatus") or tape_status(c["span_d"], klData, c["sess"], feeQ99),
         sessionGap=c["sess"], theta=round(th, 3), rail=round(R, 3), cadencePerH=round(c["cad"], 1),
         dip=dip, signed=signed_stats(ell), foldModesData=fold_modes(ell),
         ln=dict(mu=round(mu, 4), sigma=round(sg, 4), S_fit=round(S_fit, 3), S_dep=round(S_dep, 3),
-                floor2Theta=bool(S_dep > S_fit), cutFitPct=round(100 * cutFit, 1),
+                S_breadth=round(S_breadth, 3), breadth="feeQ99",
+                feeQ50=round(feeQ50, 3), feeQ70=round(feeQ70, 3),
+                feeQ90=round(feeQ90, 3), feeQ99=round(feeQ99, 3),
+                floor2Theta=bool(S_dep > S_fit + 1e-12 and abs(S_dep - R) < 1e-9),
+                floorBreadth=bool(S_dep > S_fit + 1e-12 and S_dep >= S_breadth - 1e-12),
+                cutFitPct=round(100 * cutFit, 1),
                 cutDepPct=round(100 * cutDep, 1), modeBp=round(modeBp, 3),
-                modeOverS=round(modeBp / S_fit, 3),
+                modeOverS=round(modeBp / max(S_fit, 1e-12), 3),
                 klDataVsLN=round(kl_data_vs_ln(ell, mu, sg, S_fit, S_dep), 4)),
         cell=dict(sigmaCell=cell, inFamily=inFam, freeze=freeze, presetId=presetId),
         fit=dict(family=fam, m=m, interiorKnots=m - 1, slots=1 + 2 * m,
@@ -576,7 +614,8 @@ for sym in TARGETS:
     OUT["assets"][sym] = row
     print(f"{sym:6} {fam:7} th={th:.3f} sg={sg:.4f} cell={cell:.2f}{'(OUT-FAM)' if freeze else ''} "
           f"m={m}{'(FAIL)' if gateFail else ''} klRep={kl:.3f} klData={klData:.3f} "
-          f"dip p={dip['p']} uni={dip['unimodal']} S_dep={S_dep:.3f} cut={100 * cutDep:.0f}% "
+          f"dip p={dip['p']} uni={dip['unimodal']} S_fit={S_fit:.3f} feeQ99={feeQ99:.3f} "
+          f"S_dep={S_dep:.3f} cut={100 * cutDep:.0f}% "
           f"W={W} minDisp={minDisp} minFee={minFeePbps}pbps "
           f"| old {old.get('regime')}/W{old.get('W')} {(oldM - 1) if oldM else '?'}knots", flush=True)
 
