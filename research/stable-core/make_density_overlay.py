@@ -139,6 +139,25 @@ A = [
            "frozen/weekend bars dropped (moving-regime fit), wall tier floored by session-open vol. Prior BLOCK "
            "(4.4d tape, KL 1.18 frozen-quote atom) addressed by the moving-regime basis; PROVISIONAL until a "
            ">=10d tape spanning FX sessions lands."),
+ # ── FX core (Sepolia fx pool 0x18c7376A…B229, added 2026-07-29). Mock ERC20s of fiat-backed
+ #    tokens; the mark is the Pyth USD NATIVE the oracle keeper actually pushes (feed idx 25-29,
+ #    keepers/scripts/gen-sepolia-feeds.py), inverted where the native is USD-quoted. The fit input
+ #    is that same series — NOT a USDC compose, which would describe a mark no keeper ever pushes.
+ #    Tapes: `FX=QCAD-USDC,… python3 compose_usdc_cross.py`. cls=volatile carries the spec θ=5bp /
+ #    300s heartbeat of oracle.sepolia.toml; fx=True selects the session-gap basis (frozen bars
+ #    dropped, wall tier floored by session-open vol) and TAU_INV["fx"]. mdFloor = the DEPLOYED
+ #    maxDispersion (hold ratchet: a calm-window fit never slashes stress headroom).
+ dict(sym="QCAD", cls="volatile", tape="QCAD-USDC.json", fx=True, mdFloor=100_000,
+      note="fx-core leg; mark = USD-CAD inverted (feed idx 25)."),
+ dict(sym="AUDF", cls="volatile", tape="AUDF-USDC.json", fx=True, mdFloor=100_000,
+      note="fx-core leg; mark = AUD-USD (feed idx 26)."),
+ dict(sym="BRLA", cls="volatile", tape="BRLA-USDC.json", fx=True, mdFloor=100_000,
+      note="fx-core leg; mark = USD-BRL inverted (feed idx 27). BRL prints only in Brazilian hours; "
+           "the source is provably dead outside them, so the session mask carries this fit."),
+ dict(sym="JPYC", cls="volatile", tape="JPYC-USDC.json", fx=True, mdFloor=100_000,
+      note="fx-core leg; mark = USD-JPY inverted (feed idx 28)."),
+ dict(sym="KRW1", cls="volatile", tape="KRW1-USDC.json", fx=True, mdFloor=100_000,
+      note="fx-core leg; mark = USD-KRW inverted (feed idx 29)."),
  dict(sym="BTC",   cls="volatile", tape="BTC-USDC.json",   cur=("lepto", 5, 500, 50000, 500000)),
  dict(sym="ETH",   cls="volatile", tape="ETH-USDC.json",   cur=("lepto", 5, 500, 50000, 500000)),
  # Sepolia wrapper legs: explicit rows per addAsset target; mark ROUTES to the fitted feed (NXR owns

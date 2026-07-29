@@ -1,6 +1,6 @@
 {
  "gen": "emit_prod_params.py <- lognormal_fit.py (cnplateau m=3; S_dep=max(q70,2\u03b8,feeQ99))",
- "generated": "2026-07-28T12:42:36Z",
+ "generated": "2026-07-29T09:00:14Z",
  "basis": {
   "qTrunc": 0.7,
   "tolKlRep": 0.25,
@@ -261,9 +261,9 @@
    },
    "wallFloorBp": 1.85,
    "referee": {
-    "J": -125.9,
+    "J": -120.3,
     "cells": null,
-    "vsV4": -4.5,
+    "vsV4": 1.1,
     "gate": "PASS",
     "reason": null
    },
@@ -278,7 +278,7 @@
    "tf_s": 10,
    "span_d": 13.8,
    "bars": 95861,
-   "tapeStatus": "ok",
+   "tapeStatus": "PROVISIONAL",
    "sessionGap": null,
    "thetaFinal": 0.365,
    "hb_s": 1800,
@@ -337,9 +337,9 @@
    },
    "wallFloorBp": 8.64,
    "referee": {
-    "J": -2388.9,
+    "J": -1632.7,
     "cells": null,
-    "vsV4": 50.9,
+    "vsV4": 807.1,
     "gate": "PASS",
     "reason": null
    },
@@ -413,7 +413,7 @@
    },
    "wallFloorBp": 3.83,
    "referee": {
-    "J": -509.8,
+    "J": -446.4,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -430,7 +430,7 @@
    "tf_s": 10,
    "span_d": 14.0,
    "bars": 105140,
-   "tapeStatus": "ok",
+   "tapeStatus": "PROVISIONAL",
    "sessionGap": null,
    "thetaFinal": 0.524,
    "hb_s": 1800,
@@ -489,7 +489,7 @@
    },
    "wallFloorBp": 14.33,
    "referee": {
-    "J": -7744.2,
+    "J": -5348.4,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -565,9 +565,9 @@
    },
    "wallFloorBp": 4.37,
    "referee": {
-    "J": -558.2,
+    "J": -555.0,
     "cells": null,
-    "vsV4": -4.2,
+    "vsV4": -1.0,
     "gate": "PASS",
     "reason": null
    },
@@ -641,7 +641,7 @@
    },
    "wallFloorBp": 72.22,
    "referee": {
-    "J": -331.3,
+    "J": -223.8,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -717,7 +717,7 @@
    },
    "wallFloorBp": 12.03,
    "referee": {
-    "J": -2230.9,
+    "J": -1765.5,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -793,7 +793,7 @@
    },
    "wallFloorBp": 2.04,
    "referee": {
-    "J": -196.6,
+    "J": -154.6,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -869,7 +869,7 @@
    },
    "wallFloorBp": 2.16,
    "referee": {
-    "J": -51.5,
+    "J": -43.3,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -945,7 +945,7 @@
    },
    "wallFloorBp": 4.27,
    "referee": {
-    "J": -150.5,
+    "J": -125.6,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -1021,7 +1021,7 @@
    },
    "wallFloorBp": 2.29,
    "referee": {
-    "J": -112.4,
+    "J": -71.7,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -1097,7 +1097,7 @@
    },
    "wallFloorBp": 5.53,
    "referee": {
-    "J": -580.3,
+    "J": -513.1,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -1173,7 +1173,7 @@
    },
    "wallFloorBp": 5.29,
    "referee": {
-    "J": -1379.8,
+    "J": -1080.4,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -1249,7 +1249,7 @@
    },
    "wallFloorBp": 5.36,
    "referee": {
-    "J": -327.9,
+    "J": -227.8,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -1325,9 +1325,9 @@
    },
    "wallFloorBp": 2.5,
    "referee": {
-    "J": -159.8,
+    "J": -153.1,
     "cells": null,
-    "vsV4": -7.3,
+    "vsV4": -0.6,
     "gate": "PASS",
     "reason": null
    },
@@ -1401,7 +1401,7 @@
    },
    "wallFloorBp": 11.64,
    "referee": {
-    "J": -1810.2,
+    "J": -1501.9,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -1785,7 +1785,7 @@
    },
    "wallFloorBp": 70.29,
    "referee": {
-    "J": -6567.5,
+    "J": -5343.4,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -1802,7 +1802,7 @@
    "tf_s": 10,
    "span_d": 14.0,
    "bars": 74118,
-   "tapeStatus": "ok",
+   "tapeStatus": "PROVISIONAL",
    "sessionGap": {
     "frozenPct": 0.0,
     "holes": 6,
@@ -1865,7 +1865,7 @@
    },
    "wallFloorBp": 254.51,
    "referee": {
-    "J": -71754.4,
+    "J": -45357.5,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -1880,37 +1880,37 @@
    "tape": "EURC-USDC.json",
    "fallback": false,
    "tf_s": 10,
-   "span_d": 4.5,
-   "bars": 10708,
-   "tapeStatus": "PROVISIONAL",
+   "span_d": 12.0,
+   "bars": 99148,
+   "tapeStatus": "ok",
    "sessionGap": {
     "frozenPct": 0.0,
-    "holes": 32,
-    "b99OpenBp": 12.23
+    "holes": 9,
+    "b99OpenBp": 11.08
    },
-   "thetaFinal": 5.0,
+   "thetaFinal": 5.043,
    "hb_s": 300,
-   "cadencePerH": 10.1,
+   "cadencePerH": 100.0,
    "regime": "cnplateau",
    "family": "cnplateau",
    "m": 3,
-   "presetId": "CN0.60-m3",
+   "presetId": "CN0.65-m3",
    "W": 5,
    "dispRef": 500,
-   "minDisp": 1566,
+   "minDisp": 2060,
    "maxDisp": 500000,
-   "maxDispB99": 2594,
-   "supportBp": 7.646,
-   "supportDeployBp": 15.66,
+   "maxDispB99": 2060,
+   "supportBp": 8.159,
+   "supportDeployBp": 20.602,
    "floor2Theta": false,
    "floorBreadth": true,
    "breadth": "feeQ99",
-   "feeQ99": 15.66,
+   "feeQ99": 20.602,
    "cutDeployPct": 1.0,
-   "lossKL": 0.1544,
-   "minFee2Theta": 1000,
-   "minFeeEff": 10.1705,
-   "minFeeEffPbps": 1017,
+   "lossKL": 0.1932,
+   "minFee2Theta": 1009,
+   "minFeeEff": 11.0332,
+   "minFeeEffPbps": 1103,
    "curve": {
     "knotsB": [
      1314,
@@ -1938,14 +1938,14 @@
     "haircutSuppressor": 10000
    },
    "tailAlpha": {
-    "alphaHat": 15.3,
-    "loCI": 14.83,
+    "alphaHat": 5.56,
+    "loCI": 5.38,
     "k": 4000,
     "veto": false
    },
-   "wallFloorBp": 25.93,
+   "wallFloorBp": 18.01,
    "referee": {
-    "J": -131.2,
+    "J": 1251.7,
     "cells": null,
     "vsV4": null,
     "gate": "PASS",
@@ -1953,6 +1953,406 @@
    },
    "route": null,
    "note": "POOL RE-CLASS (owner 2026-07-21): stable -> VOLATILE (\u03b8 spec 5bp). Session-gap-aware FX basis: frozen/weekend bars dropped (moving-regime fit), wall tier floored by session-open vol. Prior BLOCK (4.4d tape, KL 1.18 frozen-quote atom) addressed by the moving-regime basis; PROVISIONAL until a >=10d tape spanning FX sessions lands."
+  },
+  "QCAD": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "QCAD-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 79655,
+   "tapeStatus": "ok",
+   "sessionGap": {
+    "frozenPct": 0.0,
+    "holes": 13,
+    "b99OpenBp": 3.87
+   },
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 8.3,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.55-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 1373,
+   "maxDisp": 100000,
+   "maxDispB99": 1373,
+   "supportBp": 7.562,
+   "supportDeployBp": 13.734,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 13.734,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.0388,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.0001,
+   "minFeeEffPbps": 1000,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 6.54,
+    "loCI": 6.34,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 7.72,
+   "referee": {
+    "J": 24.5,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "fx-core leg; mark = USD-CAD inverted (feed idx 25)."
+  },
+  "AUDF": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "AUDF-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 79679,
+   "tapeStatus": "ok",
+   "sessionGap": {
+    "frozenPct": 0.0,
+    "holes": 13,
+    "b99OpenBp": 4.72
+   },
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 8.5,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.50-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 1554,
+   "maxDisp": 100000,
+   "maxDispB99": 2447,
+   "supportBp": 9.417,
+   "supportDeployBp": 15.543,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 15.543,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.0233,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.003,
+   "minFeeEffPbps": 1000,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 14.01,
+    "loCI": 13.57,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 24.46,
+   "referee": {
+    "J": 31.7,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "fx-core leg; mark = AUD-USD (feed idx 26)."
+  },
+  "BRLA": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "BRLA-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 13.5,
+   "bars": 28655,
+   "tapeStatus": "PROVISIONAL",
+   "sessionGap": {
+    "frozenPct": 0.0,
+    "holes": 20,
+    "b99OpenBp": 30.56
+   },
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 9.6,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.40-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 2778,
+   "maxDisp": 100000,
+   "maxDispB99": 4746,
+   "supportBp": 11.042,
+   "supportDeployBp": 27.783,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 27.783,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.3498,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.7825,
+   "minFeeEffPbps": 1078,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 5.3,
+    "loCI": 5.13,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 47.45,
+   "referee": {
+    "J": -846.9,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "fx-core leg; mark = USD-BRL inverted (feed idx 27). BRL prints only in Brazilian hours; the source is provably dead outside them, so the session mask carries this fit."
+  },
+  "JPYC": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "JPYC-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 79732,
+   "tapeStatus": "ok",
+   "sessionGap": {
+    "frozenPct": 0.0,
+    "holes": 13,
+    "b99OpenBp": 3.09
+   },
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 8.3,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.65-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 1390,
+   "maxDisp": 100000,
+   "maxDispB99": 1910,
+   "supportBp": 6.809,
+   "supportDeployBp": 13.899,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 13.899,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.0713,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.0006,
+   "minFeeEffPbps": 1000,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 8.97,
+    "loCI": 8.69,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 19.1,
+   "referee": {
+    "J": 25.4,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "fx-core leg; mark = USD-JPY inverted (feed idx 28)."
+  },
+  "KRW1": {
+   "status": "fit",
+   "cls": "volatile",
+   "tape": "KRW1-USDC.json",
+   "fallback": false,
+   "tf_s": 10,
+   "span_d": 14.0,
+   "bars": 74858,
+   "tapeStatus": "ok",
+   "sessionGap": {
+    "frozenPct": 0.7,
+    "holes": 21,
+    "b99OpenBp": 5.03
+   },
+   "thetaFinal": 5.0,
+   "hb_s": 300,
+   "cadencePerH": 9.8,
+   "regime": "cnplateau",
+   "family": "cnplateau",
+   "m": 3,
+   "presetId": "CN0.50-m3",
+   "W": 5,
+   "dispRef": 500,
+   "minDisp": 1621,
+   "maxDisp": 100000,
+   "maxDispB99": 3564,
+   "supportBp": 9.073,
+   "supportDeployBp": 16.209,
+   "floor2Theta": false,
+   "floorBreadth": true,
+   "breadth": "feeQ99",
+   "feeQ99": 16.209,
+   "cutDeployPct": 1.0,
+   "lossKL": 0.0503,
+   "minFee2Theta": 1000,
+   "minFeeEff": 10.0308,
+   "minFeeEffPbps": 1003,
+   "curve": {
+    "knotsB": [
+     1314,
+     8686
+    ],
+    "wQ": [
+     -500000000000,
+     -450268596744,
+     -190198522877,
+     0,
+     190198522877,
+     450268596744,
+     500000000000
+    ],
+    "dispRef": 500,
+    "flags": 0,
+    "slots": 7,
+    "gasUpdate": 289831,
+    "gasFirstSet": 409531
+   },
+   "wall": {
+    "flag": false,
+    "kappaCovBps": 0,
+    "depthAmplifier": 10000,
+    "haircutSuppressor": 10000
+   },
+   "tailAlpha": {
+    "alphaHat": 9.22,
+    "loCI": 8.94,
+    "k": 4000,
+    "veto": false
+   },
+   "wallFloorBp": 35.63,
+   "referee": {
+    "J": 28.2,
+    "cells": null,
+    "vsV4": null,
+    "gate": "PASS",
+    "reason": null
+   },
+   "route": null,
+   "note": "fx-core leg; mark = USD-KRW inverted (feed idx 29)."
   },
   "BTC": {
    "status": "fit",
@@ -2173,9 +2573,9 @@
    },
    "wallFloorBp": 57.58,
    "referee": {
-    "J": -5427.3,
+    "J": -4653.7,
     "cells": null,
-    "vsV4": -648.0,
+    "vsV4": 125.6,
     "gate": "PASS",
     "reason": null
    },

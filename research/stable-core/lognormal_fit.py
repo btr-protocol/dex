@@ -47,7 +47,8 @@ exec(compile(_src[:_src.index("# ── per-asset pipeline ──")], "make_dens
 # base numeraire (mark identity 1.0, never pushed) and carries the class-default row, not a fit.
 TARGETS = ["USDT", "USDE", "USDS", "DAI", "USD1", "USDG", "PYUSD", "RLUSD", "syrupUSDC", "USDF",
            "U", "GHO", "TUSD", "USDTB", "FDUSD", "AUSD",
-           "EURC", "BTC", "ETH", "BNB", "CAKE", "XAUT", "PAXG"]
+           "EURC", "QCAD", "AUDF", "BRLA", "JPYC", "KRW1",
+           "BTC", "ETH", "BNB", "CAKE", "XAUT", "PAXG"]
 ONLY = set(filter(None, os.environ.get("ONLY", "").split(",")))
 Q_TRUNC = 0.70                                  # 30% tail cut, exact by construction
 Z70 = float(norm.ppf(Q_TRUNC)); Z90 = float(norm.ppf(0.90))
