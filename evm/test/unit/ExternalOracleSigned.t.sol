@@ -350,24 +350,53 @@ contract ExternalOracleSignedTest is Test {
     ext.batchPushSigned(a, _sign(NXR_PK, a));
   }
 
-  /// First signed push after addFeed must not get an epoch-sized bootstrap exemption.
-  function test_firstSignedPush_usesConfiguredMaxDeviation() public {
+  /// First signed push after addFeed: no authenticated prior SOURCE-time interval exists, so the
+  /// band ages off the on-chain `updatedAt` stamp instead. Still BOUNDED — the σ term is capped at
+  /// DEV_BAND_MAX_X·maxDeviation — and `dt` comes from stored state, never caller input, so a signer
+  /// cannot inflate it. Without this fallback a seeded feed carries the bare floor until its first
+  /// push lands, which is a permanent DEADLOCK after any outage longer than that floor's drift.
+  function test_firstSignedPush_agesTheBandOffTheOnChainStamp() public {
     address da = address(0xDA11);
     address db = address(0xDB11);
-    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, 500, 3600); // idx=1
+    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, 500, 3600); // idx=1, 500 bps floor
     bytes32 id = keccak256(abi.encodePacked(da, db));
-    skip(TAU);
-    bytes memory bad = _rec(1, M.encodeB64(106e18, 18), 1e4, 5, _srcTs()); // +6% > configured 5%
+    skip(TAU); // 100 s on-chain age ⇒ σ term = 6·1e4·√(100e6/1800)/1e5 = 141 bps ⇒ band 641
+
+    bytes memory bad = _rec(1, M.encodeB64(107e18, 18), 1e4, 5, _srcTs()); // +700 bps > 641
     vm.expectRevert(
-      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(600), uint256(500))
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(700), uint256(641))
     );
     ext.batchPushSigned(bad, _sign(NXR_PK, bad));
 
-    bytes memory ok = _rec(1, M.encodeB64(104.9e18, 18), 1e4, 5, _srcTs()); // +4.9% lands
+    // +600 bps exceeds the bare 500 floor but sits inside the staleness-aged band: it LANDS. Under
+    // the old zero-premium behaviour this reverted, which is exactly the Sepolia deadlock.
+    bytes memory ok = _rec(1, M.encodeB64(106e18, 18), 1e4, 5, _srcTs());
     ext.batchPushSigned(ok, _sign(NXR_PK, ok));
     assertApproxEqRel(
-      M.b64To1e18(ext.getFeed(id).lastPriceB64), 104.9e18, 0.001e18, "first push normal-band commit"
+      M.b64To1e18(ext.getFeed(id).lastPriceB64), 106e18, 0.001e18, "aged-band first push commits"
     );
+  }
+
+  /// The bootstrap fallback is CAPPED: an arbitrarily old seeded feed never gets an epoch-sized
+  /// exemption, only DEV_BAND_MAX_X·maxDeviation (= 10x the floor in total).
+  function test_firstSignedPush_stalenessPremiumIsCappedAt10xFloor() public {
+    address da = address(0xDA22);
+    address db = address(0xDB22);
+    ext.addFeed(da, db, M.encodeB64(100e18, 18), 1e4, 5, 100, 3600); // idx=1, 100 bps floor
+    skip(365 days); // absurd age: the uncapped σ term would be ~4e4 bps
+    bytes memory bad = _rec(1, M.encodeB64(111e18, 18), 1e4, 5, _srcTs()); // +1100 bps > 10x100
+    vm.expectRevert(
+      abi.encodeWithSelector(Err.ThresholdViolation.selector, uint256(1100), uint256(1000))
+    );
+    ext.batchPushSigned(bad, _sign(NXR_PK, bad));
+  }
+
+  /// A zero σ seed is the defect that bricked the Sepolia reference oracle: the band is
+  /// `maxDeviation + Z·σ·√(dt/interval)`, so σ=0 pins it at the bare floor, and σ only rises on a
+  /// SUCCESSFUL push. Rejected at the boundary so it cannot be deployed again.
+  function test_addFeed_rejectsZeroSigmaSeed() public {
+    vm.expectRevert(Err.InvalidInput.selector);
+    ext.addFeed(address(0xDA33), address(0xDB33), M.encodeB64(100e18, 18), 0, 5, 500, 3600);
   }
 
   // ─── malformed calldata ───

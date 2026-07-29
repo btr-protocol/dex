@@ -191,7 +191,16 @@ contract ExternalOracle is IOracle, EIP712 {
     // push is a single-tx drain — every feed must declare a per-push bound (H-1).
     // ttl > maxRelayLagSecs: gate() ages from sourceTs, so a blob legally landing at the lag bound
     // with ttl <= lag is stale on arrival — every read reverts until the next push (liveness cliff).
-    if (maxDeviation == 0 || maxDeviation > MAX_DEV_THRESHOLD || ttl <= maxRelayLagSecs) {
+    // sigmaSample is MANDATORY non-zero: the per-push band is `maxDeviation + Z·σ·√(dt/interval)`
+    // and σ is the STORED prior, which only a successful push can raise. Seeding σ=0 therefore
+    // pins the band at the bare maxDeviation floor FOREVER for a feed that has not yet taken a
+    // signed push — and the moment the market drifts past that floor no push can ever land again
+    // (needs a push to gain σ, needs σ to accept the push). That deadlock is only escapable via
+    // the governance-delayed `requestFeedWiden`. Assert the unit at the boundary instead.
+    if (
+      maxDeviation == 0 || maxDeviation > MAX_DEV_THRESHOLD || ttl <= maxRelayLagSecs
+        || sigmaSample == 0
+    ) {
       revert Err.InvalidInput();
     }
 
@@ -615,10 +624,15 @@ contract ExternalOracle is IOracle, EIP712 {
 
     // Deviation band is VOLATILITY-ADAPTIVE and scales with ATTESTED source-time delta (chain-agnostic,
     // not block time) — floor + Z·σ·√(dtSource/interval), see _checkDeviation. sourceTs > prevSourceTs
-    // already enforced (monotonic guard) so unchecked is safe. The first signed push has no
-    // authenticated prior source-time interval: dt=0 ⇒ the band is exactly the maxDeviation floor (σ√dt
-    // term vanishes), never an epoch-sized wide-cap exemption.
-    uint256 dtSourceSecs;
+    // already enforced (monotonic guard) so unchecked is safe.
+    // FIRST signed push (prevSourceTs == 0, i.e. an addFeed-seeded feed) has no authenticated prior
+    // source-time interval. Age the band off the on-chain `updatedAt` stamp (`dt`) instead of
+    // granting a zero premium: `dt` is derived from STORED state, never from caller input, so no
+    // signer can inflate it, and the DEV_BAND_MAX_X cap still bounds the result at 10·maxDeviation —
+    // this is not an epoch-sized wide-cap exemption. Without the fallback a seeded feed carries the
+    // bare maxDeviation floor until its first push lands, which after any multi-hour outage is a
+    // permanent deadlock recoverable only through a timelocked `requestFeedWiden`.
+    uint256 dtSourceSecs = dt;
     if (prevSourceTs != 0) {
       unchecked {
         dtSourceSecs = (sourceTs - prevSourceTs) / 1000;

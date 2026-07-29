@@ -89,10 +89,15 @@ import {console2} from "forge-std/Script.sol";
 contract SepoliaOracleDeploy is DeployBase {
   uint16 internal constant STABLE_TTL = 7200;
   uint16 internal constant VOLATILE_TTL = 600;
-  // σ seed = 0, deliberately INERT: the first signed push has dt=0 (σ-term skipped, band = bare
-  // maxDev floor) and every push overwrites σ (floored at realized |Δmark|); no consumer reads σ
-  // pre-pool. A nonzero seed would only misstate a stored vol prior next to the "σ≈0" stable note.
-  uint32 internal constant SIGMA_SEED = 0;
+  // σ seed MUST be non-zero (addFeed enforces it). The old σ=0 "deliberately inert" seed reasoned
+  // only about the FIRST push; it is a DEADLOCK when that push is late. Band = maxDev + Z·σ·√(dt/…)
+  // and σ only rises on a successful push, so a σ=0 feed keeps the bare maxDev floor until it takes
+  // one — and once the market has drifted past that floor, no push can ever land (needs a push for
+  // σ, needs σ for the push). Recovery is the timelocked requestFeedWiden. Seeds below are BELOW
+  // the observed live per-class medians (stables 93-429, FX 296-2729, volatile 893-4114 PBPS/30min)
+  // so they under-state the prior rather than inflating the band; the first real push overwrites.
+  uint32 internal constant SIGMA_SEED_STABLE = 300;
+  uint32 internal constant SIGMA_SEED_VOLATILE = 2_000;
   uint16 internal constant CONF_SEED = 25; // bps interim
   // maxDeviation = microstructure FLOOR of the volatility-adaptive per-push band
   // (allowed = floor + min(6·σ·√(dtSource/1800), 9·floor)); θ policy: 0.25bp stable / 5bp volatile.
@@ -259,7 +264,7 @@ contract SepoliaOracleDeploy is DeployBase {
         toks[i],
         toks[0],
         M.encodeB64(seeds[i], 18),
-        SIGMA_SEED,
+        stable ? SIGMA_SEED_STABLE : SIGMA_SEED_VOLATILE,
         CONF_SEED,
         stable ? STABLE_MAXDEV : VOLATILE_MAXDEV,
         stable ? STABLE_TTL : VOLATILE_TTL
@@ -275,7 +280,13 @@ contract SepoliaOracleDeploy is DeployBase {
       usdRefSeed >= 0.98e18 && usdRefSeed <= 1.02e18, "USDC/USD reference seed out of band"
     );
     o.addFeed(
-      toks[0], usd, M.encodeB64(usdRefSeed, 18), SIGMA_SEED, CONF_SEED, STABLE_MAXDEV, STABLE_TTL
+      toks[0],
+      usd,
+      M.encodeB64(usdRefSeed, 18),
+      SIGMA_SEED_STABLE,
+      CONF_SEED,
+      STABLE_MAXDEV,
+      STABLE_TTL
     );
     // F-2: independent fast-freeze from day one, MANDATORY. Previously `envOr(..., address(0))`
     // with a silent skip — which is exactly how the live Sepolia AccessControls ended up with ZERO
