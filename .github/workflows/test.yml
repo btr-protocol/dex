@@ -9,20 +9,23 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  FOUNDRY_PROFILE: ci
-
 jobs:
-  check:
+  evm:
     name: Foundry project
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: evm
+        working-directory: dex/evm
     steps:
+      # evm remaps `@btr-shared/` to `../../shared/evm/src/`, so the sibling
+      # checkout layout is not optional: without it forge cannot resolve a source.
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          path: dex
+      - uses: actions/checkout@v4
+        with:
+          repository: btr-protocol/shared
+          path: shared
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -37,21 +40,42 @@ jobs:
       - name: Run Forge tests
         run: forge test -vvv
 
-      # ⚠ NON-BLOCKING, deliberately and temporarily. `forge fmt --check` fails
-      # today on 8 files of PRE-EXISTING drift (ExternalOracle.sol, PoolAux.sol,
-      # PoolLiquidity.sol, 3 tests, 2 scripts) that accumulated over however long
-      # this workflow sat at evm/.github/ where Actions never read it. Blocking on
-      # it would mean run one goes red on formatting and reports NO build or test
-      # result, which is the opposite of what turning CI on is for.
-      #
-      # Do NOT fix this by running `forge fmt` over the tree unattended: fmt
-      # collapses braces on single-line if/for/while bodies, which turns a guarded
-      # second statement into an unconditional one. Three of the drifting files are
-      # on the money path (ExternalOracle, PoolAux, PoolLiquidity). The procedure is
-      # to pre-expand one-line control-flow bodies, then fmt, then read the whole
-      # diff — and that lands with a security review, not here.
-      #
-      # Flip continue-on-error off in the same commit that clears the drift.
+      # Blocking. Clears only once the in-flight ExternalOracle/PoolAux/
+      # PoolLiquidity drift lands formatted. Do NOT clear it with an unattended
+      # `forge fmt`: fmt collapses braces on single-line if/for/while bodies,
+      # turning a guarded second statement into an unconditional one, and three
+      # of the drifting files are on the money path. Pre-expand one-line
+      # control-flow bodies, then fmt, then read the whole diff.
       - name: Run Forge fmt
         run: forge fmt --check
-        continue-on-error: true
+
+  sim:
+    name: AIMM sim (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dex/sim
+    steps:
+      # Same sibling layout as the evm job: tests/solidity_parity.rs reads the
+      # real .sol sources, including ../../shared/evm/src/Constants.sol.
+      - uses: actions/checkout@v4
+        with:
+          path: dex
+      - uses: actions/checkout@v4
+        with:
+          repository: btr-protocol/shared
+          path: shared
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Build
+        run: cargo build --all-targets
+
+      # solidity_parity re-reads Pricing.sol / NUQuartic.sol / Constants.sol and
+      # fails when a constant or the keeper-grace formula drifts from
+      # sim/src/amm/consts.rs. This is the gate that keeps the reference model
+      # honest; sim/tape (real bar tapes, needs a private sibling repo) stays
+      # out of CI on purpose.
+      - name: Run parity + unit tests
+        run: cargo test --all-targets
