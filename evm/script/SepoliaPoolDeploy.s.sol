@@ -80,7 +80,13 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 contract SepoliaPoolDeploy is Deploy {
   uint16 internal constant STABLE_TTL = 7200;
   uint16 internal constant VOLATILE_TTL = 600;
-  uint32 internal constant SIGMA_SEED = 0;
+  // σ seed MUST be non-zero: a σ=0 feed's per-push band is pinned at the bare maxDeviation floor
+  // until its first signed push lands, and once the market drifts past that floor no push can ever
+  // land again (deadlock; recovery = timelocked requestFeedWiden). Per-class, mirrors
+  // SepoliaOracleDeploy; under-states the observed live prior so the band is not inflated.
+  uint32 internal constant SIGMA_SEED_STABLE = 300;
+  uint32 internal constant SIGMA_SEED_FX = 800;
+  uint32 internal constant SIGMA_SEED_VOLATILE = 2_000;
   uint16 internal constant CONF_SEED = 25;
   uint16 internal constant STABLE_MAXDEV = 50;
   uint16 internal constant VOLATILE_MAXDEV = 100;
@@ -129,16 +135,26 @@ contract SepoliaPoolDeploy is Deploy {
     uint16 haircutSuppressor;
     uint16 refBandBps;
     bool refOwnFeed;
+    // DEN-01: true when the NXR signer catalog attests this asset as <TOKEN>-USD (idx 1..16 stables,
+    // 22 PAXG-USD, 23 EURC-USD, 25..29 the inverted FX legs) while the on-chain feed name is
+    // <TOKEN>-USDC. The pool then divides by the base USDC-USD mark at consumption. false for the
+    // genuine USDC crosses (idx 17 ETH-USDC, 18/19 BTC-USDC, 20 BNB-USDC) and for the base itself.
+    // NOT derivable from `cls`: PAXG/EURC are risk-class `volatile` but catalog-quoted in USD.
+    bool usdQuoted;
     bool stable;
     bool fx;
   }
 
   /// @dev ttl/maxDeviation tier for one asset class. Kept as one switch so the primary-feed add
   ///      (addFxFeeds) and the reference mirror (_mirrorRefFeed) can never disagree on a class.
-  function _tier(bool stable, bool fx) internal pure returns (uint16 maxDev, uint16 ttl) {
-    if (stable) return (STABLE_MAXDEV, STABLE_TTL);
-    if (fx) return (FX_MAXDEV, FX_TTL);
-    return (VOLATILE_MAXDEV, VOLATILE_TTL);
+  function _tier(bool stable, bool fx)
+    internal
+    pure
+    returns (uint16 maxDev, uint16 ttl, uint32 sigma)
+  {
+    if (stable) return (STABLE_MAXDEV, STABLE_TTL, SIGMA_SEED_STABLE);
+    if (fx) return (FX_MAXDEV, FX_TTL, SIGMA_SEED_FX);
+    return (VOLATILE_MAXDEV, VOLATILE_TTL, SIGMA_SEED_VOLATILE);
   }
 
   function deployPools() external returns (address stablePool, address volatilePool) {
@@ -301,6 +317,16 @@ contract SepoliaPoolDeploy is Deploy {
     p.haircutSuppressor = uint16(vm.parseJsonUintArray(cfg.risk, ".haircutSuppressor")[idx]);
     p.refBandBps = uint16(vm.parseJsonUintArray(cfg.risk, ".refBandBps")[idx]);
     p.refOwnFeed = vm.parseJsonBoolArray(cfg.risk, ".refOwnFeed")[idx];
+    _paramFlags(cfg, p, idx);
+  }
+
+  /// @dev Boolean tail of one params row. OWN FRAME, mandatory: `_paramsFor` already carries the
+  ///      symbol scan plus a dozen parse temporaries, and folding these back in overflows the
+  ///      via_ir stack (profile.default builds with via_ir = true).
+  function _paramFlags(Cfg memory cfg, AssetParams memory p, uint256 idx) internal view {
+    // Absent key reverts here by design: a missing denomination declaration must fail the ceremony,
+    // never default to "already USDC-quoted" (that is exactly the DEN-01 mispricing).
+    p.usdQuoted = vm.parseJsonBoolArray(cfg.risk, ".usdQuoted")[idx];
     bytes32 cls = keccak256(bytes(vm.parseJsonStringArray(cfg.risk, ".cls")[idx]));
     p.stable = cls == keccak256(bytes("stable"));
     p.fx = cls == keccak256(bytes("fx"));
@@ -345,9 +371,9 @@ contract SepoliaPoolDeploy is Deploy {
     } catch {}
     IOracle.FeedData memory src = IOracle(cfg.oracle).getFeed(id);
     require(src.lastPriceB64 != 0, "primary feed unseeded");
-    (uint16 maxDev, uint16 ttl) = _tier(stable, fx);
+    (uint16 maxDev, uint16 ttl, uint32 sigma) = _tier(stable, fx);
     ExternalOracle(cfg.refOracle).addFeed(
-      asset, quote, src.lastPriceB64, SIGMA_SEED, CONF_SEED, maxDev, ttl
+      asset, quote, src.lastPriceB64, sigma, CONF_SEED, maxDev, ttl
     );
   }
 
@@ -460,6 +486,9 @@ contract SepoliaPoolDeploy is Deploy {
     // BASE: its mark is the SIGNED USDC/USD reference (keeper idx 24), not a USDC/USDC identity — that is
     // what makes _readBasePriceOrHalt's 500bp depeg halt bite. Ref band stays 0 (base is exempt).
     o.feedId = isBase ? cfg.usdcUsdFeed : keccak256(abi.encodePacked(p.token, cfg.usdc));
+    // DEN-01: the base IS the USD reference (rejected on-chain if flagged); spokes carry the
+    // catalog's denomination so Pricing re-denominates a <TOKEN>-USD mark into base units.
+    o.usdQuoted = !isBase && p.usdQuoted;
     if (isBase || p.refBandBps == 0) return o;
     o.refFeedId =
       p.refOwnFeed ? keccak256(abi.encodePacked(p.token, cfg.usdc)) : cfg.usdcUsdFeed;
@@ -631,20 +660,7 @@ contract SepoliaPoolDeploy is Deploy {
     bytes32[] memory ids = new bytes32[](syms.length);
     vm.startBroadcast(pk);
     for (uint256 i; i < syms.length; ++i) {
-      AssetParams memory p = _paramsFor(cfg, syms[i]);
-      if (p.token == cfg.usdc) continue; // base: identity feed + USDC/USD reference already exist
-      bytes32 id = keccak256(abi.encodePacked(p.token, cfg.usdc));
-      ids[i] = id;
-      if (_feedSeeded(cfg.oracle, id)) continue; // EURC already carries idx 23
-      // parseJsonUint reverts on a missing key: a leg absent from the snapshot aborts the add
-      // rather than defaulting to a peg. THIS is the 1500x guard for JPYC/KRW1.
-      uint256 mark = vm.parseJsonUint(cfg.marks, string.concat(".marks.", syms[i], ".mark1e18"));
-      require(mark != 0, "seed-marks: absent or zero FX mark");
-      (uint16 maxDev, uint16 ttl) = _tier(p.stable, p.fx);
-      ExternalOracle(cfg.oracle).addFeed(
-        p.token, cfg.usdc, M.encodeB64(mark, 18), SIGMA_SEED, CONF_SEED, maxDev, ttl
-      );
-      console2.log("feed added", syms[i]);
+      ids[i] = _addFxFeed(cfg, syms[i]);
     }
     vm.stopBroadcast();
     for (uint256 i; i < syms.length; ++i) {
@@ -653,6 +669,26 @@ contract SepoliaPoolDeploy is Deploy {
         _jsonStr(vm.toString(ids[i])), sotPath, string.concat(".feed_", syms[i])
       );
     }
+  }
+
+  /// @dev One FX leg's primary feed add. OWN FRAME, mandatory: the caller's loop already carries the
+  ///      index/roster temporaries, and folding the B64 seed encode + string.concat back in
+  ///      overflows the via_ir stack (profile.default builds with via_ir = true). Returns the feed
+  ///      id (0 for the base, which needs no leg feed).
+  function _addFxFeed(Cfg memory cfg, string memory sym) internal returns (bytes32 id) {
+    AssetParams memory p = _paramsFor(cfg, sym);
+    if (p.token == cfg.usdc) return bytes32(0); // base: identity feed + USDC/USD ref already exist
+    id = keccak256(abi.encodePacked(p.token, cfg.usdc));
+    if (_feedSeeded(cfg.oracle, id)) return id; // EURC already carries idx 23
+    // parseJsonUint reverts on a missing key: a leg absent from the snapshot aborts the add
+    // rather than defaulting to a peg. THIS is the 1500x guard for JPYC/KRW1.
+    uint256 mark = vm.parseJsonUint(cfg.marks, string.concat(".marks.", sym, ".mark1e18"));
+    require(mark != 0, "seed-marks: absent or zero FX mark");
+    (uint16 maxDev, uint16 ttl, uint32 sigma) = _tier(p.stable, p.fx);
+    ExternalOracle(cfg.oracle).addFeed(
+      p.token, cfg.usdc, M.encodeB64(mark, 18), sigma, CONF_SEED, maxDev, ttl
+    );
+    console2.log("feed added", sym);
   }
 
   function _feedSeeded(address oracle, bytes32 id) internal view returns (bool) {

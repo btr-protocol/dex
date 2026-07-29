@@ -899,8 +899,15 @@ contract B64BandOrderingRegressionTest is AuditPoolFixture {
 ///         no stale-anchor window, and an incomplete/bogus spoke set reverts the migration.
 contract BaseMigrationAtomicReanchorRegressionTest is AuditPoolFixture {
   function _requestAndWarp() internal {
+    // DEN-01: a promoted base must attest <TOKEN>-USD — as a spoke that is `usdQuoted`. The fixture
+    // lists s1 base-denominated (the default), so arm the flag through the timelocked oracle path
+    // before the numeraire flip; setBaseToken clears it on s1 and sets it on the demoted old base.
+    IPool.OracleConfig memory s1Cfg = externalOracleCfg(oracle, address(s1));
+    s1Cfg.usdQuoted = true;
+    admin.requestOracleUpdate(address(pool), address(s1), s1Cfg);
     admin.requestBaseMigration(address(pool), address(s1));
     vm.warp(block.timestamp + 7 days);
+    admin.executeOracleUpdate(address(pool), address(s1));
     _refreshMarks();
   }
 
@@ -1003,10 +1010,12 @@ contract BaseMigrationAtomicReanchorRegressionTest is AuditPoolFixture {
       10000,
       10000
     );
+    IPool.OracleConfig memory p2S1Cfg = externalOracleCfg(oracle, address(s1));
+    p2S1Cfg.usdQuoted = true; // DEN-01: promotion candidate must be USD-quoted (see _requestAndWarp).
     admin.addAsset(
       address(p2),
       address(s1),
-      externalOracleCfg(oracle, address(s1)),
+      p2S1Cfg,
       _risk(),
       DEFAULT_PRESET,
       1000,

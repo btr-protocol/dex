@@ -60,6 +60,16 @@ interface IPool {
     // refBandBps STAY populated — the external feed is the depeg breaker (gate), not the price
     // source. Eligibility: fixed-peg assets ONLY (see setOracleConfig validation).
     uint8 mode;
+    // DEN-01 mark denomination. false (default): the mark is already quoted in BASE units
+    // (a genuine <TOKEN>-<BASE> cross, e.g. ETH-USDC / BTC-USDC). true: the attested mark is quoted
+    // in the UNIT OF ACCOUNT (<TOKEN>-USD, e.g. USDT-USD, DAI-USD, EURC-USD, the inverted FX legs) —
+    // NXR cannot sign a real <TOKEN>-USDC for these (their composed cross has no provider
+    // observation), so the pool MUST re-denominate at consumption:
+    //   X/base = (USD per X) / (USD per base) = mark / basePrice.
+    // Without it the pool prices X-USD as if it were X-base, i.e. it mis-prices every base<->X swap
+    // by exactly the base's own depeg |basePrice-1|, unbounded up to BASE_DEPEG_HALT_BPS.
+    // Packs into the primary/refBandBps/mode slot: storage layout of refPrimary is unchanged.
+    bool usdQuoted;
     // Oracle instance serving refFeedId — MUST differ from `primary` whenever refBandBps != 0.
     // Distinct addresses are enforced on-chain; independent signer/admin failure domains remain a
     // deployment invariant (two instances sharing keys can still be walked together). 0 remains a

@@ -526,11 +526,31 @@ library Pricing {
   {
     // Depth-1 star: profileAsset is always the spoke (edge), never base (L2-1).
     IOracle.FeedData memory feed = _readOracle($, profileAsset);
-    mark = Oracle.mark(feed);
     sigma = feed.sigma;
+    mark = _denominate($, profileAsset, Oracle.mark(feed));
     IPool.Asset storage asset = $.assets[profileAsset];
     minFee = asset.minFeePbps;
     maxFee = asset.maxFeePbps;
+  }
+
+  /// @dev DEN-01: convert a spoke mark into BASE units. A `usdQuoted` spoke attests <TOKEN>-USD
+  ///      (the NXR catalog signs `X-USD` for every stable/FX slot while the on-chain feed is named
+  ///      `X-USDC`), but every leg is priced against the base numeraire, so the pool must divide out
+  ///      the base's own USD price: X/base = mark_USD / basePrice_USD. Uncorrected, a base<->spoke
+  ///      swap mis-prices by exactly the base depeg — unbounded up to BASE_DEPEG_HALT_BPS and far
+  ///      above the stable fee ladder. `basePrice` is the SAME gated + depeg-banded read every hop
+  ///      already performs (tcache hit after `_primeOracleCache`), so this adds no oracle round-trip
+  ///      and stays fail-closed: a stale/dead/uncertain/depegged base halts before it can be a
+  ///      denominator. INTERNAL mode is excluded at config time (pegB64 is already base-denominated).
+  ///      Own frame for headroom (measured: `_legMarkAndFees` still compiles with this inlined, but
+  ///      it already carries two B64 mantissa/exponent decodes on the via_ir stack).
+  function _denominate(IPool.PoolStorage storage $, address token, uint256 mark)
+    private
+    view
+    returns (uint256)
+  {
+    if (!$.oracleConfigs[token].usdQuoted) return mark;
+    return (mark * SC.WAD) / _readBasePriceOrHalt($);
   }
 
   /// @dev Informational per-hop execution price for SwapQuote.hopPrices (UI/analytics only).

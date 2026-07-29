@@ -19,7 +19,37 @@ never assumed.
 
 Run: python3 emit_prod_params.py
 """
-import json, time
+import importlib.util, json, time
+
+
+def _load_keeper_feeds() -> dict:
+    """The keeper catalog is the single source of truth for symbol<->feed naming
+    (keepers/scripts/gen-sepolia-feeds.py FEEDS). Imported, never copied, so a
+    catalog change cannot silently desync the deploy artifact."""
+    from pathlib import Path as _P
+    src = _P(__file__).resolve().parents[3] / "keepers/scripts/gen-sepolia-feeds.py"
+    if not src.exists():
+        raise SystemExit(f"keeper catalog SSoT not found: {src}")
+    spec = importlib.util.spec_from_file_location("_gen_sepolia_feeds", src)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return {f["name"]: f for f in mod.FEEDS}
+
+
+_KEEPER_FEEDS = _load_keeper_feeds()
+
+
+def _load_prior_usd_quoted() -> dict:
+    """Previously deployed usdQuoted flags, for assets parked out of the catalog."""
+    from pathlib import Path as _P
+    f = _P(__file__).resolve().parents[2] / "evm/deployments/sepolia-risk-params.json"
+    if not f.exists():
+        return {}
+    d = json.loads(f.read_text())
+    return dict(zip(d.get("symbols", []), d.get("usdQuoted", [])))
+
+
+_PRIOR_USD_QUOTED = _load_prior_usd_quoted()
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -158,6 +188,30 @@ for s in FITS:
         ROWS[s] = prod_row(s)
 
 
+def _usd_quoted(sym: str) -> bool:
+    """True when the NXR-signed symbol is USD-quoted but the on-chain feed is
+    named `<sym>-USDC`, so `Pricing._denominate` must divide by the idx-24
+    USDC-USD mark. Read from the keeper catalog rather than duplicated here —
+    one change, one place."""
+    if sym == "USDC":
+        return False  # the base IS the divisor
+    feed = _KEEPER_FEEDS.get(f"{sym}-USDC")
+    if feed is not None:
+        return not feed["symbol"].endswith("-USDC")
+    # PARKED asset: deployed in a pool but currently unsigned (e.g. XAUT, pulled
+    # from the catalog 2026-07-29 over cross-replica sigma divergence). Keep the
+    # flag it was deployed with — re-deriving it from nothing would silently flip
+    # the pool's denomination the day it is relisted. A genuinely NEW asset has
+    # no prior value and still aborts.
+    prior = _PRIOR_USD_QUOTED.get(sym)
+    if prior is None:
+        raise SystemExit(
+            f"usdQuoted: {sym} is absent from the keeper catalog SSoT and has no "
+            f"prior declared value — add it to gen-sepolia-feeds.py FEEDS first")
+    print(f"  usdQuoted: {sym} parked (not in catalog), preserving deployed value {prior}")
+    return prior
+
+
 def emit_artifacts():
     """Write fit_results + sepolia-risk-params. Never run on import (clobbers FX legs)."""
     # ── out/fit_results.json ────────────────────────────────────────────────
@@ -223,6 +277,13 @@ def emit_artifacts():
         presets=presets,
         presetCount=len(presets),
         symbols=list(ALL),
+        # DEN-01: does the pool have to divide this asset's mark by USDC-USD?
+        # Derived from the keeper catalog SSoT, never hand-maintained: a leg is
+        # usdQuoted iff NXR signs it as `X-USD` while the on-chain feed is named
+        # `X-USDC`. The base (USDC) is the divisor and must never be flagged.
+        # Dropping this key makes SepoliaPoolDeploy REVERT rather than silently
+        # assume "already USDC" — keep it that way.
+        usdQuoted=[_usd_quoted(s) for s in ALL],
         presetIds=[ROWS[s]["_pid"] for s in ALL],
         cls=[ROWS[s]["cls"] for s in ALL],
         minFeePbps=[ROWS[s]["minFeeEffPbps"] for s in ALL],

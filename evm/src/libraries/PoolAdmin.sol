@@ -90,10 +90,18 @@ library PoolAdmin {
     if (cfg.mode == C.ORACLE_MODE_EXTERNAL) {
       if (token != $.baseToken) {
         requireExternalSpokeBound($, token, cfg);
+      } else if (cfg.usdQuoted) {
+        // DEN-01: the base IS the USD reference (its mark is <BASE>-USD by construction and is the
+        // divisor). Flagging it would ask the pool to divide the base mark by itself ⇒ constant 1
+        // and a silently disarmed denomination correction on the one feed that defines it.
+        revert Err.BadConfig();
       }
       return;
     }
     if (cfg.mode != C.ORACLE_MODE_INTERNAL) revert Err.BadConfig();
+    // DEN-01: INTERNAL quotes off Asset.pegB64, a constant already expressed in BASE units. There is
+    // no USD mark to convert, so the flag would be a no-op that lies about the config.
+    if (cfg.usdQuoted) revert Err.BadConfig();
     // Base is the numeraire, priced via _readBasePriceOrHalt's EXTERNAL depeg band. An INTERNAL base
     // would make that reader quote the frozen peg (const ~1.0) and no-op the depeg breaker on every
     // base hop. Forbid it: base must be EXTERNAL so its mark is real and its depeg halt bites.

@@ -258,6 +258,13 @@ library PoolAdminWrite {
     // frozen peg (const ~1.0) and silently disables the breaker (validateOracleMode blocks the
     // config path, but base MIGRATION would otherwise smuggle an INTERNAL spoke into the numeraire).
     if ($.oracleConfigs[newBase].mode != C.ORACLE_MODE_EXTERNAL) revert Err.BadConfig();
+    // DEN-01: the base mark is the USD denominator AND is depeg-tested against 1e18 USD parity, so a
+    // promoted base MUST attest <TOKEN>-USD. As a spoke that is exactly `usdQuoted`. Promoting a
+    // base-denominated spoke (a real <TOKEN>-<oldBase> cross) would make both the divisor and the
+    // parity test read a cross rather than a USD price. Require it, then clear it on the promoted
+    // slot (the base divides nothing by itself) and SET it on the demoted old base, whose mark was
+    // and remains USD-quoted but which is now a spoke that must be re-denominated.
+    if (!$.oracleConfigs[newBase].usdQuoted) revert Err.BadConfig();
     // The demoted old base becomes an EXTERNAL spoke and must satisfy the M-1 cumulative-bound
     // mandate (independent ref band or absolute reservation band). As base it was exempt (numeraire,
     // priced via _readBasePriceOrHalt's own depeg band) — without this check migration would smuggle
@@ -279,6 +286,8 @@ library PoolAdminWrite {
     // (M-3): after this call returns, NO asset anchors to oldBase — no stale-anchor window.
     newA.anchor = address(0);
     oldA.anchor = newBase;
+    $.oracleConfigs[newBase].usdQuoted = false;
+    $.oracleConfigs[oldBase].usdQuoted = true;
     $.baseToken = newBase;
     for (uint256 i = 0; i < spokes.length; i++) {
       // Each spoke must still anchor to oldBase: a duplicate (already re-anchored), unlisted,
