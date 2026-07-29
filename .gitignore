@@ -25,8 +25,6 @@ private/
 
 # Dependencies
 node_modules/
-.pnp
-.pnp.js
 
 # Bun
 .bun/
@@ -38,19 +36,7 @@ bun-debug.log
 *.tsbuildinfo
 dist/
 build/
-out/
 *.js.map
-.next/
-.turbo/
-
-# Compiled/generated assets
-front/public/compiled-docs/
-front/public/search-index.json
-
-# Zig build outputs (sim/)
-sim/zig-out/
-sim/zig-cache/
-sim/.zig-cache/
 
 # Playwright artifacts
 .playwright-mcp/
@@ -70,13 +56,11 @@ lerna-debug.log*
 pnpm-debug.log*
 
 # Foundry & Forge
+# `broadcast/` is NOT ignored: evm/broadcast holds Sepolia deploy provenance and is
+# tracked. evm/.gitignore scopes out the throwaway parts (31337, dry-run, Chapel).
 cache/
 out/
 artifacts/
-broadcast/
-typechain-types/
-
-# Forge specific
 forge-cache/
 foundry-cache/
 .forge-snapshots/
@@ -88,13 +72,8 @@ foundry-cache/
 *.solc
 *.metadata.json
 
-# Hardhat
-cache-hardhat/
-artifacts-hardhat/
-
 # Coverage reports (Solidity)
 coverage.json
-coverage/
 lcov.info
 
 # Gas reports
@@ -145,12 +124,6 @@ env/
 *.so
 *.dylib
 
-# Private keys and sensitive data
-*.key
-*.pem
-secrets/
-private/
-
 # Local development
 .local/
 local/
@@ -159,12 +132,8 @@ dev/
 # Anvil state persistence
 .anvil/
 
-# Backend data directories
-back/.data/
-back/services/*/.data/
-back/services/*/data/
+# Local data directories
 **/.data/
-**/.tei-model/
 
 # Native addons
 *.node
@@ -174,6 +143,9 @@ back/services/*/data/
 # ── AIMM sim (Rust) ──
 sim/target/
 sim/Cargo.lock
+# sim/tape is its own crate (owns the nxr-sdk path dep); its Cargo.lock IS
+# tracked because it is a leaf, but its build dir is not.
+sim/tape/target/
 
 # ── Research + sim data (local, regenerable market tapes — never committed) ──
 research/data/

@@ -1,7 +1,5 @@
-// SPDX-License-Identifier: MIT
-pragma solidity >=0.6.2 <0.9.0;
-
-pragma experimental ABIEncoderV2;
+// SPDX-License-Identifier: MIT OR Apache-2.0
+pragma solidity >=0.8.13 <0.9.0;
 
 // 💬 ABOUT
 // Forge Std's default Test.
@@ -29,6 +27,6 @@ import {TestBase} from "./Base.sol";
 
 // ⭐️ TEST
 abstract contract Test is TestBase, StdAssertions, StdChains, StdCheats, StdInvariant, StdUtils {
-    // NB: IS_TEST() must return true.
+    // Note: IS_TEST() must return true.
     bool public IS_TEST = true;
 }

@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-pragma solidity >=0.6.2;
+// SPDX-License-Identifier: MIT OR Apache-2.0
+pragma solidity >=0.8.13 <0.9.0;
 
 import {IERC165} from "./IERC165.sol";
 
@@ -21,7 +21,7 @@ interface IERC6909 is IERC165 {
     function balanceOf(address owner, uint256 id) external view returns (uint256);
 
     /// @dev Returns the amount of tokens of type `id` that `spender` is allowed to spend on behalf of `owner`.
-    /// NB: Does not include operator allowances.
+    /// NOTE: Does not include operator allowances.
     function allowance(address owner, address spender, uint256 id) external view returns (uint256);
 
     /// @dev Returns true if `spender` is set as an operator for `owner`.

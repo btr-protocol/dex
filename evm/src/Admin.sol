@@ -56,7 +56,7 @@ contract Admin is IAdmin {
   }
 
   /// @dev Inlined as internal (not modifiers) — EIP-170: modifiers duplicate jumpdests per use site.
-  ///      Revert taxonomy is the ACGated canon (`shared/access/ACGated.sol`): admin-only ->
+  ///      Revert taxonomy is the fleet canon (see `shared/base/UpgradeGate.sol`): admin-only ->
   ///      Err.NotOwner, any 2-caller gate -> Err.NotAuth. One failure class, one selector, fleet-wide.
   function _onlyAdmin() internal view {
     if (msg.sender != AccessControl(AC).owner()) revert Err.NotOwner();
