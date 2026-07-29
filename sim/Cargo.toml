@@ -4,18 +4,32 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Production-settlement reference and research simulation harness for the BTR DEX AIMM."
+autotests = false
 
 [lib]
 name = "aimm_sim"
 path = "src/lib.rs"
 
 # The library is pure std (deterministic xorshift RNG, no external deps) so it stays a faithful,
-# dependency-light mirror of the Solidity pricer. Only the integration tests read market data.
+# dependency-light mirror of the Solidity pricer. It MUST stay resolvable with no sibling repos:
+# that is what lets CI build and gate it.
 [dependencies]
 
-# Tests replay real NX bar tapes via nxr-sdk::BarFile (path dep into the NX Rates repo). Data files
-# live under ../research/data (gitignored); tests skip gracefully when absent. serde_json (already
-# in the nxr-sdk dev tree) reads the shared Solidity parity vectors (evm/test/proto).
 [dev-dependencies]
-nxr-sdk = { path = "../../../nx/nx-rates/sdk/rust", default-features = false }
+# Reads the shared Solidity parity vectors (evm/test/proto).
 serde_json = "1"
+
+# Cross-language gate: constants + formula shapes re-read from the .sol sources. Runs everywhere.
+[[test]]
+name = "solidity_parity"
+path = "tests/solidity_parity.rs"
+
+# Numeric parity against the committed quartic fit vectors NUQuartic.t.sol also asserts against.
+[[test]]
+name = "quartic_parity"
+path = "tests/quartic_parity.rs"
+
+# `tests/amm_sim.rs` is NOT a target of this crate: it replays real NX bar tapes through `nxr-sdk`,
+# a path dep into the NX Rates repo. Cargo resolves path deps eagerly even behind a feature, so
+# declaring it here would break `cargo build` in every checkout without a sibling nx-rates. It is
+# built by `sim/tape`, which owns that dependency.

@@ -1,0 +1,28 @@
+# Tape-replay tests for aimm-sim, split into their own crate for ONE reason: they need
+# `nxr-sdk`, a path dependency into the NX Rates repo. Cargo resolves optional path
+# dependencies eagerly, so merely declaring nxr-sdk in `sim/Cargo.toml` — even behind a
+# feature — makes `cargo build` fail in any checkout without a sibling nx-rates, which is
+# every CI runner. Keeping it here leaves the `sim` crate resolvable on its own.
+#
+# Run locally with a sibling `~/Work/nx/nx-rates`: `cd sim/tape && cargo test`.
+# Bar data lives under `dex/research/data` (gitignored); tests skip when it is absent.
+[package]
+name = "aimm-sim-tape"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+autotests = false
+
+[lib]
+name = "aimm_sim_tape"
+path = "src/lib.rs"
+
+[dev-dependencies]
+aimm-sim = { path = ".." }
+nxr-sdk = { path = "../../../../nx/nx-rates/sdk/rust", default-features = false }
+serde_json = "1"
+
+[[test]]
+name = "amm_sim"
+path = "../tests/amm_sim.rs"
