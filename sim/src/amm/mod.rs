@@ -16,6 +16,7 @@
 pub mod aimm;
 pub mod aimm_ci;
 pub mod as_mm;
+pub mod consts;
 pub mod curve;
 pub mod engine;
 pub mod nuquartic;

@@ -2,6 +2,11 @@
 //! and convex coverage wall in `evm/src/libraries/Pricing.sol`; bit-exact parity remains in Foundry.
 //! Non-production oracle/fee experiments are explicitly reported as `AIMM-Research`.
 //!
+//! DIRECTION OF TRUTH: Solidity is normative. `evm/` is deployed; this crate follows it, never the
+//! reverse. Solidity comments crediting `dex/sim` for a formula record where the design came from,
+//! not who decides. Every shared constant lives once in `amm::consts` and `tests/solidity_parity.rs`
+//! re-reads the `.sol` sources so drift fails the build instead of accumulating silently.
+//!
 //! `amm::aimm` is the BTR AIMM; the siblings (`curve`, `univ2`, `univ3`, `wombat`, `as_mm`) are
 //! baselines for comparison, and `engine`/`router` drive the GBM / real-tape simulations.
 

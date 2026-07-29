@@ -10,19 +10,26 @@ use serde_json::Value;
 const Q: f64 = 1e9; // on-chain pbps fixed point carried by the vector file
 
 fn vectors() -> Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../evm/test/proto/quartic_vectors.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../evm/test/proto/quartic_vectors.json"
+    );
     serde_json::from_str(&std::fs::read_to_string(path).expect("quartic_vectors.json"))
         .expect("parse vectors")
 }
 
 fn floats(v: &Value) -> Vec<f64> {
-    v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect()
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_f64().unwrap())
+        .collect()
 }
 
 fn curve_of(entry: &Value) -> QuarticCurve {
     let interior = floats(&entry["interior"]);
     let w: Vec<f64> = floats(&entry["wQ"]).iter().map(|y| y / Q).collect();
-    QuarticCurve::new(&interior, &w, 500.0) // dispRef ≙ NUQuartic.t.sol's 500 (irrelevant to raw parity)
+    QuarticCurve::new(&interior, &w, 500.0, 0) // dispRef ≙ NUQuartic.t.sol's 500 (irrelevant to raw parity)
 }
 
 #[test]
@@ -39,7 +46,10 @@ fn parity_all_shapes() {
             let d = (c.eval(*x) * Q - yq).abs();
             worst_eval = worst_eval.max(d);
             // vector quantization is 1 unit (1e-9 pbps); allow rel 1e-9 on top for f64 roundoff
-            assert!(d <= 2.0 + yq.abs() * 1e-9, "eval parity {name} x={x}: |d|={d}");
+            assert!(
+                d <= 2.0 + yq.abs() * 1e-9,
+                "eval parity {name} x={x}: |d|={d}"
+            );
         }
         for a in entry["areas"].as_array().unwrap() {
             let (x1, x2) = (a["x1"].as_f64().unwrap(), a["x2"].as_f64().unwrap());
@@ -53,11 +63,16 @@ fn parity_all_shapes() {
                 // symmetric shapes integrate to ~0 over centered bands — rel is meaningless there
                 worst_area_rel = worst_area_rel.max(d / aq.abs());
             }
-            assert!(d <= tol, "area parity {name} [{x1},{x2}]: |d|={d} tol={tol}");
+            assert!(
+                d <= tol,
+                "area parity {name} [{x1},{x2}]: |d|={d} tol={tol}"
+            );
         }
     }
     println!("worst eval |d| (pbps*1e9): {worst_eval:.3}");
-    println!("worst area |d| (pbps*1e9*x): {worst_area_abs:.3}, rel (non-degenerate): {worst_area_rel:.3e}");
+    println!(
+        "worst area |d| (pbps*1e9*x): {worst_area_abs:.3}, rel (non-degenerate): {worst_area_rel:.3e}"
+    );
 }
 
 #[test]

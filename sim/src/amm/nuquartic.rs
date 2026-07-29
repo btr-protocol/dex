@@ -10,10 +10,10 @@
 //! degree; simple interior knots at degree 4 ⇒ the density (y') is C2 at every knot. Domain
 //! x ∈ [0, 10000] cumulative depth bps; y in pbps (the on-chain wQ are pbps·Q — divide by 1e9).
 
-/// x domain span = cumulative depth bps (SC.BPS on-chain).
-pub const XSPAN: f64 = 10_000.0;
-/// Hard segment cap — the on-chain header holds 14×uint16 boundaries (W2 tier = 14 segs).
-pub const MAX_SEGS: usize = 14;
+use super::consts::{BPS, FLAG_REQUIRES_WALL, MAX_SEGS, PREFIX_LIMIT_PBPS, SEG_COEFF_LIMIT_PBPS};
+
+/// x domain span = cumulative depth bps (`NUQuartic.sol` uses SC.BPS).
+pub const XSPAN: f64 = BPS;
 
 /// Packed-equivalent curve: per-segment power basis + prefix integrals (NUQuartic.Curve).
 #[derive(Debug, Clone)]
@@ -26,23 +26,34 @@ pub struct QuarticCurve {
     prefix: Vec<f64>,
     /// Reference dispersion (pbps) the fit was built at; quotes y-scale by disp/disp_ref.
     pub disp_ref: f64,
+    /// Packed header flag bits (`NUQuartic.Curve.header >> 248`). Only FLAG_REQUIRES_WALL today.
+    flags: u8,
 }
 
 impl QuarticCurve {
     /// Validate + convert a clamped quartic B-spline to power basis (NUQuartic.set + _validate +
     /// _buildSeg). `w` = control weights in pbps (nondecreasing), `interior` = strictly-increasing
     /// interior knots in (0, XSPAN), len == w.len() - 5. Panics ≙ the on-chain InvalidInput revert.
-    pub fn new(interior: &[f64], w: &[f64], disp_ref: f64) -> Self {
+    pub fn new(interior: &[f64], w: &[f64], disp_ref: f64, flags: u8) -> Self {
         let n = w.len();
-        assert!(n >= 5 && n - 4 <= MAX_SEGS && interior.len() == n - 5, "invalid input");
+        assert!(
+            n >= 5 && n - 4 <= MAX_SEGS && interior.len() == n - 5,
+            "invalid input"
+        );
         assert!(w[n - 1] != w[0], "flat curve = no price discovery");
-        assert!(w.windows(2).all(|p| p[1] >= p[0]), "dw<0 => non-monotone curve");
+        assert!(
+            w.windows(2).all(|p| p[1] >= p[0]),
+            "dw<0 => non-monotone curve"
+        );
         assert!(disp_ref > 0.0, "disp_ref");
         // clamped degree-4 knot vector: 5× 0, interior, 5× XSPAN
         let mut t = vec![0.0; n + 5];
         let mut prev = 0.0;
         for (j, &kx) in interior.iter().enumerate() {
-            assert!(kx > prev && kx < XSPAN, "interior knots strictly increasing in (0, XSPAN)");
+            assert!(
+                kx > prev && kx < XSPAN,
+                "interior knots strictly increasing in (0, XSPAN)"
+            );
             t[5 + j] = kx;
             prev = kx;
         }
@@ -53,17 +64,38 @@ impl QuarticCurve {
         let mut bounds = Vec::with_capacity(m);
         let mut segs = Vec::with_capacity(m);
         let mut prefix = Vec::with_capacity(m);
-        let mut s_acc = 0.0;
+        let mut s_acc: f64 = 0.0;
         for j in 0..m {
             bounds.push(t[j + 5]);
             let k = seg_coeffs(&t, w, j + 4);
+            // `NUQuartic._buildSeg` packs c0..c4 into int64 lanes and S into int128; a fit that
+            // overflows those lanes reverts on-chain rather than storing a silently wrapped curve.
+            // Bounds are the on-chain ones with the Q=1e9 fixed point divided out.
+            assert!(
+                k.iter().all(|ki| ki.abs() <= SEG_COEFF_LIMIT_PBPS),
+                "segment coefficient overflow"
+            );
+            assert!(s_acc.abs() <= PREFIX_LIMIT_PBPS, "prefix integral overflow");
             prefix.push(s_acc);
             // exact full-segment integral: h·(c0 + c1/2 + c2/3 + c3/4 + c4/5)
-            s_acc += (t[j + 5] - t[j + 4])
-                * (k[0] + k[1] / 2.0 + k[2] / 3.0 + k[3] / 4.0 + k[4] / 5.0);
+            s_acc +=
+                (t[j + 5] - t[j + 4]) * (k[0] + k[1] / 2.0 + k[2] / 3.0 + k[3] / 4.0 + k[4] / 5.0);
             segs.push(k);
         }
-        Self { bounds, segs, prefix, disp_ref }
+        Self {
+            bounds,
+            segs,
+            prefix,
+            disp_ref,
+            flags,
+        }
+    }
+
+    /// Preset is only valid on a coverage-walled asset (`NUQuartic.FLAG_REQUIRES_WALL`, checked by
+    /// `PoolAdmin.setProfile`). Hyper tiers concentrate depth at the peg and rely on the wall to
+    /// stop a drain past it.
+    pub fn requires_wall(&self) -> bool {
+        self.flags & FLAG_REQUIRES_WALL != 0
     }
 
     /// Segment index + local frame: seg i covers [b_i, b_{i+1}), linear scan (NUQuartic._frame).
@@ -105,8 +137,7 @@ impl QuarticCurve {
         let c = &self.segs[i];
         self.prefix[i]
             + h * u
-                * (c[0]
-                    + u * (c[1] / 2.0 + u * (c[2] / 3.0 + u * (c[3] / 4.0 + u * c[4] / 5.0))))
+                * (c[0] + u * (c[1] / 2.0 + u * (c[2] / 3.0 + u * (c[3] / 4.0 + u * c[4] / 5.0))))
     }
 }
 
@@ -188,7 +219,7 @@ mod tests {
     #[test]
     fn endpoints_interpolate_and_monotone() {
         let (interior, w) = ramp();
-        let c = QuarticCurve::new(&interior, &w, 100.0);
+        let c = QuarticCurve::new(&interior, &w, 100.0, 0);
         assert!((c.eval(0.0) - w[0]).abs() < 1e-9);
         assert!((c.eval(XSPAN) - w[8]).abs() < 1e-9);
         let mut prev = c.eval(0.0);
@@ -209,14 +240,14 @@ mod tests {
     fn rejects_non_monotone() {
         let (interior, mut w) = ramp();
         w[8] = w[0] - 1.0;
-        QuarticCurve::new(&interior, &w, 100.0);
+        QuarticCurve::new(&interior, &w, 100.0, 0);
     }
 
     #[test]
     #[should_panic(expected = "flat")]
     fn rejects_flat() {
         let (interior, _) = ramp();
-        QuarticCurve::new(&interior, &[1.0; 9], 100.0);
+        QuarticCurve::new(&interior, &[1.0; 9], 100.0, 0);
     }
 
     #[test]
@@ -225,7 +256,7 @@ mod tests {
         let n = MAX_SEGS + 5;
         let interior: Vec<f64> = (1..=n - 5).map(|i| i as f64 * 100.0).collect();
         let w: Vec<f64> = (0..n).map(|i| i as f64).collect();
-        QuarticCurve::new(&interior, &w, 100.0);
+        QuarticCurve::new(&interior, &w, 100.0, 0);
     }
 
     #[test]
@@ -233,6 +264,6 @@ mod tests {
     fn rejects_out_of_range_knot() {
         let (mut interior, w) = ramp();
         interior[3] = XSPAN;
-        QuarticCurve::new(&interior, &w, 100.0);
+        QuarticCurve::new(&interior, &w, 100.0, 0);
     }
 }

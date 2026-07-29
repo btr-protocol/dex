@@ -72,16 +72,18 @@ pub enum OracleMode {
     },
 }
 
-const BPS: f64 = 1e4; // 0.01%
-const PBPS: f64 = 1e6; // 0.0001%  (fees, offsets, dispersion)
-const ORACLE_PBPS: f64 = 1e7; // 0.00001% (oracle offsets)
+use super::consts::{
+    BPS, MAX_IMPACT, MIN_ADJ, MIN_EXEC_PRICE_BPS, ORACLE_PBPS, PBPS, SPLINE_MIN_OFFSET_PBPS,
+    STALE_GRACE_CAP_S, STALE_Z,
+};
 
 /// Default profile = the fitted W5 "flat" (near-uniform density) preset from
 /// `research/stable-core/out/spline_shared_grid.json` (wQ/1e9 → pbps), the closest quartic
 /// analogue of the retired near-linear Hermite default. Fit reference dispersion 1000 pbps ⇒
 /// edge offsets = ±disp/2 at any live dispersion, matching the old default's ±knot·disp/100 span.
-const FLAT_INTERIOR: [f64; 9] =
-    [500.0, 1000.0, 1250.0, 3000.0, 5000.0, 7000.0, 8750.0, 9000.0, 9500.0];
+const FLAT_INTERIOR: [f64; 9] = [
+    500.0, 1000.0, 1250.0, 3000.0, 5000.0, 7000.0, 8750.0, 9000.0, 9500.0,
+];
 const FLAT_W: [f64; 14] = [
     -500.0, -463.4937, -439.1332, -402.924, -333.6537, -227.7734, -87.991, 87.991, 227.7734,
     333.6536, 402.9241, 439.1327, 463.4944, 499.9991,
@@ -127,8 +129,12 @@ pub struct AimmParams {
     /// push (block.timestamp − lastPush on-chain) and its own vol EMA, so it widens the spread by
     /// `stale_z · σ · √(steps_since_push)` — the expected adverse-selection over the stale window.
     /// This is the defense that makes the External-keeper design cadence-ROBUST instead of a
-    /// knife-edge (0% LVR only at per-step freshness). 0 = disabled (legacy). Volatiles: on.
+    /// knife-edge (0% LVR only at per-step freshness). Mirrors `Pricing.STALE_Z`, which is a global
+    /// on-chain constant; it stays a field here only so research runs can zero it.
     pub stale_z: f64,
+    /// Feed TTL in steps (1 step = 1 s), the `OracleConfig.ttl` the endpoint is configured with.
+    /// Sets the premium-free grace: `min(ttl/2, STALE_GRACE_CAP_S)` (`Pricing._cacheEndpoint`).
+    pub ttl: usize,
 }
 
 impl Default for AimmParams {
@@ -144,14 +150,15 @@ impl Default for AimmParams {
             cov_min: 5_000.0,
             cov_max: 20_000.0,
             depth_amp: 10_000.0,
-            curve: Some(QuarticCurve::new(&FLAT_INTERIOR, &FLAT_W, FLAT_DISP_REF)),
+            curve: Some(QuarticCurve::new(&FLAT_INTERIOR, &FLAT_W, FLAT_DISP_REF, 0)),
             fast_vol_alpha: 1_800.0,
             slow_vol_alpha: 200.0,
             fast_px_alpha: 0.125,
             slow_px_alpha: 0.025,
             kappa_cov: 0.0,
             kappa_convex: true,
-            stale_z: 0.0,
+            stale_z: STALE_Z,
+            ttl: 60,
         }
     }
 }
@@ -185,6 +192,12 @@ impl Aimm {
     /// Initialize a balanced (coverage = 1) pool seeded at `price` (base per token), with
     /// `base_value` of base reserves and matching token reserves.
     pub fn new(p: AimmParams, price: f64, base_value: f64) -> Self {
+        // `PoolAdmin.setProfile` rejects a FLAG_REQUIRES_WALL preset on an asset with no coverage
+        // wall: those presets concentrate depth at the peg and rely on the wall to stop the drain.
+        assert!(
+            !p.curve.as_ref().is_some_and(|c| c.requires_wall()) || p.kappa_cov > 0.0,
+            "wall-requiring profile on an unwalled asset"
+        );
         let base_res = base_value;
         let tok_res = base_value / price;
         Self {
@@ -340,11 +353,13 @@ impl Aimm {
         selling: bool,
     ) -> f64 {
         let Some(curve) = &self.p.curve else {
-            let impact = (amount_in_tok / depth).min(2.0); // MAX_IMPACT = 200%
+            let impact = (amount_in_tok / depth).min(MAX_IMPACT);
             let mid = skew_to_price(twap, skew, disp);
             let k = impact / 2.0;
             return if selling {
-                mid * if k < 1.0 { 1.0 - k } else { 0.001 } // MIN_ADJ = 0.1%
+                // The impact adjustment can push the sell quote below the floored mid, so the
+                // branch carries its own 5%-of-mark backstop (`Pricing._quotePrice`).
+                (mid * if k < 1.0 { 1.0 - k } else { MIN_ADJ }).max(twap * MIN_EXEC_PRICE_BPS / BPS)
             } else {
                 mid * (1.0 + k)
             };
@@ -373,6 +388,11 @@ impl Aimm {
     /// Asymmetric fee (spread) in PBPS for a trade with coverage `impact`. (`Pricing` path spread
     /// + CS-4 fix: Δ is ORACLE_PBPS, rescale to PBPS before forming the surcharge.)
     fn spread(&self) -> f64 {
+        // ponytail: single-endpoint. `Pricing._pathSpread` takes max(cIn, cOut) of vega, confidence
+        // and staleExcess across BOTH swap endpoints; this pool models one oracle-fed leg against an
+        // unpriced numeraire base, so there is no second endpoint to maximise over and the max()
+        // collapses to the token leg. Upgrade path: give the base leg its own feed (vega,
+        // confidence, ttl) here and in `Aimm`, then take the pairwise max on all three terms.
         let s_vol = self.p.min_fee + (self.sigma() * self.p.vega) / (100.0 * BPS);
         // U = adverse-selection (Glosten-Milgrom) surcharge, keyed on Δ (fast/slow EMA divergence =
         // stale-mark / momentum toxicity) ONLY — NOT gated on coverage direction. Coverage drives the
@@ -403,17 +423,12 @@ impl Aimm {
         (s_vol + u + u_stale + u_age + u_conf).clamp(self.p.min_fee, self.p.max_fee)
     }
 
-    /// Grace period (steps) before the staleness premium engages = the keeper's promised max quiet
-    /// interval. Deviation: the heartbeat (a live keeper always pushes by then ⇒ premium stays 0 in a
-    /// flat market). External: 0 (fixed-cadence legacy mode keys on raw age). Internal/Hybrid: no keeper.
+    /// Premium-free grace before the staleness term engages, in steps (1 step = 1 s).
+    /// `Pricing._cacheEndpoint`: `grace = min(feed.ttl / 2, STALE_GRACE_CAP_S)` — a function of the
+    /// feed TTL alone, NOT of the keeper heartbeat. Audit L-1: ttl/2 on its own exempted the entire
+    /// legal relay-lag window from the premium, so the cap is what actually binds.
     fn push_grace(&self) -> usize {
-        match self.mode {
-            OracleMode::Deviation { heartbeat, .. }
-            | OracleMode::Smoothing { heartbeat, .. }
-            | OracleMode::TradeOffset { heartbeat, .. }
-            | OracleMode::Adaptive { heartbeat, .. } => heartbeat,
-            _ => 0,
-        }
+        (self.p.ttl / 2).min(STALE_GRACE_CAP_S)
     }
 
     /// Coverage potential Q(c) (≤0, max 0 at c=1, strictly concave). Production charges the positive
@@ -484,7 +499,9 @@ impl Aimm {
         } else {
             self.base_res
         };
-        let gross_out = gross_out.min(out_res * 0.999); // can't drain the leg
+        // `Pricing._scaleAndClamp` clamps at the full reserve; the minimum-liquidity floor is an
+        // Exchange-level check, not a pricing one.
+        let gross_out = gross_out.min(out_res);
         if gross_out <= 0.0 {
             return Fill::default();
         }
@@ -774,12 +791,12 @@ fn offset_to_price(mark: f64, offset_pbps: f64) -> f64 {
 /// anchor): clamp the offset to SPLINE_MIN_OFFSET_PBPS (−90%), then apply the MIN_EXEC_PRICE_BPS
 /// absolute floor (5% of mark). (`Pricing._flooredOffsetPrice`)
 fn floored_offset_price(mark: f64, offset_pbps: f64) -> f64 {
-    let price = mark * (PBPS + offset_pbps.max(-PBPS * 0.9)) / PBPS;
-    price.max(mark * 0.05)
+    let price = offset_to_price(mark, offset_pbps.max(SPLINE_MIN_OFFSET_PBPS));
+    price.max(mark * MIN_EXEC_PRICE_BPS / BPS)
 }
 
 /// skew → absolute price for the no-profile fallback: offset = skew·disp/100.
 /// (`Pricing._skewToPrice`)
 fn skew_to_price(mark: f64, skew: f64, disp: f64) -> f64 {
-    offset_to_price(mark, skew * disp / 100.0)
+    floored_offset_price(mark, skew * disp / 100.0)
 }
