@@ -3,7 +3,7 @@
 // trade size we compute our all-in cost (bps) and compare to the incumbent's measured cost; we "win" the
 // size iff our cost <= venue * (1 - router_edge). We sweep TVL to find the min total (and the implied
 // per-leg reserves) at which we win everything up to $2k, and up to $10k. Run: bun run tvl_threshold.ts
-import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../front/src/lib/amm/aimm.ts';
+import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../sdk/src/amm/aimm.ts';
 
 const SHARED = { gamma: 10_000, vega: 10_000, lambda: 10_000, minDisp: 1_000, maxDisp: 100_000,
   covMin: 5_000, covMax: 20_000, depthAmp: 10_000, protoShare: 20, weights: [50, 50, 50, 50], knots: [-50, -25, 0, 25, 50] };

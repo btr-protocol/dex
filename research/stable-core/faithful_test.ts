@@ -3,7 +3,7 @@
 // REAL quote law (quoteExactIn, mark=1.0 peg) against the CURRENT state; if our amountOut beats what the
 // trader actually got, we WIN → apply the reserve deltas (coverage moves) → next quote reflects it.
 // Keeper rebalances a spoke at market cost when its coverage leaves the band. Run: bun run faithful_sim.ts
-import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../front/src/lib/amm/aimm.ts';
+import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../sdk/src/amm/aimm.ts';
 const SHARED = { gamma:10_000, vega:10_000, lambda:10_000, minDisp:1_000, maxDisp:100_000, covMin:5_000, covMax:20_000, depthAmp:10_000, protoShare:20, weights:[50,50,50,50], knots:[-50,-25,0,25,50] };
 const push = JSON.parse(await Bun.file('out/push_econ.json').text());
 const sig = (s:string)=> s==='USDT'?500:((push.per_asset?.[s]?.sigma_day_bps_denoised??10)*100);

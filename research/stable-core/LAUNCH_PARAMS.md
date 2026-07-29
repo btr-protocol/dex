@@ -5,7 +5,7 @@
 > BSC tape study (historical research record).
 
 Source: 6mo BSC HyperSync tape (3.24M swaps, 6 active pools) → microstructure → push economics → capture
-simulation through the REAL quote law (`front/src/lib/amm/aimm.ts`). All numbers trace to `out/*.json`.
+simulation through the REAL quote law (`sdk/src/amm/aimm.ts`). All numbers trace to `out/*.json`.
 Run locally (Mac), nothing on the cluster. Window = 182.7 days (2026-01-06 → 2026-07-08).
 
 ## THE 5 TOKENS (owner-set + tape-confirmed)

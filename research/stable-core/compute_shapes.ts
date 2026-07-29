@@ -5,7 +5,7 @@
 //                v3/Infinity tick reconstruction emits, so real pools overlay 1:1.
 // Curves: BTR AIMM (Hermite spline, disp 1000/2000/3000) · Curve stableswap at REAL BSC production A
 // (Ellipsis 3EPS A=1500, PCS-StableSwap A=1000; Curve-mainnet 3pool A=2000 for reference) · xy=k.
-import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../front/src/lib/amm/aimm.ts';
+import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../sdk/src/amm/aimm.ts';
 const L = 10_000_000;                 // per-side reserve ($10M); total pool ~$20M
 const TOTAL = 2 * L;
 const SIZES = Array.from({length:56},(_,i)=>Math.round(Math.exp(Math.log(500)+(Math.log(6e6)-Math.log(500))*i/55)));

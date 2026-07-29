@@ -5,7 +5,7 @@
 
 **Method (all local, nothing on the cluster):** 6-month tape of the real competing pools (Uniswap v3 + PancakeSwap
 v3, `data/*.parquet`) → daily/size distribution (`daily_dist.py` → `out/daily_dist.json`) + per-asset TVL sweep
-through the **real quote law** (`front/src/lib/amm/aimm.ts`) at launch minFee = 1bp (`tvl_threshold.ts` →
+through the **real quote law** (`sdk/src/amm/aimm.ts`) at launch minFee = 1bp (`tvl_threshold.ts` →
 `out/tvl_threshold.json`). Window 183 days (2026-01 → 2026-07). Stables priced $1.
 
 ---

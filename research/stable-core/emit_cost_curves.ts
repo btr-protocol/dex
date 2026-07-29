@@ -1,7 +1,7 @@
 // emit_cost_curves.ts — precompute OUR pool's all-in cost (bps) vs trade size, at a grid of TVLs, for
 // the two routing types (base<->spoke, spoke<->spoke). The routing replay then interpolates per swap
 // instead of calling quoteExactIn millions of times. Uses the REAL quote law. Run: bun run emit_cost_curves.ts
-import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../front/src/lib/amm/aimm.ts';
+import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../sdk/src/amm/aimm.ts';
 const SHARED = { gamma:10_000, vega:10_000, lambda:10_000, minDisp:1_000, maxDisp:100_000, covMin:5_000, covMax:20_000, depthAmp:10_000, protoShare:20, weights:[50,50,50,50], knots:[-50,-25,0,25,50] };
 const push = JSON.parse(await Bun.file('out/push_econ.json').text());
 const BASE='USDC'; const SPOKES=['USDT','USDe','USD1','FDUSD'] as const;

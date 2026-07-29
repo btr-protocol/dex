@@ -1,5 +1,5 @@
 // capture_sim.ts — BSC stable-core capture + net-APR simulation (Q4).
-// Uses the REAL quote law (front/src/lib/amm/aimm.ts, Rust-parity) over the micro-summary size
+// Uses the REAL quote law (sdk/src/amm/aimm.ts, Rust-parity) over the micro-summary size
 // buckets (not the 3.24M raw tape — that is what stalled the agents; the aggregates are exact for
 // capture%/APR and run in <1s). For each (minFee × σ × TVL) cell and each pair/size-bucket:
 //   our all-in cost bps = (size - quoteExactIn(size).amountOut)/size · 1e4
@@ -8,7 +8,7 @@
 //   LVR APR ≈ per-asset intra-θ pick-off (tiny for stables) — subtracted for net APR.
 // Run: bun run capture_sim.ts   (writes out/capture_grid.json + prints the headline grid)
 
-import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../front/src/lib/amm/aimm.ts';
+import { quoteExactIn, buildLeg, type AimmProfile, type PoolState, type PoolLeg } from '../../../sdk/src/amm/aimm.ts';
 
 const SHARED = {
   gamma: 10_000, vega: 10_000, lambda: 10_000, minDisp: 1_000, maxDisp: 100_000,
