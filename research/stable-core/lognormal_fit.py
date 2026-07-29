@@ -472,7 +472,10 @@ for sym in TARGETS:
     a = np.abs(ell)
     feeQ50, feeQ70, feeQ90, feeQ99 = (float(x) for x in np.quantile(a, [0.50, 0.70, 0.90, 0.99]))
     S_breadth = feeQ99                           # density support over the tape window
-    S_dep = max(S_fit, R, S_breadth)
+    # wall_floor = max(pushExcQ99, b99_6): realized excursion over one push interval.
+    # Without it the soft-sat caps `ell` at |G|+3θ, so support tracks the oracle deadband
+    # rather than price and the deployed band sits ~2x inside realized drift.
+    S_dep = max(S_fit, R, S_breadth, c["wall_floor"])
     cutFit = float(np.mean(a > S_fit)); cutDep = float(np.mean(a > S_dep))
     dip = dip_test(a[a <= S_dep])
     modeBp = 0.0                                 # central-normal: mode AT the mark (no LN offset mode)
@@ -525,7 +528,7 @@ for sym in TARGETS:
     minDisp = int(round(S_dep * dref / W))
     maxDispB99 = max(int(math.ceil(c["wall_floor"] * dref / W)), minDisp)
     liveMax = cfg["cur"][4] if cfg.get("cur") else 0
-    maxDisp = max(maxDispB99, liveMax, cfg.get("mdFloor", 0))   # HOLD ratchet: never slash headroom
+    maxDisp = max(maxDispB99, liveMax, cfg.get("mdFloor", 0), minDisp + 1)  # HOLD ratchet: never slash headroom; maxDisp > minDisp is a fence invariant
     minFeeBp = 2 * th + c["excPrem"]
     minFeePbps = max(int(round(minFeeBp * 100)), MINFEE_HARD_PBPS[cfg["cls"]])
     freeze = not inFam
