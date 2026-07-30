@@ -266,6 +266,16 @@ interface IPool {
     uint64[] hopPrices;
   }
 
+  /// @dev protoFee + lpFee are the WHOLE fee and are denominated in `tokenOut` (Pricing
+  ///      `_settleQuote` charges it out of the output leg): there is no input-leg fee, so an
+  ///      indexer must credit 100% of a swap's fee to `tokenOut` and never to both legs.
+  ///      `spreadPbps` is PBPS (1e6), and the realised fee is spreadPbps/2 of the pre-fee
+  ///      output — half the round-trip spread, not spreadPbps itself.
+  ///      NOT emitted: the leg mark, and the coverage toll `_covToll` withheld before the fee.
+  ///      Both are computed in `_settleQuote` and dropped, so off-chain OEV (exec-vs-mark
+  ///      deviation) and total LP revenue cannot be reconstructed from this log alone.
+  ///      ponytail: add `uint64 markPriceB64` (the value `_executeLeg` already reads) plus
+  ///      `uint256 covToll` here; both are already in memory, so the cost is log data only.
   event Swapped(
     address indexed sender,
     address indexed recipient,

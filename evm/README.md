@@ -120,4 +120,4 @@ slither . --filter-paths 'test|.deps'
 
 ## License
 
-BTR Dual License: Business Source License 1.1 until Change Date, MIT thereafter. Source SPDX headers default to `MIT` for downstream forks; BSL 1.1 terms apply to deployed BTR production instances. See https://btr.supply/licences for the canonical statement.
+BTR Dual License: Business Source License 1.1 until Change Date, MIT thereafter. Source SPDX headers default to `MIT` for downstream forks; BSL 1.1 terms apply to deployed BTR production instances. See https://btr.markets/licences for the canonical statement.
