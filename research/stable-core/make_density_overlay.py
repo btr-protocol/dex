@@ -59,6 +59,7 @@ from pathlib import Path
 import numpy as np
 
 ONLY = set(filter(None, os.environ.get("ONLY", "").split(",")))   # e.g. ONLY=USDT,BTC — iterate fast
+TAPE_FROM = float(os.environ.get("TAPE_FROM", "0") or 0)          # unix s floor; see load_tape
 
 HERE = Path(__file__).parent
 GRID = json.load(open(HERE / "out" / "spline_shared_grid.json"))
@@ -191,6 +192,11 @@ def load_tape(fn, pxwin=None):
     tick = np.array([r.get("tick_count", 1) for r in rows])
     if vol.max() <= 0: vol = tick.astype(float)   # FDUSD tape ships no vbid/vask; tick-count activity proxy
     ok = (close > 0) & (tick > 0)                                            # real prints only
+    # NXR changed s10 sampling density on 2026-07-09: every tape carries 1-3 ticks/bar before
+    # it and 8-29 after (USDT 93% unchanged-close and 2.5k distinct prices/week in June vs 0.1%
+    # and 52k in late July). A window straddling it fits a two-microstructure mixture, which is
+    # what drove klData 1.0-1.85 on the 60d stables. TAPE_FROM pins the homogeneous regime.
+    if TAPE_FROM: ok &= ts >= TAPE_FROM
     lo, hi = pxwin if pxwin else (np.median(close[ok]) * 0.5, np.median(close[ok]) * 2.0)
     ok &= (close > lo) & (close < hi)                                        # glitch px window
     tf = float(np.median(np.diff(ts)))

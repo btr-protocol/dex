@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Pull ~2wk NX-Rates OHLC per BTR testnet asset (base=USDC) for density-derived
-risk params. NXR rolls s10 base -> any whitelisted tf server-side. NO API key
-(basic JSON OHLC is open). Server hard-caps 10000 rows/req -> chunk under it.
+"""Pull NX-Rates OHLC per BTR testnet asset (base=USDC) for density-derived risk
+params. NXR rolls s10 base -> any whitelisted tf server-side. Server hard-caps
+10000 rows/req AND 30d per request range -> chunk under both.
 
-  uv run --with requests python pull_nxr_ohlc.py        # 1min, 2wk
-  TF=10 python pull_nxr_ohlc.py                          # 10s (finer, stables)
+DEPTH (2026-07-30): anonymous requests are history-clamped to 30d
+(`core/src/server/plan.rs` free_anonymous history_cap_ms); a registered/legacy
+key resolves Colo-equivalent with history_cap_ms=None. Without NXR_API_KEY every
+tape silently truncates at 30d no matter what DAYS says, which is how the prior
+roster ended up uniformly 14d and read as "thin history". Set NXR_API_KEY.
+
+  TF=10 DAYS=60 NXR_API_KEY=... python3 pull_nxr_ohlc.py
 Writes data/nxr_ohlc/<ASSET>-USDC.json (concat, dedup, sorted).
 """
 import json, os, time, urllib.request
@@ -14,6 +19,7 @@ BASE = "https://api.nxrates.com/v1/ohlc"
 TF   = int(os.environ.get("TF", "10"))          # 10s = finest (offset-from-mark basis needs it)
 DAYS = int(os.environ.get("DAYS", "14"))
 CHUNK_BARS = 9500                                # < 10000 server cap
+MAX_RANGE_S = 30 * 86400                         # server MAX_RANGE_MS, rejected before the plan check
 OUT = Path(__file__).parent / "data" / "nxr_ohlc"; OUT.mkdir(parents=True, exist_ok=True)
 
 # ASSET/USDC. USDC/USDC omitted (identity=1). CAKE/XAUT only exist vs USDT upstream
@@ -22,16 +28,18 @@ OUT = Path(__file__).parent / "data" / "nxr_ohlc"; OUT.mkdir(parents=True, exist
 # USDF/USDTB: tickers exist but 0 shards on NXR (2026-07-21) -> nothing to pull.
 ASSETS = os.environ.get("ASSETS", "USDT,USD1,USDE,FDUSD,U,USDG-USDT,EURC,BTC,ETH,BNB,CAKE,XAUT").split(",")
 
+KEY  = os.environ.get("NXR_API_KEY", "")        # unset -> 30d anon history clamp (see docstring)
 PACE = float(os.environ.get("PACE", "6"))       # s between reqs; anon IP rate-limits bursts (403)
 UA   = "curl/8.6.0"                              # CF WAF 403s the default Python-urllib UA
+HDRS = {"User-Agent": UA} | ({"x-nxr-key": KEY} if KEY else {})
 
 def get(sym, frm, to):
     u = f"{BASE}/{sym}?tf={TF}&from={frm}&to={to}"
     back = 20
     for _ in range(6):
         try:
-            req = urllib.request.Request(u, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=30) as r:
+            req = urllib.request.Request(u, headers=HDRS)
+            with urllib.request.urlopen(req, timeout=90) as r:
                 out = json.load(r); time.sleep(PACE); return out
         except urllib.error.HTTPError as e:
             if e.code == 404:                            # empty range (short-history asset)
@@ -41,8 +49,10 @@ def get(sym, frm, to):
             print("  403/err backoff", back, e); time.sleep(back); back = min(back*2, 120)
     raise RuntimeError(f"fail {u}")
 
+if DAYS > 30 and not KEY:
+    raise SystemExit("DAYS>30 needs NXR_API_KEY: anonymous history is clamped to 30d server-side")
 now = int(time.time()*1000); start = now - DAYS*86400*1000
-step = CHUNK_BARS*TF*1000
+step = min(CHUNK_BARS*TF, MAX_RANGE_S) * 1000
 for a in ASSETS:
     sym = a if "-" in a else f"{a}-USDC"; rows = {}
     frm = start
@@ -58,7 +68,8 @@ for a in ASSETS:
         print(f"{sym:11} rows=0 SKIP (no history)"); continue
     (OUT/f"{sym}.json").write_text(json.dumps(data))
     span_h = (data[-1]["ts"]-data[0]["ts"])/3.6e6
-    print(f"{sym:11} rows={len(data):6d} span={span_h/24:.1f}d "
-          f"[{data[0]['ts']}..{data[-1]['ts']}]")
+    live = sum(1 for r in data if r.get("tick_count", 0) > 0)
+    print(f"{sym:11} rows={len(data):7d} live={live:7d} ({100*live/len(data):.0f}%) "
+          f"span={span_h/24:.1f}d [{data[0]['ts']}..{data[-1]['ts']}]", flush=True)
     time.sleep(0.3)
 print("done ->", OUT)
