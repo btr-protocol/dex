@@ -36,5 +36,6 @@
     "BRLA-USDC",
     "JPYC-USDC",
     "KRW1-USDC"
-  ]
+  ],
+  "beacon": "0xc10ad818014cdc78A63A1DC47baBf2a98664b54e"
 }

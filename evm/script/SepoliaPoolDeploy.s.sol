@@ -790,6 +790,9 @@ contract SepoliaPoolDeploy is Deploy {
     vm.serializeAddress(k, "poolAux", core.poolAux);
     vm.serializeAddress(k, "poolImpl", core.poolImpl);
     vm.serializeAddress(k, "poolFactory", core.poolFactory);
+    // Shared UpgradeableBeacon: the contract whose implementation() every live pool executes.
+    // Third upgrade path alongside the two UUPS treasuries, so it must be in the address SoT.
+    vm.serializeAddress(k, "beacon", PoolFactory(payable(core.poolFactory)).beacon());
     vm.serializeAddress(k, "govToken", core.govToken);
     vm.serializeAddress(k, "treasuryProxy", core.treasuryProxy);
     vm.serializeAddress(k, "opsTreasuryProxy", core.opsTreasuryProxy);
