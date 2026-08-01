@@ -160,6 +160,3 @@ research/**/node_modules/
 
 # Audit working artifacts (per-cycle scratch, never committed)
 scratch/
-
-# forge broadcast artifacts
-broadcast/
