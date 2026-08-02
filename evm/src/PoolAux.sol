@@ -339,8 +339,9 @@ contract PoolAux is ReentrancyGuardTransient {
   }
 
   /// @notice Write-down when external NAV < book: cut invested + reserves; haircut liabilities/index.
-  /// @dev Caps cut to invested/reserves. Liabilities cut by min(loss, L). If L→0, floor index at 1.
-  ///      Never reverts on loss ≥ liabilities (would strand fictional R_inv).
+  /// @dev Caps cut to invested/reserves. Liabilities cut by min(loss, L). If L→0 the index goes to 0
+  ///      and the leg is TERMINAL: shares are worth 0, deposits and accruals revert, it is never
+  ///      re-listable. Never reverts on loss ≥ liabilities (would strand fictional R_inv).
   ///      No on-chain NAV breaker: harvest SLA / pause is ops control for stale book.
   function hookWriteDown(address token, uint256 amount) external nonReentrant {
     PoolIO.requireNoFlash();
@@ -349,6 +350,10 @@ contract PoolAux is ReentrancyGuardTransient {
     if (amount == 0) return;
     IPool.Asset storage a = $.assets[t];
     if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
+    // Settle pending decay FIRST, as hookCreditYield/deposit/donate do: scaling the index against a
+    // stale `liabilities` and then leaving `lastUpdate` untouched let the full pending dt decay the
+    // already-written-down book a second time.
+    PoolDecay.applyDecay(a, $.riskConfigs[t]);
     uint256 inv = $.invested[t];
     uint256 cut = amount;
     if (cut > inv) cut = inv;

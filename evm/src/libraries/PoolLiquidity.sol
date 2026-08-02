@@ -90,7 +90,9 @@ library PoolLiquidity {
   ///      converter for all LPs of this asset; a raw cast would wrap on overflow and silently corrupt
   ///      every holder's balance. Fail closed instead — an accrual that would overflow the index reverts.
   function raiseIndex(IPool.Asset storage asset, uint256 liabBefore, uint256 added) internal {
-    uint256 idx = asset.liquidityIndex;
+    // A wiped leg (index 0) is terminal and multiplies back to 0: donate/hookCreditYield would book
+    // reserves + liabilities, mint nothing, and strand the funds silently. Fail closed, like mintIndex.
+    uint256 idx = mintIndex(asset);
     uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + added)) / liabBefore;
     if (newIndex > type(uint64).max) revert Err.ExcessiveAmount(newIndex, type(uint64).max);
     asset.liquidityIndex = uint64(newIndex);
