@@ -47,7 +47,17 @@ Replayed the tape through `quoteExactIn` over (minFee × TVL). The fee = `minFee
 finding: the incumbent charges ~1bp, so the **revenue-optimum is *just under* it, NOT the 0.01bp floor** —
 racing to the floor sacrifices ~3× the APR for marginal extra capture we already have.
 
-Net LP APR (after ~0.15%/yr stable LVR), by minFee spread × pool TVL:
+Net LP APR (after ~0.15%/yr stable LVR), by minFee spread × pool TVL.
+
+> ⚠ The table below is STALE. `capture_sim.ts` credited LPs the taker's whole all-in cost, including
+> the `protoShare` that goes to the treasury, so every `net APR` here over-states the LP leg by that
+> share (20% in the sim profile, 25% in the launch fee params). Re-run the sim before quoting these.
+>
+> These are NET of an assumed LVR drag and come from a tape replay, not from chain. The collector's
+> published `feeApr` is GROSS and measured, so it reads structurally higher for the same pool. Do not
+> quote the two side by side. Both describe LP-claimable value only since dex #71, which books the
+> swap LP fee to `liabilities` + `liquidityIndex`; before it, the fee was retained in reserves and no
+> LP could ever withdraw it, so every APR on this page described fee GENERATION, not LP return.
 
 | minFee (spread) | ≈ all-in cost | capture% | net APR @$1M | @$2.5M | @$5M | @$10M |
 |---|---|---|---|---|---|---|

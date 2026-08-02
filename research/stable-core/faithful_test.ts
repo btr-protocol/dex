@@ -40,7 +40,7 @@ async function run(tvl:number){
       else if(tout===BASE && tin!==BASE){ const px=aout/ain; if(px>0.9&&px<1.11) P.state.legs[tin].twap=(1-A_)*P.state.legs[tin].twap+A_*px; } // spoke->USDC: base-per-token = out/in
       const q=quoteExactIn(P.state,tin,tout,ain);
       if(q.amountOut>aout && q.amountOut>0){          // we quote a better price → win
-        wonVol+=ain; wonN++; feeRev+=ain*((q.lpFeeBps||0)+(q.protoFeeBps||0))/1e4;
+        wonVol+=ain; wonN++; feeRev+=ain*(q.lpFeeBps||0)/1e4; // LP leg only: protoFeeBps goes to treasury, never to LPs
         // apply reserve deltas
         const inBase=tin===BASE, outBase=tout===BASE;
         if(!inBase&&outBase){ P.state.legs[tin].res+=ain; P.B.v-=q.amountOut; }         // sell spoke→base

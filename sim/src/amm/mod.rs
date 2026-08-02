@@ -131,6 +131,10 @@ pub struct Metrics {
 
 impl Metrics {
     /// Annualized net LP return = (fees − LVR) / TVL₀ scaled to a year.
+    /// `fees` is the WHOLE spread. The pool splits it `protoShare` to treasury / rest to LPs
+    /// (`Pricing.splitFee`), and this sim carries no `protoShare`, so both APRs below are an
+    /// upper bound on LP return, over-stated by that share.
+    /// ponytail: thread `protoShare` through `Fill` if the sim is ever used to size LP APR.
     pub fn net_apr(&self, days: f64) -> f64 {
         if self.tvl0 <= 0.0 || days <= 0.0 {
             return 0.0;

@@ -108,7 +108,9 @@ for (const minFee of MINFEES) {
         if (win) {
           const capV = bk.vol_usd * AGG_SHARE;
           capturedVol += capV;
-          feeRevenue += capV * (our / 1e4);
+          // LP leg only. `our` is the taker's all-in cost; the treasury takes protoShare of it,
+          // so crediting the whole spread to LPs over-states LP APR by that share.
+          feeRevenue += capV * (our / 1e4) * (1 - SHARED.protoShare / 100);
           ourWeightedCostBps += our * capV;
         }
         perBucket.push({ pair: `${pr.a}/${pr.b}`, bucket: bk.bucket, size, our_bps: +our.toFixed(3), venue_bps: bk.cost_bps_vw, win });
