@@ -1,7 +1,7 @@
 {
  "chainId": 11155111,
  "gen": "emit_prod_params.py (cnplateau m=3; S_dep=max(q70,2\u03b8,feeQ99); no UX quiet floor)",
- "generated": "2026-07-28T12:42:36Z",
+ "generated": "2026-08-02T10:37:11Z",
  "noteBreadth": "Quiet support is dynamic: S_dep = max(S_fit=q70(|ell|), 2\u03b8, feeQ99) from the ~2w fee-kernel density. Majors land near feeQ99 (~19-21 bp \u2192 minDisp ~1900-2100 @ preset5), not the q70 shape cut (~11 bp) and not a constant 25 bp floor. JSON alone does not move live density; apply via requestUpdateProfile / executeUpdateProfile (or adminSetProfile). Sepolia majors (2026-07-28): WETH 2034, WBTC/cbBTC 1887, BNB 1842 @ preset 5.",
  "stablePool": [
   "USDC",
@@ -265,11 +265,11 @@
   1138,
   2003,
   1017,
-  400,
-  400,
-  400,
-  400,
-  400
+  1000,
+  1000,
+  1061,
+  1000,
+  1003
  ],
  "maxFeePbps": [
   2000,
@@ -327,11 +327,11 @@
   3601,
   16747,
   1566,
-  400,
-  400,
-  400,
-  400,
-  400
+  1472,
+  2493,
+  4688,
+  2050,
+  3740
  ],
  "maxDisp": [
   2000,
@@ -575,11 +575,11 @@
   -6567.5,
   -71754.4,
   -131.2,
-  null,
-  null,
-  null,
-  null,
-  null
+  21.9,
+  31.5,
+  -165.5,
+  17.2,
+  -327.2
  ],
  "tapeStatus": [
   "N/A (identity numeraire)",
@@ -606,11 +606,11 @@
   "PROVISIONAL",
   "ok",
   "PROVISIONAL",
+  "ok",
+  "ok",
   "PROVISIONAL",
-  "PROVISIONAL",
-  "PROVISIONAL",
-  "PROVISIONAL",
-  "PROVISIONAL"
+  "ok",
+  "ok"
  ],
  "seedUsdPerLeg": 50000
 }

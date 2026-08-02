@@ -1,6 +1,6 @@
 {
  "gen": "emit_prod_params.py <- lognormal_fit.py (cnplateau m=3; S_dep=max(q70,2\u03b8,feeQ99))",
- "generated": "2026-07-30T10:18:34Z",
+ "generated": "2026-08-02T10:37:11Z",
  "basis": {
   "qTrunc": 0.7,
   "tolKlRep": 0.25,
@@ -1956,7 +1956,7 @@
   },
   "QCAD": {
    "status": "fit",
-   "cls": "volatile",
+   "cls": "fx",
    "tape": "QCAD-USDC.json",
    "fallback": false,
    "tf_s": 10,
@@ -2036,7 +2036,7 @@
   },
   "AUDF": {
    "status": "fit",
-   "cls": "volatile",
+   "cls": "fx",
    "tape": "AUDF-USDC.json",
    "fallback": false,
    "tf_s": 10,
@@ -2116,7 +2116,7 @@
   },
   "BRLA": {
    "status": "fit",
-   "cls": "volatile",
+   "cls": "fx",
    "tape": "BRLA-USDC.json",
    "fallback": false,
    "tf_s": 10,
@@ -2196,7 +2196,7 @@
   },
   "JPYC": {
    "status": "fit",
-   "cls": "volatile",
+   "cls": "fx",
    "tape": "JPYC-USDC.json",
    "fallback": false,
    "tf_s": 10,
@@ -2276,7 +2276,7 @@
   },
   "KRW1": {
    "status": "fit",
-   "cls": "volatile",
+   "cls": "fx",
    "tape": "KRW1-USDC.json",
    "fallback": false,
    "tf_s": 10,

@@ -79,12 +79,31 @@ ROUTE = {"WETH": "ETH", "WBTC": "BTC", "cbBTC": "BTC"}
 
 GAMMA, VEGA = 20_000, 10_000                 # 2x inventory skew / 1x vega (Chapel SSoT, unchanged)
 KAPPA_WALL = 100                             # convex coverage-wall strength on pegged stable spokes
-MAXFEE = {"stable": 2_000, "volatile": 10_000}
+# fx = the fiat-FX tier declared at the protocol layer (SepoliaPoolDeploy.s.sol: p.fx, FX_TTL=3600,
+# FX_MAXDEV=75bp, SIGMA_SEED_FX=800; SeedRiskFences.s.sol banner: "maxFee = 2000 (stable) / 10000
+# (volatile) / 5000 (fx)"). That deploy script REJECTS an unrecognized cls, so "fx" was always meant
+# to reach this dict: it just never had a MAXFEE/REF_BAND entry, so these 5 legs never emitted.
+MAXFEE = {"stable": 2_000, "volatile": 10_000, "fx": 5_000}
 # Depeg breaker tolerance vs the reference oracle. Pegged stables band against the signed USDC/USD
 # reference; every other spoke bands against its OWN pair feed (comparing a non-USD mark to a unit
 # price would halt permanently). Base is exempt (its own feed IS its breaker).
-REF_BAND = {"base": 0, "stable": 150, "nav": 300, "volatile": 300, "metal": 200}
+# fx REF_BAND=250 restores the value the 2026-07-27 FX-core bootstrap (commit 3c0c535) hand-seeded
+# directly into the deploy JSON before any fit existed; this just re-derives it through the emitter
+# instead of relying on preserve-extras to copy it forward forever.
+REF_BAND = {"base": 0, "stable": 150, "nav": 300, "volatile": 300, "metal": 200, "fx": 250}
 METALS = {"XAUT", "PAXG"}
+# Deploy-cls "fx" legs: QCAD/AUDF/BRLA/JPYC/KRW1 only. EURC is ALSO fx-core (and FX_POOL) but was
+# owner-reclassed stable->volatile on 2026-07-21 for its OWN pool AND fx-core (SepoliaPoolDeploy.s.sol
+# p.fx would otherwise wrongly hand it FX_MAXDEV=75bp / FX_TTL=3600 in fx-core, diverging from its
+# volatile-core deploy of the same feed): ROSTER's cls="volatile" for EURC already encodes that and
+# must NOT be overridden here. Distinct from ROSTER's cls field, which for ALL fx=True legs (EURC
+# included) stays "volatile": that field selects the DENSITY-FIT theta/heartbeat spec
+# (make_density_overlay.py CLASS/TAU_INV), a different axis from this deploy-facing risk tier.
+FX_RISK_CLASS = {"QCAD", "AUDF", "BRLA", "JPYC", "KRW1"}
+
+
+def deploy_cls(sym, fit_cls):
+    return "fx" if sym in FX_RISK_CLASS else fit_cls
 
 
 def ref_band(sym, cls, cfg):
@@ -92,6 +111,8 @@ def ref_band(sym, cls, cfg):
         return REF_BAND["base"]
     if sym in METALS:
         return REF_BAND["metal"]
+    if cls == "fx":
+        return REF_BAND["fx"]
     if cls == "volatile":
         return REF_BAND["volatile"]
     return REF_BAND["nav"] if cfg.get("nowall") else REF_BAND["stable"]
@@ -124,7 +145,7 @@ def prod_row(sym):
     if f is None:                                       # no fit: conservative class default
         cls = cfg["cls"]
         fb = FALLBACK[cls]
-        return dict(status="fallback", cls=cls, tape=None, fallback=True,
+        return dict(status="fallback", cls=deploy_cls(sym, cls), tape=None, fallback=True,
                     tapeStatus="TAPE_PENDING", sessionGap=None,
                     thetaFinal=CLASS[cls]["theta"], hb_s=CLASS[cls]["hb"], cadencePerH=None,
                     regime="cnplateau", family="cnplateau", m=3, W=fb["W"], dispRef=fb["dispRef"],
@@ -141,7 +162,7 @@ def prod_row(sym):
     fit, risk, ln, cell = f["fit"], f["risk"], f["ln"], f["cell"]
     rj = f.get("refereeJ") or {}
     return dict(
-        status="fit", cls=f["cls"], tape=f["tape"], fallback=False,
+        status="fit", cls=deploy_cls(sym, f["cls"]), tape=f["tape"], fallback=False,
         tf_s=10, span_d=f["spanD"], bars=f["bars"], tapeStatus=f["tapeStatus"],
         sessionGap=f["sessionGap"], thetaFinal=f["theta"], hb_s=CLASS[f["cls"]]["hb"],
         cadencePerH=f["cadencePerH"],
@@ -178,7 +199,7 @@ def wall_cfg(cls, cfg):
 
 
 ALL = []
-for s in STABLE_POOL + VOLATILE_POOL:
+for s in STABLE_POOL + VOLATILE_POOL + FX_POOL:
     if s not in ALL:
         ALL.append(s)
 ROWS = {s: prod_row(s) for s in ALL}
@@ -294,7 +315,10 @@ def emit_artifacts():
         depthAmplifier=[ROWS[s]["wall"]["depthAmplifier"] for s in ALL],
         haircutSuppressor=[ROWS[s]["wall"]["haircutSuppressor"] for s in ALL],
         refBandBps=[ref_band(s, ROWS[s]["cls"], ROSTER.get(ROUTE.get(s, s), {})) for s in ALL],
-        refOwnFeed=[bool(s != "USDC" and (ROWS[s]["cls"] == "volatile"
+        # fx bands against its own pair feed too (a fiat cross is no closer to the 1.0 USDC peg than
+        # a crypto major is): same "not ~1.0, don't use the signed USDC/USD reference" rule as
+        # volatile/nowall, just never extended to the fx cls when it was added.
+        refOwnFeed=[bool(s != "USDC" and (ROWS[s]["cls"] in ("volatile", "fx")
                                           or ROSTER.get(ROUTE.get(s, s), {}).get("nowall")))
                     for s in ALL],
         refereeJ=[ROWS[s]["referee"]["J"] for s in ALL],
