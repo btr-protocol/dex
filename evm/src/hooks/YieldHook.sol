@@ -21,7 +21,7 @@ abstract contract YieldHook is BasePoolHook {
 
   uint16 public constant DEFAULT_TARGET_INVESTED_BPS = 6500;
   uint16 public constant DEFAULT_HYSTERESIS_BPS = 500;
-  /// @notice Default max credit per harvest as BPS of book (100 = 1%). Owner may raise.
+  /// @notice Default max credit as BPS of book PER DAY (100 = 1%/day). Owner may raise.
   uint16 public constant DEFAULT_MAX_HARVEST_CREDIT_BPS = 100;
 
   address public immutable AC;
@@ -30,8 +30,13 @@ abstract contract YieldHook is BasePoolHook {
 
   uint16 public targetInvestedBps;
   uint16 public hysteresisBps;
-  /// @notice Cap on `hookCreditYield` per harvest (BPS of book; 0 disables credit).
+  /// @notice Cap on `hookCreditYield` (BPS of book PER DAY; 0 disables credit).
   uint16 public maxHarvestCreditBps;
+  /// @notice Last crediting harvest. The cap is a RATE, not a per-call allowance: without it,
+  ///         `rebalance()` has no cooldown, so N calls in one block each credited a full
+  ///         `book·capBps/BPS` and compounded the index N times off one NAV move.
+  ///         Packs with the three uint16s above (48+32 bits, one slot).
+  uint32 public lastHarvest;
   /// @notice Optional override; address(0) → `IHasTreasury(pool).treasury()`.
   address public incentivesReceiver;
   /// @notice Merkl distributor used by the base (proof-carrying) claim route. Defaults to the canonical
@@ -63,6 +68,8 @@ abstract contract YieldHook is BasePoolHook {
     targetInvestedBps = DEFAULT_TARGET_INVESTED_BPS;
     hysteresisBps = DEFAULT_HYSTERESIS_BPS;
     maxHarvestCreditBps = DEFAULT_MAX_HARVEST_CREDIT_BPS;
+    // Seed the rate clock at deploy: a 0 start would read `dt = block.timestamp` and disable the cap.
+    lastHarvest = uint32(block.timestamp);
   }
 
   function recommendedFlags() external pure virtual returns (uint32) {
@@ -282,12 +289,17 @@ abstract contract YieldHook is BasePoolHook {
     if (nav == book) return;
     if (nav > book) {
       uint256 credit = nav - book;
-      // Sandwich/inflation bound: credit at most maxHarvestCreditBps of book per harvest.
+      // Sandwich/inflation bound: credit at most maxHarvestCreditBps of book PER DAY. dt == 0 (a
+      // second harvest in the same block) credits nothing, so `rebalance()` cannot be spun to
+      // compound one NAV move. Unused allowance accrues, so a genuine gain still lands in full
+      // after enough elapsed time; the excess stays as unrealised NAV until then.
       uint16 capBps = maxHarvestCreditBps;
       if (capBps == 0) return;
-      uint256 maxCredit = (book * uint256(capBps)) / SC.BPS;
+      uint256 dt = block.timestamp - lastHarvest;
+      uint256 maxCredit = (book * uint256(capBps) * dt) / (SC.BPS * 1 days);
       if (credit > maxCredit) credit = maxCredit;
       if (credit == 0) return;
+      lastHarvest = uint32(block.timestamp);
       IPool(pool).hookCreditYield(token, credit);
     } else {
       IPool(pool).hookWriteDown(token, book - nav);

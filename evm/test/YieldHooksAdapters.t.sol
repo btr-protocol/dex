@@ -529,23 +529,46 @@ contract YieldHooksAdaptersTest is BaseTestSetup {
     uint256 book = IPool(address(pool)).getInvested(address(quote));
     assertGt(book, 0);
 
-    // 2× rate → ~100% unrealized yield; default cap is 100 bps of book.
+    // 2× rate → ~100% unrealized yield; default cap is 100 bps of book PER DAY.
     vault.setRate(2e18);
-    uint256 expectedCap = (book * 100) / 10_000;
 
+    // Measure on `liabilities`: only hookCreditYield moves it, whereas `invested` also moves on the
+    // buffer deploy that rebalance() runs right after the harvest.
+    vm.prank(OWNER);
+    hook.rebalance(); // drains whatever allowance accrued since the ctor
+    uint256 liab1 = pool.getAsset(address(quote)).liabilities;
+    assertGt(liab1, 0);
+
+    // Anti-compounding gate: a second call in the SAME block has dt == 0 and must credit nothing.
+    // Before the dt term, `rebalance()` had no cooldown and each call credited a full cap.
     vm.prank(OWNER);
     hook.rebalance();
-    uint256 after1 = IPool(address(pool)).getInvested(address(quote));
-    assertEq(after1, book + expectedCap, "first harvest capped at 100 bps");
+    assertEq(
+      uint256(pool.getAsset(address(quote)).liabilities), liab1, "dt == 0 must credit nothing"
+    );
 
+    uint256 book1 = IPool(address(pool)).getInvested(address(quote));
+    skip(1 days);
+    vm.prank(OWNER);
+    hook.rebalance();
+    assertEq(
+      uint256(pool.getAsset(address(quote)).liabilities),
+      liab1 + (book1 * 100) / 10_000,
+      "one day of allowance = 100 bps of book"
+    );
+
+    uint256 book2 = IPool(address(pool)).getInvested(address(quote));
+    uint256 liab2 = pool.getAsset(address(quote)).liabilities;
     vm.prank(OWNER);
     hook.setMaxHarvestCreditBps(500);
-    uint256 book2 = after1;
-    uint256 expectedCap2 = (book2 * 500) / 10_000;
+    skip(1 days);
     vm.prank(OWNER);
     hook.rebalance();
-    uint256 after2 = IPool(address(pool)).getInvested(address(quote));
-    assertEq(after2, book2 + expectedCap2, "owner-raised cap");
+    assertEq(
+      uint256(pool.getAsset(address(quote)).liabilities),
+      liab2 + (book2 * 500) / 10_000,
+      "owner-raised cap"
+    );
   }
 
   function test_harvest_credit_disabled_when_cap_zero() public {
@@ -632,11 +655,16 @@ contract YieldHooksAdaptersTest is BaseTestSetup {
     // Inflate totalSupplyAssets without touching shares (= IRM accrual not reflected in view until
     // we harvest). Harvest should credit only up to maxHarvestCreditBps.
     morpho.setSupplyTotals(mid, assets + uint128(book), totalShares);
-    uint256 cap = (book * 100) / 10_000;
+    uint256 cap = (book * 100) / 10_000; // 100 bps of book per day
+    uint256 dt = block.timestamp - hook.lastHarvest();
+    uint256 liab0 = pool.getAsset(address(quote)).liabilities;
     vm.prank(OWNER);
     hook.rebalance();
-    uint256 afterHarvest = IPool(address(pool)).getInvested(address(quote));
-    assertEq(afterHarvest, book + cap, "stale-to-accrued jump still sandwich-capped");
+    assertEq(
+      uint256(pool.getAsset(address(quote)).liabilities),
+      liab0 + (cap * dt) / 1 days,
+      "stale-to-accrued jump still sandwich-capped"
+    );
   }
 
   function test_compound_maxWithdrawable_bounded_by_cash() public {
