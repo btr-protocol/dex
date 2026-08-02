@@ -89,7 +89,12 @@ library PoolLiquidity {
   ///      (donate, hookCreditYield, swap/flash fee). liquidityIndex (uint64) is the sole share↔value
   ///      converter for all LPs of this asset; a raw cast would wrap on overflow and silently corrupt
   ///      every holder's balance.
-  ///      Fail closed instead — an accrual that would overflow the index reverts.
+  ///      #73: the overflow used to REVERT, which made the ceiling an absorbing state — seed a leg
+  ///      at 1 wei of liabilities, donate the index up against it, withdraw, and every later donate
+  ///      and hookCreditYield on that leg reverted forever for the cost of gas. CLAMP instead. The
+  ///      clamp is not a weakened guard: it is strictly downward, so `S*index/WAD <= liabilities`
+  ///      still holds (shares under-claim, never over-claim) and no leg can be bricked. Value above
+  ///      the clamp is stranded in `liabilities`, visible as a flat index in the IndexUpdated log.
   function raiseIndex(
     IPool.Asset storage asset,
     address token,
@@ -101,7 +106,7 @@ library PoolLiquidity {
     // reserves + liabilities, mint nothing, and strand the funds silently. Fail closed, like mintIndex.
     uint256 idx = mintIndex(asset);
     uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + added)) / liabBefore;
-    if (newIndex > type(uint64).max) revert Err.ExcessiveAmount(newIndex, type(uint64).max);
+    if (newIndex > type(uint64).max) newIndex = type(uint64).max;
     asset.liquidityIndex = uint64(newIndex);
     emit IPool.IndexUpdated(token, newIndex, asset.reserves, asset.liabilities, reason);
   }

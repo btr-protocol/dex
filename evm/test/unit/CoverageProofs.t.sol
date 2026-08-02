@@ -343,15 +343,28 @@ contract CoverageProofsTest is CoverageProofsBase {
     admin.setAssetParams(address(pool), address(tok), 0, 1000, 10_000, 10_000, 10_000, 20_000, 0, 0);
   }
 
-  /// Audit fix: donate's liquidityIndex cast is checked — a donation large enough to overflow the
-  /// uint64 index (which would silently corrupt every LP's share↔value mapping) reverts instead.
-  function test_donate_liquidityIndex_overflow_reverts() public {
+  /// #73: a donation large enough to overflow the uint64 index CLAMPS, it does not revert and it
+  /// never wraps. Reverting made the ceiling absorbing: pin a dust-seeded leg's index just under it
+  /// and every later donate / hookCreditYield on that leg reverted forever for the price of gas.
+  /// Clamping is strictly downward, so shares under-claim and the supply invariant is preserved.
+  function test_donate_liquidityIndex_overflow_clamps() public {
     // tok liability = SEED (1e24); first donate uses INIT index 1e12. newIndex = 1e12·(SEED+amt)/SEED;
     // exceeding 2^64 (~1.845e19) needs (SEED+amt)/SEED > ~1.845e7 ⇒ amt > ~1.845e31.
     uint256 huge = 2e31;
     tok.mint(address(this), huge);
-    vm.expectRevert(); // Err.ExcessiveAmount(newIndex, type(uint64).max)
     pool.donate(address(tok), huge);
+
+    IPool.Asset memory a = pool.getAsset(address(tok));
+    assertEq(uint256(a.liquidityIndex), type(uint64).max, "index clamps at the uint64 ceiling");
+    uint256 claim =
+      pool.getLPBalance(address(this), address(tok)) * uint256(a.liquidityIndex) / 1e18;
+    assertLe(
+      claim, uint256(a.liabilities), "clamp must not break totalSupply*index/WAD <= liabilities"
+    );
+
+    // The leg still accepts accruals afterwards: the ceiling is no longer absorbing.
+    tok.mint(address(this), 1e18);
+    pool.donate(address(tok), 1e18);
   }
 
   /// Lemma B: with haircutSuppressor = 0, same-asset withdrawal leaves coverage unchanged
