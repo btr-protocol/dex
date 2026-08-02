@@ -6,6 +6,7 @@ import {Err} from "@btr-shared/Errors.sol";
 import {PoolDecay} from "./PoolDecay.sol";
 import {PoolIO} from "./PoolIO.sol";
 import {PoolHooks} from "./PoolHooks.sol";
+import {PoolLiquidity} from "./PoolLiquidity.sol";
 
 /// @title PoolEdge - flash-edge ops extracted from Pool.sol
 /// @notice Wave-2 bytecode reduction. Pure refactor; behavior preserved.
@@ -58,6 +59,7 @@ library PoolEdge {
     }
     // forge-lint: disable-next-line(unsafe-typecast) — bounded by the check above.
     asset.reserves += uint128(lpFee);
+    PoolLiquidity.accrueLpFee(asset, t, lpFee);
     $.protocolFees[t] += protoFee;
     PoolIO.exitFlash();
   }

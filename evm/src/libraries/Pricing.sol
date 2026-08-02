@@ -714,7 +714,9 @@ library Pricing {
   }
 
   /// @dev Coverage potential Q(c) = ln c − c + 1 (WAD): ≤0, max 0 at c=1, convex wall diverging as c→0.
-  ///      Finite differences of Q telescope to 0 over any closed reserve loop ⇒ round-trip-neutral.
+  ///      Finite differences of Q telescope to 0 over any closed reserve loop at CONSTANT liabilities
+  ///      ⇒ round-trip-neutral. Since #71 the LP-fee accrual raises `liabilities` mid-loop, so the
+  ///      telescoping is only approximate; the residual is pool-favorable (higher L ⇒ lower c ⇒ more toll).
   function _covQ(uint256 cWad) internal pure returns (int256) {
     if (cWad == SC.WAD) return 0; // Q(1)=0 analytic max; skip lnWad on clamped at/above-peg legs
     return FixedPointMathLib.lnWad(int256(cWad)) - int256(cWad) + int256(SC.WAD);

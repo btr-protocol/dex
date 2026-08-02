@@ -23,6 +23,8 @@ library Constants {
   uint8 internal constant INDEX_REASON_YIELD = 1;
   uint8 internal constant INDEX_REASON_DECAY = 2;
   uint8 internal constant INDEX_REASON_WRITEDOWN = 3;
+  /// @dev Swap/flash LP fee booked to LP claim: separable from DONATE (gift) and YIELD (hook NAV).
+  uint8 internal constant INDEX_REASON_FEE = 4;
 
   /// @dev Share↔value index base, written explicitly at initAsset. value = lp·index/WAD.
   ///      index == 0 is NOT a lazy-init sentinel: it means the leg was written down to a total

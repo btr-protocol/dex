@@ -86,9 +86,10 @@ library PoolLiquidity {
   }
 
   /// @dev Raise an asset's liquidity index after `added` value accrues to LPs over `liabBefore`
-  ///      (donate, hookCreditYield). Checked cast: liquidityIndex (uint64) is the sole share↔value
+  ///      (donate, hookCreditYield, swap/flash fee). liquidityIndex (uint64) is the sole share↔value
   ///      converter for all LPs of this asset; a raw cast would wrap on overflow and silently corrupt
-  ///      every holder's balance. Fail closed instead — an accrual that would overflow the index reverts.
+  ///      every holder's balance.
+  ///      Fail closed instead — an accrual that would overflow the index reverts.
   function raiseIndex(
     IPool.Asset storage asset,
     address token,
@@ -103,6 +104,28 @@ library PoolLiquidity {
     if (newIndex > type(uint64).max) revert Err.ExcessiveAmount(newIndex, type(uint64).max);
     asset.liquidityIndex = uint64(newIndex);
     emit IPool.IndexUpdated(token, newIndex, asset.reserves, asset.liabilities, reason);
+  }
+
+  /// @notice Book an LP fee ALREADY retained in `asset.reserves` as LP-claimable value.
+  /// @dev Caller must have credited the reserves first; this only moves the claim side, so coverage
+  ///      stays flat. Value above `liabilities` is unreachable by every exit path (face-only
+  ///      withdraw, haircut identity at c ≥ 1, decay gated below a coverage threshold, no sweep).
+  ///      SKIPS, never reverts, on the degenerate books, because this runs inside swap/flash
+  ///      settlement and a revert here is a leg-wide denial of service bought for gas:
+  ///      - index 0 (wiped leg): the raise multiplies back to 0.
+  ///      - liabilities 0 (all LPs exited): no shares to credit, so it would be phantom liability.
+  ///      - fee > liabilities: a dust book (a 1-wei seed pins `liabilities` at 1). Uncapped, one
+  ///        such accrual blows the uint64 index ceiling and bricks every later swap out of the leg.
+  ///        Capping growth at 2x per call also bounds #73's seed-and-pin grief.
+  ///      In all three the fee stays in reserves, exactly as before #71.
+  function accrueLpFee(IPool.Asset storage asset, address token, uint256 fee) internal {
+    uint256 liabBefore = asset.liabilities;
+    if (fee == 0 || asset.liquidityIndex == 0 || liabBefore == 0 || fee > liabBefore) return;
+    if (fee > type(uint128).max - liabBefore) {
+      revert Err.ExcessiveAmount(fee, type(uint128).max - liabBefore);
+    }
+    asset.liabilities = uint128(liabBefore + fee);
+    raiseIndex(asset, token, liabBefore, fee, C.INDEX_REASON_FEE);
   }
 
   function donate(IPool.PoolStorage storage $, address token, uint256 amount) external {
@@ -134,6 +157,7 @@ library PoolLiquidity {
     uint256 amt;
     uint256 haircut;
     uint256 protoFee;
+    uint256 lpFee;
   }
 
   function withdrawTo(
@@ -246,6 +270,7 @@ library PoolLiquidity {
     (ctx.amt, ctx.haircut) =
       applyHaircut(q.amountOut, assetTo.reserves, assetTo.liabilities, assetTo.haircutSuppressor);
     ctx.protoFee = q.protoFee;
+    ctx.lpFee = q.lpFee;
     uint256 outNeed = ctx.amt + ctx.protoFee;
     if (assetTo.reserves < outNeed) revert Err.InsufficientAmount(assetTo.reserves, outNeed);
   }
@@ -264,6 +289,7 @@ library PoolLiquidity {
       assetFrom.liabilities -= uint128(ctx.withdrawValue);
       if (ctx.protoFee > 0) $.protocolFees[ctx.toTk] += ctx.protoFee;
       assetTo.reserves -= uint128(ctx.amt + ctx.protoFee);
+      accrueLpFee(assetTo, ctx.toTk, ctx.lpFee); // spread is charged on the OUTPUT leg, as in exec
     }
   }
 
@@ -318,8 +344,10 @@ library PoolLiquidity {
     // Liability re-denomination is deliberately protocol-fee-EXEMPT (unlike swap/withdrawTo-cross):
     // it moves no reserves, so there is no physical outflow to skim q.protoFee from — capturing it
     // would debit the output reserve with no matching inflow and degrade coverage. The swapper is
-    // still charged the full spread (q.amountOut is net); the proto share stays as reduced net
-    // liability = coverage to LPs (conservative, LP-safe). Audit-confirmed design choice, not a gap.
+    // still charged the full spread (q.amountOut is net); both fee legs stay as reduced net liability.
+    // NOT routed through accrueLpFee, unlike exec/flash/cross-withdraw: there is no retained token
+    // here to back an index raise, so booking it would mint claim against nothing. It lands as a
+    // global coverage gain instead, which is only realisable while some leg sits under-covered.
     // applyHaircut self-gates (identity when reserves >= liabilities) — no outer guard needed.
     (uint256 liabOut, uint256 haircut) =
       applyHaircut(q.amountOut, assetOut.reserves, assetOut.liabilities, assetOut.haircutSuppressor);

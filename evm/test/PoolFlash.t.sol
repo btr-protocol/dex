@@ -144,6 +144,31 @@ contract PoolFlashTest is BaseTestSetup {
     assertEq(balAfter, reservesAfter + feesAfter, "single-side conservation");
   }
 
+  /// @notice #71: the flash LP fee must become LP CLAIM, not dead coverage above liabilities.
+  ///         Pre-fix `PoolEdge.flashAccount` added it to reserves only, so an LP's `previewWithdraw`
+  ///         never moved and the fee was unclaimable by anyone.
+  function test_flash_lpFee_accrues_to_lp_claim() public {
+    uint256 amount = 100_000e18;
+    uint256 lpFee = (amount * FLASH_FEE_BPS) / 1_000_000;
+    lpFee -= (lpFee * PROTO_SHARE) / 100;
+
+    IPool.Asset memory before = pool.getAsset(address(base));
+    uint256 lp = pool.getLPBalance(address(this), address(base));
+    (uint256 pre,) = pool.previewWithdraw(address(base), lp);
+
+    MockBorrower b = new MockBorrower();
+    base.mint(address(b), amount / 100);
+    flashSingleton.flashLoan(address(pool), b, address(base), amount, abi.encode(address(pool)));
+
+    IPool.Asset memory afterA = pool.getAsset(address(base));
+    assertEq(
+      uint256(afterA.liabilities), uint256(before.liabilities) + lpFee, "liabilities += lpFee"
+    );
+    assertGt(uint256(afterA.liquidityIndex), uint256(before.liquidityIndex), "index rises");
+    (uint256 post,) = pool.previewWithdraw(address(base), lp);
+    assertGt(post, pre, "LP claim must grow on a flash fee");
+  }
+
   /// @notice R13: protoShare > 100 must revert at Pool.initialize.
   function test_R13_protoShare_capped_initialize() public {
     bytes32 salt = bytes32(uint256(0xdead));

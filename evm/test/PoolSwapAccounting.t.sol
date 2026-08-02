@@ -11,6 +11,7 @@ import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "./fixtures/BaseTestSetup.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 /// @title PoolSwapAccountingTest
 /// @notice Quote-time protoFee + token-conservation (R8) accounting.
@@ -160,6 +161,142 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     );
     // Input side must NOT be skimmed into the treasury (the drained-LP vector).
     assertEq(pool.getProtocolFees(address(base)), 0, "no input-side protocol fee");
+  }
+
+  /// @notice #71: the swap LP fee must land in LP CLAIM, not sit above liabilities as dead coverage.
+  ///         Pre-fix `q.lpFee` was split at Pricing and never read again: liabilities and the index
+  ///         were untouched, so realised LP return from swaps was exactly zero and the fee was
+  ///         unclaimable by LPs, governance or treasury.
+  function test_lpFee_raises_liquidityIndex_and_liabilities() public {
+    uint256 amt = 100e18;
+    base.mint(USER, amt);
+    vm.prank(USER);
+    base.approve(address(pool), type(uint256).max);
+
+    IPool.SwapQuote memory q = pool.getSwapQuote(address(base), address(quote), amt);
+    assertGt(q.lpFee, 0, "fixture must charge a nonzero LP fee");
+
+    IPool.Asset memory before = pool.getAsset(address(quote));
+    vm.prank(USER);
+    pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
+    IPool.Asset memory afterA = pool.getAsset(address(quote));
+
+    assertEq(
+      uint256(afterA.liabilities), uint256(before.liabilities) + q.lpFee, "liabilities += lpFee"
+    );
+    assertGt(
+      uint256(afterA.liquidityIndex), uint256(before.liquidityIndex), "index must rise on the fee"
+    );
+    // Booking the fee must not have moved reserves: the accrual is claim-side only.
+    assertEq(
+      uint256(afterA.reserves),
+      uint256(before.reserves) - q.amountOut - q.protoFee,
+      "reserves untouched by the accrual"
+    );
+  }
+
+  /// @notice The move is logged as its own reason so an indexer can separate realised fee APR from
+  ///         donate and hook yield. Untested, the constant is decorative.
+  function test_lpFee_logs_INDEX_REASON_FEE() public {
+    uint256 amt = 100e18;
+    base.mint(USER, amt);
+    vm.prank(USER);
+    base.approve(address(pool), type(uint256).max);
+
+    vm.recordLogs();
+    vm.prank(USER);
+    pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
+
+    Vm.Log[] memory logs = vm.getRecordedLogs();
+    bool found;
+    for (uint256 i; i < logs.length; ++i) {
+      if (logs[i].topics[0] != IPool.IndexUpdated.selector) continue;
+      if (address(uint160(uint256(logs[i].topics[1]))) != address(quote)) continue;
+      (,,, uint8 reason) = abi.decode(logs[i].data, (uint256, uint128, uint128, uint8));
+      if (reason == C.INDEX_REASON_FEE) found = true;
+    }
+    assertTrue(found, "swap must log IndexUpdated(reason=FEE) on the output leg");
+  }
+
+  /// @notice The cross-asset withdraw leg charges the same output-side spread and stranded it the
+  ///         same way. Third patched money path; nothing else covers it.
+  function test_crossWithdraw_lpFee_accrues_on_the_output_leg() public {
+    IPool.Asset memory before = pool.getAsset(address(quote));
+    uint256 lp = pool.getLPBalance(address(this), address(base)) / 10;
+    skip(60); // clear the JIT cooldown from setUp's deposit
+
+    pool.withdrawTo(address(base), address(quote), lp, 0, NO_DEADLINE);
+
+    IPool.Asset memory afterA = pool.getAsset(address(quote));
+    assertGt(uint256(afterA.liquidityIndex), uint256(before.liquidityIndex), "out-leg index rises");
+    assertGt(uint256(afterA.liabilities), uint256(before.liabilities), "out-leg liabilities rise");
+  }
+
+  /// @notice The supply invariant survives the accrual: outstanding claim never exceeds liabilities.
+  ///         `address(this)` is the sole quote LP in this fixture, so its balance IS total supply.
+  function test_lpFee_preserves_supply_invariant() public {
+    uint256 amt = 50_000e18;
+    base.mint(USER, amt);
+    vm.prank(USER);
+    base.approve(address(pool), type(uint256).max);
+
+    for (uint256 i; i < 5; ++i) {
+      vm.prank(USER);
+      pool.swap(address(base), address(quote), amt / 5, 0, USER, NO_DEADLINE);
+      IPool.Asset memory a = pool.getAsset(address(quote));
+      uint256 claim =
+        pool.getLPBalance(address(this), address(quote)) * uint256(a.liquidityIndex) / 1e18;
+      assertLe(claim, uint256(a.liabilities), "totalSupply*index/WAD <= liabilities");
+    }
+  }
+
+  /// @notice End to end: an LP who sat through round-trip flow withdraws MORE than it put in. This
+  ///         is the number `feeApr` publishes; pre-fix `previewWithdraw` was flat forever, because
+  ///         the fee raised reserves only and withdraw pays face (`lp·index/WAD`).
+  ///         A round trip is required: one directed swap leaves the output leg short on inventory,
+  ///         so the coverage haircut masks the accrual. Restoring inventory isolates the fee.
+  function test_lpFee_is_realised_on_withdraw() public {
+    uint256 seedLp = 1_000_000e18; // setUp's quote deposit by address(this)
+    uint256 lp = pool.getLPBalance(address(this), address(quote));
+    (uint256 pre,) = pool.previewWithdraw(address(quote), lp);
+    assertEq(pre, seedLp, "flat before any flow");
+
+    uint256 amt = 10_000e18;
+    base.mint(USER, amt);
+    vm.startPrank(USER);
+    base.approve(address(pool), type(uint256).max);
+    quote.approve(address(pool), type(uint256).max);
+    uint256 got = pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
+    pool.swap(address(quote), address(base), got, 0, USER, NO_DEADLINE);
+    vm.stopPrank();
+
+    (uint256 post,) = pool.previewWithdraw(address(quote), lp);
+    assertGt(post, seedLp, "LP claim must grow on swap fees");
+  }
+
+  /// @notice A leg whose liabilities went to dust must NOT brick. `raiseIndex` reverts above the
+  ///         uint64 index ceiling, and `newIndex = idx·(L+f)/L` blows it once `f > 1.8e7·L`, so an
+  ///         accrual that reverts inside settlement is a leg-wide DoS bought for gas. A cross-asset
+  ///         withdraw burns quote liabilities in full while paying out of BASE reserves, which is
+  ///         exactly that shape: quote keeps ~1M reserves against ~0 liabilities.
+  function test_lpFee_skips_rather_than_bricks_a_dust_liability_leg() public {
+    skip(60); // clear the JIT cooldown from setUp
+    uint256 lp = pool.getLPBalance(address(this), address(quote));
+    pool.withdrawTo(address(quote), address(base), lp, 0, NO_DEADLINE);
+    IPool.Asset memory dust = pool.getAsset(address(quote));
+    assertEq(uint256(dust.liabilities), 0, "quote liabilities drained, reserves left behind");
+    assertGt(uint256(dust.reserves), 0);
+
+    uint256 amt = 100e18;
+    base.mint(USER, amt);
+    vm.startPrank(USER);
+    base.approve(address(pool), type(uint256).max);
+    uint256 out = pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
+    vm.stopPrank();
+    assertGt(out, 0, "swap out of a dust-liability leg must still settle");
+    assertEq(
+      uint256(pool.getAsset(address(quote)).liabilities), 0, "no phantom liability against 0 shares"
+    );
   }
 
   /// @notice R8 fuzz: conservation holds across a range of input sizes.

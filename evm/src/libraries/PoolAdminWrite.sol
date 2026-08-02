@@ -90,6 +90,8 @@ library PoolAdminWrite {
     }
   }
 
+  /// @dev 0 disables the JIT guard. Load-bearing since #71: swap and flash fees now move the index,
+  ///      so with no cooldown an LP can deposit, wait for a known-inbound swap, and withdraw the fee.
   function setFlowCooldown(IPool.PoolStorage storage $, uint16 cooldownSeconds) external {
     $.flowCooldownSeconds = cooldownSeconds;
   }

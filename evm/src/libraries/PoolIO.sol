@@ -10,6 +10,7 @@ import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Oracle} from "./Oracle.sol";
 import {PoolHooks} from "./PoolHooks.sol";
+import {PoolLiquidity} from "./PoolLiquidity.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {TransientCache as TCache} from "./TransientCache.sol";
 
@@ -135,6 +136,8 @@ library PoolIO {
     aIn.reserves += uint128(amtIn);
     aOut.reserves -= uint128(q.amountOut + q.protoFee);
     if (q.protoFee != 0) $.protocolFees[tkOut] += q.protoFee;
+    // q.lpFee is the tkOut the reserve debit above deliberately did NOT pay out.
+    PoolLiquidity.accrueLpFee(aOut, tkOut, q.lpFee);
 
     priceBandGuard($, tkOut, aOut);
     priceBandGuard($, tkIn, aIn);
