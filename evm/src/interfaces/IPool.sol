@@ -308,6 +308,15 @@ interface IPool {
     uint256 haircut
   );
   event Donated(address indexed sender, address indexed token, uint256 amount);
+  /// @notice Every liquidityIndex move. Without it there is no historical NAV per share, no derivable
+  ///         APR, no TWAP, and a write-down is invisible: the index is the sole share↔value
+  ///         converter and nothing else logs it. `reason` is Constants.INDEX_REASON_*; reserves and
+  ///         liabilities ride along because they are not readable at a historical block without an
+  ///         archive node, and the coverage haircut cannot be reconstructed without them.
+  ///         `index` is uint256 so the field survives the liquidityIndex width change.
+  event IndexUpdated(
+    address indexed token, uint256 index, uint128 reserves, uint128 liabilities, uint8 reason
+  );
 
   // ─── Exchange functions ──────────────────────────────────────────────────
   function owner() external view returns (address);

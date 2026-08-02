@@ -8,7 +8,11 @@ import {Constants as C} from "./Constants.sol";
 library PoolDecay {
   /// @notice Apply liability decay in-place, reusing a caller-loaded RiskConfig (avoids re-SLOAD).
   ///         Full no-op when decay is disabled (no SSTORE).
-  function applyDecay(IPool.Asset storage asset, IPool.RiskConfig storage rc) internal {
+  /// @param token Event key only. Decay is the one index move with no other log, so an indexer
+  ///        cannot otherwise tell a decayed leg from a written-down one.
+  function applyDecay(IPool.Asset storage asset, IPool.RiskConfig storage rc, address token)
+    internal
+  {
     if ((rc.flags & C.DECAY_ENABLED_BIT) == 0 || rc.decaySlope == 0) return;
 
     uint32 dt = uint32(block.timestamp) - asset.lastUpdate;
@@ -24,9 +28,10 @@ library PoolDecay {
       // at 1 pushed the index ABOVE the proportional value, so outstanding shares could claim more
       // than `liabilities` (breaks totalSupply·index/WAD ≤ liabilities). A scaled-to-0 index is the
       // truthful terminal state: every share is worth 0 and the leg stops taking deposits.
-      asset.liquidityIndex =
-        uint64((uint256(asset.liquidityIndex) * uint256(newLiab)) / uint256(oldLiab));
+      uint256 newIdx = (uint256(asset.liquidityIndex) * uint256(newLiab)) / uint256(oldLiab);
+      asset.liquidityIndex = uint64(newIdx);
       asset.liabilities = newLiab;
+      emit IPool.IndexUpdated(token, newIdx, asset.reserves, newLiab, C.INDEX_REASON_DECAY);
     }
     asset.lastUpdate = uint32(block.timestamp);
   }

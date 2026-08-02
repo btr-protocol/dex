@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {PoolDecay} from "../../src/libraries/PoolDecay.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {IPool} from "../../src/interfaces/IPool.sol";
@@ -28,12 +28,16 @@ contract PoolDecayHarness {
     a.lastUpdate = lastUpdate;
   }
 
+  function setAssetIndex(address token, uint64 index) external {
+    $.assets[token].liquidityIndex = index;
+  }
+
   function getAsset(address token) external view returns (IPool.Asset memory) {
     return $.assets[token];
   }
 
   function callApplyDecay(address token) external {
-    PoolDecay.applyDecay($.assets[token], $.riskConfigs[token]);
+    PoolDecay.applyDecay($.assets[token], $.riskConfigs[token], token);
   }
 
   function callCalculateDecay(
@@ -105,6 +109,35 @@ contract PoolDecayTest is Test {
   }
 
   // ─── applyDecay (storage) ───
+
+  /// @notice Decay is the one index move with no other log. Without IndexUpdated an indexer cannot
+  ///         tell a decayed leg from a written-down one, so there is no historical NAV per share.
+  function test_applyDecay_emitsIndexUpdated() public {
+    uint32 prev = uint32(block.timestamp - 1000);
+    h.setAsset(TKA, 500e18, 1000e18, prev);
+    h.setAssetIndex(TKA, uint64(C.LIQUIDITY_INDEX_INIT));
+    h.setRiskConfig(TKA, 10_000, uint32(1e6), C.DECAY_ENABLED_BIT);
+
+    vm.recordLogs();
+    h.callApplyDecay(TKA);
+    IPool.Asset memory a = h.getAsset(TKA);
+    assertLt(a.liabilities, 1000e18, "precondition: decay actually fired");
+
+    Vm.Log[] memory logs = vm.getRecordedLogs();
+    bool found;
+    for (uint256 i; i < logs.length; ++i) {
+      if (logs[i].topics[0] != IPool.IndexUpdated.selector) continue;
+      found = true;
+      assertEq(address(uint160(uint256(logs[i].topics[1]))), TKA, "keyed on the asset");
+      (uint256 idx, uint128 res, uint128 liab, uint8 reason) =
+        abi.decode(logs[i].data, (uint256, uint128, uint128, uint8));
+      assertEq(idx, a.liquidityIndex, "logged index matches storage");
+      assertEq(res, a.reserves);
+      assertEq(liab, a.liabilities);
+      assertEq(reason, C.INDEX_REASON_DECAY, "reason separates decay from write-down");
+    }
+    assertTrue(found, "IndexUpdated not emitted on decay");
+  }
 
   function test_applyDecay_disabledFlagIsFullNoOp() public {
     uint32 prev = uint32(block.timestamp - 1000);

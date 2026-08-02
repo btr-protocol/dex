@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {MockERC20} from "../../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {Pool} from "../../src/Pool.sol";
 import {PoolAux} from "../../src/PoolAux.sol";
@@ -423,6 +423,46 @@ contract CoverageProofsTest is CoverageProofsBase {
     assertLe(
       baseVal, a.amountOut + 1e6, "swapLiability escaped the coverage haircut (bank-run bypass)"
     );
+  }
+
+  /// @notice A cross-asset withdraw used to emit Withdrawn(toTk, amt, lpAmount) where lpAmount was
+  ///         fromTk shares. A log replayer therefore debited shares from the wrong leg, on both
+  ///         legs. LiabilitySwapped now carries the fromTk burn and Withdrawn carries the toTk
+  ///         payout with lpAmount 0, since no toTk share was burned.
+  function test_crossWithdraw_logs_burn_against_the_correct_leg() public {
+    tok.mint(ATK, SEED);
+    vm.startPrank(ATK);
+    tok.approve(address(pool), type(uint256).max);
+    pool.deposit(address(tok), SEED / 10);
+    vm.stopPrank();
+    skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1);
+
+    uint256 lp = pool.getLPBalance(ATK, address(tok)) / 4;
+    vm.recordLogs();
+    vm.prank(ATK);
+    pool.withdrawTo(address(tok), address(base), lp, 0, NO_DEADLINE);
+
+    Vm.Log[] memory logs = vm.getRecordedLogs();
+    bool sawSwap;
+    bool sawWithdrawn;
+    for (uint256 i; i < logs.length; ++i) {
+      if (logs[i].topics[0] == IPool.LiabilitySwapped.selector) {
+        sawSwap = true;
+        assertEq(address(uint160(uint256(logs[i].topics[2]))), address(tok), "burn keyed to fromTk");
+        (uint256 lpIn, uint256 lpOut,) = abi.decode(logs[i].data, (uint256, uint256, uint256));
+        assertEq(lpIn, lp, "fromTk shares burned");
+        assertEq(lpOut, 0, "nothing minted on the cross path");
+      }
+      if (logs[i].topics[0] == IPool.Withdrawn.selector) {
+        sawWithdrawn = true;
+        assertEq(
+          address(uint160(uint256(logs[i].topics[2]))), address(base), "payout keyed to toTk"
+        );
+        (, uint256 lpAmount) = abi.decode(logs[i].data, (uint256, uint256));
+        assertEq(lpAmount, 0, "no toTk share was burned");
+      }
+    }
+    assertTrue(sawSwap && sawWithdrawn, "both legs logged");
   }
 
   /// @notice Shares may never claim more face than the leg owes. `_applyWithdraw` used to CLAMP

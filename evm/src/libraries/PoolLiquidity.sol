@@ -63,7 +63,7 @@ library PoolLiquidity {
     if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tkn);
 
     IPool.RiskConfig storage rc = $.riskConfigs[tkn]; // one SLOAD of the packed slot, shared below
-    PoolDecay.applyDecay(asset, rc);
+    PoolDecay.applyDecay(asset, rc, tkn);
     PoolIO.checkRiskFlags(rc, 0);
 
     uint256 amt = PoolIO.pull($, token, amount);
@@ -89,13 +89,20 @@ library PoolLiquidity {
   ///      (donate, hookCreditYield). Checked cast: liquidityIndex (uint64) is the sole share↔value
   ///      converter for all LPs of this asset; a raw cast would wrap on overflow and silently corrupt
   ///      every holder's balance. Fail closed instead — an accrual that would overflow the index reverts.
-  function raiseIndex(IPool.Asset storage asset, uint256 liabBefore, uint256 added) internal {
+  function raiseIndex(
+    IPool.Asset storage asset,
+    address token,
+    uint256 liabBefore,
+    uint256 added,
+    uint8 reason
+  ) internal {
     // A wiped leg (index 0) is terminal and multiplies back to 0: donate/hookCreditYield would book
     // reserves + liabilities, mint nothing, and strand the funds silently. Fail closed, like mintIndex.
     uint256 idx = mintIndex(asset);
     uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + added)) / liabBefore;
     if (newIndex > type(uint64).max) revert Err.ExcessiveAmount(newIndex, type(uint64).max);
     asset.liquidityIndex = uint64(newIndex);
+    emit IPool.IndexUpdated(token, newIndex, asset.reserves, asset.liabilities, reason);
   }
 
   function donate(IPool.PoolStorage storage $, address token, uint256 amount) external {
@@ -106,7 +113,7 @@ library PoolLiquidity {
     if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tkn);
 
     IPool.RiskConfig storage rc = $.riskConfigs[tkn]; // one SLOAD of the packed slot, shared below
-    PoolDecay.applyDecay(asset, rc);
+    PoolDecay.applyDecay(asset, rc, tkn);
     PoolIO.checkRiskFlags(rc, 0);
 
     uint256 amt = PoolIO.pull($, token, amount);
@@ -115,7 +122,7 @@ library PoolLiquidity {
     uint256 liabBefore = uint256(asset.liabilities);
     asset.reserves += uint128(amt);
     asset.liabilities += uint128(amt);
-    raiseIndex(asset, liabBefore, amt);
+    raiseIndex(asset, tkn, liabBefore, amt, C.INDEX_REASON_DONATE);
 
     emit IPool.Donated(msg.sender, token, amt);
   }
@@ -163,8 +170,8 @@ library PoolLiquidity {
       IPool.RiskConfig storage rcTo = $.riskConfigs[ctx.toTk];
       PoolIO.checkRiskFlags(rcFrom, 0);
       PoolIO.checkRiskFlags(rcTo, 0);
-      PoolDecay.applyDecay(assetFrom, rcFrom);
-      PoolDecay.applyDecay(assetTo, rcTo);
+      PoolDecay.applyDecay(assetFrom, rcFrom, ctx.fromTk);
+      PoolDecay.applyDecay(assetTo, rcTo, ctx.toTk);
 
       ctx.withdrawValue = (lpAmount * uint256(assetFrom.liquidityIndex)) / SC.WAD;
       // Mirror swapLiability's guard: shares may never claim more face than the leg owes. This was a
@@ -198,8 +205,12 @@ library PoolLiquidity {
     if (ctx.fromTk == ctx.toTk) {
       emit IPool.Withdrawn(msg.sender, ctx.fromTk, ctx.amt, lpAmount);
     } else {
+      // lpAmount is fromTk shares; ctx.amt is toTk tokens. Emitting them together against toTk
+      // told a log replayer that toTk shares were burned, so reconstructed balances were wrong on
+      // both legs. LiabilitySwapped carries the fromTk burn (out = 0: nothing was minted); Withdrawn
+      // carries the toTk payout with lpAmount 0, because no toTk share was burned.
       emit IPool.LiabilitySwapped(msg.sender, ctx.fromTk, ctx.toTk, lpAmount, 0, ctx.haircut);
-      emit IPool.Withdrawn(msg.sender, ctx.toTk, ctx.amt, lpAmount);
+      emit IPool.Withdrawn(msg.sender, ctx.toTk, ctx.amt, 0);
     }
     return IPool.WithdrawResult({amountOut: ctx.amt, lpBurned: lpAmount});
   }
@@ -281,8 +292,8 @@ library PoolLiquidity {
 
     IPool.RiskConfig storage rIn = $.riskConfigs[inTk];
     IPool.RiskConfig storage rOut = $.riskConfigs[outTk];
-    PoolDecay.applyDecay(assetIn, rIn);
-    PoolDecay.applyDecay(assetOut, rOut);
+    PoolDecay.applyDecay(assetIn, rIn, inTk);
+    PoolDecay.applyDecay(assetOut, rOut, outTk);
     PoolIO.checkRiskFlags(rIn, C.LIABILITY_SWAP_ENABLED_BIT);
     PoolIO.checkRiskFlags(rOut, C.LIABILITY_SWAP_ENABLED_BIT);
 

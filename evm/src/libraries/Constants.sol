@@ -17,6 +17,13 @@ library Constants {
   /// @dev Halt = freeze | pause. Single mask at every value-moving gate.
   uint16 internal constant HALT_MASK = FROZEN_BIT | ASSET_PAUSED_BIT;
 
+  /// @dev IPool.IndexUpdated.reason. DECAY and WRITEDOWN both lower the index and are otherwise
+  ///      indistinguishable to an indexer; nothing else logs either.
+  uint8 internal constant INDEX_REASON_DONATE = 0;
+  uint8 internal constant INDEX_REASON_YIELD = 1;
+  uint8 internal constant INDEX_REASON_DECAY = 2;
+  uint8 internal constant INDEX_REASON_WRITEDOWN = 3;
+
   /// @dev Share↔value index base, written explicitly at initAsset. value = lp·index/WAD.
   ///      index == 0 is NOT a lazy-init sentinel: it means the leg was written down to a total
   ///      loss, every share is worth exactly 0, and the leg accepts no further deposits.

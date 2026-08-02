@@ -36,7 +36,7 @@ library PoolBatch {
 
     IPool.RiskConfig storage rc = $.riskConfigs[tk];
     PoolIO.checkRiskFlags(rc, C.SWAP_ENABLED_BIT);
-    PoolDecay.applyDecay(a, rc);
+    PoolDecay.applyDecay(a, rc, tk);
 
     uint256 amt = PoolIO.pull($, tk, M.decodeB64(amtB64, a.decimals));
 
@@ -72,7 +72,7 @@ library PoolBatch {
 
     IPool.RiskConfig storage rc = $.riskConfigs[tk];
     PoolIO.checkRiskFlags(rc, C.SWAP_ENABLED_BIT);
-    PoolDecay.applyDecay(a, rc);
+    PoolDecay.applyDecay(a, rc, tk);
 
     if (tk == base) {
       outAmt = baseIn;

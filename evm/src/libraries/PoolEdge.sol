@@ -30,7 +30,7 @@ library PoolEdge {
     address t = PoolIO.wrap($, token);
     IPool.Asset storage asset = $.assets[t];
     if (asset.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
-    PoolDecay.applyDecay(asset, $.riskConfigs[t]);
+    PoolDecay.applyDecay(asset, $.riskConfigs[t], t);
     if (amount == 0) revert Err.ZeroValue();
     // Executable flash capacity = R_liq (invested is not loanable without prior recall).
     uint256 liq = PoolHooks.liquidReserves($, t);

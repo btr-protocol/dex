@@ -32,8 +32,8 @@ library PoolSwap {
     IPool.RiskConfig storage rOut = $.riskConfigs[outTk];
     PoolIO.checkRiskFlags(rIn, C.SWAP_ENABLED_BIT);
     PoolIO.checkRiskFlags(rOut, C.SWAP_ENABLED_BIT);
-    PoolDecay.applyDecay(aIn, rIn);
-    PoolDecay.applyDecay(aOut, rOut);
+    PoolDecay.applyDecay(aIn, rIn, inTk);
+    PoolDecay.applyDecay(aOut, rOut, outTk);
 
     uint256 actualIn = PoolIO.pull($, tokenIn, amountIn);
     IPool.SwapQuote memory q = Pricing.getAnchorPathQuote($, inTk, outTk, actualIn);

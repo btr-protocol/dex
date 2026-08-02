@@ -326,7 +326,7 @@ contract PoolAux is ReentrancyGuardTransient {
     if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
     // Settle pending decay FIRST, as deposit and donate do: crediting yield onto a stale
     // index/liabilities pair let the pending decay write down the freshly credited amount.
-    PoolDecay.applyDecay(a, $.riskConfigs[t]);
+    PoolDecay.applyDecay(a, $.riskConfigs[t], t);
     a.reserves += uint128(amount);
     a.liabilities += uint128(amount);
     uint256 inv = $.invested[t];
@@ -335,7 +335,7 @@ contract PoolAux is ReentrancyGuardTransient {
     }
     $.invested[t] = uint128(inv + amount);
     // Raise liquidity index like donate (liabBefore = liabilities prior to the += above).
-    PoolLiquidity.raiseIndex(a, uint256(a.liabilities) - amount, amount);
+    PoolLiquidity.raiseIndex(a, t, uint256(a.liabilities) - amount, amount, C.INDEX_REASON_YIELD);
   }
 
   /// @notice Write-down when external NAV < book: cut invested + reserves; haircut liabilities/index.
@@ -353,7 +353,7 @@ contract PoolAux is ReentrancyGuardTransient {
     // Settle pending decay FIRST, as hookCreditYield/deposit/donate do: scaling the index against a
     // stale `liabilities` and then leaving `lastUpdate` untouched let the full pending dt decay the
     // already-written-down book a second time.
-    PoolDecay.applyDecay(a, $.riskConfigs[t]);
+    PoolDecay.applyDecay(a, $.riskConfigs[t], t);
     uint256 inv = $.invested[t];
     uint256 cut = amount;
     if (cut > inv) cut = inv;
@@ -371,7 +371,9 @@ contract PoolAux is ReentrancyGuardTransient {
     // to 0, which is the terminal state (shares worth 0, leg refuses further deposits). Flooring at
     // 1 left outstanding shares with a live claim against the NEXT depositor's money.
     if (liabBefore > 0) {
-      a.liquidityIndex = uint64((uint256(a.liquidityIndex) * (liabBefore - cutLiab)) / liabBefore);
+      uint256 newIdx = (uint256(a.liquidityIndex) * (liabBefore - cutLiab)) / liabBefore;
+      a.liquidityIndex = uint64(newIdx);
+      emit IPool.IndexUpdated(t, newIdx, a.reserves, a.liabilities, C.INDEX_REASON_WRITEDOWN);
     }
   }
 }
