@@ -418,13 +418,43 @@ contract CoverageProofsTest is CoverageProofsBase {
     vm.revertToState(snap);
     vm.prank(ATK); // liability-swap into healthy base, then measure the base value it commands
     uint256 outLp = pool.swapLiability(address(tok), address(base), lp / 4, 0, NO_DEADLINE);
-    // Reconstruct the base liability the swapped-in LP position commands (index 0 ⇒ INIT convention,
-    // since deposit never writes liquidityIndex — only donate does).
-    uint64 bIdx = pool.getAsset(address(base)).liquidityIndex;
-    uint256 baseVal = (outLp * (bIdx == 0 ? uint256(1e12) : uint256(bIdx))) / WAD;
+    // Reconstruct the base liability the swapped-in LP position commands.
+    uint256 baseVal = (outLp * uint256(pool.getAsset(address(base)).liquidityIndex)) / WAD;
     assertLe(
       baseVal, a.amountOut + 1e6, "swapLiability escaped the coverage haircut (bank-run bypass)"
     );
+  }
+
+  /// @notice Shares may never claim more face than the leg owes. `_applyWithdraw` used to CLAMP
+  ///         `liabRed` to `liabilities` while still pushing the full `amt`, so reserves left with no
+  ///         matching liability cut: the post-state read as liabilities==0 and perfect coverage
+  ///         while other holders' reserves had been extracted. swapLiability always reverted on the
+  ///         identical condition; withdrawTo now matches it.
+  /// @dev    Post-fix, decay and write-down both scale the index proportionally, so this state is
+  ///         unreachable through the entrypoints. Forced via vm.store: the guard is defence in depth.
+  function test_withdraw_face_exceeding_liabilities_reverts() public {
+    tok.mint(ATK, SEED);
+    vm.startPrank(ATK);
+    tok.approve(address(pool), type(uint256).max);
+    pool.deposit(address(tok), SEED / 10);
+    vm.stopPrank();
+    skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1);
+
+    uint256 lp = pool.getLPBalance(ATK, address(tok));
+    IPool.Asset memory a = pool.getAsset(address(tok));
+    uint256 face = (lp * uint256(a.liquidityIndex)) / WAD;
+    assertLe(face, a.liabilities, "precondition: healthy leg");
+
+    // Halve liabilities WITHOUT touching the index or the shares (slot 3 = assets mapping;
+    // struct slot 0 packs reserves[0:128] | liabilities[128:256]).
+    bytes32 slot = keccak256(abi.encode(address(tok), uint256(3)));
+    uint128 cutLiab = uint128(face / 2);
+    vm.store(address(pool), slot, bytes32((uint256(cutLiab) << 128) | uint256(uint128(a.reserves))));
+    assertEq(pool.getAsset(address(tok)).liabilities, cutLiab, "forced under-liability state");
+
+    vm.prank(ATK);
+    vm.expectRevert(abi.encodeWithSelector(Err.InsufficientAmount.selector, uint256(cutLiab), face));
+    pool.withdrawTo(address(tok), address(tok), lp, 0, NO_DEADLINE);
   }
 }
 

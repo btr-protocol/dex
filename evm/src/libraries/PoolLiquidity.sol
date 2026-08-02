@@ -26,6 +26,14 @@ library PoolLiquidity {
     }
   }
 
+  /// @dev Share-minting index. Reverts on a wiped leg (index 0 = total write-down): minting there
+  ///      would divide by zero, and any share minted after a wipe would be diluted 1:0 against the
+  ///      stale supply. A wiped leg is terminal; list a new one.
+  function mintIndex(IPool.Asset storage asset) internal view returns (uint256 idx) {
+    idx = asset.liquidityIndex;
+    if (idx == 0) revert Err.InvalidState();
+  }
+
   function applyHaircut(uint256 amount, uint128 reserves, uint128 liabilities, uint16 suppression)
     internal
     pure
@@ -61,8 +69,7 @@ library PoolLiquidity {
     uint256 amt = PoolIO.pull($, token, amount);
     if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
-    uint256 lpAmt =
-      (amt * SC.WAD) / (C.effIndex(asset.liquidityIndex));
+    uint256 lpAmt = (amt * SC.WAD) / mintIndex(asset);
     // ACC-03: a deposit too small to mint ≥1 LP share would still credit reserves+liabilities —
     // free liquidity donated to existing LPs. Reject the zero-share dust deposit.
     if (lpAmt == 0) revert Err.ZeroValue();
@@ -83,7 +90,7 @@ library PoolLiquidity {
   ///      converter for all LPs of this asset; a raw cast would wrap on overflow and silently corrupt
   ///      every holder's balance. Fail closed instead — an accrual that would overflow the index reverts.
   function raiseIndex(IPool.Asset storage asset, uint256 liabBefore, uint256 added) internal {
-    uint256 idx = C.effIndex(asset.liquidityIndex);
+    uint256 idx = asset.liquidityIndex;
     uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + added)) / liabBefore;
     if (newIndex > type(uint64).max) revert Err.ExcessiveAmount(newIndex, type(uint64).max);
     asset.liquidityIndex = uint64(newIndex);
@@ -157,10 +164,14 @@ library PoolLiquidity {
       PoolDecay.applyDecay(assetFrom, rcFrom);
       PoolDecay.applyDecay(assetTo, rcTo);
 
-      ctx.withdrawValue =
-        (lpAmount
-            * (C.effIndex(assetFrom.liquidityIndex)))
-          / SC.WAD;
+      ctx.withdrawValue = (lpAmount * uint256(assetFrom.liquidityIndex)) / SC.WAD;
+      // Mirror swapLiability's guard: shares may never claim more face than the leg owes. This was a
+      // silent clamp in _applyWithdraw, which still pushed the full `amt` out while reducing
+      // liabilities only to 0 — reserves left with no matching liability cut.
+      if (ctx.withdrawValue > assetFrom.liabilities) {
+        revert Err.InsufficientAmount(assetFrom.liabilities, ctx.withdrawValue);
+      }
+      if (ctx.withdrawValue == 0) revert Err.ZeroValue(); // ACC-03 symmetry: no zero-value burn
     }
 
     if (ctx.fromTk == ctx.toTk) {
@@ -231,15 +242,13 @@ library PoolLiquidity {
   {
     $.lpBalances[msg.sender][ctx.fromTk] -= lpAmount;
     IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
-    uint256 liabRed =
-      ctx.withdrawValue > assetFrom.liabilities ? assetFrom.liabilities : ctx.withdrawValue;
-
+    // withdrawValue ≤ liabilities is enforced at the quote (no clamp): the full face is always burned.
     if (ctx.fromTk == ctx.toTk) {
       assetFrom.reserves -= uint128(ctx.amt);
-      assetFrom.liabilities -= uint128(liabRed);
+      assetFrom.liabilities -= uint128(ctx.withdrawValue);
     } else {
       IPool.Asset storage assetTo = $.assets[ctx.toTk];
-      assetFrom.liabilities -= uint128(liabRed);
+      assetFrom.liabilities -= uint128(ctx.withdrawValue);
       if (ctx.protoFee > 0) $.protocolFees[ctx.toTk] += ctx.protoFee;
       assetTo.reserves -= uint128(ctx.amt + ctx.protoFee);
     }
@@ -279,9 +288,7 @@ library PoolLiquidity {
       revert Err.InsufficientAmount($.lpBalances[msg.sender][inTk], lpAmountIn);
     }
 
-    uint256 liabIn =
-      (lpAmountIn * (C.effIndex(assetIn.liquidityIndex)))
-        / SC.WAD;
+    uint256 liabIn = (lpAmountIn * uint256(assetIn.liquidityIndex)) / SC.WAD;
     if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
 
     // In-asset coverage haircut BEFORE the mark conversion, mirroring _withdrawSame: re-denominate only
@@ -304,8 +311,7 @@ library PoolLiquidity {
     (uint256 liabOut, uint256 haircut) =
       applyHaircut(q.amountOut, assetOut.reserves, assetOut.liabilities, assetOut.haircutSuppressor);
 
-    lpAmountOut = (liabOut * SC.WAD)
-      / (C.effIndex(assetOut.liquidityIndex));
+    lpAmountOut = (liabOut * SC.WAD) / mintIndex(assetOut);
 
     assetIn.liabilities -= uint128(liabIn);
     assetOut.liabilities += uint128(liabOut);

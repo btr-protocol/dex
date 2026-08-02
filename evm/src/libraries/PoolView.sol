@@ -3,7 +3,6 @@ pragma solidity =0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
 import {Err} from "@btr-shared/Errors.sol";
-import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {PoolLiquidity} from "./PoolLiquidity.sol";
 import {PoolIO} from "./PoolIO.sol";
@@ -17,8 +16,7 @@ library PoolView {
     returns (uint256 amountOut, uint256 haircut)
   {
     IPool.Asset storage a = $.assets[PoolIO.wrap($, tk)];
-    uint256 li = C.effIndex(a.liquidityIndex);
-    uint256 wv = (lp * li) / SC.WAD;
+    uint256 wv = (lp * uint256(a.liquidityIndex)) / SC.WAD;
     (amountOut, haircut) =
       PoolLiquidity.applyHaircut(wv, a.reserves, a.liabilities, a.haircutSuppressor);
   }

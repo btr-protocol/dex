@@ -10,6 +10,7 @@ import {PoolEdge} from "./libraries/PoolEdge.sol";
 import {PoolLiquidity} from "./libraries/PoolLiquidity.sol";
 import {PoolIO} from "./libraries/PoolIO.sol";
 import {PoolHooks} from "./libraries/PoolHooks.sol";
+import {PoolDecay} from "./libraries/PoolDecay.sol";
 import {Constants as C} from "./libraries/Constants.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
@@ -147,11 +148,17 @@ contract PoolAux is ReentrancyGuardTransient {
     );
   }
 
-  function adminSetRiskConfig(address token, IPool.RiskConfig calldata cfg) external onlyAdminContract {
+  function adminSetRiskConfig(address token, IPool.RiskConfig calldata cfg)
+    external
+    onlyAdminContract
+  {
     PoolAdminWrite.setRiskConfig($, token, cfg);
   }
 
-  function adminSetOracleConfig(address token, IPool.OracleConfig calldata cfg) external onlyAdminContract {
+  function adminSetOracleConfig(address token, IPool.OracleConfig calldata cfg)
+    external
+    onlyAdminContract
+  {
     PoolAdminWrite.setOracleConfig($, token, cfg);
   }
 
@@ -182,7 +189,10 @@ contract PoolAux is ReentrancyGuardTransient {
     PoolAdminWrite.setTreasury($, newTreasury);
   }
 
-  function adminSetBaseToken(address newBase, address[] calldata spokes) external onlyAdminContract {
+  function adminSetBaseToken(address newBase, address[] calldata spokes)
+    external
+    onlyAdminContract
+  {
     PoolAdminWrite.setBaseToken($, newBase, spokes);
   }
 
@@ -314,6 +324,9 @@ contract PoolAux is ReentrancyGuardTransient {
     if (amount > type(uint128).max) revert Err.ExcessiveAmount(amount, type(uint128).max);
     IPool.Asset storage a = $.assets[t];
     if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, t);
+    // Settle pending decay FIRST, as deposit and donate do: crediting yield onto a stale
+    // index/liabilities pair let the pending decay write down the freshly credited amount.
+    PoolDecay.applyDecay(a, $.riskConfigs[t]);
     a.reserves += uint128(amount);
     a.liabilities += uint128(amount);
     uint256 inv = $.invested[t];
@@ -349,16 +362,11 @@ contract PoolAux is ReentrancyGuardTransient {
       a.liabilities -= uint128(cutLiab);
       $.invested[t] = uint128(inv - cut);
     }
-    // Socialize via liquidity index (decay-style). Total claim wipe → floor at 1.
+    // Socialize via the liquidity index (decay-style). No floor: a total claim wipe sets the index
+    // to 0, which is the terminal state (shares worth 0, leg refuses further deposits). Flooring at
+    // 1 left outstanding shares with a live claim against the NEXT depositor's money.
     if (liabBefore > 0) {
-      uint256 liabAfter = liabBefore - cutLiab;
-      if (liabAfter == 0) {
-        a.liquidityIndex = 1;
-      } else {
-        uint256 idx = C.effIndex(a.liquidityIndex);
-        uint256 scaled = (idx * liabAfter) / liabBefore;
-        a.liquidityIndex = uint64(scaled == 0 ? 1 : scaled);
-      }
+      a.liquidityIndex = uint64((uint256(a.liquidityIndex) * (liabBefore - cutLiab)) / liabBefore);
     }
   }
 }

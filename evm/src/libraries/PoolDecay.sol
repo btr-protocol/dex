@@ -20,12 +20,12 @@ library PoolDecay {
 
     if (decayAmount > 0) {
       uint128 newLiab = oldLiab - decayAmount;
-      // Socialize write-down via liquidity index (value = lp·index/WAD). Floor index at 1.
-      if (newLiab > 0) {
-        uint256 idx = C.effIndex(asset.liquidityIndex);
-        uint256 scaled = (idx * uint256(newLiab)) / uint256(oldLiab);
-        asset.liquidityIndex = uint64(scaled == 0 ? 1 : scaled);
-      }
+      // Socialize the write-down via the liquidity index (value = lp·index/WAD). No floor: flooring
+      // at 1 pushed the index ABOVE the proportional value, so outstanding shares could claim more
+      // than `liabilities` (breaks totalSupply·index/WAD ≤ liabilities). A scaled-to-0 index is the
+      // truthful terminal state: every share is worth 0 and the leg stops taking deposits.
+      asset.liquidityIndex =
+        uint64((uint256(asset.liquidityIndex) * uint256(newLiab)) / uint256(oldLiab));
       asset.liabilities = newLiab;
     }
     asset.lastUpdate = uint32(block.timestamp);

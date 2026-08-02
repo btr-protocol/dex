@@ -17,7 +17,9 @@ library Constants {
   /// @dev Halt = freeze | pause. Single mask at every value-moving gate.
   uint16 internal constant HALT_MASK = FROZEN_BIT | ASSET_PAUSED_BIT;
 
-  /// @dev Share↔value index base. value = lp·index/WAD.
+  /// @dev Share↔value index base, written explicitly at initAsset. value = lp·index/WAD.
+  ///      index == 0 is NOT a lazy-init sentinel: it means the leg was written down to a total
+  ///      loss, every share is worth exactly 0, and the leg accepts no further deposits.
   uint256 internal constant LIQUIDITY_INDEX_INIT = 1e12;
 
   /// @notice Global halt: a swap reverts if the quoted feed's 1σ CI (confidence, bps) exceeds this.
@@ -74,10 +76,4 @@ library Constants {
   uint32 internal constant HOOK_POST_INFLOW = 1 << 1;
   /// @notice Known flag bits only; unknown bits rejected at setAssetHook.
   uint32 internal constant HOOK_FLAGS_MASK = HOOK_PRE_OUTFLOW | HOOK_POST_INFLOW;
-
-  /// @notice Effective liquidity index: the lazy-init sentinel (0 → INIT) resolved once. Single source
-  ///         for the share<->value base so the 0→INIT convention can never skew across call sites.
-  function effIndex(uint64 raw) internal pure returns (uint256) {
-    return raw == 0 ? LIQUIDITY_INDEX_INIT : raw;
-  }
 }

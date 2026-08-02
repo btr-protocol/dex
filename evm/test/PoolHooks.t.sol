@@ -747,8 +747,10 @@ contract PoolHooksTest is BaseTestSetup {
     assertGe(IPool(address(pool)).getLiquidReserves(address(quote)), minLiq, "floor held");
   }
 
-  /// @notice Severe write-down: loss > L, loss == L, and shares==0 with positive book.
-  function test_writeDown_severe_loss_and_zero_shares() public {
+  /// @notice Total write-down (loss >= L) is TERMINAL: L→0, index→0, and the leg stops taking
+  ///         deposits. Previously the index floored at 1, leaving stale shares a live claim on the
+  ///         next depositor's money (totalSupply·index/WAD <= liabilities was violated).
+  function test_writeDown_total_loss_is_terminal() public {
     MockVenus vToken = new MockVenus(address(quote));
     CompoundV2YieldHook hook = new CompoundV2YieldHook(
       address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0)
@@ -787,60 +789,82 @@ contract PoolHooksTest is BaseTestSetup {
     assertGt(inv, liab, "precondition: inv > L after cross-exit");
     assertGt(liab, 0);
 
-    // Case: loss > liabilities — must not revert; L→0, index floor, R_liq stable.
+    // Case: loss > liabilities — must not revert; L→0, index→0, R_liq stable.
+    uint256 lpStale = pool.getLPBalance(address(this), address(quote));
+    assertGt(lpStale, 0, "stale shares outstanding at wipe");
     vm.prank(address(hook));
     IPool(address(pool)).hookWriteDown(address(quote), inv);
     assertEq(IPool(address(pool)).getInvested(address(quote)), 0);
     assertEq(pool.getAsset(address(quote)).reserves, r - inv);
     assertEq(pool.getAsset(address(quote)).liabilities, 0);
-    assertEq(pool.getAsset(address(quote)).liquidityIndex, 1);
+    assertEq(pool.getAsset(address(quote)).liquidityIndex, 0, "index zeroed, not floored at 1");
     assertEq(IPool(address(pool)).getLiquidReserves(address(quote)), liq);
 
-    // Case: loss == liabilities (exact wipe) on a fresh book slice.
-    // Re-seed via deposit + pull, then write exactly L.
-    vm.prank(OWNER);
-    hook.setBuffer(0, 0); // keep liquid; no auto-deploy
+    // The stale shares are worth exactly 0 and cannot be redeemed.
+    (uint256 outStale,) = pool.previewWithdraw(address(quote), lpStale);
+    assertEq(outStale, 0, "wiped shares preview to 0");
+    vm.expectRevert(Err.ZeroValue.selector);
+    pool.withdrawTo(address(quote), address(quote), lpStale, 0, NO_DEADLINE);
+
+    // A wiped leg refuses new deposits, so stale shares can never claim a later depositor's money.
     quote.mint(address(this), 100e18);
+    vm.expectRevert(Err.InvalidState.selector);
     pool.deposit(address(quote), 100e18);
-    uint256 pullAmt = 40e18;
-    deal(
-      address(quote),
-      address(pool),
-      IPool(address(pool)).getLiquidReserves(address(quote)) + pullAmt
+  }
+
+  /// @notice Partial write-down scales the index proportionally (never floors), and a zero-shares
+  ///         book still clears on harvest.
+  function test_writeDown_partial_scales_index_and_zero_shares() public {
+    MockVenus vToken = new MockVenus(address(quote));
+    CompoundV2YieldHook hook = new CompoundV2YieldHook(
+      address(ac), address(pool), address(quote), address(vToken), address(0), bytes4(0)
     );
-    vm.prank(address(hook));
-    IPool(address(pool)).hookDeploy(address(quote), pullAmt);
+    _setHook(address(quote), address(hook), hook.recommendedFlags());
 
-    // Reduce L to equal a chosen cut via another cross-exit until L == pullAmt.
-    // Simpler: write-down exactly current L (≤ inv).
-    uint256 invB = IPool(address(pool)).getInvested(address(quote));
-    uint256 liabB = pool.getAsset(address(quote)).liabilities;
-    uint256 cutEq = liabB <= invB ? liabB : invB;
-    assertGt(cutEq, 0);
-    uint256 liqB = IPool(address(pool)).getLiquidReserves(address(quote));
-    vm.prank(address(hook));
-    IPool(address(pool)).hookWriteDown(address(quote), cutEq);
-    assertEq(pool.getAsset(address(quote)).liabilities, liabB - cutEq);
-    if (cutEq == liabB) {
-      assertEq(pool.getAsset(address(quote)).liquidityIndex, 1, "index floor on L wipe");
-    }
-    assertEq(IPool(address(pool)).getLiquidReserves(address(quote)), liqB);
+    quote.mint(address(this), 200_000e18);
+    pool.deposit(address(quote), 200_000e18);
 
-    // Drain residual invested so zero-shares case starts clean.
+    uint256 idxBefore = pool.getAsset(address(quote)).liquidityIndex;
+    uint256 liabBefore = pool.getAsset(address(quote)).liabilities;
+    uint256 invNow = IPool(address(pool)).getInvested(address(quote));
+    uint256 cut = invNow / 4; // strictly partial: cut < liabilities
+    assertGt(cut, 0);
+    assertLt(cut, liabBefore);
+
+    vm.prank(address(hook));
+    IPool(address(pool)).hookWriteDown(address(quote), cut);
+
+    uint256 liabAfter = pool.getAsset(address(quote)).liabilities;
+    assertEq(liabAfter, liabBefore - cut, "liabilities cut by the loss");
+    assertEq(
+      pool.getAsset(address(quote)).liquidityIndex,
+      (idxBefore * liabAfter) / liabBefore,
+      "index scales exactly proportionally"
+    );
+    // Invariant: outstanding shares can never claim more face than the leg owes.
+    uint256 lpOut = pool.getLPBalance(address(this), address(quote));
+    assertLe(
+      (lpOut * pool.getAsset(address(quote)).liquidityIndex) / 1e18, liabAfter, "shares <= L"
+    );
+
+    // Drain the residual book with a second partial write-down so the zero-shares case starts clean
+    // (still partial: remaining invested < liabilities, so the leg never goes terminal).
     uint256 rem = IPool(address(pool)).getInvested(address(quote));
-    if (rem > 0) {
-      vm.prank(address(hook));
-      IPool(address(pool)).hookWriteDown(address(quote), rem);
-    }
+    assertLt(rem, pool.getAsset(address(quote)).liabilities);
+    vm.prank(address(hook));
+    IPool(address(pool)).hookWriteDown(address(quote), rem);
+    assertEq(IPool(address(pool)).getInvested(address(quote)), 0);
+    assertGt(pool.getAsset(address(quote)).liquidityIndex, 0, "partial cuts never zero the index");
 
     // Case: shares == 0 with positive book → harvest clears stale invested.
+    vm.prank(OWNER);
+    hook.setBuffer(0, 0); // keep liquid; no auto-redeploy on rebalance
     uint256 stale = 25e18;
     deal(
       address(quote), address(pool), IPool(address(pool)).getLiquidReserves(address(quote)) + stale
     );
     vm.prank(address(hook));
     IPool(address(pool)).hookDeploy(address(quote), stale);
-    assertEq(IPool(address(pool)).getInvested(address(quote)), stale);
 
     uint256 sh = vToken.balanceOf(address(hook));
     if (sh > 0) {
