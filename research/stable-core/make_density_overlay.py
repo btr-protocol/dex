@@ -49,7 +49,8 @@ Pricing.sol:105) · ATOMIC θ deploy gate (θ ladder + minFee=2θ + fence resync
 one change) · tape-pending assets emit param-complete FALLBACK rows.
 
 Reproducible: `python3 make_density_overlay.py`
-  -> out/fit_results.json (machine-readable, for RISK_PARAMS regen + deploy)
+  -> out/fit_results.v4.json (v4 diagnostic snapshot; the DEPLOYED artifact is written
+     by emit_prod_params.py, which owns out/fit_results.json)
   -> out/density_overlay.html (per-asset overlay + markers + diagnostics)
 Tapes: data/nxr_ohlc/*.json from `TF=10 python3 pull_nxr_ohlc.py`.
 Referee decisions: out/density_basis_v2.json (rerun referee_sim.py to refresh).
@@ -80,12 +81,86 @@ CUT_LO, CUT_HI = 0.25, 0.35                             # tail-cut hard band (ta
 CLASS = {"stable": dict(theta=0.25, hb=1800), "volatile": dict(theta=5.0, hb=300)}
 FALLBACK = {"stable": dict(regime="plateau", W=1, dispRef=100),      # tape-pending class defaults (conservative)
             "volatile": dict(regime="lepto", W=5, dispRef=500)}
+TAPE_MAX_AGE_H = float(os.environ.get("TAPE_MAX_AGE_H", 24))        # last bar older than this = PROVISIONAL
+TAPE_META = {}                                                      # tape file -> last bar + age, filled by load_tape
+
+# ── theta / heartbeat: the KEEPER config is the single source ─────────────────────────────
+# theta is not ours to choose. It is the keeper's push trigger AND its H-2 boot gate
+# (minFeePbps >= 2*theta*100, keepers/src/oracle/mod.rs:495, no escape hatch), so a theta
+# re-derived here from the tape describes a push process nobody runs. That divergence emitted
+# USDF minFeePbps 69 against a keeper theta of 0.365 (floor 73): the value bricks the push
+# keeper at startup the day the pool list is populated. CLASS above is the LAST RESORT for
+# legs the keeper does not sign, and those legs are marked PROVISIONAL, never fitted as if
+# they carried a keeper-enforced trigger.
+KEEPER_TOML = Path(os.environ.get("KEEPER_ORACLE_TOML",
+                                  HERE.parents[2] / "keepers" / "oracle.sepolia.toml"))
+KEEPER_SYM = {"ETH": "WETH-USDC", "BTC": "WBTC-USDC",     # fit symbol -> keeper feed name
+              "USDC": "USDC-USD"}                          # base numeraire: its own USD reference
+
+
+def _keeper_feeds():
+    if not KEEPER_TOML.exists():
+        raise SystemExit(
+            f"keeper oracle config not found: {KEEPER_TOML}\n"
+            "theta is keeper-owned; point KEEPER_ORACLE_TOML at it. Refusing to fit on class "
+            "defaults: that is how a keeper-bricking minFeePbps gets emitted.")
+    import tomllib
+    return {f["name"]: f for f in tomllib.loads(KEEPER_TOML.read_text()).get("feeds", [])}
+
+
+KEEPER_FEEDS = _keeper_feeds()
+
+
+def keeper_spec(sym):
+    """{theta, hb} the keeper actually runs for this leg, or None when it signs no such feed
+    (parked/unlisted: no H-2 constraint exists and the row is PROVISIONAL)."""
+    f = KEEPER_FEEDS.get(KEEPER_SYM.get(sym, f"{sym}-USDC"))
+    return None if f is None else dict(theta=float(f["theta_bps"]), hb=int(f["heartbeat_s"]))
+
+
+def keeper_gate(legs):
+    """The two keeper-side floors, checked per leg against the keeper's OWN theta.
+    legs: iterable of (sym, minFeePbps, minDisp, W, dispRef). Returns a list of failure
+    strings, empty when every leg clears. Same arithmetic as keepers/src/risk/fences.rs:149
+    (H-2 minFee) and :158 (S_dep), which is what refuses the deploy and the keeper boot."""
+    out = []
+    for sym, min_fee_pbps, min_disp, W, disp_ref in legs:
+        ks = keeper_spec(sym)
+        if ks is None:
+            continue                                       # unsigned leg: no keeper constraint
+        need = math.ceil(2 * ks["theta"] * 100)
+        if min_fee_pbps < need:
+            out.append(f"{sym}: minFeePbps {min_fee_pbps} < 2*theta {need} pbps "
+                       f"(keeper theta {ks['theta']}bp): H-2 refuses the push keeper's boot")
+        if W and disp_ref:
+            support = min_disp / (disp_ref / W)
+            if support < 2 * ks["theta"] - 1e-9:
+                out.append(f"{sym}: support {support:.3f}bp (minDisp {min_disp} @ dispRef/W "
+                           f"{disp_ref / W:g}) < S_dep floor 2*theta {2 * ks['theta']:.3f}bp "
+                           f"(keeper theta {ks['theta']}bp)")
+    return out
+
+
+def tape_last_bar(fn):
+    """Last real print in a tape + its age, for provenance and the freshness gate."""
+    rows = json.load(open(OHLC / fn))
+    ts = max((r["ts"] for r in rows if r.get("close", 0) > 0 and r.get("tick_count", 1) > 0),
+             default=None)
+    if ts is None:
+        return dict(lastBar=None, ageH=None)
+    return dict(lastBar=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts / 1000.0)),
+                ageH=round((time.time() - ts / 1000.0) / 3600.0, 1))
 
 # ── per-asset config: class + tape + current deployed (regime, W, dispRef, minDisp, maxDisp)
 #    (RISK_PARAMS §3/§4) for delta display + maxDisp hold. Deployed shape/scale come from the
 #    referee lock (out/density_basis_v2.json), never from the in-script fit (diagnostic only). ──
 A = [
- dict(sym="USDC",  cls="stable",   tape=None, cur=("plateau", 1, 100, 200, 2000), note="identity numeraire"),
+ dict(sym="USDC",  cls="stable",   tape=None, cur=("plateau", 1, 100, 200, 2000), nowall=True,
+      mdFloor=2000, tapeStatus="N/A (identity numeraire)",
+      note="Base numeraire: price = 1 by construction, exempt from the pushed mark "
+           "(Pricing._readBasePriceOrHalt), kappa FORBIDDEN (AIMM_PROOFS Thm 2, hence nowall). "
+           "The signed USDC/USD reference feed (oracle idx 23) is its depeg breaker, and supplies "
+           "the keeper theta this row's minFee floor is checked against."),
  dict(sym="USDT",  cls="stable",   tape="USDT-USDC.json",  cur=("hyper", 0.5, 50, 600, 6000)),
  dict(sym="USD1",  cls="stable",   tape="USD1-USDC.json",  cur=("plateau", 1, 100, 500, 5000)),
  dict(sym="USDE",  cls="stable",   tape="USDE-USDC.json",  cur=("plateau", 2, 200, 800, 5000)),
@@ -200,6 +275,15 @@ def load_tape(fn, pxwin=None):
     lo, hi = pxwin if pxwin else (np.median(close[ok]) * 0.5, np.median(close[ok]) * 2.0)
     ok &= (close > lo) & (close < hi)                                        # glitch px window
     tf = float(np.median(np.diff(ts)))
+    # FRESHNESS: span is derived from the file's own contents, so a dead feed still shows a
+    # healthy span and the fit silently describes the last good window. EURC was 98h stale and
+    # passed the >=10d span test with a 56.6h blackout inside it. Age is measured against the
+    # wall clock, and a stale tape downgrades the row to PROVISIONAL (tape_status).
+    age_h = (time.time() - ts[ok][-1]) / 3600.0
+    TAPE_META[fn] = dict(lastBar=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts[ok][-1])),
+                         ageH=round(age_h, 1), stale=bool(age_h > TAPE_MAX_AGE_H))
+    if age_h > TAPE_MAX_AGE_H:
+        print(f"  STALE TAPE {fn}: last bar {age_h:.0f}h old (> {TAPE_MAX_AGE_H:g}h): PROVISIONAL")
     c = close[ok]
     r1 = 1e4 * np.log(c[1:] / c[:-1])
     clip = max(50.0, 10.0 * float(np.quantile(np.abs(r1), 0.999)))           # anti-wick, auto
@@ -331,18 +415,19 @@ def trunc_kl_js(samples, weights, xs, cdf, W, S, nb):
 # ── per-asset pipeline ──
 def fit_asset(cfg):
     cl = CLASS[cfg["cls"]]
+    ks = keeper_spec(cfg["sym"]) or cl              # spec theta is the KEEPER's, per leg
     ts, close, vol, ok, tf, clip = load_tape(cfg["tape"], cfg.get("pxwin"))
     span_d = (ts[ok][-1] - ts[ok][0]) / 86400.0
     rec = opn = sess = None
     if cfg.get("fx"):
         rec, opn, frozen_pct, holes = session_mask(ts, close, ok)
     # θ_final = max(spec θ, θ_100perH): spec basis, minimally raised to hit the <=100/h cadence cap
-    th_fin = theta_for_rate(ts, close, ok, CAP_RATE_H, cl["hb"], clip, cl["theta"])
-    G, pushes, span_h, pexc = push_offsets(ts, close, ok, th_fin, cl["hb"], clip, rec)
+    th_fin = theta_for_rate(ts, close, ok, CAP_RATE_H, ks["hb"], clip, ks["theta"])
+    G, pushes, span_h, pexc = push_offsets(ts, close, ok, th_fin, ks["hb"], clip, rec)
     rate_h = pushes / span_h
     gw = np.full(len(G), 1.0 / len(G))
     if cfg.get("fx"):
-        offo, _, _, _ = push_offsets(ts, close, ok, th_fin, cl["hb"], clip, opn)
+        offo, _, _, _ = push_offsets(ts, close, ok, th_fin, ks["hb"], clip, opn)
         b99_open = float(np.quantile(np.abs(offo), 0.99)) if len(offo) > 200 else 0.0
         sess = dict(frozenPct=round(frozen_pct, 1), holes=holes, b99OpenBp=round(b99_open, 2))
     q50g, q70g, q99g = map(float, wq(np.abs(G), gw, [0.5, 0.70, 0.99]))
@@ -662,8 +747,11 @@ out_json = dict(gen="make_density_overlay.py v4 (two-kernel fee/LVR basis, refer
                            "seed); routed rows WETH (ETH feed) + WBTC/cbBTC (BTC feed). All pending tape "
                            "maturity + adaptive-keeper refit + referee_sim before any freeze"]),
                 assets=results)
-(HERE / "out" / "fit_results.json").write_text(json.dumps(out_json, indent=1))
-print("wrote out/fit_results.json")
+# v4 diagnostic snapshot, NOT the emitted artifact: out/fit_results.json is written by
+# emit_prod_params.py alone. Two writers of one file is how it came to disagree with the deploy
+# JSON while both carried the same `generated` stamp. lognormal_fit.py reads this as `old`.
+(HERE / "out" / "fit_results.v4.json").write_text(json.dumps(out_json, indent=1))
+print("wrote out/fit_results.v4.json")
 
 # ── overlay HTML (palette/skeleton carried from v1 / spline_template.html) ──
 CSS = """
@@ -806,7 +894,7 @@ HTML = f"""<!doctype html><html><head><meta charset="utf-8">
   <table class="sum"><thead><tr><th>asset</th><th>class</th><th>current</th><th>locked</th><th>decision</th>
   <th>S dep bp</th><th>cut dep</th><th>J APR%</th><th>KL diag</th><th>θ fin bp</th><th>cad /h</th><th>wall b99</th><th>maxDisp</th><th>verdict</th></tr></thead><tbody>{sum_rows}</tbody></table>
  </section>
- <div class="foot">generated by make_density_overlay.py v4 · basis: two-kernel fee/LVR (ell = g_θ ⊛ π_inv fee core + exceedance tails) on NXR /v1/ohlc 10s tapes · params referee-locked: out/density_basis_v2.json · presets: out/spline_shared_grid.json · emitted: out/fit_results.json</div>
+ <div class="foot">generated by make_density_overlay.py v4 · basis: two-kernel fee/LVR (ell = g_θ ⊛ π_inv fee core + exceedance tails) on NXR /v1/ohlc 10s tapes · params referee-locked: out/density_basis_v2.json · presets: out/spline_shared_grid.json · emitted: out/fit_results.v4.json</div>
 </div>
 <script>
 const DATA={json.dumps(DATA)};

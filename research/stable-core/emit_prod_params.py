@@ -19,7 +19,7 @@ never assumed.
 
 Run: python3 emit_prod_params.py
 """
-import importlib.util, json, time
+import hashlib, importlib.util, json, math, os, time
 
 
 def _load_keeper_feeds() -> dict:
@@ -56,6 +56,9 @@ HERE = Path(__file__).parent
 EVM = HERE.parent.parent / "evm"
 LN = json.load(open(HERE / "out" / "lognormal_fit.json"))
 FITS = LN["assets"]
+GEN = ("emit_prod_params.py <- lognormal_fit.py (cnplateau m=3; theta from the keeper config; "
+       "S_dep=max(q70, 2*theta_keeper, feeQ99, wallFloor); minFee=max(2*theta_keeper, 2*theta+excPrem))")
+MINFEE_HARD = LN["spec"]["minFeeHardPbps"]     # class hard floors, from the fit spec (one source)
 
 _ov = open(HERE / "make_density_overlay.py").read()
 _ns = {"__name__": "overlay_defs", "__file__": str(HERE / "make_density_overlay.py")}
@@ -63,6 +66,9 @@ exec(compile(_ov[: _ov.index("# ── tape load + cleaning")], "make_density_ov
 ROSTER = {c["sym"]: c for c in _ns["A"]}
 CLASS = _ns["CLASS"]
 FALLBACK = _ns["FALLBACK"]
+# theta is keeper-owned (keepers/oracle.sepolia.toml). keeper_gate re-checks, per emitted leg,
+# the two floors the keeper enforces at boot: minFee >= 2theta (H-2) and support >= 2theta.
+keeper_spec, keeper_gate, tape_last_bar = _ns["keeper_spec"], _ns["keeper_gate"], _ns["tape_last_bar"]
 
 CHAIN_ID = 11155111
 # Sepolia pools (owner 2026-07-24). Base = USDC in BOTH; idx 0 is the base leg by construction.
@@ -118,44 +124,35 @@ def ref_band(sym, cls, cfg):
     return REF_BAND["nav"] if cfg.get("nowall") else REF_BAND["stable"]
 
 
-def base_row():
-    """USDC = the numeraire: mark identity 1.0, never pushed, never walled, no fit. Its params are
-    the conservative stable class default — it still quotes as a leg, so it needs a real curve."""
-    return dict(status="base-identity", cls="stable", tape=None, fallback=True,
-                tapeStatus="N/A (identity numeraire)", sessionGap=None,
-                thetaFinal=CLASS["stable"]["theta"], hb_s=CLASS["stable"]["hb"], cadencePerH=None,
-                regime="cnplateau", family="cnplateau", m=3, W=1, dispRef=100,
-                minDisp=200, maxDisp=2000, maxDispB99=None,
-                supportBp=None, supportDeployBp=2.0, floor2Theta=True, cutDeployPct=None,
-                lossKL=None, minFee2Theta=50, minFeeEff=0.50, minFeeEffPbps=50,
-                wall=dict(flag=False, kappaCovBps=0, depthAmplifier=10_000, haircutSuppressor=10_000),
-                referee=dict(J=None, gate="exempt", reason="identity numeraire, no tape to replay"),
-                route=None,
-                note="Base numeraire: price = 1 by construction, exempt from the pushed mark "
-                     "(Pricing._readBasePriceOrHalt), kappa forbidden (AIMM_PROOFS Thm 2). The "
-                     "signed USDC/USD reference feed (oracle idx 23) is its depeg breaker.")
-
-
 def prod_row(sym):
-    if sym == "USDC":
-        return base_row()
+    """One path for every leg, USDC included. The base used to short-circuit to a hand-copied
+    genesis tuple: never fitted, never re-derived, and the only stable carrying
+    haircutSuppressor 10000 purely because it skipped wall_cfg. Its exemptions are declared in
+    the roster now (nowall = kappa forbidden, AIMM_PROOFS Thm 2) and everything else falls out
+    of the same class-default arithmetic as any other tape-less leg."""
     src = ROUTE.get(sym, sym)
     f = FITS.get(src)
     cfg = ROSTER[src]
     if f is None:                                       # no fit: conservative class default
         cls = cfg["cls"]
         fb = FALLBACK[cls]
+        ks = keeper_spec(sym)                          # None: leg the keeper does not sign
+        th = ks["theta"] if ks else CLASS[cls]["theta"]
+        # HOLD ratchet, same rule as maxDisp: a class default never NARROWS a deployed band.
+        cur = cfg.get("cur")
         return dict(status="fallback", cls=deploy_cls(sym, cls), tape=None, fallback=True,
-                    tapeStatus="TAPE_PENDING", sessionGap=None,
-                    thetaFinal=CLASS[cls]["theta"], hb_s=CLASS[cls]["hb"], cadencePerH=None,
+                    tapeStatus=cfg.get("tapeStatus") or "TAPE_PENDING", sessionGap=None,
+                    thetaFinal=th, thetaKeeper=(ks or {}).get("theta"),
+                    hb_s=ks["hb"] if ks else CLASS[cls]["hb"], cadencePerH=None,
                     regime="cnplateau", family="cnplateau", m=3, W=fb["W"], dispRef=fb["dispRef"],
-                    minDisp=int(round(2 * CLASS[cls]["theta"] * fb["dispRef"] / fb["W"])),
+                    minDisp=max(int(math.ceil(2 * th * fb["dispRef"] / fb["W"])),
+                                cur[3] if cur else 0),
                     maxDisp=cfg.get("mdFloor", 8000), maxDispB99=None,
-                    supportBp=None, supportDeployBp=2 * CLASS[cls]["theta"], floor2Theta=True,
+                    supportBp=None, supportDeployBp=2 * th, floor2Theta=True,
                     cutDeployPct=None, lossKL=None,
-                    minFee2Theta=int(round(2 * CLASS[cls]["theta"] * 100)),
-                    minFeeEff=2 * CLASS[cls]["theta"],
-                    minFeeEffPbps=int(round(2 * CLASS[cls]["theta"] * 100)),
+                    minFee2Theta=math.ceil(2 * th * 100),
+                    minFeeEff=2 * th,
+                    minFeeEffPbps=max(math.ceil(2 * th * 100), MINFEE_HARD[cls]),
                     wall=wall_cfg(cls, cfg),
                     referee=dict(J=None, gate="UNGATED", reason="no tape to replay"),
                     route=ROUTE.get(sym), note=cfg.get("note"))
@@ -164,7 +161,8 @@ def prod_row(sym):
     return dict(
         status="fit", cls=deploy_cls(sym, f["cls"]), tape=f["tape"], fallback=False,
         tf_s=10, span_d=f["spanD"], bars=f["bars"], tapeStatus=f["tapeStatus"],
-        sessionGap=f["sessionGap"], thetaFinal=f["theta"], hb_s=CLASS[f["cls"]]["hb"],
+        sessionGap=f["sessionGap"], thetaFinal=f["theta"], thetaKeeper=f.get("thetaKeeper"),
+        hb_s=f.get("hb_s") or CLASS[f["cls"]]["hb"], tapeMeta=f.get("tapeMeta"),
         cadencePerH=f["cadencePerH"],
         # `regime` is the density-service contract key; it now names the FINAL family, not one of
         # the retired 9-preset catalogue entries. The service's spline_shared_grid lookup therefore
@@ -233,23 +231,87 @@ def _usd_quoted(sym: str) -> bool:
     return prior
 
 
+# Output roots. Overridable so a constrained dry run reports what it WOULD write without
+# touching the committed deploy artifact.
+OUT_DIR = Path(os.environ.get("EMIT_OUT_DIR", HERE / "out"))
+DEPLOY_DIR = Path(os.environ.get("EMIT_DEPLOY_DIR", EVM / "deployments"))
+
+
+def provenance():
+    """Bind the artifacts to their INPUTS, not to the wall clock.
+
+    `generated` stamps the WRITE. The two artifacts carried the identical stamp
+    2026-08-02T10:37:11Z and disagreed on the numbers (fit_results WETH 5047 vs deploy 2034),
+    so the deploy file was not written by the run whose stamp it bore and nothing could tell.
+    runId hashes the fit input plus the last bar of every tape behind it: two files sharing a
+    runId were written from the same inputs, and a stale tape is visible in the artifact."""
+    fit_raw = (HERE / "out" / "lognormal_fit.json").read_bytes()
+    tapes = {r["tape"]: tape_last_bar(r["tape"]) for r in ROWS.values() if r.get("tape")}
+    # hash the last BARS, not their age: two runs over the same inputs must share a runId.
+    blob = fit_raw + json.dumps({k: v["lastBar"] for k, v in sorted(tapes.items())}).encode()
+    return dict(runId=hashlib.sha256(blob).hexdigest()[:16],
+                fitSha256=hashlib.sha256(fit_raw).hexdigest()[:16],
+                keeperConfig=str(_ns["KEEPER_TOML"]),
+                tapes=dict(sorted(tapes.items())))
+
+
+def verify_pair(fit_path, dep_path):
+    """Refuse to write over a pair that disagrees with itself: the on-disk deploy file then
+    carries a stamp some other run wrote, and this run would silently inherit its provenance.
+    EMIT_FORCE=1 acknowledges and overwrites."""
+    if not (fit_path.exists() and dep_path.exists()):
+        return
+    a, b = json.loads(fit_path.read_text()), json.loads(dep_path.read_text())
+    ra = (a.get("provenance") or {}).get("runId")
+    rb = (b.get("provenance") or {}).get("runId")
+    bad = [f"runId {ra} != {rb}"] if (ra or rb) and ra != rb else []
+    fits = a.get("assets") or {}
+    for i, s in enumerate(b.get("symbols") or []):                 # pre-provenance artifacts
+        r = fits.get(s)
+        if not r:
+            continue
+        for k, col in (("minFeeEffPbps", "minFeePbps"), ("minDisp", "minDisp")):
+            if col in b and r.get(k) != b[col][i]:
+                bad.append(f"{s}.{col}: fit_results {r.get(k)} vs deploy {b[col][i]}")
+    if bad and os.environ.get("EMIT_FORCE") != "1":
+        raise SystemExit("REFUSING TO EMIT: the on-disk artifacts were not written by the same "
+                         "run.\n  " + "\n  ".join(bad[:12])
+                         + f"\n({len(bad)} disagreement(s)). Re-emit both from one run, or set "
+                           "EMIT_FORCE=1 to overwrite.")
+
+
+def gate_or_die(dep):
+    """The keeper's own floors, per emitted leg, against the KEEPER's theta. A generator that
+    emits a value the push keeper refuses to boot on must FAIL, not warn: H-2 has no escape
+    hatch (keepers/src/oracle/mod.rs:502) and aborts the boot, marks go stale, pools halt."""
+    byid = {p["id"]: p for p in dep["presets"]}
+    legs = [(s, dep["minFeePbps"][i], dep["minDisp"][i],
+             byid.get(dep["presetIds"][i], {}).get("W"),          # preserved legs may carry a
+             byid.get(dep["presetIds"][i], {}).get("dispRef"))    # preset this run did not build
+            for i, s in enumerate(dep["symbols"])]
+    fails = keeper_gate(legs)
+    if fails:
+        raise SystemExit("REFUSING TO EMIT: keeper floor violated on "
+                         f"{len(fails)} leg(s)\n  " + "\n  ".join(fails))
+    print(f"keeper gate: {len(legs)} legs clear minFee >= 2theta and support >= 2theta")
+
+
+def note_breadth(dep):
+    """Generated from what is actually being written. The literal it replaces asserted
+    'WETH 2034, WBTC/cbBTC 1887, BNB 1842' whatever the arrays held, and already contradicted
+    fit_results."""
+    legs = ", ".join(f"{s} {dep['minDisp'][i]} @ preset {dep['presetIds'][i]}"
+                     for i, s in enumerate(dep["symbols"]) if dep["cls"][i] != "stable")
+    return ("Quiet support is dynamic: S_dep = max(S_fit=q70(|ell|), 2*theta_keeper, feeQ99, "
+            "wallFloor=max(pushExcQ99, b99_6min)) from the ~2w fee-kernel density. JSON alone "
+            "does not move live density; apply via requestUpdateProfile / executeUpdateProfile "
+            "(or adminSetProfile). Non-stable legs as emitted: " + legs + ".")
+
+
 def emit_artifacts():
     """Write fit_results + sepolia-risk-params. Never run on import (clobbers FX legs)."""
-    # ── out/fit_results.json ────────────────────────────────────────────────
-    json.dump(dict(
-        gen="emit_prod_params.py <- lognormal_fit.py (cnplateau m=3; S_dep=max(q70,2θ,feeQ99))",
-        generated=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        basis=LN["spec"],
-        referee=dict(gate="referee_lognormal.py damped consumption replay, lambda=0.4, 4 rounds; "
-                          "J = (fee - LVR)/TVL annualized %, mean over L{1,3,6} x T{0.25,1,4}",
-                     file="out/referee_lognormal.json"),
-        shape=dict(family="cnplateau", m=3, interiorKnotsB=[1314, 8686],
-                   qTrunc=0.70, note="S-normalized curve is cell-invariant; classes differ only by S_dep"),
-        breadth="S_dep = max(S_fit=q70(|ell|), 2θ, feeQ99); W = ceil_ladder(max(S_fit, 2θ)); "
-                "narrow hard floor = 2θ only (no constant UX widen)",
-        gas=LN["gas"],
-        assets=ROWS), open(HERE / "out" / "fit_results.json", "w"), indent=1)
-    print("wrote out/fit_results.json", len(ROWS), "assets")
+    fit_path, dep_path = OUT_DIR / "fit_results.json", DEPLOY_DIR / "sepolia-risk-params.json"
+    verify_pair(fit_path, dep_path)
 
     # ── evm/deployments/sepolia-risk-params.json (parallel arrays) ───────────
     shapes = {}
@@ -281,18 +343,13 @@ def emit_artifacts():
             p["interiorB"] = src["interiorB"]
             p["derived"] = f"W-rescaled from preset {src['id']} (no own tape)"
 
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    prov = provenance()
     dep = dict(
         chainId=CHAIN_ID,
-        gen="emit_prod_params.py (cnplateau m=3; S_dep=max(q70,2θ,feeQ99); no UX quiet floor)",
-        generated=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        noteBreadth=(
-            "Quiet support is dynamic: S_dep = max(S_fit=q70(|ell|), 2θ, feeQ99) from the ~2w "
-            "fee-kernel density. Majors land near feeQ99 (~19-21 bp → minDisp ~1900-2100 @ "
-            "preset5), not the q70 shape cut (~11 bp) and not a constant 25 bp floor. "
-            "JSON alone does not move live density; apply via requestUpdateProfile / "
-            "executeUpdateProfile (or adminSetProfile). Sepolia majors (2026-07-28): "
-            "WETH 2034, WBTC/cbBTC 1887, BNB 1842 @ preset 5."
-        ),
+        gen=GEN,
+        generated=stamp,
+        provenance=prov,
         stablePool=STABLE_POOL, volatilePool=VOLATILE_POOL, fxPool=FX_POOL,
         gamma=GAMMA, vega=VEGA,
         presets=presets,
@@ -326,7 +383,6 @@ def emit_artifacts():
     )
 
     # Preserve FX / extra legs already in the deploy file (emit roster is core-only).
-    dep_path = EVM / "deployments" / "sepolia-risk-params.json"
     if dep_path.exists():
         old = json.loads(dep_path.read_text())
         for k in ("seedUsdPerLeg",):
@@ -347,12 +403,26 @@ def emit_artifacts():
                     dep[k].append(old[k][i])
             print(f"preserved {len(extra)} extra deploy symbols: {extra}")
 
-    dep_path.write_text(json.dumps(dep, indent=1) + "\n")
-    print("wrote", dep_path.relative_to(HERE.parent.parent), len(dep["symbols"]),
-          "symbols,", len(presets), "presets")
+    dep["noteBreadth"] = note_breadth(dep)
+    gate_or_die(dep)                       # nothing is written until every leg clears
 
+    fit_path.parent.mkdir(parents=True, exist_ok=True)
+    dep_path.parent.mkdir(parents=True, exist_ok=True)
     for s in ALL:
         ROWS[s].pop("_pid", None)
+    json.dump(dict(
+        gen=GEN, generated=stamp, provenance=prov, basis=LN["spec"],
+        referee=dict(gate="referee_lognormal.py damped consumption replay, lambda=0.4, 4 rounds; "
+                          "J = (fee - LVR)/TVL annualized %, mean over L{1,3,6} x T{0.25,1,4}",
+                     file="out/referee_lognormal.json"),
+        shape=dict(family="cnplateau", m=3, interiorKnotsB=[1314, 8686],
+                   qTrunc=0.70, note="S-normalized curve is cell-invariant; classes differ only by S_dep"),
+        breadth=LN["spec"]["breadth"], gas=LN["gas"],
+        assets=ROWS), open(fit_path, "w"), indent=1)
+    print("wrote", fit_path, len(ROWS), "assets")
+    dep_path.write_text(json.dumps(dep, indent=1) + "\n")
+    print("wrote", dep_path, len(dep["symbols"]), "symbols,", len(presets), "presets",
+          "| runId", prov["runId"])
 
 
 if __name__ == "__main__":

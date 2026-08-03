@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""compare_deployed.py - deployed vs newly-fitted risk params, all 29 pool legs.
+"""compare_deployed.py - diff two risk-param ARTIFACTS, and check both against the keeper floors.
 
-The `delta` block inside lognormal_fit.json only covers assets carrying a hardcoded
-`cur` tuple in the roster (10 of 29). The DEPLOYED state is the emitted artifact, so
-diff artifact-against-artifact instead: that covers every leg the pools actually hold,
-including the three wrapper legs (WETH/WBTC/cbBTC, which route another asset's fit and
-never appear in TARGETS) and the fx pool's class-fallback rows.
+NOT a deployment check. It reads JSON files, never the chain, so an artifact that agrees with
+itself can still disagree with what the pool actually holds: that divergence (file minDisp 1472
+vs chain 400 on the fx legs) is exactly what it cannot see. To use it as one, pass a snapshot of
+the CHAIN state as <before> and read the keeper-floor section, which applies the same arithmetic
+the keeper runs at boot (make_density_overlay.keeper_gate, keepers/src/risk/fences.rs:149/158)
+to BOTH files.
 
-Per-leg fit context (span, theta, wall_floor) is joined from fit_results.json on the
-ROUTED source symbol, so a wrapper reports the span of the tape that actually backs it.
+The `delta` block inside lognormal_fit.json only covers assets carrying a hardcoded `cur` tuple
+in the roster (10 of 29), so diff artifact-against-artifact instead: that covers every leg the
+pools hold, including the wrapper legs (WETH/WBTC/cbBTC, which route another asset's fit and
+never appear in TARGETS) and the fx pool.
 
-  python3 compare_deployed.py <deployed-before.json> [after.json]
+Per-leg fit context (span, theta, wall_floor) is joined from fit_results.json on the ROUTED
+source symbol, so a wrapper reports the span of the tape that actually backs it.
+
+  python3 compare_deployed.py <before.json> [after.json]
     after defaults to ../../evm/deployments/sepolia-risk-params.json (the fresh emit)
-Both files share one schema, so <before> is just a pre-emit snapshot of that same file.
+Both files share one schema, so <before> is a pre-emit snapshot or a chain snapshot.
 """
 import json, sys
 from pathlib import Path
@@ -53,10 +59,9 @@ for sym in DA["symbols"]:
     n = NEW.get(sym, {})
     o = OLD.get(sym, {})
     f = FITS.get(ROUTE.get(sym, sym)) or FITS.get(sym) or {}
-    # emit_prod_params.py:180 builds ALL from STABLE_POOL+VOLATILE_POOL only; FX_POOL is
-    # defined (:75) but never added, so the five fx-only legs are never emitted -- they
-    # survive via the "preserve extra deploy legs" fallback (:324), which copies the stale
-    # class-fallback row forward every wave. Show the fit so the gap is visible, not silent.
+    # A leg whose emitted minDisp differs from its own fit was NOT written by this emit: it
+    # survived via the "preserve extra deploy legs" fallback, which copies a stale row forward
+    # every wave. Show the fit so the gap is visible, not silent.
     fd, ff = f.get("minDisp"), f.get("minFeeEffPbps")
     mark = ""
     if fd is not None and n.get("minDisp") is not None and fd != n["minDisp"]:
@@ -74,3 +79,25 @@ gone = [s for s in OLD if s not in NEW]
 add = [s for s in NEW if s not in OLD]
 if gone or add:
     print(f"\nleg set changed: removed={gone} added={add}")
+
+# ── keeper floors, both files ────────────────────────────────────────────────────────────
+# The only check here that is about the chain rather than about the diff: feed it a chain
+# snapshot as <before> and it reports the legs the keeper would refuse to boot on.
+_ov = open(HERE / "make_density_overlay.py").read()
+_ns = {"__name__": "overlay_defs", "__file__": str(HERE / "make_density_overlay.py")}
+exec(compile(_ov[: _ov.index("# \u2500\u2500 tape load + cleaning")], "overlay[roster]", "exec"), _ns)
+
+
+def _legs(d):
+    byid = {p["id"]: p for p in d.get("presets", [])}
+    return [(s, d["minFeePbps"][i], d["minDisp"][i],
+             byid.get(d["presetIds"][i], {}).get("W"),
+             byid.get(d["presetIds"][i], {}).get("dispRef"))
+            for i, s in enumerate(d["symbols"])]
+
+
+for tag, d in (("before", DB), ("after", DA)):
+    bad = _ns["keeper_gate"](_legs(d))
+    print(f"\nkeeper floors [{tag}]: " + (f"{len(bad)} VIOLATION(S)" if bad else "all legs clear"))
+    for b in bad:
+        print("  " + b)

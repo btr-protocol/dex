@@ -186,7 +186,7 @@ def kl_bins(P, Qm):
 #: majors sit at 0.10; every asset that produced an implausible breadth sat >1.0.
 KL_TRUST_MAX = 1.0
 
-def tape_status(span_d, klData, sess, feeQ99):
+def tape_status(span_d, klData, sess, feeQ99, stale=False, signed=True):
     """Is this tape trustworthy enough to deploy its breadth unattended?
 
     Span alone is not the question. PAXG carried 14 clean-looking days and was
@@ -199,8 +199,13 @@ def tape_status(span_d, klData, sess, feeQ99):
     So: enough span, a density the fit actually reproduces, and -- for assets
     with a session calendar -- a gap-open tail that does not dominate the
     breadth it feeds.
+
+    A stale tape is the same failure with no symptom: span is measured inside the file, so a
+    dead feed keeps reporting the span of its last good window (EURC: 98h stale, 56.6h hole,
+    still "ok"). Age is measured against the wall clock. An UNSIGNED leg is provisional too:
+    its theta is a class guess, not the keeper's.
     """
-    if span_d < 10 or klData > KL_TRUST_MAX:
+    if span_d < 10 or klData > KL_TRUST_MAX or stale or not signed:
         return "PROVISIONAL"
     if sess and feeQ99 and sess.get("b99OpenBp", 0.0) > feeQ99:
         return "PROVISIONAL"
@@ -350,15 +355,20 @@ for fam, ms in FAM_M.items():
 #    incl fx session basis + pxwin), minus the v4 argmin ──────────────────────────────────
 def components(cfg):
     cl = CLASS[cfg["cls"]]
+    # theta floor + heartbeat are the KEEPER's, per leg (make_density_overlay.keeper_spec).
+    # Fitting on the class default re-derived a trigger nobody pushes at and let minFee land
+    # under the keeper's own boot gate; CLASS is only reached for legs the keeper does not sign.
+    ks = keeper_spec(cfg["sym"])
+    th_floor, hb = (ks["theta"], ks["hb"]) if ks else (cl["theta"], cl["hb"])
     ts, close, vol, ok, tf, clip = load_tape(cfg["tape"], cfg.get("pxwin"))
     span_d = (ts[ok][-1] - ts[ok][0]) / 86400.0
     rec = opn = sess = None
     if cfg.get("fx"):
         rec, opn, frozen_pct, holes = session_mask(ts, close, ok)
-    th = theta_for_rate(ts, close, ok, CAP_RATE_H, cl["hb"], clip, cl["theta"])
-    G, pushes, span_h, pexc = push_offsets(ts, close, ok, th, cl["hb"], clip, rec)
+    th = theta_for_rate(ts, close, ok, CAP_RATE_H, hb, clip, th_floor)
+    G, pushes, span_h, pexc = push_offsets(ts, close, ok, th, hb, clip, rec)
     if cfg.get("fx"):
-        offo, _, _, _ = push_offsets(ts, close, ok, th, cl["hb"], clip, opn)
+        offo, _, _, _ = push_offsets(ts, close, ok, th, hb, clip, opn)
         b99_open = float(np.quantile(np.abs(offo), 0.99)) if len(offo) > 200 else 0.0
         sess = dict(frozenPct=round(frozen_pct, 1), holes=holes, b99OpenBp=round(b99_open, 2))
     pushExcQ99 = float(np.quantile(pexc, 0.99)) if len(pexc) else 0.0
@@ -395,7 +405,8 @@ def components(cfg):
         d3_s.append(full[msk]); d3_w.append(dt[msk] * sig2[msk] / 3.0)
     d3 = np.concatenate(d3_s); w = np.concatenate(d3_w); w = w / w.sum()
     return dict(th=th, G=G, d3=d3, d3w=w, cad=pushes / span_h, span_d=span_d, bars=int(ok.sum()),
-                pushExcQ99=pushExcQ99, excPrem=excPrem, b99_6=b99_6,
+                pushExcQ99=pushExcQ99, excPrem=excPrem, b99_6=b99_6, hb=hb,
+                thK=(ks["theta"] if ks else None), tape=TAPE_META.get(cfg["tape"], {}),
                 wall_floor=max(pushExcQ99, b99_6), sess=sess)
 
 # ── risk-param leg (unified spec sections 1+3): pure scalar derivation + dispatch ─────────
@@ -426,7 +437,7 @@ def steps25(new, old):
 _v4_path = HERE / "out" / "fit_results.v4.json"
 V4 = json.load(open(_v4_path))["assets"] if _v4_path.exists() else {}
 CFG = {c["sym"]: c for c in A}
-OUT = {"gen": "lognormal_fit.py (central-normal plateau, m=3, q70 shape / feeQ99 breadth)",
+OUT = {"gen": "lognormal_fit.py (central-normal plateau, m=3, q70 shape / feeQ99 breadth; theta from keepers/oracle.sepolia.toml)",
        "spec": dict(qTrunc=Q_TRUNC, tolKlRep=TOL_KL_REP, sigmaCells=[float(x) for x in SIGMA_CELLS],
                     sigmaBand=list(SIGMA_BAND), knotsU=KNOTS_U, knotsUPk=KNOTS_U_PK,
                     familyGate=FAMILY, nuPk=NU_PK, cOfSigma=C_OF_SIGMA,
@@ -435,8 +446,8 @@ OUT = {"gen": "lognormal_fit.py (central-normal plateau, m=3, q70 shape / feeQ99
                     mGate={k: list(v) for k, v in M_GATE.items()},
                     wLadder=list(W_LADDER), dispRef=DISP_REF, minFeeHardPbps=MINFEE_HARD_PBPS,
                     fenceRel=FENCE_REL, deadbands=DEADBANDS, softSat="Y = 2theta*tanh(d/2theta)",
-                    minFee="2theta + E[(|G|-theta)+]", nDraws=N_DRAWS, seed=7,
-                    breadth="S_dep = max(S_fit=q70(|ell|), 2theta, feeQ99); W = ceil_ladder(max(S_fit, 2theta))",
+                    minFee="max(2theta_keeper, 2theta + E[(|G|-theta)+], class hard floor)", nDraws=N_DRAWS, seed=7,
+                    breadth="S_dep = max(S_fit=q70(|ell|), 2theta, feeQ99, wallFloor=max(pushExcQ99, b99_6min)); W = ceil_ladder(max(S_fit, 2theta))",
                     dipNull=dict(n=N_DIP, reps=N_DIP_NULL,
                                  q95=round(float(np.quantile(DIP_NULL, 0.95)), 5))),
        "gas": {str(m): GAS[m] for m in sorted(GAS)},
@@ -530,7 +541,10 @@ for sym in TARGETS:
     liveMax = cfg["cur"][4] if cfg.get("cur") else 0
     maxDisp = max(maxDispB99, liveMax, cfg.get("mdFloor", 0), minDisp + 1)  # HOLD ratchet: never slash headroom; maxDisp > minDisp is a fence invariant
     minFeeBp = 2 * th + c["excPrem"]
-    minFeePbps = max(int(round(minFeeBp * 100)), MINFEE_HARD_PBPS[cfg["cls"]])
+    # ceil, never round, on the keeper floor: 2*theta*100 is a >= gate (H-2), so a value that
+    # rounds DOWN through it refuses the push keeper's boot.
+    minFeePbps = max(int(round(minFeeBp * 100)), MINFEE_HARD_PBPS[cfg["cls"]],
+                     math.ceil(2 * (c["thK"] or th) * 100))
     freeze = not inFam
     # ── OLD v4 vs NEW + bounded-delta dispatch ──
     old = V4.get(sym) or {}
@@ -552,8 +566,11 @@ for sym in TARGETS:
                       note="plateau diagnostic on the SAME S_dep/cell (referee 3-way baseline)")
     row = dict(
         cls=cfg["cls"], tape=cfg["tape"], spanD=round(c["span_d"], 1), bars=c["bars"],
-        tapeStatus=cfg.get("tapeStatus") or tape_status(c["span_d"], klData, c["sess"], feeQ99),
-        sessionGap=c["sess"], theta=round(th, 3), rail=round(R, 3), cadencePerH=round(c["cad"], 1),
+        tapeStatus=cfg.get("tapeStatus") or tape_status(c["span_d"], klData, c["sess"], feeQ99,
+                                                        c["tape"].get("stale"), c["thK"] is not None),
+        tapeMeta=c["tape"],
+        sessionGap=c["sess"], theta=round(th, 3), thetaKeeper=c["thK"], hb_s=c["hb"],
+        rail=round(R, 3), cadencePerH=round(c["cad"], 1),
         dip=dip, signed=signed_stats(ell), foldModesData=fold_modes(ell),
         ln=dict(mu=round(mu, 4), sigma=round(sg, 4), S_fit=round(S_fit, 3), S_dep=round(S_dep, 3),
                 S_breadth=round(S_breadth, 3), breadth="feeQ99",
@@ -623,5 +640,10 @@ for sym in TARGETS:
           f"W={W} minDisp={minDisp} minFee={minFeePbps}pbps "
           f"| old {old.get('regime')}/W{old.get('W')} {(oldM - 1) if oldM else '?'}knots", flush=True)
 
-json.dump(OUT, open(HERE / "out" / "lognormal_fit.json", "w"), indent=1)
-print("wrote out/lognormal_fit.json")
+_out_path = HERE / "out" / "lognormal_fit.json"
+if ONLY and _out_path.exists():          # a partial run REFINES the artifact, never truncates it
+    prev = json.load(open(_out_path))
+    prev["assets"].update(OUT["assets"])
+    OUT["assets"] = prev["assets"]
+json.dump(OUT, open(_out_path, "w"), indent=1)
+print("wrote out/lognormal_fit.json", len(OUT["assets"]), "assets")
