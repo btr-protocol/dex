@@ -2,6 +2,7 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "./interfaces/IPool.sol";
+import {ILPToken} from "./LPToken.sol";
 import {IAdmin} from "./interfaces/IAdmin.sol";
 import {IPoolAuxWiring} from "./interfaces/IPoolAuxWiring.sol";
 import {Err} from "@btr-shared/Errors.sol";
@@ -211,8 +212,21 @@ contract Pool is ReentrancyGuardTransient {
     return PoolView.previewWithdraw($, tk, lp);
   }
 
+  /// @dev Proxying view over the leg receipt, kept so the SDK, front and keepers are zero-diff.
   function getLPBalance(address u, address tk) external view returns (uint256) {
-    return $.lpBalances[u][PoolIO.wrap($, tk)];
+    address lp = $.lpTokens[PoolIO.wrap($, tk)];
+    return lp == address(0) ? 0 : ILPToken(lp).balanceOf(u);
+  }
+
+  function lpToken(address tk) external view returns (address) {
+    return $.lpTokens[PoolIO.wrap($, tk)];
+  }
+
+  /// @dev Read by every leg receipt on mint and on a transfer inside the anti-JIT window. Kept off
+  ///      `nonReentrant` deliberately: a guarded getter would make a transfer revert whenever the
+  ///      pool is mid-call, which is exactly the non-deterministic failure an ERC-20 must not have.
+  function flowCooldownSeconds() external view returns (uint16) {
+    return $.flowCooldownSeconds;
   }
 
   function getProtocolFees(address tk) external view returns (uint256) {

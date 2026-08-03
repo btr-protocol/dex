@@ -2,6 +2,7 @@
 pragma solidity =0.8.35;
 
 import {IPool} from "../interfaces/IPool.sol";
+import {ILPToken} from "../LPToken.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {Pricing} from "./Pricing.sol";
 import {Constants as C} from "./Constants.sol";
@@ -15,16 +16,11 @@ import {PoolHooks} from "./PoolHooks.sol";
 ///         External lib fns DELEGATECALL'd from Pool trampolines; reentrancy
 ///         + whenInitialized enforced at the trampoline.
 library PoolLiquidity {
-  // Events canonical @ IPool (Deposited / Withdrawn / LiabilitySwapped / Donated).
-  function _checkCooldown(IPool.PoolStorage storage $, uint32 lastTs) private view {
-    uint16 cooldown = $.flowCooldownSeconds;
-    if (cooldown == 0 || lastTs == 0) return;
-    unchecked {
-      if (block.timestamp < lastTs + cooldown) {
-        revert Err.CooldownActive(lastTs + cooldown - uint32(block.timestamp));
-      }
-    }
-  }
+  // Events canonical @ IPool (Deposited / Withdrawn / LiabilitySwapped / Donated). Share movement
+  // is logged by the leg receipt's own ERC-20 Transfer, which is the only complete record: the
+  // cross-asset withdraw path burns fromTk shares while paying out toTk, so no single Withdrawn
+  // log can carry both sides. The anti-JIT cooldown lives in that receipt too, as a frozen amount
+  // per holder, so deposit no longer stamps the pool and withdraw no longer checks it.
 
   /// @dev Share-minting index. Reverts on a wiped leg (index 0 = total write-down): minting there
   ///      would divide by zero, and any share minted after a wipe would be diluted 1:0 against the
@@ -38,10 +34,12 @@ library PoolLiquidity {
   ///      dust is pinnable — donate/deposit/withdraw ratchets the index onto its ceiling for gas,
   ///      after which the clamp holds it flat while `accrueLpFee` keeps booking fees no share can
   ///      ever claim. Sink a permanent seed to address(0) on whatever FIRST credits the leg's
-  ///      liabilities: address(0) is never msg.sender and both burn paths debit
-  ///      `lpBalances[msg.sender]` only, so the seed can never be redeemed. `liabilities` is then
-  ///      floored at deadShares·index/WAD, which tracks the index exactly, so reaching the ceiling
-  ///      costs the whole terminal liability instead of dust.
+  ///      liabilities: address(0) is never msg.sender, both burn paths debit msg.sender only, and
+  ///      the receipt refuses a user transfer to address(0), so the seed can never be redeemed nor
+  ///      topped up with LP money. It is minted as REAL supply, or `totalSupply` would understate
+  ///      outstanding shares by the seed and every wrapper would overstate NAV per share.
+  ///      `liabilities` is then floored at deadShares·index/WAD, which tracks the index exactly, so
+  ///      reaching the ceiling costs the whole terminal liability instead of dust.
   ///      Called from EVERY liability-credit site (deposit, swapLiability, donate, hookCreditYield),
   ///      not just the mints: donate credits liabilities while minting nothing, so a mint-only seed
   ///      left the share-free window wide open. The window is closed at the door, not gated
@@ -64,7 +62,9 @@ library PoolLiquidity {
     uint256 value,
     bool strict
   ) internal returns (uint256 deadLp, bool seeded) {
-    if ($.lpBalances[address(0)][tkn] != 0) return (0, true);
+    // The seed is unburnable, so a nonzero supply is an exact "already seeded" test.
+    ILPToken lp = ILPToken($.lpTokens[tkn]);
+    if (lp.totalSupply() != 0) return (0, true);
     // NOT asset.minLiquidity: that is the keeper reserve floor (Flash/PoolHooks read it in token
     // terms), and raising it would silently raise the first depositor's burn to five figures.
     uint8 pow10 = asset.deadSeedPow10;
@@ -78,7 +78,7 @@ library PoolLiquidity {
       if (strict) revert Err.InsufficientAmount(value, seed);
       return (0, false);
     }
-    $.lpBalances[address(0)][tkn] += deadLp;
+    lp.mint(address(0), deadLp);
     emit IPool.DeadSharesSeeded(tkn, seed, deadLp);
     seeded = true;
   }
@@ -130,8 +130,7 @@ library PoolLiquidity {
 
     asset.reserves += uint128(amt);
     asset.liabilities += uint128(amt);
-    $.lpBalances[msg.sender][tkn] += lpAmt;
-    $.lastDepositTime[msg.sender][tkn] = uint32(block.timestamp);
+    ILPToken($.lpTokens[tkn]).mint(msg.sender, lpAmt);
 
     PoolHooks.postInflow($, tkn, msg.sender, amt, lpAmt);
 
@@ -246,11 +245,9 @@ library PoolLiquidity {
     ctx.fromTk = PoolIO.wrap($, tokenFrom);
     ctx.toTk = PoolIO.wrap($, tokenTo);
 
-    _checkCooldown($, $.lastDepositTime[msg.sender][ctx.fromTk]);
-    if ($.lpBalances[msg.sender][ctx.fromTk] < lpAmount) {
-      revert Err.InsufficientAmount($.lpBalances[msg.sender][ctx.fromTk], lpAmount);
-    }
-
+    // No balance pre-read and no cooldown check here: `_applyWithdraw` burns straight off the leg
+    // receipt, which reverts internally on insufficiency AND on a share still inside its own
+    // anti-JIT window.
     {
       IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
       IPool.Asset storage assetTo = $.assets[ctx.toTk];
@@ -350,7 +347,7 @@ library PoolLiquidity {
   function _applyWithdraw(IPool.PoolStorage storage $, WithdrawCtx memory ctx, uint256 lpAmount)
     private
   {
-    $.lpBalances[msg.sender][ctx.fromTk] -= lpAmount;
+    ILPToken($.lpTokens[ctx.fromTk]).burn(msg.sender, lpAmount);
     IPool.Asset storage assetFrom = $.assets[ctx.fromTk];
     // withdrawValue ≤ liabilities is enforced at the quote (no clamp): the full face is always burned.
     if (ctx.fromTk == ctx.toTk) {
@@ -384,20 +381,12 @@ library PoolLiquidity {
     if (assetIn.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, inTk);
     if (assetOut.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, outTk);
 
-    // JIT flow-guard: subject to the same cooldown as withdrawTo, else deposit→swapLiability→withdraw
-    // exits the position before the anti-JIT window elapses.
-    _checkCooldown($, $.lastDepositTime[msg.sender][inTk]);
-
     IPool.RiskConfig storage rIn = $.riskConfigs[inTk];
     IPool.RiskConfig storage rOut = $.riskConfigs[outTk];
     PoolDecay.applyDecay(assetIn, rIn, inTk);
     PoolDecay.applyDecay(assetOut, rOut, outTk);
     PoolIO.checkRiskFlags(rIn, C.LIABILITY_SWAP_ENABLED_BIT);
     PoolIO.checkRiskFlags(rOut, C.LIABILITY_SWAP_ENABLED_BIT);
-
-    if ($.lpBalances[msg.sender][inTk] < lpAmountIn) {
-      revert Err.InsufficientAmount($.lpBalances[msg.sender][inTk], lpAmountIn);
-    }
 
     uint256 liabIn = (lpAmountIn * uint256(assetIn.liquidityIndex)) / SC.WAD;
     if (liabIn > assetIn.liabilities) revert Err.InsufficientAmount(assetIn.liabilities, liabIn);
@@ -436,12 +425,11 @@ library PoolLiquidity {
     assetOut.liabilities += uint128(liabOut);
     if (lpAmountOut < minLpAmountOut) revert Err.ThresholdViolation(lpAmountOut, minLpAmountOut);
 
-    $.lpBalances[msg.sender][inTk] -= lpAmountIn;
-    $.lpBalances[msg.sender][outTk] += lpAmountOut;
-    // Rebalanced position INHERITS the JIT cooldown (never resets it earlier): a later swapLiability
-    // or withdraw on the destination is still gated by the original deposit's timestamp.
-    uint32 prevOut = $.lastDepositTime[msg.sender][outTk];
-    if (block.timestamp > prevOut) $.lastDepositTime[msg.sender][outTk] = uint32(block.timestamp);
+    // The burn is gated by the in-leg's own lock and reverts on insufficiency; the mint arms a
+    // fresh lock over the destination shares, so the rebalanced position cannot exit the round trip
+    // any earlier than the original deposit could have.
+    ILPToken($.lpTokens[inTk]).burn(msg.sender, lpAmountIn);
+    ILPToken($.lpTokens[outTk]).mint(msg.sender, lpAmountOut);
 
     emit IPool.LiabilitySwapped(msg.sender, inTk, outTk, lpAmountIn, lpAmountOut, haircut);
     return lpAmountOut;

@@ -34,12 +34,6 @@ library Constants {
   ///      dead-share floor's protection, so it is what prices an index pin out of reach.
   uint256 internal constant LIQUIDITY_INDEX_INIT = 1e18;
 
-  /// @dev The base the PREVIOUS impl used, and the value it lazily substituted for a stored 0. Legs
-  ///      listed before the explicit `liquidityIndex = INIT` write hold 0 and are healthy at this
-  ///      base; `adminRebaseIndexWidth` writes it back explicitly. Applies to legacy legs ONLY:
-  ///      rescaling one to `LIQUIDITY_INDEX_INIT` without rescaling its shares 1e6x every claim.
-  uint256 internal constant LEGACY_LIQUIDITY_INDEX = 1e12;
-
   /// @dev Default dead-share seed = 10**decimals / this, i.e. 0.001 of a token, carved out of
   ///      whatever first credits the leg's liabilities. #73: `raiseIndex` is a ratio off
   ///      `liabilities`, so a leg whose liabilities can return to dust is pinnable for gas. The seed
@@ -61,6 +55,11 @@ library Constants {
   // ─── Flow guard ───
   /// @notice JIT cooldown (seconds) -chain-agnostic safe default.
   uint16 internal constant DEFAULT_FLOW_COOLDOWN = 15;
+  /// @notice Hard ceiling on `setFlowCooldown`. The receipt is transferable and the setter is
+  ///         untimelocked, so this IS the worst-case unavailability one compromised admin key can
+  ///         impose on every holder of every leg. 0 stays permitted as an explicit disable.
+  ///         Also lets a leg receipt skip the pool read for any lock older than this.
+  uint16 internal constant MAX_FLOW_COOLDOWN = 300;
 
   // ─── R44-2 (T3-HIGH2): base-token depeg halt threshold ───
   /// @notice Max allowed deviation of base-token oracle price from 1e18 (unit-of-account parity).

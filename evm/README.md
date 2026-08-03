@@ -31,24 +31,25 @@ deterministic `PoolStorage` slots via `eth_getStorageAt`.
 Layout (pinned by `test/PoolStorageLayout.t.sol`):
 
 ```
-slot 0  baseToken
+slot 0  baseToken + initialized
 slot 1  wnative
-slot 2  bridge
-slot 3  treasury + initialized
-slot 4  assets          mapping
-slot 5  oracleConfigs   mapping
-slot 6  riskConfigs     mapping
-slot 7  profiles        mapping
-slot 8  lpBalances      mapping
-slot 9  protocolFees    mapping
-slot 10 feeParams
-slot 11 flowCooldownSeconds
-slot 12 lastDepositTime mapping
-slot 13 lastLPStakeTime mapping
-slot 14 factory
-slot 15 assetHooks      mapping
-slot 16 invested        mapping
+slot 2  treasury
+slot 3  assets                 mapping
+slot 4  oracleConfigs          mapping
+slot 5  riskConfigs            mapping
+slot 6  curves                 mapping
+slot 7  __reserved_lpBalances  reserved pin, never read
+slot 8  protocolFees           mapping
+slot 9  feeParams
+slot 10 flowCooldownSeconds + factory (address @ byte offset 2)
+slot 11 assetHooks             mapping
+slot 12 invested               mapping
+slot 13 lpTokens               mapping
 ```
+
+LP shares are **not** in pool storage: each leg has its own ERC-20 receipt (`LPToken`, an EIP-1167
+clone with immutable args, address in `lpTokens`). Read balances from the receipt, or from the
+proxying `Pool.getLPBalance` view. Slot 7 is a reserved pin so `protocolFees` stays at 8.
 
 Mapping entry base = `keccak256(abi.encode(token, mappingSlot))`. Do not reorder fields
 before the mappings (append-only rule in `IPool.PoolStorage`).

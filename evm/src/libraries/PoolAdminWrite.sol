@@ -8,6 +8,8 @@ import {Err} from "@btr-shared/Errors.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {LibClone} from "solady/utils/LibClone.sol";
+import {MetadataReaderLib as MRL} from "solady/utils/MetadataReaderLib.sol";
 import {AnchorTree} from "./AnchorTree.sol";
 import {NUQuartic} from "./NUQuartic.sol";
 import {Oracle} from "./Oracle.sol";
@@ -51,8 +53,33 @@ library PoolAdminWrite {
     $.riskConfigs[t].flags &= ~C.ASSET_PAUSED_BIT; // clears ONLY bit6 — an independent FROZEN survives
   }
 
+  /// @dev `symbol`/`name` are derived from the underlying here rather than passed in: the on-chain
+  ///      string is a wallet convenience, and the SDK composes the display string from the leg
+  ///      symbol plus the pool's own tag (all three pools list USDC, so the on-chain string alone is
+  ///      ambiguous by construction). `MetadataReaderLib` returns "" for a token with no readable
+  ///      symbol instead of reverting the listing.
+  function _deployLpToken(address impl, address pool, address t, uint8 decimals)
+    private
+    returns (address)
+  {
+    bytes32 sym = _b32(string.concat("bLP-", MRL.readSymbol(t, 24)));
+    bytes32 nm = _b32(string.concat("BTR LP: ", MRL.readSymbol(t, 24)));
+    return LibClone.cloneDeterministic(
+      impl, abi.encodePacked(pool, t, decimals, sym, nm), keccak256(abi.encode(pool, t))
+    );
+  }
+
+  function _b32(string memory s) private pure returns (bytes32 r) {
+    bytes memory b = bytes(s);
+    uint256 n = b.length > 32 ? 32 : b.length;
+    for (uint256 i; i < n; ++i) {
+      r |= bytes32(b[i]) >> (i * 8);
+    }
+  }
+
   function initAsset(
     IPool.PoolStorage storage $,
+    address lpTokenImpl,
     address token,
     IPool.OracleConfig calldata oracleCfg,
     IPool.RiskConfig calldata riskCfg,
@@ -75,6 +102,10 @@ library PoolAdminWrite {
     if (t == $.baseToken && riskCfg.kappaCovBps != 0) revert Err.BadConfig();
     if (minFeePbps < C.MIN_FEE_PBPS) revert Err.InvalidInput();
     PoolAdmin.initAsset($, t, decimals, minFeePbps, minDispersion, maxDispersion, gamma, vega);
+    // After `initAsset`, which is what bounds `decimals` to 1..18: the receipt bakes decimals into
+    // its immutable args and cannot be re-issued. One receipt per WRAPPED leg, so the native
+    // sentinel and wnative share a single clone; the duplicate listing is refused above.
+    $.lpTokens[t] = _deployLpToken(lpTokenImpl, address(this), t, decimals);
     PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, presetId);
     // After risk config lands: wall-flag gating + min-offset bound read curve + riskConfigs.
     PoolAdmin.validatePresetAssign($, t, presetId, maxDispersion);
@@ -92,7 +123,10 @@ library PoolAdminWrite {
 
   /// @dev 0 disables the JIT guard. Load-bearing since #71: swap and flash fees now move the index,
   ///      so with no cooldown an LP can deposit, wait for a known-inbound swap, and withdraw the fee.
+  ///      Capped because the guard now gates ERC-20 TRANSFERS of a live receipt, not just withdraw:
+  ///      an unbounded uint16 let one untimelocked admin key freeze every holder for 18.2 hours.
   function setFlowCooldown(IPool.PoolStorage storage $, uint16 cooldownSeconds) external {
+    if (cooldownSeconds > C.MAX_FLOW_COOLDOWN) revert Err.InvalidInput();
     $.flowCooldownSeconds = cooldownSeconds;
   }
 

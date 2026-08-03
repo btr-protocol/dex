@@ -1,7 +1,10 @@
 # Task 64: tokenized LP legs (per-leg ERC-20 receipts)
 
-Status: stage 1 spec, awaiting sign-off. No code staged. Reviewed by four independent design
-reviewers (cooldown, migration, accounting, integration); disagreements are recorded inline.
+Status: implemented. `src/LPToken.sol` plus the pool diffs ship the per-leg receipt, the frozen-amount
+lock and the 300s cooldown cap; section 3.4 is a fresh-deploy note, not a migration. Reviewed by four
+independent design reviewers (cooldown, migration, accounting, integration); disagreements are
+recorded inline. Two implementation calls that departed from the text are marked in place: the
+cooldown source (section 7) and the address(0) transfer policy (section 11).
 
 Paths are relative to `dex/evm` unless noted.
 
@@ -152,9 +155,11 @@ mapping(address leg => address) lpTokens;   // appended at tail
 ```
 
 `lastDepositTime` is deleted from the pool because the cooldown state moves into the token
-(section 4). Deleting slots 11 and 12 renumbers `factory` 13 to 11, `assetHooks` 14 to 12,
-`invested` 15 to 13. Full redeploy is authorised, so this is free on chain, but it **must** be
-mirrored in `sdk/src/pool/storage.ts:29-48` and `test/PoolStorageLayout.t.sol` in the same commit.
+(section 4). Deleting slots 11 and 12 does **not** simply shift the tail by two: with the two
+mappings gone, `factory` (address, 20 bytes) packs into slot 10 beside `flowCooldownSeconds`
+(uint16) at byte offset 2. The tail lands at `assetHooks` 11, `invested` 12, `lpTokens` 13.
+Full redeploy is authorised, so this is free on chain, but it **must** be mirrored in
+`sdk/src/pool/storage.ts` and `test/PoolStorageLayout.t.sol`, which pins it.
 
 ### 3.2 LP token storage
 
@@ -173,76 +178,35 @@ Slot 1 today is `minLiquidity(128) + liquidityIndex(64) + lastUpdate(32) + prese
 Repack to `minLiquidity(96) + liquidityIndex(96) + lastUpdate(32) + presetId(16) + deadSeedPow10(8)`
 = 248 bits, same slot. Then set `LIQUIDITY_INDEX_INIT = 1e18`. Rationale in section 5.1.
 
-The repack is **not** value-preserving, so it carries a storage migration. `lastUpdate` and `presetId`
-keep their offsets (96+96 = 128+64), and `minLiquidity` keeps its low bit at 0, but `liquidityIndex`
-moves its low bit from 128 to 96: a word written by the old impl reads back as `oldIndex << 32`, and
-every share claims 2^32x its backing until it is corrected. `deadSeedPow10` occupies bits the old
-word left zero, so a legacy leg reads the default seed. `PoolAux.adminRebaseIndexWidth` shifts each
-listed leg back and must be batched into the beacon-upgrade transaction. A full redeploy would avoid
-it, which is why this only bites when the repack ships ahead of section 3.1.
+The repack is **not** value-preserving, so it cannot be applied to a live leg: `liquidityIndex`
+moves its low bit from 128 to 96, and a word written by the old impl would read back as
+`oldIndex << 32`. It is shipped as part of a fresh deploy, so no word is ever reinterpreted, and the
+`adminRebaseIndexWidth` migration this section previously specified is **deleted**. `deadSeedPow10`
+occupies bits the old word left zero.
 
-The rebase is a **shift only**. `LIQUIDITY_INDEX_INIT = 1e18` applies to newly listed legs; a legacy
-leg keeps the 1e12 base, because rescaling its index without rescaling its shares multiplies every
-claim by 1e6. Pinned by `test/AuditIndexRebaseClaim.t.sol`.
+`LIQUIDITY_INDEX_INIT = 1e18` therefore applies to every leg from block zero: the first share is 1:1
+with the first underlying unit, which is what lets the receipt carry the underlying's own
+`decimals()` (section 5.1).
 
-#### The zero-index legs
+### 3.4 Fresh deploy, no upgrade path
 
-30 of the 33 live Sepolia legs store `liquidityIndex == 0`, verified read-only over `eth_call`
-against 11155111. They are healthy: the deployed impl lazy-inits a stored 0 to 1e12 at read time
-(DAI on the stable pool reconciles exactly, `getLPBalance * 1e12 / WAD == liabilities`). The explicit
-`liquidityIndex = INIT` write at `PoolAdmin.sol:185` landed in `796ac93`, **after** those legs were
-deployed.
+Only Sepolia and anvil exist and every `lpBalances` entry there was written by the deploy script
+against mock tokens (section 6), so the fleet is redeployed rather than migrated. There is no
+rebase, no beacon-upgrade batch, and no pre-flight over live legs. `PoolAux.adminRebaseIndexWidth`,
+`Constants.LEGACY_LIQUIDITY_INDEX`, `test/AuditIndexRebaseClaim.t.sol` and
+`test/AuditLiveLegMigration.t.sol` are deleted with it: under a clean deploy the legacy 1e12 base and
+the lazy-init zero-index cohort cannot occur.
 
-This impl redefines 0 as "written down to a total loss, terminal". Skipping a zero leg in the rebase
-would therefore zero it permanently: `mintIndex` reverts, withdraw computes `lp * 0 / WAD = 0` and
-reverts, and no writer can restore it because every index writer multiplies an existing value. The
-rebase **writes `LEGACY_LIQUIDITY_INDEX` back** for those legs.
+What survives from the old runbook, because it is deploy ordering rather than migration:
 
-A real wipe must still not be revived. It is distinguishable without a share supply, which does not
-exist yet: both writers that can drive the index to 0 (`PoolDecay`, `hookWriteDown`) scale it by
-`newLiabilities / oldLiabilities`, so index 0 implies liabilities 0; and after a wipe every credit
-path fails closed on `mintIndex`, so liabilities can never return. The discriminator is therefore
-`liabilities != 0`, and a wiped or never-credited leg stays terminal and must be re-listed.
+1. Install the preset curves, then list each leg. `initAsset` deploys that leg's `LPToken` clone.
+2. `adminSetDeadSeedPow10` per leg (section 5.4) BEFORE the leg is first credited: the override
+   only applies while the leg is unseeded.
+3. Open each leg with a deposit. The dead seed is carved out of that first credit automatically; a
+   leg left uncredited is safe indefinitely and simply carries no pin floor yet.
 
-### 3.4 Upgrade runbook
-
-The atomic transaction is **upgrade + rebase only**. Seeding is a separate, later step.
-
-Validator 1 was right that the seeding `donate` cannot be batched in: it calls
-`PoolIO.checkRiskFlags`, so it reverts on any FROZEN or ASSET_PAUSED leg and would abort the whole
-upgrade. Validator 2 was right that an unseeded migrated leg was unsafe, but only because
-`seedDeadShares` reverted where the codebase's own policy is to skip. With the fail-closed defects
-fixed (`PoolLiquidity.sol` ceil-divide, `PoolAux.hookCreditYield` skip), an unseeded leg is safe:
-deposits, donates and swaps work, and the keeper's harvest skips the raise instead of reverting until
-a credit large enough to carry the seed arrives.
-
-**Pre-flight assertions**, over every live leg, read-only, before broadcasting anything:
-
-- `minLiquidity == 0` on every leg (`SeedRiskFences.s.sol:149` already asserts the reservation-band
-  half of this). Anything above `2**96` would wrap; anything nonzero means the word is not the shape
-  the rebase assumes.
-- `liquidityIndex` in `{0} union (2**32, 2**64)`. `0` is the lazy-init cohort; the open interval is a
-  live 1e12-base index read through the OLD layout. A value at or below `2**32`, or at or above
-  `2**64`, is outside the band the shift is exact for and must be triaged by hand.
-- For each zero-index leg, `getLPBalance(deployer, leg) * 1e12 / WAD == liabilities`, off-chain. This
-  is the reconciliation the on-chain `liabilities != 0` check stands in for; on-chain there is no
-  share supply to compute it from.
-
-**Sequence:**
-
-1. Read-only pre-flight above. Halt on any leg that fails.
-2. One transaction: `upgradeBeacon(newImpl)` then `adminRebaseIndexWidth(legs)` for every pool, all
-   legs, owner-signed. Nothing else may touch a pool between the two calls.
-3. Verify post-rebase: every leg's `previewWithdraw(leg, shares)` matches the value recorded in step
-   1, to the wei. `adminRebaseIndexWidth` is not re-runnable and reverts `InvalidState` on a second
-   pass, which is the intended idempotency guard.
-4. Set `adminSetDeadSeedPow10` per leg (section 5.4) BEFORE seeding: the override only applies while
-   the leg is unseeded.
-5. Seed, later and per leg: unpause/unfreeze if needed, `donate` at least the seed, re-apply the risk
-   flags. A leg left unseeded is safe indefinitely; it simply carries no pin floor yet.
-
-Never: a rebase in a different transaction from the upgrade, a rescale to 1e18, or a `donate`
-batched into the upgrade transaction.
+Seeding is still never batched into a listing transaction: `donate` calls `PoolIO.checkRiskFlags`
+and reverts on any FROZEN or ASSET_PAUSED leg.
 
 ## 4. Cooldown resolution
 
@@ -535,8 +499,16 @@ Three existing code paths break it. They are section 8's P0 items.
 write must also bump `totalSupply`, or the invariant above understates outstanding shares by the
 dead seed and every wrapper overstates NAV per share by the same. Section 11 additionally makes
 `address(0)` the burn sink, so a plain `transfer(address(0), x)` would silently grow the dead pile
-and lift the pin floor with LP money. Both are one line each at the mint and burn sites, and both
-are invisible until a wrapper divides by `totalSupply`.
+and lift the pin floor with LP money.
+
+**Both are closed.** The seed is minted as real supply (`ILPToken.mint(address(0), deadLp)`), so
+`totalSupply` covers it. A **user transfer to address(0) reverts** rather than the burn path being
+moved off address(0): ERC-20 burn semantics ARE `Transfer(from, 0, x)`, every indexer and wrapper
+already reads them that way, and Solady's `_burn` reduces `totalSupply` without ever crediting
+`balanceOf(0)`. So the two uses never collide in the ledger, only in the transfer entrypoint, and
+refusing that one entrypoint is both the smaller change and the one that keeps `balanceOf(0)` an
+exact, auditable record of what the protocol seeded. `burn` is pool-only, so the carve-out is keyed
+on the caller. Pinned by `test_a_transfer_to_address_zero_is_refused`.
 
 ### 5.4 Denominating the dead seed in value, not token units
 
@@ -603,11 +575,12 @@ a token-to-pool callback on every transfer, which reintroduces the reentrancy de
 and `totalSupply` would understate outstanding shares for the whole window, breaking every wrapper.
 Both are moot.
 
-One finding that survives the redeploy, because it affects indexing either way:
-`PoolLiquidity.sol:189` emits `Withdrawn(sender, ctx.toTk, ctx.amt, lpAmount)` on the cross-asset
-path, where `lpAmount` is **fromTk** shares paired with the **toTk** address. Log-based balance
-reconstruction is wrong today unless the indexer pairs it with the `LiabilitySwapped` at `:188`.
-ERC-20 `Transfer` events fix this for free.
+One finding that survives the redeploy, because it affects indexing either way: the cross-asset
+withdraw path emitted `Withdrawn(sender, toTk, amt, lpAmount)` where `lpAmount` was **fromTk** shares
+paired with the **toTk** address, so log-based balance reconstruction was wrong on both legs.
+`f1b83c3` split it into `LiabilitySwapped` (the fromTk burn) plus `Withdrawn(..., 0)` (the toTk
+payout), and the receipt's own `Transfer` now carries the burn unambiguously against the input leg's
+token. Pinned by `test_cross_asset_withdraw_logs_the_burn_on_the_input_receipt`.
 
 ## 7. Gas, measured
 
@@ -661,13 +634,17 @@ Deployment, 33 legs across 3 pools:
 The earlier claim that 22.1M "exceeds a block" is wrong on BSC, whose limit is far higher. The
 choice still stands on cost: ~1.92M against ~22.1M is not close.
 
-**Open item carried into stage 2.** The measurement prototype hardcodes the cooldown as a constant.
-`flowCooldownSeconds` actually lives in pool storage (`IPool.sol:142`) with no external getter, so
-the token must obtain it. A cross-contract read on every transfer costs about 12k and re-enters the
-reentrancy problem of section 2, so the token will hold its own copy, written at clone time and
-updated by a pool-only setter that `Admin.setFlowCooldown` fans out across the leg tokens (a rare
-admin action, about 33 SSTOREs). That adds roughly one cold SLOAD (~2,100) to the transfer and debit
-rows above. Budget +19.3k on debit, not +17.2k.
+**Open item, resolved against this section.** The measurement prototype hardcoded the cooldown as a
+constant. It actually lives in pool storage, so the token must obtain it. This section proposed a
+per-token copy plus an `Admin.setFlowCooldown` fan-out across the leg tokens; section 16's accepted
+list proposed a `flowCooldownSeconds()` getter the pool lacked. **The getter wins.** A per-token
+copy is a second source of truth, needs the pool to enumerate its own legs (it has no leg array, only
+the factory roster) and drifts silently on any factory-less clone. The getter is a STATICCALL, so it
+cannot re-enter `nonReentrant` nor trip `requireNoFlash`, which is what section 2 actually warns
+about. Its cost is bounded by rider 1 of section 4.4: the cap at 300s makes any lock older than 300s
+unconditionally clear, so the token skips the read entirely and a steady-state transfer pays one
+cold SLOAD of its own lock slot, exactly as a per-token copy would. The read is paid only inside the
+window it gates.
 
 Deployment, 33 legs across 3 pools:
 

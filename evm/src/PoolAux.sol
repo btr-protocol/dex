@@ -6,6 +6,7 @@ import {IAdmin} from "./interfaces/IAdmin.sol";
 import {Err} from "@btr-shared/Errors.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
+import {LPToken} from "./LPToken.sol";
 import {PoolAdminWrite} from "./libraries/PoolAdminWrite.sol";
 import {PoolEdge} from "./libraries/PoolEdge.sol";
 import {PoolLiquidity} from "./libraries/PoolLiquidity.sol";
@@ -32,6 +33,10 @@ contract PoolAux is ReentrancyGuardTransient {
   address public immutable AC;
   address public immutable admin;
   address public immutable flash;
+  /// @notice Shared LPToken implementation every leg receipt clones. Deployed HERE rather than
+  ///         passed in so the receipt bytecode can never drift from the listing code that clones it,
+  ///         and so no deploy script or `PoolFactory` compat check gains a parameter.
+  address public immutable lpTokenImpl;
 
   constructor(address ac_, address admin_, address flash_) {
     if (ac_ == address(0) || admin_ == address(0) || flash_ == address(0)) {
@@ -44,6 +49,7 @@ contract PoolAux is ReentrancyGuardTransient {
     AC = ac_;
     admin = admin_;
     flash = flash_;
+    lpTokenImpl = address(new LPToken());
   }
 
   /// @dev NOT a role gate: asserts the caller IS the singleton `Admin` CONTRACT. Named distinctly
@@ -95,6 +101,7 @@ contract PoolAux is ReentrancyGuardTransient {
   ) external onlyAdminContract {
     PoolAdminWrite.initAsset(
       $,
+      lpTokenImpl,
       token,
       oracleCfg,
       riskCfg,
@@ -185,54 +192,6 @@ contract PoolAux is ReentrancyGuardTransient {
 
   function adminSetFeeParams(IPool.FeeParams calldata params) external onlyAdminContract {
     PoolAdminWrite.setFeeParams($, params);
-  }
-
-  /// @notice One-shot #73 upgrade step: restore each leg's `liquidityIndex` after the Asset repack.
-  /// @dev MUST run in the SAME transaction as the beacon upgrade, before any other call touches the
-  ///      pool. `minLiquidity` shrank 128→96 so `liquidityIndex` could grow 64→96, which moves the
-  ///      index field's low bit from 128 to 96: a word written by the old impl therefore reads back
-  ///      as `oldIndex << 32`, and every share would claim 2**32x its backing until this runs.
-  ///      `minLiquidity`, `lastUpdate` and `presetId` are untouched by the repack and need no fixup.
-  ///      Shift ONLY: a legacy leg keeps the 1e12 base. `LIQUIDITY_INDEX_INIT = 1e18` applies to
-  ///      newly listed legs, and rescaling a live leg's index without rescaling its shares would
-  ///      multiply every claim by 1e6.
-  ///      Idempotency: only a leg still carrying the shifted value is rewritten, and a leg outside
-  ///      that band reverts rather than being silently halved.
-  ///      Gated on the fleet OWNER, not on the `Admin` singleton, because PoolFactory asserts the
-  ///      candidate impl's `admin` immutable equals the live one: adding a forwarder to Admin would
-  ///      need a new Admin address and `requestReferenceUpgrade` would reject the upgrade.
-  // ponytail: keyed on the uint64 ceiling, which is exact for the deployed fleet (every live index
-  // sits within a few percent of 1e12) but is a band, not a proof. Delete this with the migration.
-  function adminRebaseIndexWidth(address[] calldata tokens) external {
-    if (msg.sender != AccessControl(AC).owner()) revert Err.NotOwner();
-    for (uint256 i; i < tokens.length; ++i) {
-      IPool.Asset storage a = $.assets[PoolIO.wrap($, tokens[i])];
-      if (a.decimals == 0) revert Err.NotFound(Err.Resource.ASSET, tokens[i]);
-      uint96 idx = a.liquidityIndex;
-      if (idx == 0) {
-        // NOT a wipe: every leg listed before `initAsset` began writing the base explicitly stores
-        // 0, and the PREVIOUS impl read that 0 as LEGACY_LIQUIDITY_INDEX. 30 of the 33 live Sepolia
-        // legs are in this state and are healthy. This impl reads 0 as terminal, so skipping here
-        // would zero their LPs with no writer able to restore it (every index writer multiplies an
-        // existing value). Write the legacy base back.
-        // The two writers that can reach 0 (PoolDecay, hookWriteDown) both scale the index by
-        // `newLiabilities/oldLiabilities`, so index 0 implies liabilities 0; and after a wipe every
-        // credit path fails closed on `mintIndex`, so liabilities can never return. `liabilities
-        // != 0` is therefore an exact discriminator, and needs no share supply (there is none).
-        // A genuinely wiped or never-credited leg stays terminal and must be re-listed.
-        if (a.liabilities == 0) continue;
-        a.liquidityIndex = uint96(C.LEGACY_LIQUIDITY_INDEX);
-        emit IPool.IndexUpdated(
-          tokens[i], C.LEGACY_LIQUIDITY_INDEX, a.reserves, a.liabilities, C.INDEX_REASON_WRITEDOWN
-        );
-        continue;
-      }
-      if (idx <= type(uint64).max) revert Err.InvalidState(); // already migrated
-      a.liquidityIndex = idx >> 32;
-      emit IPool.IndexUpdated(
-        tokens[i], idx >> 32, a.reserves, a.liabilities, C.INDEX_REASON_WRITEDOWN
-      );
-    }
   }
 
   /// @notice Per-leg dead-share seed, as a power of ten of the token's own unit. 0 = the

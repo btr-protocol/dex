@@ -10,11 +10,9 @@ interface IPool {
     // slot 0
     uint128 reserves;
     uint128 liabilities;
-    // slot 1 (8 bits free). minLiquidity was uint128 and liquidityIndex uint64. The pair keeps its
-    // combined 192-bit span, so lastUpdate and presetId do not move, but the INDEX field's low bit
-    // slides 128 -> 96: every live Asset word written by the old impl DOES read back reinterpreted,
-    // as `oldIndex << 32`, and `PoolAux.adminRebaseIndexWidth` must correct it in the upgrade
-    // transaction. minLiquidity is bounded < 2**96 at setAssetParams so its own value survives.
+    // slot 1 (8 bits free). liquidityIndex is 96 bits over a WAD base, so the first share is 1:1
+    // with the first underlying unit and the receipt can carry the underlying's own decimals.
+    // minLiquidity is bounded < 2**96 at setAssetParams.
     uint96 minLiquidity;
     uint96 liquidityIndex;
     uint32 lastUpdate;
@@ -134,7 +132,9 @@ interface IPool {
   ///      lpStaked/totalLPStaked/modules/pendingOps/pendingData/owner.
   /// @dev Off-chain readers: do NOT add view getters for mappings below — use
   ///      eth_getStorageAt (SDK `@sdk/pool/storage`). Mapping slots pinned:
-  ///      assets=3, oracleConfigs=4, riskConfigs=5, curves=6.
+  ///      assets=3, oracleConfigs=4, riskConfigs=5, curves=6; tail assetHooks=11,
+  ///      invested=12, lpTokens=13. `factory` packs into slot 10 at offset 2, behind
+  ///      `flowCooldownSeconds`. Pinned by `test/PoolStorageLayout.t.sol`.
   struct PoolStorage {
     // slot 0: baseToken + initialized — the whenInitialized latch rides the one slot every hot
     // entrypoint already reads (was packed with treasury, a slot no swap path touches: −1 cold SLOAD).
@@ -147,13 +147,15 @@ interface IPool {
     mapping(address => IPool.RiskConfig) riskConfigs;
     // Shared pricing-shape preset table (quartic I-spline curves); assets point in via presetId.
     mapping(uint16 => NUQuartic.Curve) curves;
-    mapping(address => mapping(address => uint256)) lpBalances;
+    // Was `lpBalances`; the per-leg LPToken clone is now the sole share ledger. Kept as a pin
+    // holder because deleting it shifts `protocolFees` to 7 and renumbers everything after it,
+    // breaking the storage pin and the SDK map for no benefit. Never read, never written.
+    uint256 __reserved_lpBalances;
     mapping(address => uint256) protocolFees;
     IPool.FeeParams feeParams;
     uint16 flowCooldownSeconds;
-    // Flow-guard cooldown timestamps (was: FlowGuardStorage @ FLOW_GUARD_STORAGE_LOC).
-    mapping(address user => mapping(address asset => uint32)) lastDepositTime;
-    mapping(address user => mapping(address lpToken => uint32)) lastLPStakeTime;
+    // Slots 11 and 12 held `lastDepositTime` and the dead `lastLPStakeTime`. The anti-JIT lock is
+    // now a frozen AMOUNT held per holder in the leg's LPToken, so no pool-side timestamp survives.
     // REG-02: the PoolFactory that created this clone (captured from `msg.sender` in `initialize`,
     //   which the factory calls via createPool). Lets the pool keep the factory's discovery index in
     //   sync when NEW assets are listed (registerTokens) or the base migrates (setPoolBaseToken), so
@@ -164,6 +166,8 @@ interface IPool {
     //   ⚠ Appended AT TAIL. Do not reorder prior fields.
     mapping(address => HookSlot) assetHooks;
     mapping(address => uint128) invested;
+    /// @dev Per-leg ERC-20 receipt (EIP-1167 clone), written once at `initAsset`. ⚠ Appended AT TAIL.
+    mapping(address leg => address) lpTokens;
   }
 
   event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);
@@ -190,7 +194,6 @@ interface IPool {
   function adminCollectProtocolFees(address token, address recipient) external returns (uint256);
   function adminSetFlowCooldown(uint16 cooldownSeconds) external;
   function adminSetAnchor(address token, address anchor) external;
-  function adminRebaseIndexWidth(address[] calldata tokens) external;
   function adminSetDeadSeedPow10(address token, uint8 pow10) external;
   function adminSetAssetParams(
     address token,
@@ -253,6 +256,10 @@ interface IPool {
   /// @return Asset struct snapshot.
   function getAsset(address token) external view returns (Asset memory);
   function getLPBalance(address user, address token) external view returns (uint256);
+  /// @notice The leg's ERC-20 receipt; `address(0)` if the leg is not listed.
+  function lpToken(address token) external view returns (address);
+  /// @notice Anti-JIT window, capped at `Constants.MAX_FLOW_COOLDOWN`. Read by every leg receipt.
+  function flowCooldownSeconds() external view returns (uint16);
   function getRiskFlags(address token) external view returns (uint16);
   function getFeeParams() external view returns (FeeParams memory);
   function getAssetHook(address token) external view returns (HookSlot memory);
