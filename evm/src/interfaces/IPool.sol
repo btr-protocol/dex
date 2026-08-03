@@ -281,6 +281,14 @@ interface IPool {
     uint256 lpFee;
     int8 skewIn;
     int8 skewOut;
+    /// @dev Path oracle mark and executable mid, both B64 (1e18 convention, `tokenOut` per
+    ///      `tokenIn`, chained across legs). `markPriceB64` is the oracle fair value, `midPriceB64`
+    ///      the inventory-skewed centre the book actually quotes around; their gap is the skew
+    ///      premium, and (exec − mid) is the only genuinely extractable part.
+    uint64 markPriceB64;
+    uint64 midPriceB64;
+    /// @dev Coverage toll withheld from the gross output BEFORE the fee, `tokenOut` units.
+    uint256 covToll;
     address[] routeHops;
     uint256[] hopAmounts;
     uint64[] hopPrices;
@@ -291,11 +299,13 @@ interface IPool {
   ///      indexer must credit 100% of a swap's fee to `tokenOut` and never to both legs.
   ///      `spreadPbps` is PBPS (1e6), and the realised fee is spreadPbps/2 of the pre-fee
   ///      output — half the round-trip spread, not spreadPbps itself.
-  ///      NOT emitted: the leg mark, and the coverage toll `_covToll` withheld before the fee.
-  ///      Both are computed in `_settleQuote` and dropped, so off-chain OEV (exec-vs-mark
-  ///      deviation) and total LP revenue cannot be reconstructed from this log alone.
-  ///      ponytail: add `uint64 markPriceB64` (the value `_executeLeg` already reads) plus
-  ///      `uint256 covToll` here; both are already in memory, so the cost is log data only.
+  ///      `markPriceB64` / `midPriceB64` are B64 (1e18 convention, same as `lastPriceB64`) and are
+  ///      `tokenOut` per `tokenIn`, chained over every leg of the path, so they are directly
+  ///      comparable to the realised amountOut/amountIn. The book is centred on the MID, not the
+  ///      mark, so OEV decomposes exactly: (exec−mid)/mid is extractable value, (mid−mark)/mark is
+  ///      inventory skew, and the two sum to the old exec-vs-mark number.
+  ///      `covToll` is the coverage toll withheld from the gross output before the fee, in
+  ///      `tokenOut` units (the same units as `amountOut`, `protoFee` and `lpFee`).
   event Swapped(
     address indexed sender,
     address indexed recipient,
@@ -305,7 +315,10 @@ interface IPool {
     uint256 amountOut,
     uint16 spreadPbps,
     uint256 protoFee,
-    uint256 lpFee
+    uint256 lpFee,
+    uint64 markPriceB64,
+    uint64 midPriceB64,
+    uint256 covToll
   );
 
   event BatchSwapped(

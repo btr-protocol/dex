@@ -47,7 +47,18 @@ library PoolSwap {
 
     PoolIO.push($, tokenOut, recipient, out);
     emit IPool.Swapped(
-      msg.sender, recipient, inTk, outTk, actualIn, out, q.spreadPbps, q.protoFee, q.lpFee
+      msg.sender,
+      recipient,
+      inTk,
+      outTk,
+      actualIn,
+      out,
+      q.spreadPbps,
+      q.protoFee,
+      q.lpFee,
+      q.markPriceB64,
+      q.midPriceB64,
+      q.covToll
     );
   }
 }

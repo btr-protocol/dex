@@ -57,7 +57,7 @@ contract PricingHarness {
     returns (uint256 g, uint256 out)
   {
     uint256 g0 = gasleft();
-    out = Pricing.quoteSwap(
+    (out,) = Pricing.quoteSwap(
       amtIn, res, liab, 1e18, uint32(SC.ONE_PCT_PBPS), curve, 0, true, 10000, 10000, 1000, 100000
     );
     g = g0 - gasleft();

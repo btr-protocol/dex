@@ -67,6 +67,7 @@ library Pricing {
   }
 
   /// @notice Quote sell-side swap with coverage-adjusted depth + curve traversal.
+  /// @return amountOut Leg output. @return midPrice Zero-volume mid at the skew anchor (see `_legMid`).
   function quoteSwap(
     uint256 amountIn,
     uint128 reserves,
@@ -80,15 +81,33 @@ library Pricing {
     uint16 vega,
     uint32 minDispersion,
     uint32 maxDispersion
-  ) internal view returns (uint256 amountOut) {
+  ) internal view returns (uint256 amountOut, uint256 midPrice) {
     // Calculate effective depth and dispersion
     uint256 depth = calculateDepth(reserves, liabilities, depthAmplifier);
     uint32 dispersion = _calculateDispersion(sigma, vega, minDispersion, maxDispersion);
+    midPrice = _legMid(mark, dispersion, curve, inventorySkew);
 
     // Execution price (base per token, 1e18) from the volume traverse; out = in·px/WAD.
     uint256 executionPrice =
       _traverseCurveByVolume(mark, dispersion, curve, inventorySkew, amountIn, depth, selling, 0);
     amountOut = (amountIn * executionPrice) / SC.WAD;
+  }
+
+  /// @dev Executable mid = the curve evaluated AT the skew anchor, zero volume. This, not `mark`, is
+  ///      what the book is centred on: `mark` is the oracle fair value and the anchor shift is the
+  ///      A-S inventory reservation-price displacement. Emitting both is what lets an indexer split
+  ///      (exec−mid) real extractable value from (mid−mark) skew premium instead of conflating them.
+  ///      Same floors as every other price path (`_flooredOffsetPrice` / `_skewToPrice`) ⇒ never 0.
+  function _legMid(uint256 mark, uint32 dispersion, NUQ.Curve storage curve, int8 skew)
+    private
+    view
+    returns (uint256)
+  {
+    uint256 header = curve.header;
+    if (header == 0) return _skewToPrice(mark, skew, dispersion);
+    return _flooredOffsetPrice(
+      mark, _scaleY(NUQ.evalQ(curve, header, _skewToDepth(skew)), header, dispersion)
+    );
   }
 
   /// @dev κ⁻¹: dispersion ∝ σ. dispersion = clamp(minDispersion + σ·vega/1000/BPS, [min,max]).
@@ -253,6 +272,11 @@ library Pricing {
     uint16 minFee;
     uint16 maxFee;
     uint64 execPriceB64;
+    /// @dev Oracle mark and executable mid, WAD, ORIENTED `to` per `from` (the leg pair is quoted
+    ///      base-per-child, so a downward leg carries the reciprocal). Chaining them across legs
+    ///      therefore composes exactly like the realised amountOut/amountIn.
+    uint256 mark;
+    uint256 mid;
   }
 
   /// @dev Path metrics accumulator (reduce stack depth).
@@ -261,6 +285,8 @@ library Pricing {
     uint32 sigmaPair;
     uint16 minFeePath;
     uint16 maxFeePath;
+    uint256 markPath; // WAD, tokenOut per tokenIn — product of the oriented leg marks
+    uint256 midPath; // WAD, ditto for the skewed mid
   }
 
   /// @notice Swap-exec entry: pre-warm oracle cache, quote without UI analytics fields.
@@ -314,6 +340,8 @@ library Pricing {
 
     PathAccumulator memory acc;
     acc.currentAmount = amountIn;
+    acc.markPath = SC.WAD; // multiplicative identity: the leg walk chains onto these
+    acc.midPath = SC.WAD;
 
     _walkLegs($, path, acc, quote, analytics);
     if (analytics) quote.amountIn = amountIn; // echo of caller's own arg — view/UI only
@@ -330,7 +358,10 @@ library Pricing {
     bool analytics
   ) private view {
     quote.spreadPbps = _pathSpread(acc, cIn, cOut);
-    acc.currentAmount -= _covToll(cOut, acc.currentAmount);
+    quote.covToll = _covToll(cOut, acc.currentAmount);
+    acc.currentAmount -= quote.covToll;
+    quote.markPriceB64 = _priceB64(acc.markPath);
+    quote.midPriceB64 = _priceB64(acc.midPath);
     uint256 feeOut = (acc.currentAmount * uint256(quote.spreadPbps)) / (2 * SC.PBPS);
     (quote.protoFee, quote.lpFee) = splitFee(feeOut, $.feeParams.protoShare);
     quote.amountOut = acc.currentAmount - feeOut;
@@ -342,6 +373,13 @@ library Pricing {
         cOut.reserves, cOut.liabilities, cOut.coverageMin, cOut.coverageMax, cOut.gamma
       );
     }
+  }
+
+  /// @dev WAD → B64 (1e18 convention, as `lastPriceB64`). Log-only field: 0 is the codebase's
+  ///      "unset" sentinel (`gt64Wad`), so a degenerate ratio reports unset rather than reverting a
+  ///      swap that priced correctly. `encodeB64` is the sole price encoding — do not add another.
+  function _priceB64(uint256 wad) private pure returns (uint64) {
+    return wad == 0 ? 0 : M.encodeB64(wad, 18);
   }
 
   /// @dev Full path spread (PBPS, clamped): S_vol + U_stale + U_conf, then clamp to the path fee
@@ -467,6 +505,8 @@ library Pricing {
       LegResult memory r =
         _executeLeg($, path.hops[i], path.hops[i + 1], acc.currentAmount, analytics);
       acc.currentAmount = r.amountOut;
+      acc.markPath = (acc.markPath * r.mark) / SC.WAD;
+      acc.midPath = (acc.midPath * r.mid) / SC.WAD;
       if (analytics) {
         quote.hopAmounts[i + 1] = r.amountOut;
         quote.hopPrices[i] = r.execPriceB64;
@@ -495,7 +535,10 @@ library Pricing {
 
     IPool.Asset storage asset = $.assets[profileAsset];
     IPool.RiskConfig storage rc = $.riskConfigs[profileAsset];
-    r.amountOut = _priceEdgeHop($, asset, rc, amountIn, mark, sigma, isUpward, profileAsset);
+    uint256 mid;
+    (r.amountOut, mid) = _priceEdgeHop($, asset, rc, amountIn, mark, sigma, isUpward, profileAsset);
+    // Both are quoted base-per-child; a downward leg (base→child) delivers the child, so invert.
+    (r.mark, r.mid) = isUpward ? (mark, mid) : ((SC.WAD * SC.WAD) / mark, (SC.WAD * SC.WAD) / mid);
     bool clamped;
     (r.amountOut, clamped) = _legScaleOut($, from, to, r.amountOut);
     if (analytics && !clamped) {
@@ -584,7 +627,7 @@ library Pricing {
     uint32 sigma,
     bool selling,
     address profileAsset
-  ) private view returns (uint256 amountOut) {
+  ) private view returns (uint256 amountOut, uint256 midPrice) {
     int8 skew = computeInventorySkew(
       asset.reserves, asset.liabilities, rc.coverageMin, rc.coverageMax, asset.gamma
     );
@@ -592,7 +635,7 @@ library Pricing {
     NUQ.Curve storage curve = $.curves[$.assets[profileAsset].presetId];
     if (selling) {
       // child→base: amountIn is already in profile-asset (child) decimals, matching `depth`.
-      amountOut = quoteSwap(
+      (amountOut, midPrice) = quoteSwap(
         amountIn,
         asset.reserves,
         asset.liabilities,
@@ -611,12 +654,7 @@ library Pricing {
       uint256 depth = calculateDepth(asset.reserves, asset.liabilities, rc.depthAmplifier);
       uint32 dispersion =
         _calculateDispersion(sigma, asset.vega, asset.minDispersion, asset.maxDispersion);
-      uint256 header = curve.header;
-      uint256 midPrice = header == 0
-        ? _skewToPrice(mark, skew, dispersion)
-        : _flooredOffsetPrice(
-          mark, _scaleY(NUQ.evalQ(curve, header, _skewToDepth(skew)), header, dispersion)
-        );
+      midPrice = _legMid(mark, dispersion, curve, skew);
       uint256 estOut = (amountIn * SC.WAD) / midPrice;
       int256 decShift =
         int256(uint256(asset.decimals)) - int256(uint256($.assets[asset.anchor].decimals));

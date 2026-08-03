@@ -9,6 +9,7 @@ import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
+import {Pricing} from "../src/libraries/Pricing.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "./fixtures/BaseTestSetup.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -346,5 +347,144 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     vm.prank(USER);
     uint256 out = pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
     assertEq(quote.balanceOf(USER) - before, out, "user received exactly out");
+  }
+
+  // ─── OEV decomposition: mark / mid / covToll on the Swapped log ───────────
+
+  /// @dev Everything `Swapped` carries, marks decoded to 1e18.
+  struct SwapLog {
+    uint256 amountIn;
+    uint256 amountOut;
+    uint256 protoFee;
+    uint256 lpFee;
+    uint256 mark;
+    uint256 mid;
+    uint256 covToll;
+  }
+
+  function _swapAndDecode(address tin, address tout, uint256 amt)
+    internal
+    returns (SwapLog memory s)
+  {
+    MockERC20(tin).mint(USER, amt);
+    vm.startPrank(USER);
+    MockERC20(tin).approve(address(pool), type(uint256).max);
+    vm.recordLogs();
+    pool.swap(tin, tout, amt, 0, USER, NO_DEADLINE);
+    vm.stopPrank();
+
+    Vm.Log[] memory logs = vm.getRecordedLogs();
+    bool found;
+    for (uint256 i; i < logs.length; ++i) {
+      if (logs[i].topics[0] != IPool.Swapped.selector) continue;
+      (
+        ,
+        uint256 amountIn,
+        uint256 amountOut,,
+        uint256 protoFee,
+        uint256 lpFee,
+        uint64 markB64,
+        uint64 midB64,
+        uint256 covToll
+      ) = abi.decode(
+        logs[i].data, (address, uint256, uint256, uint16, uint256, uint256, uint64, uint64, uint256)
+      );
+      s = SwapLog(
+        amountIn, amountOut, protoFee, lpFee, M.b64To1e18(markB64), M.b64To1e18(midB64), covToll
+      );
+      found = true;
+    }
+    assertTrue(found, "Swapped not emitted");
+  }
+
+  /// @dev Gross output before the coverage toll and the fee — the quantity the leg mid prices.
+  function _grossOut(SwapLog memory s) internal pure returns (uint256) {
+    return s.amountOut + s.protoFee + s.lpFee + s.covToll;
+  }
+
+  /// @notice At par (coverage == 1 on both legs) the inventory skew is 0, so the executable mid IS
+  ///         the oracle mark. This pins the zero point of `skewBps = (mid − mark)/mark`: without it
+  ///         a constant offset in the mid would be indistinguishable from a real skew premium.
+  function test_swapped_mid_equals_mark_on_an_at_par_leg() public {
+    IPool.Asset memory a = pool.getAsset(address(quote));
+    assertEq(uint256(a.reserves), uint256(a.liabilities), "fixture leg must start at par");
+
+    SwapLog memory s = _swapAndDecode(address(base), address(quote), 1e18);
+    assertEq(s.mid, s.mark, "at par the mid must not be displaced off the mark");
+  }
+
+  /// @notice A skewed leg must log mid != mark, and the displacement must be the pool's OWN quoted
+  ///         mid, not a re-labelled mark: the zero-volume execution price is the mid by definition,
+  ///         so a dust fill on the skewed leg has to reproduce the emitted `midPriceB64` exactly.
+  ///         This is what separates real OEV (exec − mid) from the inventory skew (mid − mark);
+  ///         emitting mark twice, or the mark in place of the mid, fails here.
+  function test_swapped_mid_is_the_skewed_zero_volume_price() public {
+    // Drain the quote leg well below peg so its inventory skew is unambiguously positive.
+    _swapAndDecode(address(base), address(quote), 300_000e18);
+    IPool.Asset memory a = pool.getAsset(address(quote));
+    assertLt(uint256(a.reserves), uint256(a.liabilities), "quote leg must be under-covered");
+
+    // Dust: volumeFraction rounds to 0 ⇒ the traverse degenerates to the anchor price = the mid.
+    SwapLog memory s = _swapAndDecode(address(base), address(quote), 1e15);
+
+    assertEq(s.mark, WAD, "both marks are 1.0, so the path mark is 1.0");
+    assertLt(
+      s.mid, s.mark, "a drained output leg must price its token ABOVE mark (less out per in)"
+    );
+    // Emitted prices are tokenOut-per-tokenIn, so the dust fill's own price is grossOut/amountIn.
+    assertApproxEqRel(
+      (_grossOut(s) * WAD) / s.amountIn, s.mid, 1e12, "mid must equal the zero-volume exec price"
+    );
+  }
+
+  /// @notice `covToll` must be the toll REALLY withheld, recomputed independently from the pre-swap
+  ///         leg state through `Pricing._covToll`. Emitting 0 (or the fee) breaks LP revenue
+  ///         accounting: the toll is retained by LPs and is invisible in `protoFee`/`lpFee`.
+  function test_swapped_covToll_matches_an_independent_toll() public {
+    MockERC20 wall = _addWalledAsset();
+    IPool.Asset memory pre = pool.getAsset(address(wall));
+
+    SwapLog memory s = _swapAndDecode(address(base), address(wall), 400_000e18);
+    assertGt(s.covToll, 0, "fixture must actually charge a toll");
+
+    Pricing.EndpointCache memory c;
+    c.reserves = pre.reserves;
+    c.liabilities = pre.liabilities;
+    c.kappaCovBps = WALL_KAPPA_BPS;
+    assertEq(s.covToll, Pricing._covToll(c, _grossOut(s)), "logged toll != recomputed toll");
+  }
+
+  /// @notice κ = 0 (every other leg in this fixture) must log a zero toll, not a stale/garbage word.
+  function test_swapped_covToll_zero_when_wall_disabled() public {
+    SwapLog memory s = _swapAndDecode(address(base), address(quote), 100e18);
+    assertEq(s.covToll, 0, "unwalled leg must log a zero toll");
+  }
+
+  uint16 constant WALL_KAPPA_BPS = 500;
+
+  /// @dev A κ>0 leg (the coverage wall forbids the depth subsidy, so depthAmplifier must be 0).
+  function _addWalledAsset() internal returns (MockERC20 wall) {
+    wall = new MockERC20("Wall", "WALL", 18);
+    oracle.setMark(address(wall), M.encodeB64(1e18, 18));
+    IPool.RiskConfig memory rc = _risk();
+    rc.depthAmplifier = 0;
+    rc.kappaCovBps = WALL_KAPPA_BPS;
+    vm.prank(OWNER);
+    admin.addAsset(
+      address(pool),
+      address(wall),
+      _oracleCfg(address(wall)),
+      rc,
+      DEFAULT_PRESET,
+      1000,
+      18,
+      1000,
+      100000,
+      10000,
+      10000
+    );
+    wall.mint(address(this), 1_000_000e18);
+    wall.approve(address(pool), type(uint256).max);
+    pool.deposit(address(wall), 1_000_000e18);
   }
 }
