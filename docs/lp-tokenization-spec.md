@@ -533,7 +533,6 @@ Marks from `deployments/11155111.seed-marks.json` (2026-07-28), legs from
 |---|---|---|---|---|---|---|---|
 | USDC | 1.0000 | 0.0010 | 7.92e7 | 15 | 0.001 | 0.0010 | 7.92e7 |
 | DAI | 0.9998 | 0.0010 | 7.92e7 | 15 | 0.001 | 0.0010 | 7.92e7 |
-| syrupUSDC | 1.1756 | 0.0012 | 9.31e7 | 15 | 0.001 | 0.0012 | 9.31e7 |
 | EURC | 1.1388 | 0.0011 | 9.02e7 | 15 | 0.001 | 0.0011 | 9.02e7 |
 | QCAD | 0.7094 | 0.0007 | 5.62e7 | 15 | 0.001 | 0.0007 | 5.62e7 |
 | AUDF | 0.6976 | 0.0007 | 5.53e7 | 15 | 0.001 | 0.0007 | 5.53e7 |
@@ -569,7 +568,7 @@ a `migrated` flag, or a holder snapshot.
 Recorded for completeness, since the owner asked for the double-credit proof: a bulk mint would need
 the invariant `for all (u, leg): lpBalances[u][leg] + lpToken[leg].balanceOf(u)` constant with at
 most one term nonzero, enforceable only if the mint reads and zeroes `lpBalances` in the same
-transaction behind a flag that reverts `deposit`/`withdrawTo`/`swapLiability`. 33 legs times N
+transaction behind a flag that reverts `deposit`/`withdrawTo`/`swapLiability`. 32 legs times N
 holders does not fit one transaction, so the pause would be mandatory. Lazy mint is worse: it needs
 a token-to-pool callback on every transfer, which reintroduces the reentrancy deadlock of section 2,
 and `totalSupply` would understate outstanding shares for the whole window, breaking every wrapper.
@@ -624,15 +623,15 @@ ERC-20 `Transfer` LOG3 1,756, dispatch and immutable-arg read about 840.
 **About 7.9k of that is intrinsic to any external-token architecture** (two cold accounts, the
 registry read, the log) rather than to option E. The E-lock itself is 2,327, one cold SLOAD.
 
-Deployment, 33 legs across 3 pools:
+Deployment, 32 legs across 3 pools:
 
 | pattern | per token | fleet |
 |---|---|---|
-| full contract | 670,221 | ~22.1M |
-| **1167 clone with args** | **58,041** | **~1.92M** |
+| full contract | 670,221 | ~21.4M |
+| **1167 clone with args** | **58,041** | **~1.86M** |
 
-The earlier claim that 22.1M "exceeds a block" is wrong on BSC, whose limit is far higher. The
-choice still stands on cost: ~1.92M against ~22.1M is not close.
+The earlier claim that 21.4M "exceeds a block" is wrong on BSC, whose limit is far higher. The
+choice still stands on cost: ~1.86M against ~21.4M is not close.
 
 **Open item, resolved against this section.** The measurement prototype hardcoded the cooldown as a
 constant. It actually lives in pool storage, so the token must obtain it. This section proposed a
@@ -646,7 +645,7 @@ unconditionally clear, so the token skips the read entirely and a steady-state t
 cold SLOAD of its own lock slot, exactly as a per-token copy would. The read is paid only inside the
 window it gates.
 
-Deployment, 33 legs across 3 pools:
+Deployment, 32 legs across 3 pools:
 
 **Disagreement resolved, against the lead.** The migration reviewer estimated the withdraw delta at
 about +8k. The lead's first measurement said +3,389 and dismissed the estimate. Re-measured cold,
