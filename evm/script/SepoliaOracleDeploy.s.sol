@@ -10,8 +10,8 @@ import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {console2} from "forge-std/Script.sol";
 
 /// @title SepoliaOracleDeploy — Sepolia (11155111) ORACLE STACK ONLY.
-/// @notice AccessControl + ExternalOracle + 24 mock assets (+ a USD unit token) + 25 feeds
-///         (idx 0..23 market + idx 24 USDC/USD reference) + admin mark seed.
+/// @notice AccessControl + ExternalOracle + 23 mock assets (+ a USD unit token) + 24 feeds
+///         (idx 0..22 market + idx 23 USDC/USD reference) + admin mark seed.
 ///         Pools/AMM are a SEPARATE later deploy that MUST reuse the persisted AC + token
 ///         addresses (deployments/11155111.deploy.json = SoT; feed_id = keccak(asset, USDC)
 ///         binds to these token addresses forever).
@@ -21,7 +21,7 @@ import {console2} from "forge-std/Script.sol";
 ///        idx 0 USDC/USDC stays an identity feed SEEDED at 1e18 and is NEVER pushed (absent
 ///        from the NXR signed manifest + keeper feeds; exempt from the freshness market-audit;
 ///        kept on-chain only to preserve the pinned append-only idx numbering).
-///      - Base DEPEG GUARD = the SIGNED USDC/USD reference (idx 24, feed_USDC-USD =
+///      - Base DEPEG GUARD = the SIGNED USDC/USD reference (idx 23, feed_USDC-USD =
 ///        keccak(USDC, USD)). Pool base OracleConfig: mode = EXTERNAL, primary = this
 ///        ExternalOracle, feedId = feed_USDC-USD. _readBasePriceOrHalt gates it (stale/dead/
 ///        uncertain fail-closed) and halts swaps when |USDC/USD − 1e18| > C.BASE_DEPEG_HALT_BPS
@@ -35,8 +35,8 @@ import {console2} from "forge-std/Script.sol";
 ///      - Generalization (REF_ORACLE gap): where Chainlink lacks a pair (BNB/XAUT/PAXG), an
 ///        NXR-signed reference feed on a SECOND ExternalOracle instance (distinct address +
 ///        ideally distinct signer set) fills the spoke refPrimary/refFeedId role.
-/// @dev Env: DEPLOYER_PK + ORACLE_SEED_{ETH,BTC,BNB,XAUT,PAXG,syrupUSDC}_1E18 (required; WBTC+cbBTC
-///      both seed from BTC, WETH from ETH; syrupUSDC is an ACCRUING wrapper, never a 1.0 peg).
+/// @dev Env: DEPLOYER_PK + ORACLE_SEED_{ETH,BTC,BNB,XAUT,PAXG}_1E18 (required; WBTC+cbBTC
+///      both seed from BTC, WETH from ETH).
 ///      Peg stables default 1e18, overridable via ORACLE_SEED_<SYMBOL>_1E18 within
 ///      [0.98e18, 1.02e18] (admits real off-peg prints, rejects fat-fingers); volatiles are
 ///      bounds-checked per asset (scale-error guard only). GUARDIAN is REQUIRED (second key,
@@ -55,8 +55,8 @@ import {console2} from "forge-std/Script.sol";
 ///         ~4h sigma warm-up and races the seed band/ttl). The deployer MUST NOT send any other
 ///         tx between prediction and deploy; deployOracle() hard-asserts deployed == predicted.
 ///      1. Fund deployer >= 0.3 ETH (est. 0.065 @ ~2 gwei; Sepolia base fee spikes 20-100 gwei).
-///      2. Pull ALL seeds from live NXR quotes <= 5 min pre-broadcast (volatiles + syrupUSDC
-///         required; env-seed any stable trading > ~25bp off peg — verify U redemption value).
+///      2. Pull ALL seeds from live NXR quotes <= 5 min pre-broadcast (volatiles required;
+///         env-seed any stable trading > ~25bp off peg — verify U redemption value).
 ///         First signed push has dt=0 ⇒ band = bare maxDev floor (50bp stable / 100bp volatile)
 ///         around the SEED — a stale/off seed strands its feed. ⚠ RECOVERY CHANGED: `updateFeed`
 ///         is now TIGHTEN-ONLY; widening the band/ttl routes through
@@ -105,8 +105,8 @@ contract SepoliaOracleDeploy is DeployBase {
   uint16 internal constant STABLE_MAXDEV = 50; // 0.5% floor (σ≈0 for pegged units)
   uint16 internal constant VOLATILE_MAXDEV = 100; // 1% floor (σ scales this up per ticker)
   uint8 internal constant SIGNER_THRESHOLD = 2;
-  uint256 internal constant N = 24;
-  uint256 internal constant N_STABLE = 17; // idx 0..16 stable, 17..23 volatile
+  uint256 internal constant N = 23;
+  uint256 internal constant N_STABLE = 16; // idx 0..15 stable, 16..22 volatile
 
   // Canonical regenerated NXR attester set (2-of-3), the DEFAULT for env ORACLE_SIGNER_{0,1,2}
   // (config-driven promotion: a different chain's set is env, not new Solidity). Public
@@ -147,7 +147,7 @@ contract SepoliaOracleDeploy is DeployBase {
   ///      USD0 dropped (no live feed). WBTC/cbBTC route the BTC mark, WETH the ETH mark (NXR-side).
   ///      Downstream feed lookup is by name / keccak(asset,USDC), never numeric idx, so appending
   ///      EURC does not disturb any earlier feed; the USDC/USD reference (added after the loop)
-  ///      shifts to keeper idx 24.
+  ///      shifts to keeper idx 23.
   function _syms() internal pure returns (string[N] memory s) {
     s = [
       string("USDC"), // idx 0: base identity USDC/USDC — seeded 1e18, NEVER pushed (see header)
@@ -159,21 +159,20 @@ contract SepoliaOracleDeploy is DeployBase {
       "USDG",
       "PYUSD",
       "RLUSD",
-      "syrupUSDC",
       "USDF",
       "U",
       "GHO",
       "TUSD",
       "USDTB",
       "FDUSD",
-      "AUSD", // idx 16: last stable
-      "WETH", // idx 17: first volatile
+      "AUSD", // idx 15: last stable
+      "WETH", // idx 16: first volatile
       "WBTC",
       "cbBTC",
       "BNB",
       "XAUT",
       "PAXG",
-      "EURC" // idx 23: euro-stable, VOLATILE class (FX); pool-roster asset (owner 2026-07-21)
+      "EURC" // idx 22: euro-stable, VOLATILE class (FX); pool-roster asset (owner 2026-07-21)
     ];
   }
 
@@ -181,12 +180,9 @@ contract SepoliaOracleDeploy is DeployBase {
     return keccak256(bytes(sym)) == keccak256("WETH");
   }
 
-  /// @dev idx of syrupUSDC in _syms(): the one non-peg "stable" (accruing Maple wrapper ~1.1x).
-  uint256 internal constant SYRUP_IDX = 9;
-
   /// @dev Seeds come from the ceremony's ONE NXR snapshot (deployments/<chain>.seed-marks.json,
   ///      written by sdk/scripts/fetch-seed-marks.ts), which SepoliaPoolDeploy also sizes its legs
-  ///      from. A second source — 24 hand-set ORACLE_SEED_* env vars — is a second thing that can
+  ///      from. A second source — 23 hand-set ORACLE_SEED_* env vars — is a second thing that can
   ///      disagree with the pool seeding, and `envOr(..., 1e18)` on a peg stable silently seeded a
   ///      wrong mark whenever an export was forgotten. Absent file or absent mark ⇒ revert.
   function _loadSeeds(string[N] memory syms) internal view returns (uint256[N] memory m) {
@@ -203,9 +199,6 @@ contract SepoliaOracleDeploy is DeployBase {
       [uint256(20_000e18), 500_000e18, 500_000e18, 5_000e18, 10_000e18, 10_000e18, 1.3e18];
     for (uint256 i; i < N; ++i) {
       bool stable = i < N_STABLE;
-      // syrupUSDC accrues — its true mark sits well above 1.0, so it takes the REQUIRED-env +
-      // wide-bound path; the peg clamp below would reject its true mark and strand the feed.
-      bool pegStable = stable && i != SYRUP_IDX;
       m[i] = vm.parseJsonUint(marks, string.concat(".marks.", syms[i], ".mark1e18"));
       require(m[i] != 0 && M.encodeB64(m[i], 18) != 0, "invalid oracle seed mark");
       // First signed push has dt=0 ⇒ band = bare maxDev floor around the SEED (50bp stable /
@@ -213,10 +206,8 @@ contract SepoliaOracleDeploy is DeployBase {
       // Peg clamp [0.98e18, 1.02e18]: admits documented off-peg prints (TUSD/FDUSD/USDF have
       // traded 30-100bp off) while rejecting magnitude fat-fingers; any stable > ~25bp off peg
       // MUST be env-seeded from live NXR (runbook step 2).
-      if (pegStable) {
+      if (stable) {
         require(m[i] >= 0.98e18 && m[i] <= 1.02e18, "stable seed out of band");
-      } else if (stable) {
-        require(m[i] >= 1e18 && m[i] <= 1.5e18, "syrupUSDC seed out of band");
       } else {
         uint256 v = i - N_STABLE;
         require(m[i] >= volLo[v] && m[i] <= volHi[v], "volatile seed implausible");
@@ -281,10 +272,10 @@ contract SepoliaOracleDeploy is DeployBase {
         stable ? STABLE_TTL : VOLATILE_TTL
       );
     }
-    // idx 24: SIGNED USDC/USD REFERENCE — the base depeg-guard feed, NOT a market mark (header).
+    // idx 23: SIGNED USDC/USD REFERENCE — the base depeg-guard feed, NOT a market mark (header).
     // feed_id = keccak(USDC, USD); the USD unit token exists only to mint that id (never a pool
     // asset). NXR signs it from pyth Lazer USDC/USD (~1s cadence, freshness tier 1500 ms) and it
-    // rides the same signed batch (keeper idx 24). Seed env-overridable like every peg stable.
+    // rides the same signed batch (keeper idx 23). Seed env-overridable like every peg stable.
     address usd = address(new TestnetERC20("USD", "USD", 18));
     uint256 usdRefSeed = vm.envOr("ORACLE_SEED_USDCUSD_1E18", uint256(1e18));
     require(

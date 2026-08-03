@@ -20,14 +20,14 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 /// @title SepoliaPoolDeploy — Sepolia (11155111) DEX stack on top of the already-deployed oracle.
 /// @notice Core singletons (reusing the oracle stack's AccessControl) + faucet + a reference
 ///         ExternalOracle + the two launch pools, both based on USDC:
-///           stable core   = USDC, USDT, USDE, USDS, DAI, USD1, USDG, PYUSD, RLUSD, syrupUSDC,
-///                           USDF, U, GHO, TUSD, USDTB, FDUSD, AUSD
+///           stable core   = USDC, USDT, USDE, USDS, DAI, USD1, USDG, PYUSD, RLUSD, USDF,
+///                           U, GHO, TUSD, USDTB, FDUSD, AUSD
 ///           volatile core = USDC, USDT, WETH, WBTC, cbBTC, BNB, XAUT, PAXG, EURC
 ///         No incumbent/comparison pools (owner-descoped 2026-07-24) — our stack only.
 /// @dev TWO JSON INPUTS, both consumed, nothing hardcoded:
 ///      1. `deployments/11155111.deploy.json` (SoT, written by SepoliaOracleDeploy): `ac`,
 ///         `oracle`, one address per symbol, `feed_<SYM>` = keccak(token, USDC), plus `USD` and
-///         `feed_USDC-USD` (the SIGNED USDC/USD reference: keeper idx 24 post-EURC, but this
+///         `feed_USDC-USD` (the SIGNED USDC/USD reference: keeper idx 23 post-EURC, but this
 ///         script keys it by name/keccak, never by numeric index; see base config below).
 ///         ERC20 mocks are REUSED from that file, never re-minted: feed_id binds
 ///         keccak(asset, USDC) to those exact token addresses forever, so a fresh mock would
@@ -37,7 +37,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///         fit): curve presets + per-asset minFee/dispersion/wall/refBand. Parallel arrays.
 /// @dev BASE USDC: mark ≡ 1.0, never pushed (Pricing._readBasePriceOrHalt discards the read price
 ///      for quoting), κ forbidden (AIMM_PROOFS Thm 2 — a walled numeraire breaks cross-leg
-///      round-trip neutrality). Its OracleConfig points at the SIGNED USDC/USD feed (keeper idx 24) so the
+///      round-trip neutrality). Its OracleConfig points at the SIGNED USDC/USD feed (keeper idx 23) so the
 ///      depeg guard and the USD reservation band both read a real market price; refFeedId /
 ///      refBandBps / refPrimary stay 0 for the base (it is exempt from requireExternalSpokeBound —
 ///      its canonical feed IS its breaker).
@@ -62,7 +62,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///      ALLOW_NO_LZ (default true here — Sepolia bring-up ships no bridge), SKIP_UNLISTED
 ///      (list only the symbols the oracle stack actually carries), REDEPLOY.
 /// @dev SKIP_UNLISTED is a safety valve, not a routine flag. Every roster symbol (EURC included,
-///      oracle market idx 23) has a feed on the current SepoliaOracleDeploy, so the default FAIL
+///      oracle market idx 22) has a feed on the current SepoliaOracleDeploy, so the default FAIL
 ///      LOUD path lists the full set. A symbol without an oracle feed would revert in
 ///      validateOracleConfig; SKIP_UNLISTED=true lists the rest and logs the omission instead. If
 ///      a future roster symbol has no feed, add it to SepoliaOracleDeploy._syms (append-only) first.
@@ -139,10 +139,10 @@ contract SepoliaPoolDeploy is Deploy {
     uint16 haircutSuppressor;
     uint16 refBandBps;
     bool refOwnFeed;
-    // DEN-01: true when the NXR signer catalog attests this asset as <TOKEN>-USD (idx 1..16 stables,
-    // 22 PAXG-USD, 23 EURC-USD, 25..29 the inverted FX legs) while the on-chain feed name is
+    // DEN-01: true when the NXR signer catalog attests this asset as <TOKEN>-USD (idx 1..15 stables,
+    // 21 PAXG-USD, 22 EURC-USD, 24..28 the inverted FX legs) while the on-chain feed name is
     // <TOKEN>-USDC. The pool then divides by the base USDC-USD mark at consumption. false for the
-    // genuine USDC crosses (idx 17 ETH-USDC, 18/19 BTC-USDC, 20 BNB-USDC) and for the base itself.
+    // genuine USDC crosses (idx 16 ETH-USDC, 17/18 BTC-USDC, 19 BNB-USDC) and for the base itself.
     // NOT derivable from `cls`: PAXG/EURC are risk-class `volatile` but catalog-quoted in USD.
     bool usdQuoted;
     bool stable;
@@ -491,8 +491,8 @@ contract SepoliaPoolDeploy is Deploy {
     );
     // initAsset defaults maxFeePbps to 1% and haircutSuppressor to BPS; clamp both to the fitted
     // SSoT. A κ-walled leg is already forced to haircut 0 by setupOracleAndConfig — restating it
-    // here keeps the two paths from silently diverging, and carries the NAV-asset case
-    // (syrupUSDC: κ=0 but haircut MUST be 0 — the haircut path reasons at $1-peg parity).
+    // here keeps the two paths from silently diverging, and carries any future NAV-accruing leg
+    // (κ=0 but haircut MUST be 0 — the haircut path reasons at $1-peg parity).
     admin.setAssetParams(
       pool,
       p.token,
@@ -515,7 +515,7 @@ contract SepoliaPoolDeploy is Deploy {
   {
     o.primary = cfg.oracle;
     o.mode = 0; // EXTERNAL — INTERNAL is forbidden for the base and unused for spokes here.
-    // BASE: its mark is the SIGNED USDC/USD reference (keeper idx 24), not a USDC/USDC identity — that is
+    // BASE: its mark is the SIGNED USDC/USD reference (keeper idx 23), not a USDC/USDC identity — that is
     // what makes _readBasePriceOrHalt's 500bp depeg halt bite. Ref band stays 0 (base is exempt).
     o.feedId = isBase ? cfg.usdcUsdFeed : keccak256(abi.encodePacked(p.token, cfg.usdc));
     // DEN-01: the base IS the USD reference (rejected on-chain if flagged); spokes carry the
@@ -701,7 +701,7 @@ contract SepoliaPoolDeploy is Deploy {
   }
 
   /// @notice Step 3: add each FX leg's primary-oracle feed, seeded from the ceremony's NXR snapshot.
-  ///         Append-only: new feeds take feedIds[] idx 25.. and disturb no existing feed.
+  ///         Append-only: new feeds take feedIds[] idx 24.. and disturb no existing feed.
   function addFxFeeds() external {
     require(block.chainid == 11155111, "Sepolia only");
     uint256 pk = vm.envUint("DEPLOYER_PK");
@@ -730,7 +730,7 @@ contract SepoliaPoolDeploy is Deploy {
     AssetParams memory p = _paramsFor(cfg, sym);
     if (p.token == cfg.usdc) return bytes32(0); // base: identity feed + USDC/USD ref already exist
     id = keccak256(abi.encodePacked(p.token, cfg.usdc));
-    if (_feedSeeded(cfg.oracle, id)) return id; // EURC already carries idx 23
+    if (_feedSeeded(cfg.oracle, id)) return id; // EURC already carries idx 22
     // parseJsonUint reverts on a missing key: a leg absent from the snapshot aborts the add
     // rather than defaulting to a peg. THIS is the 1500x guard for JPYC/KRW1.
     uint256 mark = vm.parseJsonUint(cfg.marks, string.concat(".marks.", sym, ".mark1e18"));

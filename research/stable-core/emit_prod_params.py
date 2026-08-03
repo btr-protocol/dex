@@ -73,7 +73,7 @@ keeper_spec, keeper_gate, tape_last_bar = _ns["keeper_spec"], _ns["keeper_gate"]
 CHAIN_ID = 11155111
 # Sepolia pools (owner 2026-07-24). Base = USDC in BOTH; idx 0 is the base leg by construction.
 STABLE_POOL = ["USDC", "USDT", "USDE", "USDS", "DAI", "USD1", "USDG", "PYUSD", "RLUSD",
-               "syrupUSDC", "USDF", "U", "GHO", "TUSD", "USDTB", "FDUSD", "AUSD"]
+               "USDF", "U", "GHO", "TUSD", "USDTB", "FDUSD", "AUSD"]
 VOLATILE_POOL = ["USDC", "USDT", "WETH", "WBTC", "cbBTC", "BNB", "XAUT", "PAXG", "EURC"]
 # FX core: mock ERC20s of real fiat-backed tokens, marked by the REAL NXR FX feeds
 # (CAD/AUD/BRL/JPY/KRW-USD). Its own class because a fiat leg is neither ~1.0 against

@@ -12,11 +12,14 @@ import {IPool} from "../src/interfaces/IPool.sol";
 ///         `setAssetParamsBounded` fail closed (`AdminRiskSteward.sol:49`) and the risk keeper
 ///         rejected 76/76 decisions since deploy (`keepers/src/risk/fences.rs:68`).
 ///
-/// Fences BRACKET the values measured live on 2026-07-29, they do not encode a wish:
+/// Fences BRACKET the shipped `deployments/sepolia-risk-params.json` values, they do not encode a
+/// wish. The leg set is that file's three pools exactly (16 stable + 9 volatile + 7 fx = 32);
+/// the pool/token addresses below are per-deployment and MUST be refreshed from
+/// `11155111.{deploy,pools}.json` after any redeploy, or `preview()` reverts "not listed in pool":
 ///   gamma  = 20000 on all 32 legs -> [5000, 40000]
 ///   vega   = 10000 on all 32 legs -> [5000, 40000]
 ///   maxFee = 2000 (stable) / 10000 (volatile) / 5000 (fx) -> ceiling 20000
-///   minFee = 50..496 stable-class, 400..2003 volatile-class -> two classes, see `_fences`
+///   minFee = 50..496 stable-class, 1000..2003 volatile-class -> two classes, see `_fences`
 ///   haircutSuppressor = 0 on the kappa-walled legs, 10000 elsewhere -> per-leg ceiling
 ///   reservationPrice / reservationPriceMax = 0 on every leg (band off) -> 0/0 fences, which
 ///   `setAssetParamsBounded` accepts precisely because the band is not live.
@@ -24,9 +27,9 @@ import {IPool} from "../src/interfaces/IPool.sol";
 /// `maxDeltaBps = 2500` mirrors the +-25% asserted at `keepers/src/guards.rs:464`.
 ///
 /// ⚠ `minFeeHardMin` floors the OWNER path too (`Admin.sol:252`), so it is deliberately set BELOW
-/// each leg's live minFee: the five fx legs sit at 400 pbps against a 2*theta requirement of 1000,
-/// and a fence at 1000 would re-brick the keeper on exactly the legs that must climb. The 2*theta
-/// invariant is enforced by the keeper's H-2 startup gate + `risk/fences.rs` coupling gates, not here.
+/// each leg's minFee: a fence at the leg's own floor leaves no room to move down after a tape
+/// refit, and would re-brick the keeper on any leg that has to. The 2*theta invariant is enforced
+/// by the keeper's H-2 startup gate + `risk/fences.rs` coupling gates, not here.
 ///
 /// Env: `ADMIN` (Admin singleton). Broadcaster MUST be the AccessControl owner.
 ///   forge script script/SeedRiskFences.s.sol:SeedRiskFences --sig "preview()"  --rpc-url $RPC
@@ -41,7 +44,7 @@ contract SeedRiskFences is Script {
   uint16 internal constant GAMMA_MAX = 40_000;
   uint16 internal constant VEGA_MIN = 5_000;
   uint16 internal constant VEGA_MAX = 40_000;
-  // Stable class: live minFee 50..496. Volatile class: live minFee 400..2003.
+  // Stable class: minFee 50..496. Volatile class: minFee 1000..2003.
   uint16 internal constant STABLE_MIN_FEE_LO = 25;
   uint16 internal constant STABLE_MIN_FEE_HI = 1_000;
   uint16 internal constant VOL_MIN_FEE_LO = 200;
