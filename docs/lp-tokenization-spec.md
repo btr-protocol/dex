@@ -170,8 +170,79 @@ mapping(address => Lock) locks;                 // slot 0 of the clone
 ### 3.3 `IPool.Asset` repack
 
 Slot 1 today is `minLiquidity(128) + liquidityIndex(64) + lastUpdate(32) + presetId(16)` = 240 bits.
-Repack to `minLiquidity(96) + liquidityIndex(96) + lastUpdate(32) + presetId(16)` = 240 bits, same
-slot, 16 bits still free. Then set `LIQUIDITY_INDEX_INIT = 1e18`. Rationale in section 5.1.
+Repack to `minLiquidity(96) + liquidityIndex(96) + lastUpdate(32) + presetId(16) + deadSeedPow10(8)`
+= 248 bits, same slot. Then set `LIQUIDITY_INDEX_INIT = 1e18`. Rationale in section 5.1.
+
+The repack is **not** value-preserving, so it carries a storage migration. `lastUpdate` and `presetId`
+keep their offsets (96+96 = 128+64), and `minLiquidity` keeps its low bit at 0, but `liquidityIndex`
+moves its low bit from 128 to 96: a word written by the old impl reads back as `oldIndex << 32`, and
+every share claims 2^32x its backing until it is corrected. `deadSeedPow10` occupies bits the old
+word left zero, so a legacy leg reads the default seed. `PoolAux.adminRebaseIndexWidth` shifts each
+listed leg back and must be batched into the beacon-upgrade transaction. A full redeploy would avoid
+it, which is why this only bites when the repack ships ahead of section 3.1.
+
+The rebase is a **shift only**. `LIQUIDITY_INDEX_INIT = 1e18` applies to newly listed legs; a legacy
+leg keeps the 1e12 base, because rescaling its index without rescaling its shares multiplies every
+claim by 1e6. Pinned by `test/AuditIndexRebaseClaim.t.sol`.
+
+#### The zero-index legs
+
+30 of the 33 live Sepolia legs store `liquidityIndex == 0`, verified read-only over `eth_call`
+against 11155111. They are healthy: the deployed impl lazy-inits a stored 0 to 1e12 at read time
+(DAI on the stable pool reconciles exactly, `getLPBalance * 1e12 / WAD == liabilities`). The explicit
+`liquidityIndex = INIT` write at `PoolAdmin.sol:185` landed in `796ac93`, **after** those legs were
+deployed.
+
+This impl redefines 0 as "written down to a total loss, terminal". Skipping a zero leg in the rebase
+would therefore zero it permanently: `mintIndex` reverts, withdraw computes `lp * 0 / WAD = 0` and
+reverts, and no writer can restore it because every index writer multiplies an existing value. The
+rebase **writes `LEGACY_LIQUIDITY_INDEX` back** for those legs.
+
+A real wipe must still not be revived. It is distinguishable without a share supply, which does not
+exist yet: both writers that can drive the index to 0 (`PoolDecay`, `hookWriteDown`) scale it by
+`newLiabilities / oldLiabilities`, so index 0 implies liabilities 0; and after a wipe every credit
+path fails closed on `mintIndex`, so liabilities can never return. The discriminator is therefore
+`liabilities != 0`, and a wiped or never-credited leg stays terminal and must be re-listed.
+
+### 3.4 Upgrade runbook
+
+The atomic transaction is **upgrade + rebase only**. Seeding is a separate, later step.
+
+Validator 1 was right that the seeding `donate` cannot be batched in: it calls
+`PoolIO.checkRiskFlags`, so it reverts on any FROZEN or ASSET_PAUSED leg and would abort the whole
+upgrade. Validator 2 was right that an unseeded migrated leg was unsafe, but only because
+`seedDeadShares` reverted where the codebase's own policy is to skip. With the fail-closed defects
+fixed (`PoolLiquidity.sol` ceil-divide, `PoolAux.hookCreditYield` skip), an unseeded leg is safe:
+deposits, donates and swaps work, and the keeper's harvest skips the raise instead of reverting until
+a credit large enough to carry the seed arrives.
+
+**Pre-flight assertions**, over every live leg, read-only, before broadcasting anything:
+
+- `minLiquidity == 0` on every leg (`SeedRiskFences.s.sol:149` already asserts the reservation-band
+  half of this). Anything above `2**96` would wrap; anything nonzero means the word is not the shape
+  the rebase assumes.
+- `liquidityIndex` in `{0} union (2**32, 2**64)`. `0` is the lazy-init cohort; the open interval is a
+  live 1e12-base index read through the OLD layout. A value at or below `2**32`, or at or above
+  `2**64`, is outside the band the shift is exact for and must be triaged by hand.
+- For each zero-index leg, `getLPBalance(deployer, leg) * 1e12 / WAD == liabilities`, off-chain. This
+  is the reconciliation the on-chain `liabilities != 0` check stands in for; on-chain there is no
+  share supply to compute it from.
+
+**Sequence:**
+
+1. Read-only pre-flight above. Halt on any leg that fails.
+2. One transaction: `upgradeBeacon(newImpl)` then `adminRebaseIndexWidth(legs)` for every pool, all
+   legs, owner-signed. Nothing else may touch a pool between the two calls.
+3. Verify post-rebase: every leg's `previewWithdraw(leg, shares)` matches the value recorded in step
+   1, to the wei. `adminRebaseIndexWidth` is not re-runnable and reverts `InvalidState` on a second
+   pass, which is the intended idempotency guard.
+4. Set `adminSetDeadSeedPow10` per leg (section 5.4) BEFORE seeding: the override only applies while
+   the leg is unseeded.
+5. Seed, later and per leg: unpause/unfreeze if needed, `donate` at least the seed, re-apply the risk
+   flags. A leg left unseeded is safe indefinitely; it simply carries no pin floor yet.
+
+Never: a rebase in a different transaction from the upgrade, a rescale to 1e18, or a `donate`
+batched into the upgrade transaction.
 
 ## 4. Cooldown resolution
 
@@ -458,6 +529,59 @@ floors: deposit `:64`, `raiseIndex` `:87`, `PoolDecay:26`, `withdrawTo` `:232-23
 `:310-315`. **Transfers do not touch it at all**, so transferability is invariant-neutral.
 
 Three existing code paths break it. They are section 8's P0 items.
+
+**Open item, for whoever lands the ERC-20 (#64).** `PoolLiquidity.sol:70` writes
+`lpBalances[address(0)][token]` raw, and no `totalSupply` exists today. When the token lands, that
+write must also bump `totalSupply`, or the invariant above understates outstanding shares by the
+dead seed and every wrapper overstates NAV per share by the same. Section 11 additionally makes
+`address(0)` the burn sink, so a plain `transfer(address(0), x)` would silently grow the dead pile
+and lift the pin floor with LP money. Both are one line each at the mint and burn sites, and both
+are invisible until a wrapper divides by `totalSupply`.
+
+### 5.4 Denominating the dead seed in value, not token units
+
+The dead-share seed prices an index pin at `seed x headroom`, where
+`headroom = (2**96 - 1) / 1e18 = 7.92e10`. That product is a **value**, but the default seed
+(`10**decimals / 1000`, i.e. 0.001 token) is denominated in token units, so it is only right where
+one token is worth about one dollar. At either tail it is wrong in a different direction: 0.001 WBTC
+burns ~$64 of the first depositor's deposit, and 0.001 KRW1 prices permanent destruction of 100% of
+a leg's fee stream at $54k. $54k is not an acceptable floor, and the only "recovery" from a pinned
+leg (`hookWriteDown` / decay) destroys LP principal to buy the headroom back.
+
+`Asset.deadSeedPow10` (8 bits, in slot 1's spare bits, no new slot) overrides the seed per leg as a
+power of ten of the token's own unit. `0` means "use the default", which is what every legacy word
+reads. It is bounded at `decimals + 3` so it can never become a listing toll, and it only applies
+while the leg is unseeded.
+
+Marks from `deployments/11155111.seed-marks.json` (2026-07-28), legs from
+`deployments/11155111.pools.json`. Sepolia's `TestnetERC20` mints 18 decimals for **every** listing
+(`script/SepoliaPoolDeploy.s.sol:642`), so the whole live fleet is 18-decimal:
+
+| leg | mark $ | default burn $ | default pin $ | `pow10` | seed (tok) | burn $ | pin $ |
+|---|---|---|---|---|---|---|---|
+| USDC | 1.0000 | 0.0010 | 7.92e7 | 15 | 0.001 | 0.0010 | 7.92e7 |
+| DAI | 0.9998 | 0.0010 | 7.92e7 | 15 | 0.001 | 0.0010 | 7.92e7 |
+| syrupUSDC | 1.1756 | 0.0012 | 9.31e7 | 15 | 0.001 | 0.0012 | 9.31e7 |
+| EURC | 1.1388 | 0.0011 | 9.02e7 | 15 | 0.001 | 0.0011 | 9.02e7 |
+| QCAD | 0.7094 | 0.0007 | 5.62e7 | 15 | 0.001 | 0.0007 | 5.62e7 |
+| AUDF | 0.6976 | 0.0007 | 5.53e7 | 15 | 0.001 | 0.0007 | 5.53e7 |
+| BRLA | 0.1949 | 0.0002 | 1.54e7 | 16 | 0.01 | 0.0019 | 1.54e8 |
+| JPYC | 0.006108 | 0.0000061 | **4.84e5** | 17 | 0.1 | 0.0006 | 4.84e7 |
+| KRW1 | 0.000688 | 0.00000069 | **5.45e4** | 18 | 1 | 0.0007 | 5.45e7 |
+| WETH | 1911.42 | **1.91** | 1.51e11 | 12 | 1e-6 | 0.0019 | 1.51e8 |
+| BNB | 569.17 | **0.57** | 4.51e10 | 12 | 1e-6 | 0.0006 | 4.51e7 |
+| XAUT | 4015.62 | **4.02** | 3.18e11 | 11 | 1e-7 | 0.0004 | 3.18e7 |
+| PAXG | 4018.75 | **4.02** | 3.18e11 | 11 | 1e-7 | 0.0004 | 3.18e7 |
+| WBTC | 63689.28 | **63.69** | 5.05e12 | 10 | 1e-8 | 0.0006 | 5.05e7 |
+| cbBTC | 63689.28 | **63.69** | 5.05e12 | 10 | 1e-8 | 0.0006 | 5.05e7 |
+
+At mainnet-canonical decimals the same two tails move but do not change sign: USDC at 6 decimals
+takes `pow10 = 3` (unchanged economics), WBTC and cbBTC at 8 decimals take `pow10 = 1` (10 wei, a
+$0.0064 burn, a $5.05e8 pin). `pow10 = 0` cannot be used there because 0 is the default sentinel;
+1 wei is the effective floor either way and the difference is one order of magnitude of pin cost.
+
+The rule for a new listing: `pow10 = round(log10(0.001 / mark) + decimals)`, clamped to
+`[1, decimals + 3]`. Set it before the leg is seeded, per the section 3.4 runbook.
 
 ## 6. Migration: none
 

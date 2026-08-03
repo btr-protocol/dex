@@ -256,7 +256,8 @@ contract PoolSwapAccountingTest is BaseTestSetup {
   ///         A round trip is required: one directed swap leaves the output leg short on inventory,
   ///         so the coverage haircut masks the accrual. Restoring inventory isolates the fee.
   function test_lpFee_is_realised_on_withdraw() public {
-    uint256 seedLp = 1_000_000e18; // setUp's quote deposit by address(this)
+    // setUp's quote deposit by address(this), net of the #73 dead-share seed carved out of it.
+    uint256 seedLp = 1_000_000e18 - 0.001e18;
     uint256 lp = pool.getLPBalance(address(this), address(quote));
     (uint256 pre,) = pool.previewWithdraw(address(quote), lp);
     assertEq(pre, seedLp, "flat before any flow");
@@ -274,17 +275,17 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     assertGt(post, seedLp, "LP claim must grow on swap fees");
   }
 
-  /// @notice A leg whose liabilities went to dust must NOT brick. `raiseIndex` reverts above the
-  ///         uint64 index ceiling, and `newIndex = idx·(L+f)/L` blows it once `f > 1.8e7·L`, so an
-  ///         accrual that reverts inside settlement is a leg-wide DoS bought for gas. A cross-asset
-  ///         withdraw burns quote liabilities in full while paying out of BASE reserves, which is
-  ///         exactly that shape: quote keeps ~1M reserves against ~0 liabilities.
+  /// @notice A leg whose liabilities went to dust must NOT brick. `newIndex = idx·(L+f)/L` blows the
+  ///         index ceiling once `f` dwarfs `L`, and an accrual that reverts inside settlement is a
+  ///         leg-wide DoS bought for gas. A cross-asset withdraw burns quote liabilities in full
+  ///         while paying out of BASE reserves, which is exactly that shape: quote keeps ~1M
+  ///         reserves against a liability floored at the #73 dead-share seed.
   function test_lpFee_skips_rather_than_bricks_a_dust_liability_leg() public {
     skip(60); // clear the JIT cooldown from setUp
     uint256 lp = pool.getLPBalance(address(this), address(quote));
     pool.withdrawTo(address(quote), address(base), lp, 0, NO_DEADLINE);
     IPool.Asset memory dust = pool.getAsset(address(quote));
-    assertEq(uint256(dust.liabilities), 0, "quote liabilities drained, reserves left behind");
+    assertEq(uint256(dust.liabilities), 0.001e18, "quote liabilities drained to the dead floor");
     assertGt(uint256(dust.reserves), 0);
 
     uint256 amt = 100e18;
@@ -294,8 +295,11 @@ contract PoolSwapAccountingTest is BaseTestSetup {
     uint256 out = pool.swap(address(base), address(quote), amt, 0, USER, NO_DEADLINE);
     vm.stopPrank();
     assertGt(out, 0, "swap out of a dust-liability leg must still settle");
-    assertEq(
-      uint256(pool.getAsset(address(quote)).liabilities), 0, "no phantom liability against 0 shares"
+    IPool.Asset memory post = pool.getAsset(address(quote));
+    assertLe(
+      pool.getLPBalance(address(0), address(quote)) * uint256(post.liquidityIndex) / WAD,
+      uint256(post.liabilities),
+      "no claim booked past the leg's liabilities"
     );
   }
 

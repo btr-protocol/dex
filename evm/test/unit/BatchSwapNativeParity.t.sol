@@ -162,7 +162,12 @@ contract BatchSwapNativeParityTest is BaseTestSetup {
   function test_batchSwap_zero_input_leg_cannot_hide_behind_direct_base_input() public {
     skip(uint256(C.DEFAULT_FLOW_COOLDOWN) + 1);
     uint256 baseLp = pool.getLPBalance(address(this), address(usdc));
-    pool.withdraw(address(usdc), baseLp, 0, NO_DEADLINE); // base reserves = 0, so WETH→base quote caps to zero
+    pool.withdraw(address(usdc), baseLp, 0, NO_DEADLINE);
+    // A full exit now leaves the #73 dead-share seed behind, so the withdraw alone cannot reach the
+    // zero-reserve state this test is about. Poke the last dust out: Asset slot 0 is
+    // reserves(low 128) | liabilities(high 128), and only `reserves` caps the quote.
+    bytes32 slot0 = keccak256(abi.encode(address(usdc), uint256(3)));
+    vm.store(address(pool), slot0, bytes32(uint256(vm.load(address(pool), slot0)) >> 128 << 128));
 
     weth.mint(USER, 100e18);
     vm.prank(USER);

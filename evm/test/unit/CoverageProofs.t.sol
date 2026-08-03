@@ -343,19 +343,19 @@ contract CoverageProofsTest is CoverageProofsBase {
     admin.setAssetParams(address(pool), address(tok), 0, 1000, 10_000, 10_000, 10_000, 20_000, 0, 0);
   }
 
-  /// #73: a donation large enough to overflow the uint64 index CLAMPS, it does not revert and it
+  /// #73: a donation large enough to overflow the uint96 index CLAMPS, it does not revert and it
   /// never wraps. Reverting made the ceiling absorbing: pin a dust-seeded leg's index just under it
   /// and every later donate / hookCreditYield on that leg reverted forever for the price of gas.
   /// Clamping is strictly downward, so shares under-claim and the supply invariant is preserved.
   function test_donate_liquidityIndex_overflow_clamps() public {
-    // tok liability = SEED (1e24); first donate uses INIT index 1e12. newIndex = 1e12·(SEED+amt)/SEED;
-    // exceeding 2^64 (~1.845e19) needs (SEED+amt)/SEED > ~1.845e7 ⇒ amt > ~1.845e31.
-    uint256 huge = 2e31;
+    // tok liability = SEED (1e24); first donate uses INIT index 1e18. newIndex = 1e18·(SEED+amt)/SEED;
+    // exceeding 2^96 (~7.92e28) needs (SEED+amt)/SEED > ~7.92e10 ⇒ amt > ~7.92e34.
+    uint256 huge = 1e35;
     tok.mint(address(this), huge);
     pool.donate(address(tok), huge);
 
     IPool.Asset memory a = pool.getAsset(address(tok));
-    assertEq(uint256(a.liquidityIndex), type(uint64).max, "index clamps at the uint64 ceiling");
+    assertEq(uint256(a.liquidityIndex), type(uint96).max, "index clamps at the uint96 ceiling");
     uint256 claim =
       pool.getLPBalance(address(this), address(tok)) * uint256(a.liquidityIndex) / 1e18;
     assertLe(

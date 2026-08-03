@@ -182,7 +182,7 @@ library PoolAdmin {
     asset.vega = vega == 0 ? uint16(SC.BPS) : vega;
     asset.haircutSuppressor = uint16(SC.BPS);
     asset.pegB64 = M.encodeB64(SC.WAD, 18); // INTERNAL-mode default peg (1.0 base-per-asset)
-    asset.liquidityIndex = uint64(C.LIQUIDITY_INDEX_INIT); // explicit: 0 now means "wiped", not "unset"
+    asset.liquidityIndex = uint96(C.LIQUIDITY_INDEX_INIT); // explicit: 0 now means "wiped", not "unset"
     asset.lastUpdate = uint32(block.timestamp); // A2-1: seed so first decay enable has no retroactive dt
 
     asset.anchor = t == $.baseToken ? address(0) : $.baseToken;

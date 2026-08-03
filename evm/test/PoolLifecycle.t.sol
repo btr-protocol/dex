@@ -154,7 +154,8 @@ contract PoolLifecycleTest is BaseTestSetup {
     vm.prank(USER);
     pool.withdraw(address(base), lp, 0, NO_DEADLINE);
 
-    assertEq(base.balanceOf(USER), amt, "base recovered");
+    // #73: the leg's first liability credit carves a 0.001-token unburnable seed out of the mint.
+    assertEq(base.balanceOf(USER), amt - 0.001e18, "base recovered net of the dead seed");
     assertEq(pool.getLPBalance(USER, address(base)), 0, "lp cleared");
   }
 

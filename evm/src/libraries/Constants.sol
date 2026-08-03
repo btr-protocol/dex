@@ -29,7 +29,30 @@ library Constants {
   /// @dev Share↔value index base, written explicitly at initAsset. value = lp·index/WAD.
   ///      index == 0 is NOT a lazy-init sentinel: it means the leg was written down to a total
   ///      loss, every share is worth exactly 0, and the leg accepts no further deposits.
-  uint256 internal constant LIQUIDITY_INDEX_INIT = 1e12;
+  ///      WAD base ⇒ the first deposit mints shares 1:1 with the underlying, and the uint96 field
+  ///      leaves 7.92e10x of headroom under the clamp. #73: that headroom is the multiplier on the
+  ///      dead-share floor's protection, so it is what prices an index pin out of reach.
+  uint256 internal constant LIQUIDITY_INDEX_INIT = 1e18;
+
+  /// @dev The base the PREVIOUS impl used, and the value it lazily substituted for a stored 0. Legs
+  ///      listed before the explicit `liquidityIndex = INIT` write hold 0 and are healthy at this
+  ///      base; `adminRebaseIndexWidth` writes it back explicitly. Applies to legacy legs ONLY:
+  ///      rescaling one to `LIQUIDITY_INDEX_INIT` without rescaling its shares 1e6x every claim.
+  uint256 internal constant LEGACY_LIQUIDITY_INDEX = 1e12;
+
+  /// @dev Default dead-share seed = 10**decimals / this, i.e. 0.001 of a token, carved out of
+  ///      whatever first credits the leg's liabilities. #73: `raiseIndex` is a ratio off
+  ///      `liabilities`, so a leg whose liabilities can return to dust is pinnable for gas. The seed
+  ///      is minted to address(0), which is never msg.sender and is debited by no burn path, so it
+  ///      floors `liabilities` at deadShares·index/WAD forever. That floor tracks the index exactly,
+  ///      so reaching the clamp costs seed·headroom instead of dust.
+  ///      Token units are not value, so this default is only right where 1 token ~ $1. A leg whose
+  ///      unit is worth far more (0.001 WBTC = ~$64 burned) or far less (0.001 KRW1 prices the pin
+  ///      at ~$54k) overrides it per asset via `Asset.deadSeedPow10`.
+  uint256 internal constant DEAD_SHARE_SEED_DIV = 1000;
+  /// @dev Ceiling on `deadSeedPow10` relative to the leg's decimals: 1000 whole tokens. Above that
+  ///      the seed stops being dust to the opener and starts being a toll on listing the leg.
+  uint8 internal constant DEAD_SEED_POW10_HEADROOM = 3;
 
   /// @notice Global halt: a swap reverts if the quoted feed's 1σ CI (confidence, bps) exceeds this.
   ///         Past this the mark is too uncertain to price against; fail-closed like the depeg band.

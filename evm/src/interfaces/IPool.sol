@@ -10,12 +10,21 @@ interface IPool {
     // slot 0
     uint128 reserves;
     uint128 liabilities;
-    // slot 1 (16 bits free)
-    uint128 minLiquidity;
-    uint64 liquidityIndex;
+    // slot 1 (8 bits free). minLiquidity was uint128 and liquidityIndex uint64. The pair keeps its
+    // combined 192-bit span, so lastUpdate and presetId do not move, but the INDEX field's low bit
+    // slides 128 -> 96: every live Asset word written by the old impl DOES read back reinterpreted,
+    // as `oldIndex << 32`, and `PoolAux.adminRebaseIndexWidth` must correct it in the upgrade
+    // transaction. minLiquidity is bounded < 2**96 at setAssetParams so its own value survives.
+    uint96 minLiquidity;
+    uint96 liquidityIndex;
     uint32 lastUpdate;
     // Pricing-shape pointer into PoolStorage.curves (shared preset table). 0 = none (fallback quote).
     uint16 presetId;
+    // Dead-share seed as a power of ten of the token's own unit; 0 = the decimals-derived default.
+    // Token units are not value: 0.001 WBTC is ~$64 burned from the first depositor while 0.001
+    // KRW1 prices an index pin at ~$54k. This re-denominates the seed per leg without a new slot,
+    // and reads 0 (= default) out of every legacy word. Bounded at `decimals + 3` by its setter.
+    uint8 deadSeedPow10;
     // slot 2 (16 bits free)
     address anchor;
     uint16 minFeePbps;
@@ -86,6 +95,8 @@ interface IPool {
   struct DepositResult {
     uint256 lpAmount;
     uint256 actualDeposit;
+    /// @notice Shares carved out of `lpAmount` and sunk to address(0) if this opened the leg.
+    uint256 deadLp;
   }
 
   struct WithdrawResult {
@@ -179,6 +190,8 @@ interface IPool {
   function adminCollectProtocolFees(address token, address recipient) external returns (uint256);
   function adminSetFlowCooldown(uint16 cooldownSeconds) external;
   function adminSetAnchor(address token, address anchor) external;
+  function adminRebaseIndexWidth(address[] calldata tokens) external;
+  function adminSetDeadSeedPow10(address token, uint8 pow10) external;
   function adminSetAssetParams(
     address token,
     uint128 minLiquidity,
@@ -308,6 +321,10 @@ interface IPool {
     uint256 haircut
   );
   event Donated(address indexed sender, address indexed token, uint256 amount);
+  /// @notice One-time per leg: the unburnable seed carved out of whatever first credited its
+  ///         liabilities. Distinct from Deposited because no deposit happened: emitting it as
+  ///         Deposited(address(0), ...) made every log replayer book phantom user inflow.
+  event DeadSharesSeeded(address indexed token, uint256 value, uint256 lpAmount);
   /// @notice Every liquidityIndex move. Without it there is no historical NAV per share, no derivable
   ///         APR, no TWAP, and a write-down is invisible: the index is the sole share↔value
   ///         converter and nothing else logs it. `reason` is Constants.INDEX_REASON_*; reserves and

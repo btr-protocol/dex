@@ -34,6 +34,55 @@ library PoolLiquidity {
     if (idx == 0) revert Err.InvalidState();
   }
 
+  /// @dev #73: `raiseIndex` is a ratio off `liabilities`, so a leg whose liabilities can return to
+  ///      dust is pinnable — donate/deposit/withdraw ratchets the index onto its ceiling for gas,
+  ///      after which the clamp holds it flat while `accrueLpFee` keeps booking fees no share can
+  ///      ever claim. Sink a permanent seed to address(0) on whatever FIRST credits the leg's
+  ///      liabilities: address(0) is never msg.sender and both burn paths debit
+  ///      `lpBalances[msg.sender]` only, so the seed can never be redeemed. `liabilities` is then
+  ///      floored at deadShares·index/WAD, which tracks the index exactly, so reaching the ceiling
+  ///      costs the whole terminal liability instead of dust.
+  ///      Called from EVERY liability-credit site (deposit, swapLiability, donate, hookCreditYield),
+  ///      not just the mints: donate credits liabilities while minting nothing, so a mint-only seed
+  ///      left the share-free window wide open. The window is closed at the door, not gated
+  ///      downstream: a `raiseIndex` gate would also have frozen every already-live leg on upgrade.
+  ///      Callers SPLIT the seed out of what they were already crediting rather than adding to it,
+  ///      so `S·index/WAD ≤ liabilities` holds by construction.
+  /// @param value Leg-denominated value being credited; must be able to carry the seed.
+  /// @param strict Reject a credit too small to carry the seed. The mint sites pass true (the dust
+  ///        credit has nothing to mint anyway); `hookCreditYield` passes FALSE and skips, because it
+  ///        runs inside the keeper's `rebalance()` and a revert there is the leg-wide denial of
+  ///        service `accrueLpFee` already refuses to buy for gas.
+  /// @return deadLp Shares minted to address(0); 0 if the leg was already seeded or the seed was
+  ///         skipped. `seeded` disambiguates: false means NOTHING was seeded and the caller must not
+  ///         book this credit to the index either.
+  function seedDeadShares(
+    IPool.PoolStorage storage $,
+    IPool.Asset storage asset,
+    address tkn,
+    uint256 idx,
+    uint256 value,
+    bool strict
+  ) internal returns (uint256 deadLp, bool seeded) {
+    if ($.lpBalances[address(0)][tkn] != 0) return (0, true);
+    // NOT asset.minLiquidity: that is the keeper reserve floor (Flash/PoolHooks read it in token
+    // terms), and raising it would silently raise the first depositor's burn to five figures.
+    uint8 pow10 = asset.deadSeedPow10;
+    uint256 seed = pow10 == 0 ? 10 ** asset.decimals / C.DEAD_SHARE_SEED_DIV : 10 ** pow10;
+    if (seed == 0) seed = 1; // decimals ≤ 3: 0.001 token is sub-wei, and a 0 seed is no seed
+    // CEIL. A floored `seed*WAD/idx` hit 0 on any leg whose index outgrew the seed and then reverted
+    // ZeroValue on EVERY credit: deposit, donate, swapLiability and hookCreditYield were bricked
+    // forever, on exactly the legs the pin already pinned. Ceil always mints ≥ 1 share.
+    deadLp = (seed * SC.WAD + idx - 1) / idx;
+    if ((value * SC.WAD) / idx < deadLp) {
+      if (strict) revert Err.InsufficientAmount(value, seed);
+      return (0, false);
+    }
+    $.lpBalances[address(0)][tkn] += deadLp;
+    emit IPool.DeadSharesSeeded(tkn, seed, deadLp);
+    seeded = true;
+  }
+
   function applyHaircut(uint256 amount, uint128 reserves, uint128 liabilities, uint16 suppression)
     internal
     pure
@@ -69,7 +118,12 @@ library PoolLiquidity {
     uint256 amt = PoolIO.pull($, token, amount);
     if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
-    uint256 lpAmt = (amt * SC.WAD) / mintIndex(asset);
+    uint256 idx = mintIndex(asset);
+    uint256 lpAmt = (amt * SC.WAD) / idx;
+    (uint256 deadLp,) = seedDeadShares($, asset, tkn, idx, amt, true);
+    unchecked {
+      lpAmt -= deadLp; // the seed gate is `amt*WAD/idx >= deadLp`, i.e. exactly `lpAmt >= deadLp`
+    }
     // ACC-03: a deposit too small to mint ≥1 LP share would still credit reserves+liabilities —
     // free liquidity donated to existing LPs. Reject the zero-share dust deposit.
     if (lpAmt == 0) revert Err.ZeroValue();
@@ -82,7 +136,7 @@ library PoolLiquidity {
     PoolHooks.postInflow($, tkn, msg.sender, amt, lpAmt);
 
     emit IPool.Deposited(msg.sender, tkn, amt, lpAmt);
-    return IPool.DepositResult({lpAmount: lpAmt, actualDeposit: amt});
+    return IPool.DepositResult({lpAmount: lpAmt, actualDeposit: amt, deadLp: deadLp});
   }
 
   /// @dev Raise an asset's liquidity index after `added` value accrues to LPs over `liabBefore`
@@ -95,6 +149,8 @@ library PoolLiquidity {
   ///      clamp is not a weakened guard: it is strictly downward, so `S*index/WAD <= liabilities`
   ///      still holds (shares under-claim, never over-claim) and no leg can be bricked. Value above
   ///      the clamp is stranded in `liabilities`, visible as a flat index in the IndexUpdated log.
+  ///      Reaching the clamp is what `seedDeadShares` prices out: at a uint96 field over a WAD base
+  ///      the attacker must carry the dead floor across 7.92e10x of headroom to get there.
   function raiseIndex(
     IPool.Asset storage asset,
     address token,
@@ -106,8 +162,8 @@ library PoolLiquidity {
     // reserves + liabilities, mint nothing, and strand the funds silently. Fail closed, like mintIndex.
     uint256 idx = mintIndex(asset);
     uint256 newIndex = liabBefore == 0 ? idx : (idx * (liabBefore + added)) / liabBefore;
-    if (newIndex > type(uint64).max) newIndex = type(uint64).max;
-    asset.liquidityIndex = uint64(newIndex);
+    if (newIndex > type(uint96).max) newIndex = type(uint96).max;
+    asset.liquidityIndex = uint96(newIndex);
     emit IPool.IndexUpdated(token, newIndex, asset.reserves, asset.liabilities, reason);
   }
 
@@ -133,6 +189,9 @@ library PoolLiquidity {
     raiseIndex(asset, token, liabBefore, fee, C.INDEX_REASON_FEE);
   }
 
+  /// @dev Donating to a leg that has never been credited STRANDS the gift: `liabBefore == 0` no-ops
+  ///      the raise, so everything above the dead seed sits in `liabilities` backing no share and is
+  ///      inherited by nobody, ever. Deposit first if the intent is to open a leg.
   function donate(IPool.PoolStorage storage $, address token, uint256 amount) external {
     if (amount == 0) revert Err.ZeroValue();
 
@@ -148,9 +207,17 @@ library PoolLiquidity {
     if (amt > type(uint128).max) revert Err.ExcessiveAmount(amt, type(uint128).max);
 
     uint256 liabBefore = uint256(asset.liabilities);
+    uint256 idx = mintIndex(asset);
+    (uint256 deadLp,) = seedDeadShares($, asset, tkn, idx, amt, true);
+    uint256 seedVal = (deadLp * idx) / SC.WAD;
     asset.reserves += uint128(amt);
     asset.liabilities += uint128(amt);
-    raiseIndex(asset, tkn, liabBefore, amt, C.INDEX_REASON_DONATE);
+    // The seed slice mints shares, so it joins the raise DENOMINATOR and leaves the numerator:
+    // raising over its own backing would credit the dead shares twice and push total outstanding
+    // claim above `liabilities`.
+    raiseIndex(
+      asset, tkn, liabBefore == 0 ? 0 : liabBefore + seedVal, amt - seedVal, C.INDEX_REASON_DONATE
+    );
 
     emit IPool.Donated(msg.sender, token, amt);
   }
@@ -357,7 +424,13 @@ library PoolLiquidity {
     (uint256 liabOut, uint256 haircut) =
       applyHaircut(q.amountOut, assetOut.reserves, assetOut.liabilities, assetOut.haircutSuppressor);
 
-    lpAmountOut = (liabOut * SC.WAD) / mintIndex(assetOut);
+    uint256 idxOut = mintIndex(assetOut);
+    lpAmountOut = (liabOut * SC.WAD) / idxOut;
+    // Before the slippage check, so minLpAmountOut is measured on what the swapper receives.
+    (uint256 deadOut,) = seedDeadShares($, assetOut, outTk, idxOut, liabOut, true);
+    unchecked {
+      lpAmountOut -= deadOut;
+    }
 
     assetIn.liabilities -= uint128(liabIn);
     assetOut.liabilities += uint128(liabOut);

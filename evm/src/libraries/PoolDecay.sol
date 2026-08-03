@@ -29,7 +29,7 @@ library PoolDecay {
       // than `liabilities` (breaks totalSupply·index/WAD ≤ liabilities). A scaled-to-0 index is the
       // truthful terminal state: every share is worth 0 and the leg stops taking deposits.
       uint256 newIdx = (uint256(asset.liquidityIndex) * uint256(newLiab)) / uint256(oldLiab);
-      asset.liquidityIndex = uint64(newIdx);
+      asset.liquidityIndex = uint96(newIdx);
       asset.liabilities = newLiab;
       emit IPool.IndexUpdated(token, newIdx, asset.reserves, newLiab, C.INDEX_REASON_DECAY);
     }

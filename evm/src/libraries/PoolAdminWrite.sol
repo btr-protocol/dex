@@ -135,7 +135,12 @@ library PoolAdminWrite {
       revert Err.InvalidInput();
     }
 
-    asset.minLiquidity = minLiquidity;
+    // Asset slot 1 packs minLiquidity into 96 bits so liquidityIndex can hold 96; a raw cast would
+    // wrap the keeper reserve floor to a near-zero value and silently unblock every outflow gate.
+    if (minLiquidity > type(uint96).max) {
+      revert Err.ExcessiveAmount(minLiquidity, type(uint96).max);
+    }
+    asset.minLiquidity = uint96(minLiquidity);
     asset.minFeePbps = minFeePbps;
     asset.maxFeePbps = maxFeePbps;
     asset.gamma = gamma;
