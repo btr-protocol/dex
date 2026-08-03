@@ -55,8 +55,9 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 ///      a disjoint signer set AND a different owner (the Chapel script enforces exactly that in
 ///      _validateReferenceOracles); set REF_ORACLE + REF_ORACLE_SIGNER_{0,1,2} to reuse a genuinely
 ///      independent tier here.
-/// @dev Env: DEPLOYER_PK (required). Optional: DEPLOY_IN (oracle SoT path), RISK_PARAMS (params
-///      path), POOLS_OUT (output path), TREASURY, GUARDIAN, WNATIVE,
+/// @dev Env: DEPLOYER_PK, GUARDIAN and WNATIVE (all required; WNATIVE must be the SoT's WETH mock,
+///      which is a TestnetWETH9 so native ETH can actually wrap). Optional: DEPLOY_IN (oracle SoT
+///      path), RISK_PARAMS (params path), POOLS_OUT (output path), TREASURY,
 ///      REF_ORACLE + REF_ORACLE_SIGNER_{0,1,2},
 ///      ALLOW_NO_LZ (default true here — Sepolia bring-up ships no bridge), SKIP_UNLISTED
 ///      (list only the symbols the oracle stack actually carries), REDEPLOY.
@@ -100,6 +101,9 @@ contract SepoliaPoolDeploy is Deploy {
   // Faucet drip as a FRACTION of a leg, never its own USD figure: 1/50 = 2%/day, 200 days prefunded.
   uint256 internal constant FAUCET_CAP_DIVISOR = 50;
   uint256 internal constant FAUCET_PREFUND_CLAIMS = 200;
+  /// @dev Target VALUE of one leg's dead-share seed, 1e18-scaled USD: $0.001, dust to the first
+  ///      depositor on every leg from KRW1 to WBTC. See `_deadSeedPow10`.
+  uint256 internal constant DEAD_SEED_TARGET_1E18 = 1e15;
   // Reference-tier signer defaults = the canonical NXR attester set (same pins as the oracle
   // script). Override per the independence warning above.
   address internal constant SIGNER_0 = 0x9E34F1120B9a6fD93AAF81e6eF2df187A6CE45cF;
@@ -163,8 +167,8 @@ contract SepoliaPoolDeploy is Deploy {
     // Re-run guard (mirrors the oracle script): a second broadcast mints a duplicate DEX bound to
     // the SAME feeds and silently overwrites the pool SoT.
     require(
-      !vm.exists(outPath) || vm.envOr("REDEPLOY", false),
-      "already deployed: 11155111.pools.json exists (REDEPLOY=true to override)"
+      !_deployed(outPath, ".stablePool") || vm.envOr("REDEPLOY", false),
+      "already deployed: 11155111.pools.json carries a live stablePool (REDEPLOY=true to override)"
     );
     uint256 pk = vm.envUint("DEPLOYER_PK");
     address deployer = vm.addr(pk);
@@ -211,7 +215,22 @@ contract SepoliaPoolDeploy is Deploy {
     require(AccessControl(core.ac).guardianCount() >= 1, "guardian not registered");
     vm.stopBroadcast();
 
-    _persist(core, cfg, address(faucet), stablePool, volatilePool, outPath);
+    _persist(
+      core, cfg, address(faucet), stablePool, volatilePool, outPath, _concat(stableSyms, volSyms)
+    );
+    vm.writeJson(_receiptsJson(cfg, stablePool, stableSyms), outPath, ".stableReceipts");
+    vm.writeJson(_receiptsJson(cfg, volatilePool, volSyms), outPath, ".volatileReceipts");
+  }
+
+  /// @dev Re-run guard. A bare `vm.exists` self-trips: forge runs the script AGAIN to broadcast, and
+  ///      the second pass finds the artifact the first pass wrote, so a genuine first deploy aborts
+  ///      (or, with REDEPLOY forced past it, the guard protects nothing). A prior deployment is one
+  ///      whose recorded contract has CODE, which no simulation-only pass can fake.
+  function _deployed(string memory outPath, string memory key) internal view returns (bool) {
+    if (!vm.exists(outPath)) return false;
+    string memory j = vm.readFile(outPath);
+    if (!vm.keyExists(j, key)) return false;
+    return vm.parseJsonAddress(j, key).code.length > 0;
   }
 
   // ── config ────────────────────────────────────────────────────────────────────────────────
@@ -252,8 +271,21 @@ contract SepoliaPoolDeploy is Deploy {
     // how the 2026-07-24 Sepolia seed landed 40x over spec, and no on-chain cap exists to catch it.
     // parseJsonUint reverts on a missing key ⇒ a params file without a seed aborts the deploy.
     cfg.seedUsdc = vm.parseJsonUint(cfg.risk, ".seedUsdPerLeg") * 1e18;
-    cfg.wnative = vm.envOr("WNATIVE", address(0xCAFE));
+    cfg.wnative = _resolveWnative(cfg.sot);
     cfg.skipUnlisted = vm.envOr("SKIP_UNLISTED", false);
+  }
+
+  /// @dev WNATIVE is written to Pool storage at initialize and every native deposit/withdraw routes
+  ///      through it, so a placeholder there disables native ETH for the life of the pool. It used
+  ///      to default to `address(0xCAFE)` — a codeless address whose `deposit()` cannot revert
+  ///      because there is nothing to call (#43). Required, and it must be the SoT's WETH: the
+  ///      native sentinel resolves to wnative via PoolIO.wrap, so anything else resolves to an
+  ///      asset this pool has never listed and every native path reverts NotFound.
+  function _resolveWnative(string memory sot) internal view returns (address w) {
+    w = vm.envAddress("WNATIVE");
+    require(w.code.length > 0, "WNATIVE has no code: native ETH would be permanently bricked");
+    IERC20(w).decimals(); // reverts unless it is at least a real ERC-20
+    require(w == _tokenOrZero(sot, "WETH"), "WNATIVE must be the SoT WETH leg (see PoolIO.wrap)");
   }
 
   /// @dev Drop symbols the oracle stack does not carry (no `<SYM>` address in the SoT ⇒ no feed ⇒
@@ -522,11 +554,14 @@ contract SepoliaPoolDeploy is Deploy {
     if (token == cfg.usdc) return 1e18;
     uint256 mark = vm.parseJsonUint(cfg.marks, string.concat(".marks.", sym, ".mark1e18"));
     require(mark != 0, "seed-marks: absent or zero mark");
+    // Compare in the STORED domain. B64 is lossy, so decoding the feed back to 1e18 and demanding
+    // equality asserts roundtrip losslessness on top of same-snapshot, and any mark carrying more
+    // mantissa than B64 holds fails it spuriously (RLUSD 1000024170000000128, snapshot 2026-08-02).
+    // encodeB64(mark) == lastPriceB64 is the invariant that matters: the oracle half seeded from
+    // exactly this number, which is what the oracle script itself encodes.
     require(
-      mark
-        == M.b64To1e18(
-          IOracle(cfg.oracle).getFeed(keccak256(abi.encodePacked(token, cfg.usdc))).lastPriceB64
-        ),
+      M.encodeB64(mark, 18)
+        == IOracle(cfg.oracle).getFeed(keccak256(abi.encodePacked(token, cfg.usdc))).lastPriceB64,
       "seed mark != feed seed: oracle and pool halves used different snapshots"
     );
     return mark;
@@ -547,14 +582,27 @@ contract SepoliaPoolDeploy is Deploy {
     address recipient = vm.addr(vm.envUint("DEPLOYER_PK"));
     Pool pool = Pool(payable(poolAddr));
     for (uint256 i; i < tokens.length; ++i) {
-      uint256 amt = cfg.seedUsdc;
-      if (tokens[i] != cfg.usdc) {
-        amt = cfg.seedUsdc * 1e18 / _mark(cfg, syms[i], tokens[i]);
-      }
+      uint256 mark = _mark(cfg, syms[i], tokens[i]);
+      uint256 amt = tokens[i] == cfg.usdc ? cfg.seedUsdc : cfg.seedUsdc * 1e18 / mark;
+      // BEFORE the first credit, always: the dead-share floor is written by the deposit below and
+      // adminSetDeadSeedPow10 is a no-op once the leg is seeded.
+      IPool(poolAddr).adminSetDeadSeedPow10(tokens[i], _deadSeedPow10(mark));
       TestnetERC20(tokens[i]).mint(recipient, amt);
       IERC20(tokens[i]).approve(poolAddr, type(uint256).max);
       pool.deposit(tokens[i], amt);
     }
+  }
+
+  /// @dev Dead-share seed as a power of ten of the leg's own unit, sized by VALUE. The on-chain
+  ///      default is 0.001 TOKEN, which is only right where 1 token ~ $1: it burns ~$64 of the first
+  ///      WBTC depositor and prices the KRW1 index pin at ~$54k. Largest power of ten worth at most
+  ///      DEAD_SEED_TARGET_1E18 at the ceremony mark, inside the on-chain decimals+3 ceiling. Every
+  ///      leg here is an 18-dp mock, which is what fixes the exponent range.
+  function _deadSeedPow10(uint256 mark) internal pure returns (uint8) {
+    for (uint8 p = 18 + C.DEAD_SEED_POW10_HEADROOM; p > 1; --p) {
+      if (10 ** uint256(p) * mark <= DEAD_SEED_TARGET_1E18 * 1e18) return p;
+    }
+    return 1;
   }
 
   /// @dev Faucet caps DERIVE from seedUsdPerLeg (2% of a leg per day, 200 claims prefunded) so the
@@ -638,7 +686,10 @@ contract SepoliaPoolDeploy is Deploy {
     address[] memory minted = new address[](syms.length);
     vm.startBroadcast(pk);
     for (uint256 i; i < syms.length; ++i) {
-      if (_tokenOrZero(sot, syms[i]) != address(0)) continue; // USDC + EURC already exist
+      // CODE, not merely a SoT entry: this invocation persists the SoT itself, so a key-only test
+      // makes the broadcast pass skip everything the simulation pass "minted" and send nothing.
+      address have = _tokenOrZero(sot, syms[i]);
+      if (have != address(0) && have.code.length > 0) continue; // USDC + EURC already exist
       minted[i] = address(new TestnetERC20(syms[i], syms[i], 18));
       console2.log("minted", syms[i], minted[i]);
     }
@@ -708,8 +759,8 @@ contract SepoliaPoolDeploy is Deploy {
     string memory outPath = _poolsOutPath();
     string memory pools = vm.readFile(outPath);
     require(
-      !vm.keyExists(pools, ".fxPool") || vm.envOr("REDEPLOY", false),
-      "already deployed: pools.json carries fxPool (REDEPLOY=true to override)"
+      !_deployed(outPath, ".fxPool") || vm.envOr("REDEPLOY", false),
+      "already deployed: pools.json carries a live fxPool (REDEPLOY=true to override)"
     );
     uint256 pk = vm.envUint("DEPLOYER_PK");
     Cfg memory cfg = _loadCfg();
@@ -741,6 +792,38 @@ contract SepoliaPoolDeploy is Deploy {
     // Keeper manifest for the FX legs' reference-oracle bands (see the REF KEEPER runbook note):
     // a stale ref feed fail-closes every spoke that bands against it.
     vm.writeJson(_jsonArr(_refFeedManifest(cfg, fxSyms)), outPath, ".fxRefFeeds");
+    vm.writeJson(_receiptsJson(cfg, fxPool, fxSyms), outPath, ".fxReceipts");
+  }
+
+  /// @dev Per-leg ERC-20 receipt addresses, symbol -> clone. `initAsset` deploys one clone per
+  ///      (pool, leg) with no factory registry to enumerate, so the SoT is the only discovery path
+  ///      the front, the SDK and an integrator have.
+  function _receiptsJson(Cfg memory cfg, address pool, string[] memory syms)
+    internal
+    view
+    returns (string memory out)
+  {
+    out = "{";
+    for (uint256 i; i < syms.length; ++i) {
+      address tk = vm.parseJsonAddress(cfg.sot, string.concat(".", syms[i]));
+      address lp = Pool(payable(pool)).lpToken(tk);
+      require(lp != address(0), string.concat("leg receipt missing for ", syms[i]));
+      out = string.concat(out, i == 0 ? "" : ",", "\"", syms[i], "\":\"", vm.toString(lp), "\"");
+    }
+    out = string.concat(out, "}");
+  }
+
+  /// @dev The two rosters as one list. The ref-feed manifest must cover exactly the legs THIS run
+  ///      listed: `.symbols` also carries the FX roster, whose tokens do not exist in the SoT until
+  ///      `mintFxTokens`, so manifesting off it aborts a from-zero ceremony at the final write.
+  function _concat(string[] memory a, string[] memory b) internal pure returns (string[] memory o) {
+    o = new string[](a.length + b.length);
+    for (uint256 i; i < a.length; ++i) {
+      o[i] = a[i];
+    }
+    for (uint256 i; i < b.length; ++i) {
+      o[a.length + i] = b[i];
+    }
   }
 
   function _jsonArr(string[] memory items) internal pure returns (string memory out) {
@@ -767,7 +850,8 @@ contract SepoliaPoolDeploy is Deploy {
     address faucet,
     address stablePool,
     address volatilePool,
-    string memory outPath
+    string memory outPath,
+    string[] memory listed
   ) internal {
     console2.log("=== BTR Sepolia DEX ===");
     console2.log("AccessControl (reused):", core.ac);
@@ -806,9 +890,7 @@ contract SepoliaPoolDeploy is Deploy {
     // set it carries (a stale ref feed fail-closes every spoke swap that bands against it — TTL
     // 7200s stable / 600s vol). refFeeds names map to feed ids by keccak(token, USDC) via the token
     // addresses in 11155111.deploy.json, identically to the primary. See runbook step "REF KEEPER".
-    string memory json = vm.serializeString(
-      k, "refFeeds", _refFeedManifest(cfg, vm.parseJsonStringArray(cfg.risk, ".symbols"))
-    );
+    string memory json = vm.serializeString(k, "refFeeds", _refFeedManifest(cfg, listed));
 
     try vm.writeJson(json, outPath) {}
     catch {

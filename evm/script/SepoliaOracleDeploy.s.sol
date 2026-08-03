@@ -5,6 +5,7 @@ import {DeployBase} from "@btr-shared-script/Deploy.base.sol";
 import {AccessControl} from "@btr-shared/access/AccessControl.sol";
 import {ExternalOracle} from "../src/oracles/ExternalOracle.sol";
 import {TestnetERC20} from "../src/testnet/TestnetERC20.sol";
+import {TestnetWETH9} from "../src/testnet/TestnetWETH9.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {console2} from "forge-std/Script.sol";
 
@@ -176,6 +177,10 @@ contract SepoliaOracleDeploy is DeployBase {
     ];
   }
 
+  function _isWeth(string memory sym) internal pure returns (bool) {
+    return keccak256(bytes(sym)) == keccak256("WETH");
+  }
+
   /// @dev idx of syrupUSDC in _syms(): the one non-peg "stable" (accruing Maple wrapper ~1.1x).
   uint256 internal constant SYRUP_IDX = 9;
 
@@ -227,9 +232,11 @@ contract SepoliaOracleDeploy is DeployBase {
     // SoT json (feed_id binds keccak(asset,USDC) to these token addresses forever; a keeper
     // pointed at a stale json = wrong oracle / OOB idx). REDEPLOY=true overrides deliberately.
     string memory outPath = _outPath();
+    // CODE, not file existence: forge runs the script AGAIN to broadcast, so a bare `vm.exists`
+    // trips on the artifact the simulation pass just wrote and aborts a genuine first deploy.
     require(
-      !vm.exists(outPath) || vm.envOr("REDEPLOY", false),
-      "already deployed: 11155111.deploy.json exists (REDEPLOY=true to override)"
+      !_oracleLive(outPath) || vm.envOr("REDEPLOY", false),
+      "already deployed: 11155111.deploy.json carries a live oracle (REDEPLOY=true to override)"
     );
     uint256 pk = vm.envUint("DEPLOYER_PK");
     address deployer = vm.addr(pk);
@@ -256,7 +263,11 @@ contract SepoliaOracleDeploy is DeployBase {
 
     address[N] memory toks;
     for (uint256 i; i < N; ++i) {
-      toks[i] = address(new TestnetERC20(syms[i], syms[i], 18));
+      // WETH is the pool's wnative, so its mock MUST answer deposit()/withdraw() or native ETH
+      // cannot be wrapped at all (PoolIO.pull/push call them). Every other leg stays a plain mock.
+      toks[i] = _isWeth(syms[i])
+        ? address(new TestnetWETH9(syms[i], syms[i], 18))
+        : address(new TestnetERC20(syms[i], syms[i], 18));
     }
     for (uint256 i; i < N; ++i) {
       bool stable = i < N_STABLE;
@@ -303,6 +314,13 @@ contract SepoliaOracleDeploy is DeployBase {
     vm.stopBroadcast();
 
     _persist(ac, oracle, deployer, guardian, syms, toks, usd, outPath);
+  }
+
+  function _oracleLive(string memory outPath) internal view returns (bool) {
+    if (!vm.exists(outPath)) return false;
+    string memory j = vm.readFile(outPath);
+    if (!vm.keyExists(j, ".oracle")) return false;
+    return vm.parseJsonAddress(j, ".oracle").code.length > 0;
   }
 
   function _outPath() internal view returns (string memory) {
