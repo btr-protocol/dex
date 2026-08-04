@@ -1,154 +1,124 @@
 {
  "chainId": 11155111,
- "source": "https://api.nxrates.com/v1/price",
- "fetchedAt": "2026-07-28T19:16:12.861Z",
+ "source": "on-chain oracle 0xd3fb5bff347265aa7744582360aaf3eb6fdcf0e4",
+ "fetchedAt": "2026-08-03T23:47:00Z",
  "maxAgeMs": 300000,
  "seedUsdPerLeg": 50000,
  "marks": {
   "USDC": {
    "ticker": "USDC-USDC",
-   "mid": 1,
+   "mid": 1.0,
    "mark1e18": "1000000000000000000"
-  },
-  "USDT": {
-   "ticker": "USDT-USD",
-   "mid": 0.9988973982,
-   "mark1e18": "998897398200000000"
-  },
-  "USDE": {
-   "ticker": "USDE-USD",
-   "mid": 0.999629935,
-   "mark1e18": "999629935000000000"
-  },
-  "USDS": {
-   "ticker": "USDS-USD",
-   "mid": 0.999799995,
-   "mark1e18": "999799995000000000"
-  },
-  "DAI": {
-   "ticker": "DAI-USD",
-   "mid": 0.99979808,
-   "mark1e18": "999798080000000000"
-  },
-  "USD1": {
-   "ticker": "USD1-USD",
-   "mid": 0.99883114,
-   "mark1e18": "998831140000000000"
-  },
-  "USDG": {
-   "ticker": "USDG-USD",
-   "mid": 0.9999881203,
-   "mark1e18": "999988120300000000"
-  },
-  "PYUSD": {
-   "ticker": "PYUSD-USD",
-   "mid": 1,
-   "mark1e18": "1000000000000000000"
-  },
-  "RLUSD": {
-   "ticker": "RLUSD-USD",
-   "mid": 1.00002417,
-   "mark1e18": "1000024170000000128"
-  },
-  "syrupUSDC": {
-   "ticker": "syrupUSDC-USDC",
-   "mid": 1.175634136,
-   "mark1e18": "1175634136000000000"
-  },
-  "USDF": {
-   "ticker": "USDF-USD",
-   "mid": 0.99605005,
-   "mark1e18": "996050050000000000"
-  },
-  "U": {
-   "ticker": "U-USD",
-   "mid": 1.00095022,
-   "mark1e18": "1000950220000000000"
-  },
-  "GHO": {
-   "ticker": "GHO-USD",
-   "mid": 0.999303055,
-   "mark1e18": "999303055000000000"
-  },
-  "TUSD": {
-   "ticker": "TUSD-USD",
-   "mid": 0.995558545,
-   "mark1e18": "995558545000000000"
-  },
-  "USDTB": {
-   "ticker": "USDTB-USD",
-   "mid": 1.001099995,
-   "mark1e18": "1001099994999999872"
-  },
-  "FDUSD": {
-   "ticker": "FDUSD-USD",
-   "mid": 0.996961275,
-   "mark1e18": "996961275000000000"
   },
   "AUSD": {
    "ticker": "AUSD-USD",
-   "mid": 0.99978345,
-   "mark1e18": "999783450000000000"
-  },
-  "WETH": {
-   "ticker": "ETH-USDC",
-   "mid": 1911.420706,
-   "mark1e18": "1911420705999999991808"
-  },
-  "WBTC": {
-   "ticker": "BTC-USDC",
-   "mid": 63689.27519,
-   "mark1e18": "63689275190000004104192"
-  },
-  "cbBTC": {
-   "ticker": "BTC-USDC",
-   "mid": 63689.27519,
-   "mark1e18": "63689275190000004104192"
+   "mid": 0.99988522,
+   "mark1e18": "999885220000000000"
   },
   "BNB": {
-   "ticker": "BNB-USDC",
-   "mid": 569.1719287,
-   "mark1e18": "569171928699999944704"
+   "ticker": "BNB-USD",
+   "mid": 589.0136714557,
+   "mark1e18": "589013671455750000000"
   },
-  "XAUT": {
-   "ticker": "XAUT-USDC",
-   "mid": 4015.621956,
-   "mark1e18": "4015621955999999983616"
-  },
-  "PAXG": {
-   "ticker": "PAXG-USD",
-   "mid": 4018.748514,
-   "mark1e18": "4018748513999999991808"
+  "DAI": {
+   "ticker": "DAI-USD",
+   "mid": 1.00008262,
+   "mark1e18": "1000082620000000000"
   },
   "EURC": {
    "ticker": "EURC-USD",
-   "mid": 1.13876655,
-   "mark1e18": "1138766549999999872"
+   "mid": 1.15068804,
+   "mark1e18": "1150688040000000000"
   },
-  "QCAD": {
-   "ticker": "CAD-USD",
-   "mid": 0.7093798761,
-   "mark1e18": "709379876100000000"
+  "FDUSD": {
+   "ticker": "FDUSD-USD",
+   "mid": 0.99707545,
+   "mark1e18": "997075450000000000"
   },
-  "AUDF": {
-   "ticker": "AUD-USD",
-   "mid": 0.697585,
-   "mark1e18": "697585000000000000"
+  "GHO": {
+   "ticker": "GHO-USD",
+   "mid": 0.99826227,
+   "mark1e18": "998262270000000000"
   },
-  "BRLA": {
-   "ticker": "BRL-USD",
-   "mid": 0.1949071313,
-   "mark1e18": "194907131300000000"
+  "PAXG": {
+   "ticker": "PAXG-USD",
+   "mid": 4047.79117911,
+   "mark1e18": "4047791179110000000000"
   },
-  "JPYC": {
-   "ticker": "JPY-USD",
-   "mid": 0.006107705292,
-   "mark1e18": "6107705292000000"
+  "PYUSD": {
+   "ticker": "PYUSD-USD",
+   "mid": 0.99982227,
+   "mark1e18": "999822270000000000"
   },
-  "KRW1": {
-   "ticker": "KRW-USD",
-   "mid": 0.0006880422575,
-   "mark1e18": "688042257500000"
+  "RLUSD": {
+   "ticker": "RLUSD-USD",
+   "mid": 1.00002531,
+   "mark1e18": "1000025310000000000"
+  },
+  "TUSD": {
+   "ticker": "TUSD-USD",
+   "mid": 0.99544843,
+   "mark1e18": "995448430000000000"
+  },
+  "U": {
+   "ticker": "U-USD",
+   "mid": 1.00055,
+   "mark1e18": "1000550000000000000"
+  },
+  "USD1": {
+   "ticker": "USD1-USD",
+   "mid": 0.99911867,
+   "mark1e18": "999118670000000000"
+  },
+  "USDE": {
+   "ticker": "USDE-USD",
+   "mid": 0.99994529,
+   "mark1e18": "999945290000000000"
+  },
+  "USDF": {
+   "ticker": "USDF-USD",
+   "mid": 0.9961,
+   "mark1e18": "996100000000000000"
+  },
+  "USDG": {
+   "ticker": "USDG-USD",
+   "mid": 1.00025566,
+   "mark1e18": "1000255660000000000"
+  },
+  "USDS": {
+   "ticker": "USDS-USD",
+   "mid": 0.99975,
+   "mark1e18": "999750000000000000"
+  },
+  "USDT": {
+   "ticker": "USDT-USD",
+   "mid": 0.999015078,
+   "mark1e18": "999015077964817000"
+  },
+  "USDTB": {
+   "ticker": "USDTB-USD",
+   "mid": 1.00099995,
+   "mark1e18": "1000999950000000000"
+  },
+  "WBTC": {
+   "ticker": "WBTC-USD",
+   "mid": 63467.0407976362,
+   "mark1e18": "63467040797636200000000"
+  },
+  "WETH": {
+   "ticker": "WETH-USD",
+   "mid": 1859.0532487917,
+   "mark1e18": "1859053248791720000000"
+  },
+  "XAUT": {
+   "ticker": "XAUT-USD",
+   "mid": 4040.8540829156,
+   "mark1e18": "4040854082915576000000"
+  },
+  "cbBTC": {
+   "ticker": "cbBTC-USD",
+   "mid": 63467.0407976362,
+   "mark1e18": "63467040797636200000000"
   }
  }
 }
