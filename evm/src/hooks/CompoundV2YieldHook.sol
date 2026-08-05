@@ -59,12 +59,9 @@ contract CompoundV2YieldHook is YieldHook {
   }
 
   function _maxWithdrawable() internal view override returns (uint256) {
-    uint256 shares = cToken.balanceOf(address(this));
-    if (shares == 0) return 0;
-    uint256 byShares = (shares * cToken.exchangeRateStored()) / 1e18;
-    // Venus/Compound redeemUnderlying only checks getCash(), not cash − reserves.
+    uint256 nav = _navAssets();
     uint256 cash = cToken.getCash();
-    return byShares < cash ? byShares : cash;
+    return nav < cash ? nav : cash;
   }
 
   function _positionToken() internal view override returns (address) {

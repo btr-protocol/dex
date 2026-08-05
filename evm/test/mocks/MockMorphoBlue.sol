@@ -35,6 +35,9 @@ contract MockMorphoBlue is IMorphoBlue {
     totalBorrowAssets[id_] = borrowed;
   }
 
+  /// @dev No-op accrue for tests; real Morpho mutates totalSupplyAssets via IRM.
+  function accrueInterest(MarketParams memory) external override {}
+
   function idToMarketParams(bytes32 id_) external view override returns (MarketParams memory) {
     return _params[id_];
   }

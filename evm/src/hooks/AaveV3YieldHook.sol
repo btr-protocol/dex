@@ -45,9 +45,12 @@ contract AaveV3YieldHook is YieldHook {
     return aToken.balanceOf(address(this)); // already underlying units
   }
 
+  /// @dev Cap to aToken cash (underlying held by the aToken). High utilization otherwise
+  ///      makes `withdraw` revert and freezes `_recall` / swaps — Compound/Morpho already cap.
   function _maxWithdrawable() internal view override returns (uint256) {
-    // Aave withdraw fails if liquidity insufficient; balance is upper bound.
-    return aToken.balanceOf(address(this));
+    uint256 nav = _navAssets();
+    uint256 cash = token.balanceOf(address(aToken));
+    return nav < cash ? nav : cash;
   }
 
   function _positionToken() internal view override returns (address) {

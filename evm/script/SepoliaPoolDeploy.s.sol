@@ -38,7 +38,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 /// @dev BASE USDC: mark ≡ 1.0, never pushed (Pricing._readBasePriceOrHalt discards the read price
 ///      for quoting), κ forbidden (AIMM_PROOFS Thm 2 — a walled numeraire breaks cross-leg
 ///      round-trip neutrality). Its OracleConfig points at the SIGNED USDC/USD feed (keeper idx 23) so the
-///      depeg guard and the USD reservation band both read a real market price; refFeedId /
+///      depeg guard and the BASE-per-asset reservation band both read a real market price; refFeedId /
 ///      refBandBps / refPrimary stay 0 for the base (it is exempt from requireExternalSpokeBound —
 ///      its canonical feed IS its breaker).
 /// @dev REFERENCE ORACLE (why a second contract is deployed): every EXTERNAL non-base spoke must
@@ -483,7 +483,7 @@ contract SepoliaPoolDeploy is Deploy {
       _riskCfg(p),
       p.presetId,
       p.minFeePbps,
-      18,
+      IERC20(p.token).decimals(),
       p.minDisp,
       p.maxDisp,
       uint16(cfg.gamma),
@@ -567,6 +567,17 @@ contract SepoliaPoolDeploy is Deploy {
     return mark;
   }
 
+  /// @dev Convert USD notional (1e18) at ceremony mark into token raw units.
+  function _decimals(address token) internal view returns (uint8 d) {
+    d = IERC20(token).decimals();
+    require(d > 0 && d <= 18, "token decimals out of pool range");
+  }
+
+  function _seedRaw(uint256 usd1e18, uint256 mark, uint8 d) internal pure returns (uint256) {
+    require(mark != 0, "seed mark zero");
+    return usd1e18 * (10 ** uint256(d)) / mark;
+  }
+
   /// @dev Seed each leg with seedUsdPerLeg of USDC-equivalent, sized off the ceremony's NXR mark: a
   ///      leg seeded at a stale price starts the pool off-parity and the coverage wall immediately
   ///      tolls honest flow.
@@ -583,10 +594,11 @@ contract SepoliaPoolDeploy is Deploy {
     Pool pool = Pool(payable(poolAddr));
     for (uint256 i; i < tokens.length; ++i) {
       uint256 mark = _mark(cfg, syms[i], tokens[i]);
-      uint256 amt = tokens[i] == cfg.usdc ? cfg.seedUsdc : cfg.seedUsdc * 1e18 / mark;
+      uint8 d = _decimals(tokens[i]);
+      uint256 amt = _seedRaw(cfg.seedUsdc, mark, d);
       // BEFORE the first credit, always: the dead-share floor is written by the deposit below and
       // adminSetDeadSeedPow10 is a no-op once the leg is seeded.
-      IPool(poolAddr).adminSetDeadSeedPow10(tokens[i], _deadSeedPow10(mark));
+      IPool(poolAddr).adminSetDeadSeedPow10(tokens[i], _deadSeedPow10(mark, d));
       TestnetERC20(tokens[i]).mint(recipient, amt);
       IERC20(tokens[i]).approve(poolAddr, type(uint256).max);
       pool.deposit(tokens[i], amt);
@@ -596,11 +608,11 @@ contract SepoliaPoolDeploy is Deploy {
   /// @dev Dead-share seed as a power of ten of the leg's own unit, sized by VALUE. The on-chain
   ///      default is 0.001 TOKEN, which is only right where 1 token ~ $1: it burns ~$64 of the first
   ///      WBTC depositor and prices the KRW1 index pin at ~$54k. Largest power of ten worth at most
-  ///      DEAD_SEED_TARGET_1E18 at the ceremony mark, inside the on-chain decimals+3 ceiling. Every
-  ///      leg here is an 18-dp mock, which is what fixes the exponent range.
-  function _deadSeedPow10(uint256 mark) internal pure returns (uint8) {
-    for (uint8 p = 18 + C.DEAD_SEED_POW10_HEADROOM; p > 1; --p) {
-      if (10 ** uint256(p) * mark <= DEAD_SEED_TARGET_1E18 * 1e18) return p;
+  ///      DEAD_SEED_TARGET_1E18 at the ceremony mark, inside the on-chain decimals+3 ceiling.
+  function _deadSeedPow10(uint256 mark, uint8 d) internal pure returns (uint8) {
+    uint256 ceiling = DEAD_SEED_TARGET_1E18 * (10 ** uint256(d));
+    for (uint8 p = d + C.DEAD_SEED_POW10_HEADROOM; p > 1; --p) {
+      if (10 ** uint256(p) * mark <= ceiling) return p;
     }
     return 1;
   }
@@ -628,22 +640,20 @@ contract SepoliaPoolDeploy is Deploy {
       }
       if (dup) continue;
       toks[k] = t;
-      caps[k] = cfg.seedUsdc / FAUCET_CAP_DIVISOR * 1e18 / _mark(cfg, sym, t);
+      caps[k] = _seedRaw(cfg.seedUsdc / FAUCET_CAP_DIVISOR, _mark(cfg, sym, t), _decimals(t));
       ++k;
     }
-    address[] memory tk = new address[](k);
-    uint256[] memory ck = new uint256[](k);
     for (uint256 i; i < k; ++i) {
-      tk[i] = toks[i];
-      ck[i] = caps[i];
+      address t = toks[i];
+      uint256 cap = caps[i];
       // Prefund FAUCET_PREFUND_CLAIMS days of the cap so the drip survives a demo week untouched.
-      uint256 amt = caps[i] * FAUCET_PREFUND_CLAIMS;
+      uint256 amt = cap * FAUCET_PREFUND_CLAIMS;
       address recipient = vm.addr(vm.envUint("DEPLOYER_PK"));
-      TestnetERC20(tk[i]).mint(recipient, amt);
-      IERC20(tk[i]).approve(address(faucet), type(uint256).max);
-      faucet.fund(tk[i], amt);
+      TestnetERC20(t).mint(recipient, amt);
+      IERC20(t).approve(address(faucet), type(uint256).max);
+      faucet.fund(t, amt);
+      faucet.setCap(t, cap);
     }
-    faucet.setCaps(tk, ck);
   }
 
   // ── FX core (third pool, 2026-07-27) ──────────────────────────────────────────────────────

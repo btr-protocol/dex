@@ -1,0 +1,79 @@
+{
+  "chainId": 5042002,
+  "source": "https://api.nxrates.com/v1/price",
+  "fetchedAt": "2026-08-04T15:29:28.043124Z",
+  "maxAgeMs": 300000,
+  "seedUsdPerLeg": 4000,
+  "marks": {
+    "USDC": {
+      "ticker": "USDC-USDC",
+      "mid": 1,
+      "mark1e18": "1000000000000000000"
+    },
+    "USDT": {
+      "ticker": "USDT-USD",
+      "mid": 0.999005,
+      "mark1e18": "999005000000000000"
+    },
+    "USDE": {
+      "ticker": "USDE-USD",
+      "mid": 0.99984414,
+      "mark1e18": "999844140000000000"
+    },
+    "USDS": {
+      "ticker": "USDS-USD",
+      "mid": 0.99975,
+      "mark1e18": "999750000000000000"
+    },
+    "USD1": {
+      "ticker": "USD1-USD",
+      "mid": 0.9991006,
+      "mark1e18": "999100600000000000"
+    },
+    "USDG": {
+      "ticker": "USDG-USD",
+      "mid": 1.00002892,
+      "mark1e18": "1000028920000000128"
+    },
+    "PYUSD": {
+      "ticker": "PYUSD-USD",
+      "mid": 0.99964017,
+      "mark1e18": "999640170000000000"
+    },
+    "RLUSD": {
+      "ticker": "RLUSD-USD",
+      "mid": 0.99999241,
+      "mark1e18": "999992410000000000"
+    },
+    "EURC": {
+      "ticker": "EURC-USD",
+      "mid": 1.15142495,
+      "mark1e18": "1151424950000000000"
+    },
+    "QCAD": {
+      "ticker": "CAD-USD",
+      "mid": 0.710913950975374,
+      "mark1e18": "710913950975374080"
+    },
+    "AUDF": {
+      "ticker": "AUD-USD",
+      "mid": 0.70334,
+      "mark1e18": "703340000000000000"
+    },
+    "BRLA": {
+      "ticker": "BRL-USD",
+      "mid": 0.19508807251033478,
+      "mark1e18": "195088072510334784"
+    },
+    "JPYC": {
+      "ticker": "JPY-USD",
+      "mid": 0.006346546843862254,
+      "mark1e18": "6346546843862254"
+    },
+    "KRW1": {
+      "ticker": "KRW-USD",
+      "mid": 0.0007007846328133449,
+      "mark1e18": "700784632813345"
+    }
+  }
+}

@@ -46,8 +46,12 @@ contract AaveV4YieldHook is YieldHook {
     return spoke.getUserSuppliedAssets(reserveId, address(this));
   }
 
+  /// @dev Cap to Spoke cash until a pinned available-liquidity view lands. Same liveness
+  ///      rationale as AaveV3 / Compound: do not request a withdraw the venue cannot fill.
   function _maxWithdrawable() internal view override returns (uint256) {
-    return spoke.getUserSuppliedAssets(reserveId, address(this));
+    uint256 nav = _navAssets();
+    uint256 cash = token.balanceOf(address(spoke));
+    return nav < cash ? nav : cash;
   }
 
   function _claimVenueIncentives(bytes calldata data) internal override {

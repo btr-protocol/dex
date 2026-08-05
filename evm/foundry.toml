@@ -54,8 +54,11 @@ quote_style = "double"
 [rpc_endpoints]
 mainnet = "${ETH_RPC_URL}"
 anvil = "http://localhost:8545"
-# Chapel (BSC testnet 97) endpoint removed 2026-07-25: Sepolia is the only testnet.
+# Chapel (BSC testnet 97) endpoint removed 2026-07-25.
 sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
+arc = "https://rpc.testnet.arc.io"
 
 [etherscan]
 sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 11155111 }
+# Arcscan verification key via ARCSCAN_API_KEY when available.
+arc = { key = "${ARCSCAN_API_KEY}", url = "https://testnet.arcscan.app/api", chain = 5042002 }

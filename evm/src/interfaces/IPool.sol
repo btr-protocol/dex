@@ -36,7 +36,9 @@ interface IPool {
     uint16 haircutSuppressor;
     uint32 minDispersion;
     uint64 reservationPrice; // absolute MIN swap price (base-per-asset, b64); 0 = no floor
-    uint64 reservationPriceMax; // absolute MAX swap price (b64); 0 = no ceiling
+    uint64 reservationPriceMax; // absolute MAX swap price (base-per-asset, b64); 0 = no ceiling
+    // ^^^ Quote unit = BASE per asset ALWAYS (DEN-02/03). For usdQuoted legs, priceBandGuard
+    // converts the USD primary mark into base before comparing to these bounds.
     // INTERNAL-mode quote peg (B64 base-per-asset); default WAD=1.0 at init. EXTERNAL mode ignores.
     uint64 pegB64;
   }
@@ -75,6 +77,10 @@ interface IPool {
     //   X/base = (USD per X) / (USD per base) = mark / basePrice.
     // Without it the pool prices X-USD as if it were X-base, i.e. it mis-prices every base<->X swap
     // by exactly the base's own depeg |basePrice-1|, unbounded up to BASE_DEPEG_HALT_BPS.
+    // Quote-unit contract (DEN-02/03):
+    //   - reservationPrice{,Max} = BASE-per-asset (always); usdQuoted legs convert before abs check.
+    //   - refFeedId mark shares the primary's catalog unit (USD when usdQuoted, else base cross);
+    //     priceBandGuard compares raw vs raw in that common unit.
     // Packs into the primary/refBandBps/mode slot: storage layout of refPrimary is unchanged.
     bool usdQuoted;
     // Oracle instance serving refFeedId — MUST differ from `primary` whenever refBandBps != 0.
@@ -116,7 +122,8 @@ interface IPool {
     UPDATE_TREASURY,
     UPDATE_PROFILE,
     UPDATE_HOOK,
-    UPDATE_CURVE
+    UPDATE_CURVE,
+    UPDATE_ASSET_PARAMS
   }
 
   /// @dev Packed hook slot: one SLOAD = target + flags. `address(0)` = disabled.
@@ -168,6 +175,10 @@ interface IPool {
     mapping(address => uint128) invested;
     /// @dev Per-leg ERC-20 receipt (EIP-1167 clone), written once at `initAsset`. ⚠ Appended AT TAIL.
     mapping(address leg => address) lpTokens;
+    /// @dev A1-M1 / M-1: last `hookCreditYield` timestamp per leg (rate bucket). ⚠ Appended AT TAIL (slot 14).
+    ///      Does not renumber slots 0–13. Seeded at `initAsset` and reset on `setAssetHook` so a late
+    ///      hook install cannot harvest a multi-day phantom bucket (`hookCreditYield` also clamps dt ≤ 1d).
+    mapping(address => uint32) lastHookCreditAt;
   }
 
   event PoolInitialized(address indexed owner, address indexed baseToken, address indexed wnative);
@@ -255,6 +266,26 @@ interface IPool {
   /// @param token Asset address.
   /// @return Asset struct snapshot.
   function getAsset(address token) external view returns (Asset memory);
+  /// @notice Leg share index (WAD base). 0 = terminal wipe. CDP / integrators; no storage change.
+  function liquidityIndex(address token) external view returns (uint256);
+  /// @notice Max LP `owner` can redeem now (halt / cooldown / R_liq−minLiq). See PoolView.maxRedeem.
+  function maxRedeem(address owner, address token) external view returns (uint256);
+  /// @notice When owner's anti-JIT freeze clears; 0 if clear.
+  function withdrawUnlockTime(address owner, address token) external view returns (uint32);
+  /// @notice Oracle config snapshot for on-chain consumers (CDP basis). No storage layout change.
+  function getOracleConfig(address token) external view returns (OracleConfig memory);
+  /// @notice previewWithdraw with virtual pending decay applied (no SSTORE).
+  function previewWithdrawFresh(address token, uint256 lp)
+    external
+    view
+    returns (uint256 amountOut, uint256 haircut);
+  function pendingDecay(address token) external view returns (uint128);
+  /// @notice CDP mark tuple: (primary, feedId, mode).
+  function markFeed(address token)
+    external
+    view
+    returns (address primary, bytes32 feedId, uint8 mode);
+  function assetDecimals(address token) external view returns (uint8);
   function getLPBalance(address user, address token) external view returns (uint256);
   /// @notice The leg's ERC-20 receipt; `address(0)` if the leg is not listed.
   function lpToken(address token) external view returns (address);

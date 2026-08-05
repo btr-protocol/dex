@@ -2,6 +2,7 @@
 pragma solidity =0.8.35;
 
 import {Test} from "forge-std/Test.sol";
+import {MockERC20} from "../../.deps/solady/test/utils/mocks/MockERC20.sol";
 import {PoolAdmin} from "../../src/libraries/PoolAdmin.sol";
 import {NUQuartic} from "../../src/libraries/NUQuartic.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
@@ -113,12 +114,15 @@ contract PoolAdminHarness {
 contract PoolAdminTest is Test {
   PoolAdminHarness h;
   MockOracle mock;
-  address constant BASE = address(0xBA5E);
-  address constant TKA = address(0xA1);
+  address BASE;
+  address TKA;
 
   function setUp() public {
     h = new PoolAdminHarness();
     mock = new MockOracle();
+    // A4-01: initAsset binds listed decimals to IERC20.decimals() — bare addresses have no code.
+    BASE = address(new MockERC20("Base", "BASE", 18));
+    TKA = address(new MockERC20("TokA", "TKA", 18));
     h.setBaseToken(BASE);
     vm.warp(1_700_000_000);
   }
@@ -286,8 +290,9 @@ contract PoolAdminTest is Test {
   }
 
   function test_initAsset_nonBaseAnchorsToBase() public {
-    h.callInitAsset(TKA, 6, 25, 500, 50000, 8000, 9000);
-    IPool.Asset memory a = h.getAsset(TKA);
+    address tok6 = address(new MockERC20("Tok6", "T6", 6));
+    h.callInitAsset(tok6, 6, 25, 500, 50000, 8000, 9000);
+    IPool.Asset memory a = h.getAsset(tok6);
     assertEq(a.decimals, 6);
     assertEq(a.minFeePbps, 25);
     assertEq(a.anchor, BASE, "non-base anchors to baseToken");
@@ -295,6 +300,11 @@ contract PoolAdminTest is Test {
     assertEq(a.maxDispersion, 50000);
     assertEq(a.gamma, 8000);
     assertEq(a.vega, 9000);
+  }
+
+  function test_initAsset_decimals_mismatch_reverts() public {
+    vm.expectRevert(Err.InvalidDecimals.selector);
+    h.callInitAsset(TKA, 6, 25, 500, 50000, 8000, 9000); // token is 18d
   }
 
   // ─── setupOracleAndConfig ───
@@ -317,12 +327,12 @@ contract PoolAdminTest is Test {
   /// @notice initAsset must revert BadConfig when minDispersion > maxDispersion.
   function test_R44_7_initAsset_reverts_when_min_gt_max() public {
     vm.expectRevert(Err.BadConfig.selector);
-    h.callInitAsset(TKA, 6, 25, 50000, 1000, 8000, 9000);
+    h.callInitAsset(TKA, 18, 25, 50000, 1000, 8000, 9000);
   }
 
   /// @notice Boundary: min == max is allowed (degenerate but well-formed: pinned dispersion).
   function test_R44_7_initAsset_allows_min_eq_max() public {
-    h.callInitAsset(TKA, 6, 25, 5000, 5000, 8000, 9000);
+    h.callInitAsset(TKA, 18, 25, 5000, 5000, 8000, 9000);
     IPool.Asset memory a = h.getAsset(TKA);
     assertEq(a.minDispersion, 5000);
     assertEq(a.maxDispersion, 5000);
@@ -330,7 +340,7 @@ contract PoolAdminTest is Test {
 
   /// @notice Default substitution: 0 inputs resolve to (1000, 100000) which is ordered.
   function test_R44_7_initAsset_defaults_remain_ordered() public {
-    h.callInitAsset(TKA, 6, 25, 0, 0, 0, 0);
+    h.callInitAsset(TKA, 18, 25, 0, 0, 0, 0);
     IPool.Asset memory a = h.getAsset(TKA);
     assertEq(a.minDispersion, 1000);
     assertEq(a.maxDispersion, 100000);
@@ -342,12 +352,12 @@ contract PoolAdminTest is Test {
   ///         min=0 maliciously expecting their explicit max to win.
   function test_R44_7_initAsset_reverts_when_min_default_exceeds_max() public {
     vm.expectRevert(Err.BadConfig.selector);
-    h.callInitAsset(TKA, 6, 25, 0, 500, 8000, 9000); // min defaulted=1000 > 500
+    h.callInitAsset(TKA, 18, 25, 0, 500, 8000, 9000); // min defaulted=1000 > 500
   }
 
   /// @notice Explicit ordering preserved end-to-end.
   function test_R44_7_initAsset_explicit_values_persist() public {
-    h.callInitAsset(TKA, 6, 25, 2500, 75000, 8000, 9000);
+    h.callInitAsset(TKA, 18, 25, 2500, 75000, 8000, 9000);
     IPool.Asset memory a = h.getAsset(TKA);
     assertEq(a.minDispersion, 2500);
     assertEq(a.maxDispersion, 75000);
@@ -361,13 +371,13 @@ contract PoolAdminTest is Test {
   ///         zero the empty-curve fallback mid.
   function test_maxDispersion_above_ceiling_reverts() public {
     vm.expectRevert(Err.BadConfig.selector);
-    h.callInitAsset(TKA, 6, 25, 1000, 900_001, 8000, 9000);
+    h.callInitAsset(TKA, 18, 25, 1000, 900_001, 8000, 9000);
   }
 
   /// @notice Boundary: maxDispersion == ceiling (900000) is allowed and persists; at worst skew −100 the
   ///         fallback offset is −900000 ⇒ multiplier 100000/PBPS > 0 (mid ≥ 10% mark).
   function test_maxDispersion_at_ceiling_allowed() public {
-    h.callInitAsset(TKA, 6, 25, 1000, 900_000, 8000, 9000);
+    h.callInitAsset(TKA, 18, 25, 1000, 900_000, 8000, 9000);
     assertEq(h.getAsset(TKA).maxDispersion, 900_000);
   }
 
@@ -375,6 +385,6 @@ contract PoolAdminTest is Test {
   ///         mid to 0 at skew −100; the ceiling sits strictly below it.
   function test_maxDispersion_at_pbps_reverts() public {
     vm.expectRevert(Err.BadConfig.selector);
-    h.callInitAsset(TKA, 6, 25, 1000, 1_000_000, 8000, 9000);
+    h.callInitAsset(TKA, 18, 25, 1000, 1_000_000, 8000, 9000);
   }
 }

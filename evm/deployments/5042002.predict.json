@@ -1,0 +1,25 @@
+{
+  "chainId": 5042002,
+  "predictedAt": "2026-08-04T10:50:00Z",
+  "deployer": "0x57b3771F6b772C52E81646Aa007D1Ab28d91B3Fe",
+  "guardian": "0xDc9478be9ceA6288574A45D9cD07C48F7f03ed73",
+  "currentNonce": 0,
+  "predictedAccessControl": "0xc74f321f0cfC6bd6437da7f7839907C85b049E27",
+  "predictedExternalOracle": "0x01a52C049896E36c00bd5FD3db788e4d11B216c5",
+  "note": "AC=CREATE(deployer,0), oracle=CREATE(deployer,1). Invalidated by ANY deployer tx before broadcast. Same CREATE addr as abandoned Sepolia primary; EIP-712 chainId isolates. Gas sim ~0.89 native USDC for deployOracle.",
+  "funding": {
+    "checkedAt": "2026-08-04T15:12:00Z",
+    "nativeBalance": "10000000000000000000000",
+    "nativeHuman": "10000",
+    "erc20UsdcBalance": "10000000000",
+    "erc20UsdcHuman": "10000",
+    "erc20UsdcDecimals": 6,
+    "nonce": 0,
+    "faucet": "https://faucet.circle.com",
+    "seedUsdPerLeg": 4000,
+    "minNativeForOraclePhase": "1.0",
+    "minErc20UsdcForPoolSeed": 8000,
+    "poolSeedShortfallUsdc": 0,
+    "bufferUsdc": 2000
+  }
+}

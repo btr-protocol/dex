@@ -614,6 +614,31 @@ contract ExternalOracleSignedTest is Test {
     assertEq(uint256(ext.getFeed(feedId).sigma), 50_000, "attested sigma > floor kept verbatim");
   }
 
+  // ─── ORA-MEV-01: same-block delayed mark applicability ───
+  // Pre-fix: 1% WETH jump ≈ 89 bp infinitesimal round-trip (audit). Policy: a signed mark
+  // landed this block is not executable until the next block (`Oracle.gate` → CooldownActive).
+
+  function test_ORA_MEV_01_same_block_mark_not_executable() public {
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3030e18, 18), 1e4, 5, _srcTs()); // +1% jump
+    ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    IOracle.FeedData memory f = ext.getFeed(feedId);
+    assertEq(f.updatedAt, uint32(block.timestamp), "push stamped this block");
+    assertTrue(f.sourceTs != 0, "signed path sets sourceTs");
+    // External wrapper: library internals share cheatcode depth.
+    vm.expectRevert(abi.encodeWithSelector(Err.CooldownActive.selector, uint32(1)));
+    this.gate(feedId);
+  }
+
+  function test_ORA_MEV_01_mark_executable_next_block() public {
+    skip(TAU);
+    bytes memory blob = _rec(0, M.encodeB64(3030e18, 18), 1e4, 5, _srcTs());
+    ext.batchPushSigned(blob, _sign(NXR_PK, blob));
+    vm.warp(block.timestamp + 1);
+    uint256 mark = Oracle.gate(ext.getFeed(feedId));
+    assertApproxEqRel(mark, 3030e18, 0.0001e18, "mark live after one block");
+  }
+
   // ─── multi-feed batch + gas ───
 
   function _addFeeds(uint256 n) internal returns (bytes32[] memory ids) {

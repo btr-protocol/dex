@@ -19,7 +19,6 @@ import {Constants as SC} from "@btr-shared/Constants.sol";
 ///      arg. Reserves + protocolFees accounting deltas semantically match the prior
 ///      module logic (R13 fix preserved -see Pool.flashAccount).
 contract Flash is IFlash, ReentrancyGuardTransient {
-  using SafeTransferLib for address;
 
   function flashLoan(
     address pool,
@@ -77,7 +76,7 @@ contract Flash is IFlash, ReentrancyGuardTransient {
     if ((flags & C.HALT_MASK) != 0) return 0;
     // Honest executable capacity = R_liq − minLiquidity (getBuffer: 1 call vs full 4-slot getAsset).
     (uint256 reserves, uint256 invested, uint256 minLiquidity) = IPool(pool).getBuffer(token);
-    uint256 liq = reserves - invested;
+    uint256 liq = reserves > invested ? reserves - invested : 0;
     if (liq <= minLiquidity) return 0;
     return liq - minLiquidity;
   }

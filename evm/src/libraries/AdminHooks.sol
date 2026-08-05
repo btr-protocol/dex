@@ -53,6 +53,8 @@ library AdminHooks {
     delete pendingData[key];
     (address storedToken, address hook, uint32 flags) = abi.decode(data, (address, address, uint32));
     if (storedToken != token) revert Err.InvalidInput();
+    // A6-09: re-check code at execute (metamorphic / empty between request and execute).
+    if (hook.code.length == 0) revert Err.NotCode();
     IPool(pool).adminSetAssetHook(token, hook, flags);
     emit IAdmin.AssetHookUpdated(pool, token, hook, flags);
   }

@@ -48,6 +48,7 @@ contract Admin is IAdmin {
   bytes32 private constant OP_UPDATE_ORACLE = keccak256("UPDATE_ORACLE");
   bytes32 private constant OP_UPDATE_PROFILE = keccak256("UPDATE_PROFILE");
   bytes32 private constant OP_UPDATE_CURVE = keccak256("UPDATE_CURVE");
+  bytes32 private constant OP_UPDATE_ASSET_PARAMS = keccak256("UPDATE_ASSET_PARAMS");
 
   constructor(address ac_) {
     if (ac_ == address(0)) revert Err.ZeroAddr();
@@ -248,13 +249,7 @@ contract Admin is IAdmin {
     uint64 reservationPriceMax
   ) external {
     _onlyAdmin();
-    // H-2 Tier-1: an armed fence (minFeeHardMin != 0; setFences rejects 0) floors even the owner
-    // path — deliberate sub-fence lowering requires setRiskFences first (explicit 2-tx intent).
-    uint16 feeFloor = riskFences[pool][token].minFeeHardMin;
-    if (feeFloor != 0 && minFeePbps < feeFloor) {
-      revert Err.ThresholdViolation(minFeePbps, feeFloor);
-    }
-    ATL.setAssetParams(
+    _setAssetParams(
       pool,
       token,
       minLiquidity,
@@ -265,6 +260,88 @@ contract Admin is IAdmin {
       haircutSuppressor,
       reservationPrice,
       reservationPriceMax
+    );
+  }
+
+  function _setAssetParams(
+    address pool,
+    address token,
+    uint128 minLiquidity,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
+    uint16 gamma,
+    uint16 vega,
+    uint16 haircutSuppressor,
+    uint64 reservationPrice,
+    uint64 reservationPriceMax
+  ) internal {
+    // H-2 Tier-1: an armed fence (minFeeHardMin != 0; setFences rejects 0) floors even the owner
+    // path — deliberate sub-fence lowering requires setRiskFences first (explicit 2-tx intent).
+    uint16 feeFloor = riskFences[pool][token].minFeeHardMin;
+    if (feeFloor != 0 && minFeePbps < feeFloor) {
+      revert Err.ThresholdViolation(minFeePbps, feeFloor);
+    }
+    // GOV-ECO-01: bootstrap ceremony + defensive tighten apply immediately; weakenings queue.
+    if (!bootstrapSealed[pool]) {
+      ATL.setAssetParams(
+        pool,
+        token,
+        minLiquidity,
+        minFeePbps,
+        maxFeePbps,
+        gamma,
+        vega,
+        haircutSuppressor,
+        reservationPrice,
+        reservationPriceMax
+      );
+      return;
+    }
+    IPool.Asset memory cur = IPool(pool).getAsset(token);
+    if (
+      ATL.isDefensiveTighten(
+        cur,
+        minLiquidity,
+        minFeePbps,
+        maxFeePbps,
+        gamma,
+        vega,
+        haircutSuppressor,
+        reservationPrice,
+        reservationPriceMax
+      )
+    ) {
+      ATL.setAssetParams(
+        pool,
+        token,
+        minLiquidity,
+        minFeePbps,
+        maxFeePbps,
+        gamma,
+        vega,
+        haircutSuppressor,
+        reservationPrice,
+        reservationPriceMax
+      );
+      return;
+    }
+    bytes32 key = _keyToken(pool, OP_UPDATE_ASSET_PARAMS, token);
+    _emitQueued(
+      key,
+      SC.govDelay(SC.LOW_TIMELOCK),
+      ATL.encodeAssetParams(
+        token,
+        minLiquidity,
+        minFeePbps,
+        maxFeePbps,
+        gamma,
+        vega,
+        haircutSuppressor,
+        reservationPrice,
+        reservationPriceMax
+      ),
+      pool,
+      uint8(IPool.OpType.UPDATE_ASSET_PARAMS)
     );
   }
 
@@ -545,6 +622,26 @@ contract Admin is IAdmin {
   function cancelUpdateRiskConfig(address pool, address token) external {
     _onlyGuardianOrAdmin();
     _cancel(pool, _keyToken(pool, OP_UPDATE_RISK, token), uint8(IPool.OpType.UPDATE_RISK));
+  }
+
+  function executeSetAssetParams(address pool, address token) external {
+    _onlyAdmin();
+    bytes32 key = _keyToken(pool, OP_UPDATE_ASSET_PARAMS, token);
+    bytes memory raw = _consume(key);
+    ATL.AssetParamsPayload memory p = ATL.decodeAssetParams(raw);
+    if (p.token != token) revert Err.InvalidInput();
+    uint16 feeFloor = riskFences[pool][token].minFeeHardMin;
+    if (feeFloor != 0 && p.minFeePbps < feeFloor) {
+      revert Err.ThresholdViolation(p.minFeePbps, feeFloor);
+    }
+    ATL.applyAssetParams(pool, token, raw);
+  }
+
+  function cancelSetAssetParams(address pool, address token) external {
+    _onlyGuardianOrAdmin();
+    _cancel(
+      pool, _keyToken(pool, OP_UPDATE_ASSET_PARAMS, token), uint8(IPool.OpType.UPDATE_ASSET_PARAMS)
+    );
   }
 
   function requestSetAssetHook(address pool, address token, address hook, uint32 flags) external {

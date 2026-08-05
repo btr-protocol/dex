@@ -27,6 +27,8 @@ interface IMorphoBlue {
     address receiver
   ) external returns (uint256 assetsWithdrawn, uint256 sharesWithdrawn);
 
+  function accrueInterest(MarketParams memory marketParams) external;
+
   function position(bytes32 id, address user)
     external
     view

@@ -11,6 +11,7 @@ import {IPool} from "../../src/interfaces/IPool.sol";
 contract MockAC {
   address public owner;
   address public treasuryOwner;
+  address public treasury;
   mapping(address => bool) public isKeeper;
   mapping(address => bool) public isGuardian;
   mapping(address => bool) public isRiskSteward;
@@ -18,6 +19,11 @@ contract MockAC {
   constructor(address o) {
     owner = o;
     treasuryOwner = o;
+    treasury = o; // default: owner is backstop; tests may rotate
+  }
+
+  function setTreasury(address t) external {
+    treasury = t;
   }
 
   function rotate(address newOwner) external {

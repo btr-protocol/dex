@@ -8,8 +8,9 @@ import {PoolFactory} from "../src/PoolFactory.sol";
 import {Admin} from "../src/Admin.sol";
 import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
+import {IPoolHooks} from "../src/interfaces/IPoolHooks.sol";
 import {IERC3156FlashBorrower} from "../src/interfaces/external/IERC3156FlashBorrower.sol";
-import {BasePoolHook} from "../src/hooks/BasePoolHook.sol";
+
 import {CompoundV2YieldHook} from "../src/hooks/CompoundV2YieldHook.sol";
 import {MockVenus} from "./mocks/MockVenus.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
@@ -20,7 +21,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 
 /// @notice Counts callback invocations; optional hard revert on preOutflow.
-contract CountingHook is BasePoolHook {
+contract CountingHook is IPoolHooks {
   uint256 public preOutflowCalls;
   uint256 public postInflowCalls;
   bool public revertPreOutflow;
@@ -40,7 +41,7 @@ contract CountingHook is BasePoolHook {
 }
 
 /// @notice Recalls by transferring pre-funded tokens to the pool (simulates redeem).
-contract RecallHook is BasePoolHook {
+contract RecallHook is IPoolHooks {
   using SafeTransferLib for address;
 
   address public immutable token;
@@ -63,10 +64,12 @@ contract RecallHook is BasePoolHook {
     token.safeTransfer(pool, need);
     recalled[pool] += need;
   }
+
+  function postInflow(address, address, address, uint256, uint256) external override {}
 }
 
 /// @notice Pulls liquid on postInflow (deploy simulator) for misconfig tests.
-contract DeployHook is BasePoolHook {
+contract DeployHook is IPoolHooks {
   using SafeTransferLib for address;
 
   address public immutable token;
@@ -76,6 +79,8 @@ contract DeployHook is BasePoolHook {
     token = token_;
     deployAmt = deployAmt_;
   }
+
+  function preOutflow(address, address, address, uint256) external override {}
 
   function postInflow(address pool, address, address token_, uint256, uint256) external override {
     if (token_ != token || deployAmt == 0) return;
@@ -87,7 +92,7 @@ contract DeployHook is BasePoolHook {
 }
 
 /// @notice Malicious: tries to transferFrom the full R_liq on postInflow (past minLiquidity).
-contract DrainAllHook is BasePoolHook {
+contract DrainAllHook is IPoolHooks {
   using SafeTransferLib for address;
 
   address public immutable token;
@@ -95,6 +100,8 @@ contract DrainAllHook is BasePoolHook {
   constructor(address token_) {
     token = token_;
   }
+
+  function preOutflow(address, address, address, uint256) external override {}
 
   function postInflow(address pool, address, address token_, uint256, uint256) external override {
     if (token_ != token) return;
@@ -105,7 +112,7 @@ contract DrainAllHook is BasePoolHook {
 }
 
 /// @notice Malicious: transferFrom (Δbalance) then hookDeploy → double-book invested.
-contract DoubleBookDeployHook is BasePoolHook {
+contract DoubleBookDeployHook is IPoolHooks {
   using SafeTransferLib for address;
 
   address public immutable token;
@@ -115,6 +122,8 @@ contract DoubleBookDeployHook is BasePoolHook {
     token = token_;
     deployAmt = deployAmt_;
   }
+
+  function preOutflow(address, address, address, uint256) external override {}
 
   function postInflow(address pool, address, address token_, uint256, uint256) external override {
     if (token_ != token || deployAmt == 0) return;
@@ -127,7 +136,7 @@ contract DoubleBookDeployHook is BasePoolHook {
 }
 
 /// @notice Malicious: transfer recall then hookRecall → double-cut invested.
-contract DoubleBookRecallHook is BasePoolHook {
+contract DoubleBookRecallHook is IPoolHooks {
   using SafeTransferLib for address;
 
   address public immutable token;
@@ -150,15 +159,19 @@ contract DoubleBookRecallHook is BasePoolHook {
     token.safeTransfer(pool, need);
     IPool(pool).hookRecall(token, need);
   }
+
+  function postInflow(address, address, address, uint256, uint256) external override {}
 }
 
 /// @notice Malicious: hookCreditYield during postInflow (phantom R / R_inv).
-contract PhantomYieldHook is BasePoolHook {
+contract PhantomYieldHook is IPoolHooks {
   address public immutable token;
 
   constructor(address token_) {
     token = token_;
   }
+
+  function preOutflow(address, address, address, uint256) external override {}
 
   function postInflow(address pool, address, address token_, uint256, uint256) external override {
     if (token_ != token) return;
@@ -557,12 +570,21 @@ contract PoolHooksTest is BaseTestSetup {
     assertEq(IPool(address(pool)).getLiquidReserves(address(quote)), liqBefore, "R_liq");
 
     // Keeper rebalance harvest also write-downs when NAV < book.
+    // A1-M1: pool rate-bucket needs elapsed time; credit is capped so restore is partial —
+    // still enough to lift book above NAV so harvest must write down again.
+    vm.warp(block.timestamp + 1 days);
     vm.prank(address(hook));
     IPool(address(pool)).hookCreditYield(address(quote), loss);
-    uint256 invRestored = IPool(address(pool)).getInvested(address(quote));
+    uint256 invInflated = IPool(address(pool)).getInvested(address(quote));
+    assertGt(invInflated, nav, "capped credit still lifts book above NAV");
+
+    // Pin buffer around post-write-down NAV/reserves so harvest is observable (no trim/deploy).
+    // After write-down: inv≈nav, reserves≈rBefore → ~48% invested; band 43–53% holds steady.
+    vm.prank(OWNER);
+    hook.setBuffer(4800, 500);
     vm.prank(OWNER);
     hook.rebalance();
-    assertLt(IPool(address(pool)).getInvested(address(quote)), invRestored, "rebalance harvest");
+    assertEq(IPool(address(pool)).getInvested(address(quote)), nav, "rebalance harvest");
   }
 
   /// @notice Deploy never leaves R_liq < minLiquidity.
@@ -942,6 +964,39 @@ contract PoolHooksTest is BaseTestSetup {
     pool.withdrawTo(address(quote), address(quote), lpBal / 2, 0, NO_DEADLINE);
 
     assertEq(IPool(address(pool)).getInvested(address(quote)), invBefore, "invested unchanged");
+  }
+
+  /// @notice M-1: hook install resets the credit bucket; pre-hook elapsed time must not inflate yield.
+  function test_hookInstall_resets_lastHookCreditAt() public {
+    vm.warp(block.timestamp + 365 days);
+    CountingHook hook = new CountingHook();
+    _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
+
+    uint256 liabBefore = pool.getAsset(address(quote)).liabilities;
+    vm.prank(address(hook));
+    IPool(address(pool)).hookCreditYield(address(quote), 1e18);
+    assertEq(pool.getAsset(address(quote)).liabilities, liabBefore, "dt=0 on fresh install: no credit");
+  }
+
+  /// @notice M-2 belt: elapsed dt > 1 day still credits at most one day of the pool rate cap.
+  function test_hookCreditYield_dt_clamped_to_one_day() public {
+    CountingHook hook = new CountingHook();
+    _setHook(address(quote), address(hook), C.HOOK_PRE_OUTFLOW);
+
+    uint256 book = pool.getAsset(address(quote)).liabilities;
+    assertGt(book, 0);
+    vm.warp(block.timestamp + 30 days); // far past install; clamp must bite
+    uint256 maxOneDay = (book * uint256(C.MAX_HOOK_CREDIT_BPS_PER_DAY)) / 10_000;
+    uint256 liabBefore = pool.getAsset(address(quote)).liabilities;
+
+    vm.prank(address(hook));
+    IPool(address(pool)).hookCreditYield(address(quote), type(uint128).max);
+
+    assertEq(
+      uint256(pool.getAsset(address(quote)).liabilities),
+      liabBefore + maxOneDay,
+      "dt clamp: at most 1 day of CAP_BPS even after 30d idle"
+    );
   }
 
   /// @notice postInflow cannot hookCreditYield (phantom R / R_inv).

@@ -962,4 +962,66 @@ contract PoolLifecycleTest is BaseTestSetup {
     pool.swap(address(base), address(quote), 1, 0, USER, NO_DEADLINE);
     vm.stopPrank();
   }
+
+  // ── GOV-ECO-01: post-seal weaken queues; defensive tighten stays immediate ──
+
+  /// @notice After `sealBootstrap`, a risk-up `setAssetParams` (lower minFee) queues under
+  ///         LOW_TIMELOCK and lands only via `executeSetAssetParams`.
+  function test_GOV_ECO01_seal_weaken_queues_then_execute() public {
+    vm.prank(OWNER);
+    admin.sealBootstrap(address(pool));
+    assertTrue(admin.bootstrapSealed(address(pool)), "sealed");
+
+    IPool.Asset memory before = pool.getAsset(address(quote));
+    uint16 weakenedFee = before.minFeePbps / 2;
+    assertGt(weakenedFee, 0, "fixture minFee must leave room to weaken");
+
+    vm.prank(OWNER);
+    admin.setAssetParams(
+      address(pool),
+      address(quote),
+      before.minLiquidity,
+      weakenedFee,
+      before.maxFeePbps,
+      before.gamma,
+      before.vega,
+      before.haircutSuppressor,
+      before.reservationPrice,
+      before.reservationPriceMax
+    );
+    assertEq(pool.getAsset(address(quote)).minFeePbps, before.minFeePbps, "weaken must not apply yet");
+
+    vm.warp(block.timestamp + 1 days + 1);
+    oracle.setMark(address(base), M.encodeB64(1e18, 18));
+    oracle.setMark(address(quote), M.encodeB64(1e18, 18));
+
+    vm.prank(OWNER);
+    admin.executeSetAssetParams(address(pool), address(quote));
+    assertEq(pool.getAsset(address(quote)).minFeePbps, weakenedFee, "execute lands weaken");
+  }
+
+  /// @notice Post-seal defensive tighten (higher minFee, reservation unchanged) applies immediately.
+  function test_GOV_ECO01_seal_defensive_tighten_immediate() public {
+    vm.prank(OWNER);
+    admin.sealBootstrap(address(pool));
+
+    IPool.Asset memory before = pool.getAsset(address(quote));
+    uint16 tighterFee = before.minFeePbps + 500;
+    assertLe(tighterFee, before.maxFeePbps, "tighten stays under maxFee");
+
+    vm.prank(OWNER);
+    admin.setAssetParams(
+      address(pool),
+      address(quote),
+      before.minLiquidity,
+      tighterFee,
+      before.maxFeePbps,
+      before.gamma,
+      before.vega,
+      before.haircutSuppressor,
+      before.reservationPrice,
+      before.reservationPriceMax
+    );
+    assertEq(pool.getAsset(address(quote)).minFeePbps, tighterFee, "tighten is immediate");
+  }
 }

@@ -39,28 +39,26 @@ contract TestnetFaucet {
     owner = next;
   }
 
-  function setWhitelisted(address user, bool ok) external onlyOwner {
+  function setWhitelisted(address user, bool ok) public onlyOwner {
     whitelisted[user] = ok;
     emit Whitelisted(user, ok);
   }
 
   function setWhitelistedBatch(address[] calldata users, bool ok) external onlyOwner {
     for (uint256 i; i < users.length; ++i) {
-      whitelisted[users[i]] = ok;
-      emit Whitelisted(users[i], ok);
+      setWhitelisted(users[i], ok);
     }
   }
 
-  function setCap(address token, uint256 cap) external onlyOwner {
+  function setCap(address token, uint256 cap) public onlyOwner {
     dailyCap[token] = cap;
     emit CapSet(token, cap);
   }
 
-  function setCaps(address[] calldata tokens, uint256[] calldata caps) external onlyOwner {
-    require(tokens.length == caps.length, "len");
-    for (uint256 i; i < tokens.length; ++i) {
-      dailyCap[tokens[i]] = caps[i];
-      emit CapSet(tokens[i], caps[i]);
+  /// @notice Uniform daily cap for every listed asset (ceremony convenience).
+  function setCaps(address[] calldata assets, uint256 cap) external onlyOwner {
+    for (uint256 i; i < assets.length; ++i) {
+      setCap(assets[i], cap);
     }
   }
 

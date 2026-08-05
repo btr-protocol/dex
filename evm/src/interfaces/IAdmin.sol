@@ -136,6 +136,8 @@ interface IAdmin {
   function cancelOracleUpdate(address pool, address token) external;
   function cancelAddAsset(address pool, address token) external;
   function cancelUpdateRiskConfig(address pool, address token) external;
+  function executeSetAssetParams(address pool, address token) external;
+  function cancelSetAssetParams(address pool, address token) external;
   function cancelTimelock(address pool, uint8 opType) external;
 
   function requestSetAssetHook(address pool, address token, address hook, uint32 flags) external;

@@ -42,7 +42,15 @@ library Oracle {
   ///         silently permit execution. Returns the decoded 1e18 mark. `view` (reads block.timestamp).
   function gate(IOracle.FeedData memory feed) internal view returns (uint256 mark1e18) {
     // Guardian fast-freeze (fail-closed): a paused feed must revert even if it still reads fresh.
-    if (feed.flags & C.FEED_PAUSED_BIT != 0) revert Err.FeedPaused();
+    // Parenthesize: `flags & BIT != 0` is fine today (& binds tighter than !=) but the form is
+    // fragile under future edits — keep the explicit `(flags & BIT) != 0` shape.
+    if ((feed.flags & C.FEED_PAUSED_BIT) != 0) revert Err.FeedPaused();
+    // ORA-MEV-01: a signed mark landed THIS block is not yet executable. Same-block
+    // old-mark → relay push → new-mark extraction needs the fresh mark in the exit tx; deferring
+    // applicability by one block closes that window. Unsigned/synthetic feeds (sourceTs==0:
+    // INTERNAL peg, addFeed seed, MockOracle) are exempt — they are not permissionlessly relayed.
+    // Next block the mark applies with the realized-move σ floor as defense-in-depth.
+    if (feed.sourceTs != 0 && feed.updatedAt == block.timestamp) revert Err.CooldownActive(1);
     uint32 obs = observedAt(feed);
     uint256 age = block.timestamp >= obs ? block.timestamp - obs : type(uint32).max;
     if (age > feed.ttl) {

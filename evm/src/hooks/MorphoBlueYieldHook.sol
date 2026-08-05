@@ -8,9 +8,10 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title MorphoBlueYieldHook - isolated Morpho Blue / Lista Moolah–style markets (loan asset supply).
 /// @notice Felix Vanilla vaults prefer ERC4626YieldHook; use this for direct Blue market allowlists.
-/// @dev NAV uses Morpho SharesMathLib virtual shares/assets (toAssetsDown). Does not simulate IRM
-///      interest accrual in view (would need IIrm.borrowRateView); harvest after market interaction
-///      or accept lastUpdate-stale NAV. Full expectedSupplyAssets = accrue + virtual shares.
+/// @dev NAV uses Morpho SharesMathLib virtual shares/assets (toAssetsDown). A1-M2: `rebalance`
+///      accrues IRM interest before harvest so stale `market().totalSupplyAssets` cannot trigger
+///      a false `hookWriteDown`. View `_navAssets` still reads last-accrued state (withdraw paths
+///      that need exact NAV should call `rebalance` / `accrueInterest` first).
 contract MorphoBlueYieldHook is YieldHook {
   using SafeTransferLib for address;
   using MorphoId for IMorphoBlue.MarketParams;
@@ -39,6 +40,11 @@ contract MorphoBlueYieldHook is YieldHook {
     token.safeApproveWithRetry(morpho_, type(uint256).max);
   }
 
+  /// @dev Accrue market interest before harvest so NAV reflects expected supply assets (A1-M2).
+  function _beforeHarvest() internal override {
+    morpho.accrueInterest(marketParams);
+  }
+
   function _venueDeposit(uint256 assets) internal override {
     morpho.supply(marketParams, assets, 0, address(this), "");
   }
@@ -52,7 +58,7 @@ contract MorphoBlueYieldHook is YieldHook {
     (uint256 supplyShares,,) = morpho.position(marketId, address(this));
     if (supplyShares == 0) return 0;
     (uint128 totalSupplyAssets, uint128 totalSupplyShares,,,,) = morpho.market(marketId);
-    // SharesMathLib.toAssetsDown (virtual shares); no IRM accrual in this view.
+    // SharesMathLib.toAssetsDown (virtual shares); IRM accrued on rebalance() before harvest.
     return (supplyShares * (uint256(totalSupplyAssets) + VIRTUAL_ASSETS))
       / (uint256(totalSupplyShares) + VIRTUAL_SHARES);
   }

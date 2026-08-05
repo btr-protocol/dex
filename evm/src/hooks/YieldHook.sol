@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.35;
 
-import {BasePoolHook} from "./BasePoolHook.sol";
+import {IPoolHooks} from "../interfaces/IPoolHooks.sol";
 import {IPool} from "../interfaces/IPool.sol";
 import {IHasTreasury} from "../interfaces/IHasTreasury.sol";
 import {IMerklDistributor} from "../interfaces/external/IMerklDistributor.sol";
@@ -16,13 +16,16 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 ///         Incentive tokens (Merkl / Turtle / venue) are claimed then pushed to `pool.treasury()` —
 ///         never swapped inside adapters.
 /// @dev Subclasses implement `_venueDeposit` / `_venueWithdraw` / `_navAssets` / `_maxWithdrawable`.
-abstract contract YieldHook is BasePoolHook {
+abstract contract YieldHook is IPoolHooks {
   using SafeTransferLib for address;
 
   uint16 public constant DEFAULT_TARGET_INVESTED_BPS = 6500;
   uint16 public constant DEFAULT_HYSTERESIS_BPS = 500;
-  /// @notice Default max credit as BPS of book PER DAY (100 = 1%/day). Owner may raise.
+  /// @notice Default max credit as BPS of book PER DAY (100 = 1%/day). Owner may raise up to
+  ///         `MAX_HARVEST_CREDIT_BPS` (pool ledger also hard-caps at Constants.MAX_HOOK_CREDIT_BPS_PER_DAY).
   uint16 public constant DEFAULT_MAX_HARVEST_CREDIT_BPS = 100;
+  /// @notice Hard ceiling on `maxHarvestCreditBps` (A1-L3). Matches pool-level MAX_HOOK_CREDIT_BPS_PER_DAY.
+  uint16 public constant MAX_HARVEST_CREDIT_BPS = 500;
 
   address public immutable AC;
   address public immutable pool;
@@ -83,7 +86,7 @@ abstract contract YieldHook is BasePoolHook {
   }
 
   function setMaxHarvestCreditBps(uint16 bps_) external onlyOwner {
-    if (bps_ > SC.BPS) revert Err.BadConfig();
+    if (bps_ > MAX_HARVEST_CREDIT_BPS) revert Err.BadConfig();
     maxHarvestCreditBps = bps_;
   }
 
@@ -137,6 +140,7 @@ abstract contract YieldHook is BasePoolHook {
   /// @dev deploy/trim are mutually exclusive (inv can't be both < lowInv and > highInv), so dispatch
   ///      exactly one leg off a single post-harvest read instead of calling both (one always no-ops).
   function rebalance() external virtual onlyKeeperOrOwner {
+    _beforeHarvest();
     _harvest();
     (uint256 reserves, uint256 inv, uint256 minLiq) = IPool(pool).getBuffer(token);
     if (reserves == 0) return;
@@ -144,6 +148,9 @@ abstract contract YieldHook is BasePoolHook {
     if (inv > highInv) _trimToTarget(reserves, inv);
     else _deploy(reserves, inv, minLiq);
   }
+
+  /// @dev Hook for adapters that must mutate venue state before NAV (e.g. Morpho accrueInterest).
+  function _beforeHarvest() internal virtual {}
 
   // ─── Incentives → Treasury (no in-hook swaps) ───
 
@@ -176,7 +183,9 @@ abstract contract YieldHook is BasePoolHook {
   function _venueDeposit(uint256 assets) internal virtual;
   function _venueWithdraw(uint256 assets) internal virtual returns (uint256 received);
   function _navAssets() internal view virtual returns (uint256);
-  function _maxWithdrawable() internal view virtual returns (uint256);
+  function _maxWithdrawable() internal view virtual returns (uint256) {
+    return _navAssets();
+  }
 
   /// @notice Base default: Merkl (Angle) proof-carrying claim. Empty data → no-op (also the empty-data
   ///         path native overrides own). Rewards land on the hook (users[i] = this) → swept to Treasury.

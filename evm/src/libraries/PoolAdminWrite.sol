@@ -62,8 +62,9 @@ library PoolAdminWrite {
     private
     returns (address)
   {
-    bytes32 sym = _b32(string.concat("bLP-", MRL.readSymbol(t, 24)));
-    bytes32 nm = _b32(string.concat("BTR LP: ", MRL.readSymbol(t, 24)));
+    string memory symbol = MRL.readSymbol(t, 24);
+    bytes32 sym = _b32(string.concat("bLP-", symbol));
+    bytes32 nm = _b32(string.concat("BTR LP: ", symbol));
     return LibClone.cloneDeterministic(
       impl, abi.encodePacked(pool, t, decimals, sym, nm), keccak256(abi.encode(pool, t))
     );
@@ -106,6 +107,8 @@ library PoolAdminWrite {
     // its immutable args and cannot be re-issued. One receipt per WRAPPED leg, so the native
     // sentinel and wnative share a single clone; the duplicate listing is refused above.
     $.lpTokens[t] = _deployLpToken(lpTokenImpl, address(this), t, decimals);
+    // A1-M1: seed the yield-credit rate clock so first harvest has dt=0 (no open-ended allowance).
+    $.lastHookCreditAt[t] = uint32(block.timestamp);
     PoolAdmin.setupOracleAndConfig($, t, oracleCfg, riskCfg, presetId);
     // After risk config lands: wall-flag gating + min-offset bound read curve + riskConfigs.
     PoolAdmin.validatePresetAssign($, t, presetId, maxDispersion);
@@ -276,6 +279,8 @@ library PoolAdminWrite {
 
   function setFeeParams(IPool.PoolStorage storage $, IPool.FeeParams calldata params) external {
     if (params.protoShare > 100) revert Err.InvalidInput();
+    // A1-L5: bound flash fee (PBPS); uint16 alone allows ~6.55%.
+    if (params.flashFeePbps > C.MAX_FLASH_FEE_PBPS) revert Err.InvalidInput();
     $.feeParams = params;
   }
 
@@ -374,6 +379,8 @@ library PoolAdminWrite {
     // Invested capital needs a recall path: PRE_OUTFLOW must stay on.
     if (inv != 0 && (flags & C.HOOK_PRE_OUTFLOW) == 0) revert Err.InvalidState();
     $.assetHooks[t] = IPool.HookSlot({target: hook, flags: flags});
+    // M-1/M-2: credit bucket starts at hook install (not asset listing / upgrade zero slot).
+    $.lastHookCreditAt[t] = uint32(block.timestamp);
   }
 
   function clearAssetHook(IPool.PoolStorage storage $, address token) external {

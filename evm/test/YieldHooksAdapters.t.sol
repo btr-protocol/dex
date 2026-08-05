@@ -653,16 +653,19 @@ contract YieldHooksAdaptersTest is BaseTestSetup {
     assertApproxEqAbs(expectedNav, book, 2, "virtual-shares NAV ~ book");
 
     // Inflate totalSupplyAssets without touching shares (= IRM accrual not reflected in view until
-    // we harvest). Harvest should credit only up to maxHarvestCreditBps.
+    // we harvest). After M-2 install-reset, +1h opens a 1h pool bucket; adapter lastHarvest is
+    // still ctor-aged (~3d) so the pool liabilities cap binds.
     morpho.setSupplyTotals(mid, assets + uint128(book), totalShares);
-    uint256 cap = (book * 100) / 10_000; // 100 bps of book per day
-    uint256 dt = block.timestamp - hook.lastHarvest();
-    uint256 liab0 = pool.getAsset(address(quote)).liabilities;
+    vm.warp(block.timestamp + 1 hours);
+    uint256 liab0 = uint256(pool.getAsset(address(quote)).liabilities);
+    uint256 expected =
+      (liab0 * uint256(C.MAX_HOOK_CREDIT_BPS_PER_DAY) * 1 hours) / (uint256(10_000) * 1 days);
+    assertGt(expected, 0, "pool 1h bucket must be nonzero");
     vm.prank(OWNER);
     hook.rebalance();
     assertEq(
       uint256(pool.getAsset(address(quote)).liabilities),
-      liab0 + (cap * dt) / 1 days,
+      liab0 + expected,
       "stale-to-accrued jump still sandwich-capped"
     );
   }
@@ -707,6 +710,39 @@ contract YieldHooksAdaptersTest is BaseTestSetup {
       assertLt(vToken.getCash(), inv);
     }
     assertEq(vToken.getCash(), quote.balanceOf(address(vToken)), "cash = balance");
+  }
+
+  function test_aaveV3_maxWithdrawable_bounded_by_aToken_cash() public {
+    MockAToken aTok = new MockAToken(address(quote));
+    MockAavePool aave = new MockAavePool();
+    aave.setAToken(address(quote), address(aTok));
+    AaveV3YieldHook hook =
+      new AaveV3YieldHook(address(ac), address(pool), address(quote), address(aave), address(0));
+    _setHook(address(quote), address(hook), hook.recommendedFlags());
+
+    quote.mint(address(this), 200_000e18);
+    pool.deposit(address(quote), 200_000e18);
+    uint256 inv = IPool(address(pool)).getInvested(address(quote));
+    assertGt(inv, 0);
+
+    uint256 cash = quote.balanceOf(address(aTok));
+    uint256 leave = cash / 10;
+    vm.prank(address(aTok));
+    quote.transfer(address(0xDEAD), cash - leave);
+    assertEq(quote.balanceOf(address(aTok)), leave);
+
+    _forceThinLiquid(address(hook));
+
+    uint256 amt = 50e18;
+    base.mint(address(0xBEEF), amt);
+    vm.prank(address(0xBEEF));
+    base.approve(address(pool), type(uint256).max);
+    uint256 cashBefore = quote.balanceOf(address(aTok));
+    try pool.swap(address(base), address(quote), amt, 0, address(0xBEEF), NO_DEADLINE) {
+      assertLe(cashBefore - quote.balanceOf(address(aTok)), cashBefore, "redeem <= aToken cash");
+    } catch {
+      assertLt(quote.balanceOf(address(aTok)), inv);
+    }
   }
 
   function _aaveHookWithRewards(uint256 rewardAmt)

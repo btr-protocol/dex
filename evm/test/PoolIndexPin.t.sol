@@ -411,18 +411,35 @@ contract PoolSeedFailClosedTest is PoolIndexPinFixture {
   /// allows, which on a freshly migrated leg is routinely far below the seed (a 100-token book at
   /// 100bps over 1s credits ~1.16e13 against a 1e15 seed). That reverted the whole keeper tx.
   function test_sub_seed_hook_credit_yield_skips_instead_of_reverting() public {
+    // Migrated-leg shape: liabilities without a dead pin. `donate(sub-seed)` reverts; seed the
+    // rate-bucket book via storage (assets mapping slot 3, packed reserves|liabilities).
+    uint256 book = 100e18;
+    bytes32 assetSlot0 = bytes32(uint256(keccak256(abi.encode(address(tok), uint256(3)))));
+    vm.store(
+      address(pool),
+      assetSlot0,
+      bytes32(uint256(uint128(book)) | (uint256(uint128(book)) << 128))
+    );
+    assertEq(_liab(), book);
+    assertEq(_dead(), 0, "pin still closed before harvest");
+
     vm.prank(address(admin));
     IPool(address(pool)).adminSetAssetHook(address(tok), address(this), C.HOOK_PRE_OUTFLOW);
+    // M-2: install resets lastHookCreditAt ⇒ dt=0 this block. Warp so the rate bucket opens.
+    vm.warp(block.timestamp + 1);
     uint256 idx0 = _idx();
+    uint256 credit = 1.16e13; // sub-seed vs DEAD_SEED=1e15
 
-    IPool(address(pool)).hookCreditYield(address(tok), 1.16e13); // sub-seed: must not revert
+    IPool(address(pool)).hookCreditYield(address(tok), credit); // must not revert
 
     assertEq(_dead(), 0, "a sub-seed credit seeds nothing");
     assertEq(
       _idx(), idx0, "and books no index raise, exactly like accrueLpFee on a degenerate book"
     );
-    assertEq(_liab(), 1.16e13, "the credit itself still lands in liabilities");
+    assertEq(_liab(), book + credit, "the credit itself still lands in liabilities");
 
+    // Next harvest after enough dt for a seed-carrying credit under the 500bps/day pool cap.
+    vm.warp(block.timestamp + 1 days);
     IPool(address(pool)).hookCreditYield(address(tok), 1e18); // self-healing on the next harvest
     assertGt(_dead(), 0, "the first credit that can carry the seed opens the leg");
     assertGt(_idx(), idx0, "and the index starts moving again");

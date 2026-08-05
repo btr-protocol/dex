@@ -21,6 +21,18 @@ library AdminTimelock {
     uint16 vega;
   }
 
+  struct AssetParamsPayload {
+    address token;
+    uint128 minLiquidity;
+    uint16 minFeePbps;
+    uint16 maxFeePbps;
+    uint16 gamma;
+    uint16 vega;
+    uint16 haircutSuppressor;
+    uint64 reservationPrice;
+    uint64 reservationPriceMax;
+  }
+
   /// @dev Two-blob encode keeps `abi.decode` off the via_ir stack-too-deep edge as IPool structs grow.
   function encodeAddAsset(AddAssetPayload memory p) internal pure returns (bytes memory) {
     bytes memory head = abi.encode(p.token, p.oracleCfg, p.riskCfg, p.presetId);
@@ -94,6 +106,38 @@ library AdminTimelock {
     emit IAdmin.AssetAdded(pool, token, decimals, 0);
   }
 
+  function encodeAssetParams(
+    address token,
+    uint128 minLiquidity,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
+    uint16 gamma,
+    uint16 vega,
+    uint16 haircutSuppressor,
+    uint64 reservationPrice,
+    uint64 reservationPriceMax
+  ) internal pure returns (bytes memory) {
+    return abi.encode(
+      token,
+      minLiquidity,
+      minFeePbps,
+      maxFeePbps,
+      gamma,
+      vega,
+      haircutSuppressor,
+      reservationPrice,
+      reservationPriceMax
+    );
+  }
+
+  function decodeAssetParams(bytes memory raw) internal pure returns (AssetParamsPayload memory p) {
+    (p.token, p.minLiquidity, p.minFeePbps, p.maxFeePbps, p.gamma, p.vega, p.haircutSuppressor, p.reservationPrice, p.reservationPriceMax) =
+      abi.decode(
+        raw,
+        (address, uint128, uint16, uint16, uint16, uint16, uint16, uint64, uint64)
+      );
+  }
+
   function setAssetParams(
     address pool,
     address token,
@@ -106,6 +150,73 @@ library AdminTimelock {
     uint64 reservationPrice,
     uint64 reservationPriceMax
   ) external {
+    _writeAssetParams(
+      pool,
+      token,
+      minLiquidity,
+      minFeePbps,
+      maxFeePbps,
+      gamma,
+      vega,
+      haircutSuppressor,
+      reservationPrice,
+      reservationPriceMax
+    );
+  }
+
+  function applyAssetParams(address pool, address token, bytes memory raw) external {
+    AssetParamsPayload memory p = decodeAssetParams(raw);
+    if (p.token != token) revert Err.InvalidInput();
+    _writeAssetParams(
+      pool,
+      token,
+      p.minLiquidity,
+      p.minFeePbps,
+      p.maxFeePbps,
+      p.gamma,
+      p.vega,
+      p.haircutSuppressor,
+      p.reservationPrice,
+      p.reservationPriceMax
+    );
+  }
+
+  /// @dev GOV-ECO-01: defensive tighten exempts owner `setAssetParams` from LOW_TIMELOCK once bootstrap
+  ///      is sealed. Mirrors AdminRiskSteward paramTighten + _narrowsReservation (no relative clamp).
+  function isDefensiveTighten(
+    IPool.Asset memory cur,
+    uint128 minLiquidity,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
+    uint16 gamma,
+    uint16 vega,
+    uint16 haircutSuppressor,
+    uint64 reservationPrice,
+    uint64 reservationPriceMax
+  ) external pure returns (bool) {
+    if (minLiquidity < cur.minLiquidity) return false;
+    if (minFeePbps < cur.minFeePbps) return false;
+    if (maxFeePbps < cur.maxFeePbps) return false;
+    if (gamma < cur.gamma) return false;
+    if (vega < cur.vega) return false;
+    if (haircutSuppressor > cur.haircutSuppressor) return false;
+    return _narrowsReservation(
+      cur.reservationPrice, cur.reservationPriceMax, reservationPrice, reservationPriceMax
+    );
+  }
+
+  function _writeAssetParams(
+    address pool,
+    address token,
+    uint128 minLiquidity,
+    uint16 minFeePbps,
+    uint16 maxFeePbps,
+    uint16 gamma,
+    uint16 vega,
+    uint16 haircutSuppressor,
+    uint64 reservationPrice,
+    uint64 reservationPriceMax
+  ) internal {
     IPool(pool)
       .adminSetAssetParams(
         token,
@@ -119,5 +230,20 @@ library AdminTimelock {
         reservationPriceMax
       );
     emit IAdmin.AssetParamsUpdated(pool, token, minLiquidity, reservationPrice);
+  }
+
+  /// @dev Narrower depeg band = defensive. Disabling an active band is risk-up.
+  function _narrowsReservation(uint64 oldLo, uint64 oldHi, uint64 newLo, uint64 newHi)
+    private
+    pure
+    returns (bool)
+  {
+    if (oldLo == 0 && oldHi == 0) return newLo == 0 && newHi == 0;
+    if (newLo == 0 && newHi == 0) return false;
+    if (oldLo != 0 && newLo == 0) return false;
+    if (oldHi != 0 && newHi == 0) return false;
+    if (oldLo != 0 && newLo != 0 && newLo < oldLo) return false;
+    if (oldHi != 0 && newHi != 0 && newHi > oldHi) return false;
+    return true;
   }
 }

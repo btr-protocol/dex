@@ -9,6 +9,11 @@ import {NUQuartic as NUQ} from "./NUQuartic.sol";
 import {Constants as C} from "./Constants.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 
+/// @dev Minimal ERC-20 decimals read for listing bind (A4-01).
+interface IERC20Decimals {
+  function decimals() external view returns (uint8);
+}
+
 /// @title PoolAdmin -admin-side validation + initialization helpers for Pool.
 /// @notice Phase 42H.D · Round 2 · G1 LOC reduction -extracts oracle/risk/profile
 ///         setup and validation from `Pool.sol`. Pure storage transforms; no auth
@@ -172,6 +177,9 @@ library PoolAdmin {
     // everywhere `decimals==0` gates); decimals>18 underflows 10**(18-decimals) in _legExecPriceB64 /
     // _legScaleOut → every quote reverts (asset accepted-but-unquotable). Bound at config time.
     if (decimals == 0 || decimals > 18) revert Err.InvalidDecimals();
+    // A4-01 / A6-01: listed decimals MUST equal IERC20Metadata(token).decimals(). A wrong listing
+    // silently mis-scales every quote, dead-seed, and B64 path (Arc USDC 6d listed as 18).
+    if (decimals != IERC20Decimals(t).decimals()) revert Err.InvalidDecimals();
     IPool.Asset storage asset = $.assets[t];
     asset.decimals = decimals;
     asset.minFeePbps = minFeePbps;

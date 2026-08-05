@@ -10,6 +10,7 @@ import {Flash} from "../src/Flash.sol";
 import {IPool} from "../src/interfaces/IPool.sol";
 import {Constants as C} from "../src/libraries/Constants.sol";
 import {B64 as M} from "@btr-shared/libs/B64.sol";
+import {Err} from "@btr-shared/Errors.sol";
 import {BaseTestSetup, MockAC, MockOracle, NO_DEADLINE} from "./fixtures/BaseTestSetup.sol";
 
 /// @title PoolMarkDenominationTest - DEN-01 regression.
@@ -256,5 +257,72 @@ contract PoolMarkDenominationTest is BaseTestSetup {
     vm.prank(address(f.admin));
     vm.expectRevert();
     IPool(address(f.pool)).adminSetOracleConfig(address(f.spoke), cfg);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 5. DEN-02: absolute reservation is BASE-per-asset; usdQuoted converts first.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// @notice usdQuoted spoke + BASE reservation ceiling: raw USD mark sits inside the ceiling, but
+  ///         p_base = p_usd / baseUsd exceeds it. Without DEN-02 conversion the swap would false-pass.
+  function test_DEN02_usdQuoted_reservation_halts_when_base_converted() public {
+    // base 0.97 USD, spoke 1.00 USD → pAbs ≈ 1.0309 BASE; ceiling 1.02 BASE.
+    uint256 baseUsd = 0.97e18;
+    uint256 spokeUsd = 1e18;
+    uint64 ceilBase = uint64(M.encodeB64(1.02e18, 18));
+    Fixture memory f = _mk(baseUsd, spokeUsd, true);
+
+    IPool.Asset memory a = f.pool.getAsset(address(f.spoke));
+    vm.prank(OWNER);
+    f.admin.setAssetParams(
+      address(f.pool),
+      address(f.spoke),
+      a.minLiquidity,
+      a.minFeePbps,
+      a.maxFeePbps,
+      a.gamma,
+      a.vega,
+      a.haircutSuppressor,
+      0,
+      ceilBase
+    );
+
+    // Sanity: raw USD would pass; converted BASE must fail.
+    assertLt(spokeUsd, 1.02e18, "raw USD inside ceiling (false-pass without DEN-02)");
+    assertGt((spokeUsd * 1e18) / baseUsd, 1.02e18, "BASE-converted mark above ceiling");
+
+    f.base.mint(USER, 1e18);
+    vm.startPrank(USER);
+    f.base.approve(address(f.pool), type(uint256).max);
+    vm.expectPartialRevert(Err.PriceOutsideReservation.selector);
+    f.pool.swap(address(f.base), address(f.spoke), 1e18, 0, USER, NO_DEADLINE);
+    vm.stopPrank();
+  }
+
+  /// @notice Same marks without usdQuoted treat the primary as already BASE-denominated, so a 1.00
+  ///         mark clears a 1.02 BASE ceiling (control: denomination flag is load-bearing).
+  function test_DEN02_non_usdQuoted_compares_raw_to_base_reservation() public {
+    Fixture memory f = _mk(0.97e18, 1e18, false);
+    IPool.Asset memory a = f.pool.getAsset(address(f.spoke));
+    vm.prank(OWNER);
+    f.admin.setAssetParams(
+      address(f.pool),
+      address(f.spoke),
+      a.minLiquidity,
+      a.minFeePbps,
+      a.maxFeePbps,
+      a.gamma,
+      a.vega,
+      a.haircutSuppressor,
+      0,
+      uint64(M.encodeB64(1.02e18, 18))
+    );
+
+    f.base.mint(USER, 1e18);
+    vm.startPrank(USER);
+    f.base.approve(address(f.pool), type(uint256).max);
+    uint256 out = f.pool.swap(address(f.base), address(f.spoke), 1e18, 0, USER, NO_DEADLINE);
+    vm.stopPrank();
+    assertGt(out, 0, "raw BASE mark inside ceiling settles");
   }
 }

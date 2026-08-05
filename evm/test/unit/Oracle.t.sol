@@ -7,6 +7,7 @@ import {B64 as M} from "@btr-shared/libs/B64.sol";
 import {Constants as SC} from "@btr-shared/Constants.sol";
 import {Constants as C} from "../../src/libraries/Constants.sol";
 import {IOracle} from "../../src/interfaces/IOracle.sol";
+import {Err} from "@btr-shared/Errors.sol";
 
 /// @title LibOracleTest
 /// @notice Unit tests for the external-mark oracle lib: mark decode, single σ, σ-EMA fold, and
@@ -37,5 +38,23 @@ contract LibOracleTest is BaseTestSetup {
 
   function test_markMovePbps_capsAtMaxSigma() public pure {
     assertEq(Oracle.markMovePbps(1e18, 1e30), C.MAX_SIGMA_PBPS, "huge move caps at MAX_SIGMA_PBPS");
+  }
+
+  function test_gate_unsigned_feed_same_block_ok() public view {
+    // sourceTs==0 (MockOracle / addFeed seed / INTERNAL peg): ORA-MEV delay does not apply.
+    IOracle.FeedData memory f = makeFeedData(M.encodeB64(1e18, 18), VOL_1_PCT, 0);
+    assertEq(Oracle.gate(f), 1e18);
+  }
+
+  function gateExt(IOracle.FeedData memory f) external view returns (uint256) {
+    return Oracle.gate(f);
+  }
+
+  function test_gate_signed_feed_same_block_cooldown() public {
+    IOracle.FeedData memory f = makeFeedData(M.encodeB64(1e18, 18), VOL_1_PCT, 0);
+    f.sourceTs = uint48(block.timestamp * 1000);
+    f.updatedAt = uint32(block.timestamp);
+    vm.expectRevert(abi.encodeWithSelector(Err.CooldownActive.selector, uint32(1)));
+    this.gateExt(f);
   }
 }

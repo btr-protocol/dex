@@ -50,8 +50,7 @@ contract Pool is ReentrancyGuardTransient {
       revert Err.NotCode();
     }
     if (IAdmin(admin_).AC() != ac_) revert Err.BadConfig();
-    IPoolAuxWiring aux = IPoolAuxWiring(poolAux_);
-    if (aux.AC() != ac_ || aux.admin() != admin_ || aux.flash() != flash_) revert Err.BadConfig();
+    if (IPoolAuxWiring(poolAux_).AC() != ac_ || IPoolAuxWiring(poolAux_).admin() != admin_ || IPoolAuxWiring(poolAux_).flash() != flash_) revert Err.BadConfig();
     AC = ac_;
     admin = admin_;
     flash = flash_;
@@ -69,12 +68,14 @@ contract Pool is ReentrancyGuardTransient {
     _;
   }
 
+  /// @dev `wnative_ == address(0)` is allowed on chains with no WETH9-style wrapper (e.g. Arc:
+  ///      native USDC has no deposit/withdraw). Native sentinel paths then revert in PoolIO.
   function initialize(address baseToken_, address wnative_, IPool.FeeParams calldata feeParams)
     external
   {
     if ($.initialized) revert Err.InvalidState();
-    if (wnative_ == address(0)) revert Err.ZeroAddr();
     if (feeParams.protoShare > 100) revert Err.InvalidInput();
+    if (feeParams.flashFeePbps > C.MAX_FLASH_FEE_PBPS) revert Err.InvalidInput();
     $.baseToken = baseToken_;
     $.wnative = wnative_;
     $.feeParams = feeParams;
@@ -88,7 +89,6 @@ contract Pool is ReentrancyGuardTransient {
     return AccessControl(AC).owner();
   }
 
-  /// @notice ERC7802 bridge auth -bridgeable tokens query this.
 
   // ────────────────────────────────────────────────────────────────
   // LIQUIDITY DOMAIN (hot)
@@ -208,8 +208,50 @@ contract Pool is ReentrancyGuardTransient {
     return $.assets[PoolIO.wrap($, tk)];
   }
 
+  /// @dev Thin view for CDP wipe gate / integrators. No storage layout change.
+  function liquidityIndex(address tk) external view returns (uint256) {
+    return $.assets[PoolIO.wrap($, tk)].liquidityIndex;
+  }
+
+  /// @dev Capacity view for CDP / integrators. No storage layout change. See PoolView.maxRedeem.
+  function maxRedeem(address owner, address tk) external view returns (uint256) {
+    return PoolView.maxRedeem($, owner, tk);
+  }
+
+  function withdrawUnlockTime(address owner, address tk) external view returns (uint32) {
+    return PoolView.withdrawUnlockTime($, owner, tk);
+  }
+
+  /// @dev On-chain oracle config read for CDP mark basis. No storage layout change.
+  function getOracleConfig(address tk) external view returns (IPool.OracleConfig memory) {
+    return $.oracleConfigs[PoolIO.wrap($, tk)];
+  }
+
   function previewWithdraw(address tk, uint256 lp) external view returns (uint256, uint256) {
     return PoolView.previewWithdraw($, tk, lp);
+  }
+
+  /// @dev Decay-aware preview (virtual pending decay). Prefer for CDP valuation.
+  function previewWithdrawFresh(address tk, uint256 lp) external view returns (uint256, uint256) {
+    return PoolView.previewWithdrawFresh($, tk, lp);
+  }
+
+  function pendingDecay(address tk) external view returns (uint128) {
+    return PoolView.pendingDecay($, tk);
+  }
+
+  /// @dev Thin tuple for CDP mark basis (avoids decoding full OracleConfig memory).
+  function markFeed(address tk)
+    external
+    view
+    returns (address primary, bytes32 feedId, uint8 mode)
+  {
+    IPool.OracleConfig storage oc = $.oracleConfigs[PoolIO.wrap($, tk)];
+    return (oc.primary, oc.feedId, oc.mode);
+  }
+
+  function assetDecimals(address tk) external view returns (uint8) {
+    return $.assets[PoolIO.wrap($, tk)].decimals;
   }
 
   /// @dev Proxying view over the leg receipt, kept so the SDK, front and keepers are zero-diff.
@@ -266,5 +308,8 @@ contract Pool is ReentrancyGuardTransient {
     }
   }
 
-  receive() external payable {}
+  /// @dev WETH9 unwrap lands ETH here. No-wrapper chains (wnative=0) reject stray value.
+  receive() external payable {
+    if ($.wnative == address(0)) revert Err.InvalidInput();
+  }
 }

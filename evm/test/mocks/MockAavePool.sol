@@ -29,6 +29,11 @@ contract MockAToken is IAaveAToken {
     balanceOf[from] = bal - amt;
     scaledBalanceOf[from] = bal - amt;
   }
+
+  /// @dev Test helper: release underlying held on this aToken (real Aave cash location).
+  function pushUnderlying(address to, uint256 amt) external {
+    UNDERLYING_ASSET_ADDRESS.safeTransfer(to, amt);
+  }
 }
 
   /// @title MockAavePool - Aave V3 Pool stub for supply-only tests.
@@ -53,7 +58,8 @@ contract MockAToken is IAaveAToken {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16) external override {
       address a = aTokenOf[asset];
       if (a == address(0)) revert Err.BadConfig();
-      asset.safeTransferFrom(msg.sender, address(this), amount);
+      // Real Aave V3 holds underlying on the aToken; keep cash there so `_maxWithdrawable` matches.
+      asset.safeTransferFrom(msg.sender, a, amount);
       MockAToken(a).mint(onBehalfOf, amount);
     }
 
@@ -65,9 +71,11 @@ contract MockAToken is IAaveAToken {
       address a = aTokenOf[asset];
       if (a == address(0)) revert Err.BadConfig();
       uint256 bal = MockAToken(a).balanceOf(msg.sender);
+      uint256 cash = asset.balanceOf(a);
       uint256 amt = amount > bal ? bal : amount;
+      if (amt > cash) amt = cash;
       MockAToken(a).burn(msg.sender, amt);
-      asset.safeTransfer(to, amt);
+      MockAToken(a).pushUnderlying(to, amt);
       return amt;
     }
   }

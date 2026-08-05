@@ -342,6 +342,8 @@ contract PoolAux is ReentrancyGuardTransient {
   }
 
   /// @notice Credit yield (donate-equivalent): reserves + liabilities + invested.
+  /// @dev A1-M1: pool-level rate cap (MAX_HOOK_CREDIT_BPS_PER_DAY of book per day). Adapter caps
+  ///      are defense-in-depth only — this is the ledger trust boundary.
   function hookCreditYield(address token, uint256 amount) external nonReentrant {
     PoolIO.requireNoFlash();
     address t = PoolIO.wrap($, token);
@@ -355,6 +357,19 @@ contract PoolAux is ReentrancyGuardTransient {
     // Settle pending decay FIRST, as deposit and donate do: crediting yield onto a stale
     // index/liabilities pair let the pending decay write down the freshly credited amount.
     PoolDecay.applyDecay(a, $.riskConfigs[t], t);
+
+    // Rate bucket: credit ≤ book · CAP_BPS · dt / (BPS · 1 day). dt==0 ⇒ no credit this block.
+    // Clamp (don't revert) so adapter harvests that overshoot still land the allowed slice.
+    uint256 book = a.liabilities;
+    uint32 last = $.lastHookCreditAt[t];
+    uint256 dt = block.timestamp > last ? block.timestamp - last : 0;
+    // Belt-and-suspenders vs upgrade zero slots / stale listing clocks (M-2).
+    if (dt > 1 days) dt = 1 days;
+    uint256 maxCredit = (book * uint256(C.MAX_HOOK_CREDIT_BPS_PER_DAY) * dt) / (SC.BPS * 1 days);
+    if (amount > maxCredit) amount = maxCredit;
+    if (amount == 0) return;
+    $.lastHookCreditAt[t] = uint32(block.timestamp);
+
     a.reserves += uint128(amount);
     a.liabilities += uint128(amount);
     uint256 inv = $.invested[t];

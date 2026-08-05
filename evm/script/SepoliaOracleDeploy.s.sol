@@ -29,9 +29,10 @@ import {console2} from "forge-std/Script.sol";
 ///      - refFeedId/refBandBps/refPrimary stay 0 FOR THE BASE: the refPrimary band is the
 ///        spoke-side breaker (validateOracleConfig requires refPrimary != primary); the base's
 ///        canonical feed IS its breaker (base is exempt from requireExternalSpokeBound).
-///      - Reservation band in USD: Asset.reservationPrice/reservationPriceMax (B64, USD units,
-///        e.g. 0.99/1.01) arm PoolIO.priceBandGuard against the SAME signed USDC/USD feed —
-///        the reservation/minimum price is denominated in USD via this reference.
+///      - Reservation band BASE-per-asset: Asset.reservationPrice/reservationPriceMax (B64,
+///        BASE units always; DEN-02). For usdQuoted spokes, priceBandGuard converts the USD
+///        primary mark to BASE before comparing. On the base itself the band is typically
+///        0.99/1.01 vs the signed USDC/USD depeg feed (base mark ≡ 1 for quoting).
 ///      - Generalization (REF_ORACLE gap): where Chainlink lacks a pair (BNB/XAUT/PAXG), an
 ///        NXR-signed reference feed on a SECOND ExternalOracle instance (distinct address +
 ///        ideally distinct signer set) fills the spoke refPrimary/refFeedId role.

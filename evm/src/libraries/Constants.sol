@@ -92,6 +92,14 @@ library Constants {
   /// @notice Cap on stored σ and signed samples (10_000% = 100× in PBPS units).
   uint32 internal constant MAX_SIGMA_PBPS = 100_000_000;
 
+  /// @notice Pool-level hard ceiling on `hookCreditYield` rate (BPS of book per day). A1-M1:
+  ///         YieldHook also caps, but the ledger API is the trust boundary — adapters / owner
+  ///         raising the hook cap cannot exceed this. 500 = 5%/day.
+  uint16 internal constant MAX_HOOK_CREDIT_BPS_PER_DAY = 500;
+
+  /// @notice Flash fee ceiling (PBPS). 1% = ONE_PCT_PBPS. Prevents misconfig DoS via uint16 max.
+  uint16 internal constant MAX_FLASH_FEE_PBPS = 10_000; // = SC.ONE_PCT_PBPS, inlined to avoid import cycle
+
   /// @notice IOracle.FeedData.flags bit0 = guardian fast-freeze (paused). Single source shared by the
   ///         signed-push writer (ExternalOracle) and the fail-closed reader (Oracle.gate) so the wire
   ///         bit can never drift between them. Distinct from ASSET_PAUSED_BIT (a RiskConfig.flags bit).

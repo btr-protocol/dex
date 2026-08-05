@@ -632,7 +632,7 @@ library Pricing {
       asset.reserves, asset.liabilities, rc.coverageMin, rc.coverageMax, asset.gamma
     );
 
-    NUQ.Curve storage curve = $.curves[$.assets[profileAsset].presetId];
+    NUQ.Curve storage curve = $.curves[asset.presetId];
     if (selling) {
       // child→base: amountIn is already in profile-asset (child) decimals, matching `depth`.
       (amountOut, midPrice) = quoteSwap(

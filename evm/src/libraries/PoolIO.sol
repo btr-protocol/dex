@@ -41,7 +41,9 @@ library PoolIO {
   }
 
   function wrap(IPool.PoolStorage storage $, address token) internal view returns (address) {
-    return token == SC.NATIVE ? $.wnative : token;
+    if (token != SC.NATIVE) return token;
+    if ($.wnative == address(0)) revert Err.InvalidInput();
+    return $.wnative;
   }
 
   function _balanceOf(address token) private view returns (uint256) {
@@ -57,6 +59,7 @@ library PoolIO {
     // repayment is a plain transfer, which never routes through pull.
     requireNoFlash();
     if (token == SC.NATIVE) {
+      if ($.wnative == address(0)) revert Err.InvalidInput();
       if (msg.value < amount) revert Err.InsufficientAmount(msg.value, amount);
       IWETH9($.wnative).deposit{value: amount}();
       unchecked {
@@ -77,6 +80,7 @@ library PoolIO {
 
   function push(IPool.PoolStorage storage $, address token, address to, uint256 amount) internal {
     if (token == SC.NATIVE) {
+      if ($.wnative == address(0)) revert Err.InvalidInput();
       IWETH9($.wnative).withdraw(amount);
       SafeTransferLib.safeTransferETH(to, amount);
     } else {
@@ -181,9 +185,26 @@ library PoolIO {
     // Compare in numeric (1e18) space, NOT raw uint64: B64 packs mantissa in the high bits, so
     // raw </> orders by mantissa first and is non-monotonic across a decimal-decade boundary — a
     // catastrophic depeg into a different decade would silently bypass the floor/ceiling.
-    uint256 p = M.b64To1e18(price);
-    if (lo != 0 && p < M.b64To1e18(lo)) revert Err.PriceOutsideReservation(price, lo);
-    if (hi != 0 && p > M.b64To1e18(hi)) revert Err.PriceOutsideReservation(price, hi);
+    uint256 pRaw = M.b64To1e18(price);
+    // DEN-02/03: `reservationPrice{,Max}` are BASE-per-asset (IPool). A `usdQuoted` primary attests
+    // <TOKEN>-USD, so absolute-band checks MUST re-denominate: p_base = p_usd / baseUsd.
+    // Ref-band compares primary vs ref in a COMMON quote unit: when usdQuoted, both catalog marks
+    // are USD (USDC/USD ref or TOKEN-USD own-feed) — compare raw USD. When !usdQuoted, both are
+    // already base/USDC crosses — compare raw. Never mix a USD primary with a base reservation.
+    uint256 pAbs = pRaw;
+    if (oc.usdQuoted && (lo != 0 || hi != 0)) {
+      IPool.OracleConfig storage boc = $.oracleConfigs[$.baseToken];
+      (bool bHit, IOracle.FeedData memory bf) = TCache.tryLoadFeed(TCache.TYPE_ORACLE_FEED, $.baseToken);
+      if (!bHit) {
+        bf = IOracle(boc.primary).getFeed(boc.feedId);
+        Oracle.gate(bf);
+      }
+      uint256 basePx = M.b64To1e18(bf.lastPriceB64);
+      if (basePx == 0) revert Err.ZeroValue();
+      pAbs = (pRaw * SC.WAD) / basePx;
+    }
+    if (lo != 0 && pAbs < M.b64To1e18(lo)) revert Err.PriceOutsideReservation(price, lo);
+    if (hi != 0 && pAbs > M.b64To1e18(hi)) revert Err.PriceOutsideReservation(price, hi);
     if (refBand) {
       // Layer-3 (Ostium hardening): the reference is read from refPrimary — an oracle with an
       // INDEPENDENT signer set — so a compromised push quorum cannot walk the mark past refBandBps
@@ -198,7 +219,8 @@ library PoolIO {
       // Oracle.gate returns the reference mark (1e18).
       uint256 refP = Oracle.gate(ref);
       if (!refHit) TCache.cacheFeed(TCache.TYPE_REF_FEED, token, ref);
-      uint256 dev = p > refP ? p - refP : refP - p;
+      // Same-denomination compare (see DEN-02/03 note above): raw vs raw.
+      uint256 dev = pRaw > refP ? pRaw - refP : refP - pRaw;
       if (dev * SC.BPS > refP * uint256(oc.refBandBps)) {
         revert Err.PriceOutsideReservation(price, uint64(refP));
       }
